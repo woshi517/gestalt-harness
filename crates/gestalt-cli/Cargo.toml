@@ -1,0 +1,48 @@
+[package]
+name = "gestalt-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI binary for gestalt-harness."
+
+[[bin]]
+name = "gestalt"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+gestalt-core = { path = "../gestalt-core" }
+gestalt-models = { path = "../gestalt-models" }
+gestalt-tools = { path = "../gestalt-tools" }
+gestalt-context = { path = "../gestalt-context" }
+gestalt-policy = { path = "../gestalt-policy" }
+gestalt-trace = { path = "../gestalt-trace" }
+clap = { workspace = true }
+toml = { workspace = true }
+dirs = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = []
+tui = ["dep:ratatui", "dep:crossterm"]
+mcp = ["dep:gestalt-mcp"]
+otel = ["gestalt-trace/otel"]
+
+[dependencies.ratatui]
+workspace = true
+optional = true
+
+[dependencies.crossterm]
+workspace = true
+optional = true
+
+[dependencies.gestalt-mcp]
+path = "../gestalt-mcp"
+optional = true
+

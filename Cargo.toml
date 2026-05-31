@@ -1,0 +1,84 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gestalt-core",
+    "crates/gestalt-cli",
+    "crates/gestalt-models",
+    "crates/gestalt-tools",
+    "crates/gestalt-exec",
+    "crates/gestalt-policy",
+    "crates/gestalt-context",
+    "crates/gestalt-trace",
+    "crates/gestalt-docs",
+    "crates/gestalt-index",
+    "crates/gestalt-memory",
+    "crates/gestalt-mcp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+repository = "https://github.com/noentic/gestalt-harness"
+authors = ["Noentic"]
+
+[workspace.lints.rust]
+future-incompatible = "warn"
+nonstandard-style = "deny"
+unsafe-code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Targeted suppressions for common false-positives in this codebase
+module-name-repetitions = { level = "allow", priority = 1 }
+missing-errors-doc = { level = "warn", priority = 1 }
+
+[workspace.dependencies]
+# === Core shared deps ===
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "0.8"
+thiserror = "2"
+futures = "0.3"
+async-trait = "0.1"
+
+# === Provider / HTTP ===
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tokio-stream = "0.1"
+eventsource-stream = "0.2"
+
+# === CLI ===
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# === Context ===
+tiktoken-rs = "0.6"
+pulldown-cmark = "0.12"
+sha2 = "0.10"
+
+# === Trace ===
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# === Policy ===
+glob = "0.3"
+
+# === Tools ===
+encoding_rs = "0.8"
+
+# === Optional / feature-gated ===
+ratatui = { version = "0.29" }
+crossterm = { version = "0.28" }
+pdfium-render = { version = "0.8" }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

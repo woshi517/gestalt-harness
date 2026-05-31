@@ -1,0 +1,31 @@
+# Build artifacts
+/target/
+
+# Run logs and generated artifacts
+.gestalt/runs/
+.gestalt/source-cache/
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Editor state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+Thumbs.db
+
+# Cargo lock for library crates (kept for workspace binary)
+# Cargo.lock is committed for reproducible binary builds
+
+# ai
+.antigravitycli
+.codex
+.agents

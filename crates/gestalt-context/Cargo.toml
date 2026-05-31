@@ -1,0 +1,26 @@
+[package]
+name = "gestalt-context"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Context pipeline middleware for gestalt-harness."
+
+[lints]
+workspace = true
+
+[dependencies]
+gestalt-core = { path = "../gestalt-core" }
+gestalt-docs = { path = "../gestalt-docs" }
+gestalt-index = { path = "../gestalt-index" }
+gestalt-memory = { path = "../gestalt-memory" }
+tiktoken-rs = { workspace = true }
+pulldown-cmark = { workspace = true }
+sha2 = { workspace = true }
+serde = { workspace = true }
+
+[features]
+default = []
+wasm = ["gestalt-core/wasm"]
+

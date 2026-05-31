@@ -1,0 +1,20 @@
+[package]
+name = "gestalt-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Built-in tools + ToolRegistry for gestalt-harness."
+
+[lints]
+workspace = true
+
+[dependencies]
+gestalt-core = { path = "../gestalt-core" }
+gestalt-exec = { path = "../gestalt-exec" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+encoding_rs = { workspace = true }
