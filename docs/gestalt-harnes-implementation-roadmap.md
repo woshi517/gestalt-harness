@@ -149,15 +149,15 @@ flowchart TD
 
 ### P1.1 `gestalt-core` Domain Contracts
 
-- [ ] Implement `Message`, `ContentBlock`, `ContentTrust`, image/document source types.
-- [ ] Implement `AgentEvent`, `PolicyStatus`, `StopReason`, `VerificationStatus`.
-- [ ] Implement `Session`, `SessionConfig`, `ExecutionMode`, `RunResult`, and token budget types.
-- [ ] Implement `Provider`, `ProviderRequest`, `ProviderCapabilities`, and `EventStream`.
-- [ ] Implement `Tool`, `ToolContext`, `ToolOutput`, `ToolExecutionResult`, `ToolArtifact`, `RiskLevel`.
-- [ ] Implement `PolicyEngine`, `PolicyRequest`, `PolicyDecision`.
-- [ ] Implement `ApprovalProvider`, approval request/decision types, test approval providers.
-- [ ] Implement `HarnessError` taxonomy with typed provider/tool/policy/context/trace errors.
-- [ ] Keep `gestalt-core` pure: no file I/O, no HTTP, no concrete tools/providers.
+- [x] Implement `Message`, `ContentBlock`, `ContentTrust`, image/document source types.
+- [x] Implement `AgentEvent`, `PolicyStatus`, `StopReason`, `VerificationStatus`.
+- [x] Implement `Session`, `SessionConfig`, `ExecutionMode`, `RunResult`, and token budget types.
+- [x] Implement `Provider`, `ProviderRequest`, `ProviderCapabilities`, and `EventStream`.
+- [x] Implement `Tool`, `ToolContext`, `ToolOutput`, `ToolExecutionResult`, `ToolArtifact`, `RiskLevel`.
+- [x] Implement `PolicyEngine`, `PolicyRequest`, `PolicyDecision`.
+- [x] Implement `ApprovalProvider`, approval request/decision types, test approval providers.
+- [x] Implement `HarnessError` taxonomy with typed provider/tool/policy/context/trace errors.
+- [x] Keep `gestalt-core` pure: no file I/O, no HTTP, no concrete tools/providers.
 
 **Depends on:** Phase 0.  
 **Tests:** serialization round trips for messages/events/results; compile-time checks for trait object safety; error display/source tests.  
@@ -165,15 +165,15 @@ flowchart TD
 
 ### P1.2 Full-Turn Agent Loop
 
-- [ ] Implement `TurnAccumulator` so text, thinking, and streamed tool calls are collected before execution.
-- [ ] Append the full assistant turn to session history before appending tool results.
-- [ ] Evaluate policy for every proposed tool call using `PolicyRequest`.
-- [ ] Route confirm decisions through injected `ApprovalProvider`.
-- [ ] Execute denied calls as error tool results.
-- [ ] Execute read-only low-risk calls in parallel only when safe; execute writes/network calls sequentially.
-- [ ] Preserve original tool-call order when appending results.
-- [ ] Emit events for context build, model request, policy decision, tool result, usage, stop, and recoverable errors.
-- [ ] Keep `gestalt-core/src/agent.rs` under the architecture's 200-line target by pushing mechanics into helpers.
+- [x] Implement `TurnAccumulator` so text, thinking, and streamed tool calls are collected before execution.
+- [x] Append the full assistant turn to session history before appending tool results.
+- [x] Evaluate policy for every proposed tool call using `PolicyRequest`.
+- [x] Route confirm decisions through injected `ApprovalProvider`.
+- [x] Execute denied calls as error tool results.
+- [x] Execute read-only low-risk calls in parallel only when safe; execute writes/network calls sequentially.
+- [x] Preserve original tool-call order when appending results.
+- [x] Emit events for context build, model request, policy decision, tool result, usage, stop, and recoverable errors.
+- [x] Keep `gestalt-core/src/agent.rs` under the architecture's 200-line target by pushing mechanics into helpers.
 
 **Depends on:** P1.1.  
 **Tests:** mock provider tests for text-only turn, single tool call, multiple tool calls, denied call, confirm call, max-turn stop, budget-exhausted stop, and tool result ordering.  
@@ -181,12 +181,12 @@ flowchart TD
 
 ### P1.3 Minimal Context Pipeline
 
-- [ ] Implement deterministic `ContextPipeline` trait implementation in `gestalt-context`.
-- [ ] Load current history into provider-ready messages.
-- [ ] Add basic `workspace.md` and `memory.md` injection hooks for CLI composition.
-- [ ] Add token budget accounting and explicit budget-exhaustion behavior.
-- [ ] Add trust boundary rendering for untrusted content, even if Phase 1 has few untrusted source types.
-- [ ] Record context pipeline version for trace/replay compatibility.
+- [x] Implement deterministic `ContextPipeline` trait implementation in `gestalt-context`.
+- [x] Load current history into provider-ready messages.
+- [x] Add basic `workspace.md` and `memory.md` injection hooks for CLI composition.
+- [x] Add token budget accounting and explicit budget-exhaustion behavior.
+- [x] Add trust boundary rendering for untrusted content, even if Phase 1 has few untrusted source types.
+- [x] Record context pipeline version for trace/replay compatibility.
 
 **Depends on:** P1.1.  
 **Tests:** deterministic output for same inputs; priority trimming behavior; trust boundary rendering snapshot tests; token budget exhaustion tests.  

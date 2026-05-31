@@ -654,6 +654,7 @@ dependencies = [
  "gestalt-memory",
  "pulldown-cmark",
  "serde",
+ "serde_json",
  "sha2",
  "tiktoken-rs",
 ]
