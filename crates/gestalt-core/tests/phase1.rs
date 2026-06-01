@@ -1026,9 +1026,11 @@ fn make_session(mode: ExecutionMode) -> Session {
             working_dir: std::env::current_dir().expect("cwd"),
             workspace_root: Some(std::env::current_dir().expect("cwd")),
             timeout: Duration::from_secs(1),
-            allow_network: false,
+            allow_network: true,
             environment: HashMap::new(),
             max_output_bytes: 1024,
+            artifact_dir: None,
+            current_tool_call_id: None,
         },
         mode,
     )

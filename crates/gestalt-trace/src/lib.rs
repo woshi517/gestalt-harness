@@ -201,7 +201,9 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 if let Some(h) = packet_hash {
                     extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
                 }
-                lines.push(format!("context> {packet_id} ({token_estimate} tokens){extra}"));
+                lines.push(format!(
+                    "context> {packet_id} ({token_estimate} tokens){extra}"
+                ));
             }
             AgentEvent::ModelRequest {
                 provider,
@@ -330,6 +332,22 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                     "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
                 ));
             }
+            AgentEvent::ArtifactCreated {
+                path,
+                size_bytes,
+                mime_type,
+                hash,
+            } => lines.push(format!(
+                "artifact-created> {path} size={size_bytes} mime={mime_type} hash={}",
+                &hash[..8.min(hash.len())]
+            )),
+            AgentEvent::PolicyViolation {
+                tool_call_id,
+                tool_name,
+                reason,
+            } => lines.push(format!(
+                "policy-violation> {tool_call_id} tool={tool_name} reason={reason}"
+            )),
             AgentEvent::MemoryProposal { diff } => lines.push(format!("memory> {diff}")),
             AgentEvent::VerificationResult {
                 status,
@@ -368,7 +386,9 @@ pub fn aggregate_costs(
         let mut current_model = None::<String>;
         for envelope in events {
             match envelope.event {
-                AgentEvent::ModelRequest { provider, model, .. } => {
+                AgentEvent::ModelRequest {
+                    provider, model, ..
+                } => {
                     current_model = Some(format!("{provider}/{model}"));
                 }
                 AgentEvent::Usage {
@@ -545,6 +565,35 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
                     output_hash: output_hash.clone(),
                     artifact_refs: artifact_refs.clone(),
                     policy_source: policy_source.clone(),
+                },
+                redacted,
+            )
+        }
+        AgentEvent::ArtifactCreated {
+            path,
+            size_bytes,
+            mime_type,
+            hash,
+        } => (
+            AgentEvent::ArtifactCreated {
+                path: path.clone(),
+                size_bytes: *size_bytes,
+                mime_type: mime_type.clone(),
+                hash: hash.clone(),
+            },
+            false,
+        ),
+        AgentEvent::PolicyViolation {
+            tool_call_id,
+            tool_name,
+            reason,
+        } => {
+            let (reason, redacted) = redact_string(reason);
+            (
+                AgentEvent::PolicyViolation {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    reason,
                 },
                 redacted,
             )

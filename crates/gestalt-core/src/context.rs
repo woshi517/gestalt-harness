@@ -47,13 +47,16 @@ pub trait ContextPipeline: Send + Sync {
         let messages = self.process(history, budget);
         let version = self.version().to_string();
         let serialized_messages = serde_json::to_string(&messages).unwrap_or_default();
-        let to_hash = format!("{}:{}" , serialized_messages, version);
+        let to_hash = format!("{}:{}", serialized_messages, version);
         let packet_hash = sha256_hash(&to_hash);
-        
-        let message_hashes = messages.iter().map(|msg| {
-            let msg_ser = serde_json::to_string(msg).unwrap_or_default();
-            sha256_hash(&msg_ser)
-        }).collect();
+
+        let message_hashes = messages
+            .iter()
+            .map(|msg| {
+                let msg_ser = serde_json::to_string(msg).unwrap_or_default();
+                sha256_hash(&msg_ser)
+            })
+            .collect();
 
         ContextPacket {
             messages,

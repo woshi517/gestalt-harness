@@ -172,9 +172,11 @@ impl ToolExecutor {
                             denied_results.push((
                                 order,
                                 id,
-                                ToolExecutionResult::error(re_evaluated.reason.clone().unwrap_or_else(
-                                    || format!("policy denied edited tool call {name}"),
-                                )),
+                                ToolExecutionResult::error(
+                                    re_evaluated.reason.clone().unwrap_or_else(|| {
+                                        format!("policy denied edited tool call {name}")
+                                    }),
+                                ),
                                 0,
                                 re_evaluated.policy_source.clone(),
                             ));
@@ -229,10 +231,14 @@ impl ToolExecutor {
                 if !current_parallel.is_empty() {
                     let futures = std::mem::take(&mut current_parallel).into_iter().map(
                         |(order, id, _name, input, tool, policy)| {
-                            let tool_ctx = session.tool_ctx.clone();
+                            let mut tool_ctx = session.tool_ctx.clone();
+                            tool_ctx.current_tool_call_id = Some(id.clone());
+                            let tool_call_id = id.clone();
                             async move {
                                 let start = std::time::Instant::now();
-                                let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
+                                let result =
+                                    execute_tool(tool.as_ref(), input, &tool_ctx, &tool_call_id)
+                                        .await;
                                 let duration = start.elapsed().as_millis() as u64;
                                 (order, id, result, duration, policy.policy_source)
                             }
@@ -243,25 +249,31 @@ impl ToolExecutor {
                         results.push((order, id, result, duration, policy_source));
                     }
                 }
+                let mut tool_ctx = session.tool_ctx.clone();
+                tool_ctx.current_tool_call_id = Some(id.clone());
                 let start = std::time::Instant::now();
-                let result = execute_tool(tool.as_ref(), input, &session.tool_ctx).await;
+                let result = execute_tool(tool.as_ref(), input, &tool_ctx, &id).await;
                 let duration = start.elapsed().as_millis() as u64;
                 results.push((order, id, result, duration, policy.policy_source));
             }
         }
 
         if !current_parallel.is_empty() {
-            let futures = current_parallel
-                .into_iter()
-                .map(|(order, id, _name, input, tool, policy)| {
-                    let tool_ctx = session.tool_ctx.clone();
-                    async move {
-                        let start = std::time::Instant::now();
-                        let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
-                        let duration = start.elapsed().as_millis() as u64;
-                        (order, id, result, duration, policy.policy_source)
-                    }
-                });
+            let futures =
+                current_parallel
+                    .into_iter()
+                    .map(|(order, id, _name, input, tool, policy)| {
+                        let mut tool_ctx = session.tool_ctx.clone();
+                        tool_ctx.current_tool_call_id = Some(id.clone());
+                        let tool_call_id = id.clone();
+                        async move {
+                            let start = std::time::Instant::now();
+                            let result =
+                                execute_tool(tool.as_ref(), input, &tool_ctx, &tool_call_id).await;
+                            let duration = start.elapsed().as_millis() as u64;
+                            (order, id, result, duration, policy.policy_source)
+                        }
+                    });
             let parallel_results = join_all(futures).await;
             for (order, id, result, duration, policy_source) in parallel_results {
                 results.push((order, id, result, duration, policy_source));
@@ -282,6 +294,41 @@ impl ToolExecutor {
         grant: Option<&SessionGrant>,
         emit: &mut impl FnMut(AgentEvent),
     ) -> Result<PolicyDecision> {
+        // Network policy check
+        if tool_name == "bash" && !session.tool_ctx.allow_network {
+            let command = input
+                .get("command")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !crate::tool::is_audited_local_command(command) {
+                let reason = format!(
+                    "Command '{}' violates network policy (no network access allowed)",
+                    command
+                );
+                emit(AgentEvent::PolicyViolation {
+                    tool_call_id: tool_call_id.to_string(),
+                    tool_name: tool_name.to_string(),
+                    reason: reason.clone(),
+                });
+                let decision = PolicyDecision {
+                    status: PolicyStatus::Denied,
+                    reason: Some(reason),
+                    policy_source: "policy_violation:network_denied".to_string(),
+                };
+                emit_policy_decision(
+                    emit,
+                    tool_call_id,
+                    tool_name,
+                    input,
+                    risk,
+                    session.mode,
+                    &decision,
+                    Some("policy_violation:network_denied".to_string()),
+                );
+                return Ok(decision);
+            }
+        }
+
         let decision = self
             .policy
             .evaluate(PolicyRequest {
@@ -393,9 +440,16 @@ where
     }
 }
 
-pub async fn execute_tool(tool: &dyn Tool, input: Value, ctx: &ToolContext) -> ToolExecutionResult {
+pub async fn execute_tool(
+    tool: &dyn Tool,
+    input: Value,
+    ctx: &ToolContext,
+    tool_call_id: &str,
+) -> ToolExecutionResult {
     match tokio::time::timeout(ctx.timeout, tool.execute(input, ctx)).await {
-        Ok(Ok(output)) => output.into_execution_result(false, ctx.max_output_bytes),
+        Ok(Ok(output)) => output
+            .into_execution_result(false, ctx.max_output_bytes, ctx, tool_call_id)
+            .unwrap_or_else(|err| ToolExecutionResult::error(err.to_string())),
         Ok(Err(err)) => ToolExecutionResult::error(err.to_string()),
         Err(_) => ToolExecutionResult::error(format!(
             "tool timed out after {}s: {}",

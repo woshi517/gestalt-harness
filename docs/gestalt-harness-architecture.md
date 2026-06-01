@@ -2786,7 +2786,7 @@ pub struct SandboxMount {
 |`BubblewrapSandbox`|Linux only. Requires bubblewrap binary. v0.3 target.|
 |`DockerSandbox`|Cross-platform. Requires Docker daemon. v0.3 target.|
 
-The `NoSandbox` implementation in v0.1 enforces: working directory restriction, timeout, output size cap, and env allowlist. It does not provide process namespace isolation.
+The `NoSandbox` implementation in v0.1 enforces working directory restriction, timeout, output size cap, and env allowlist, but executes processes directly on the host machine under the current user's privileges. It is NOT a security sandbox and does not provide process, network, mount, or user namespace isolation.
 
 ---
 

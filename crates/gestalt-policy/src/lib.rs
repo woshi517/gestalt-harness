@@ -337,6 +337,14 @@ impl MinimalPolicyEngine {
                 "policies.toml:tools.bash.always_confirm",
             );
         }
+
+        if is_secret_command(command) {
+            return deny(
+                format!("bash command accesses secret paths: {command}"),
+                "policies.toml:tools.bash.secret_paths",
+            );
+        }
+
         if request.mode == ExecutionMode::Yolo
             && matches_command(&self.config.bash.yolo_allow, command)
             && request.risk <= RiskLevel::Medium
@@ -344,6 +352,13 @@ impl MinimalPolicyEngine {
             return allow(
                 format!("bash command yolo-allowlisted: {command}"),
                 "policies.toml:tools.bash.yolo_allow",
+            );
+        }
+
+        if request.mode == ExecutionMode::Yolo {
+            return confirm(
+                format!("bash command not yolo-allowlisted: {command}"),
+                "policies.toml:tools.bash.default_confirm",
             );
         }
 
@@ -433,6 +448,25 @@ pub fn classify_bash(command: &str) -> RiskLevel {
         return RiskLevel::Critical;
     }
 
+    if is_secret_command(command) {
+        return RiskLevel::High;
+    }
+
+    if has_shell_metacharacters(&normalized)
+        || normalized.contains("/dev/tcp")
+        || normalized.contains("/dev/udp")
+        || normalized.contains("python -c")
+        || normalized.contains("python3 -c")
+        || normalized.contains("sh -c")
+        || normalized.contains("bash -c")
+        || starts_with_any(&normalized, &["env", "xargs", "sudo -u"])
+        || normalized.contains(" env ")
+        || normalized.contains(" xargs ")
+        || normalized.contains(" sudo -u ")
+    {
+        return RiskLevel::High;
+    }
+
     if starts_with_any(
         &normalized,
         &["sudo", "docker", "git push", "ssh", "curl", "wget"],
@@ -440,22 +474,20 @@ pub fn classify_bash(command: &str) -> RiskLevel {
         return RiskLevel::High;
     }
 
-    if normalized.contains('>')
-        || starts_with_any(
-            &normalized,
-            &[
-                "rm",
-                "mv",
-                "cp",
-                "mkdir",
-                "cargo install",
-                "npm install",
-                "pnpm install",
-                "yarn add",
-                "pip install",
-            ],
-        )
-    {
+    if starts_with_any(
+        &normalized,
+        &[
+            "rm",
+            "mv",
+            "cp",
+            "mkdir",
+            "cargo install",
+            "npm install",
+            "pnpm install",
+            "yarn add",
+            "pip install",
+        ],
+    ) {
         return RiskLevel::Medium;
     }
 
@@ -476,6 +508,31 @@ pub fn classify_bash(command: &str) -> RiskLevel {
     }
 
     RiskLevel::Medium
+}
+
+fn is_secret_command(command: &str) -> bool {
+    command.split_whitespace().any(|token| {
+        let token = token
+            .trim_matches(|c| c == '\'' || c == '"')
+            .to_ascii_lowercase();
+        token.contains(".env")
+            || token.ends_with(".key")
+            || token.ends_with(".pem")
+            || token.starts_with("secrets/")
+            || token.contains("/secrets/")
+            || token.contains("/secret/")
+            || token.starts_with("secret.")
+            || token.ends_with(".secret")
+    })
+}
+
+fn has_shell_metacharacters(command: &str) -> bool {
+    command.chars().any(|ch| {
+        matches!(
+            ch,
+            '>' | '<' | '|' | '&' | ';' | '`' | '$' | '\\' | '\n' | '\r'
+        )
+    })
 }
 
 fn normalize_command(command: &str) -> String {
@@ -704,5 +761,47 @@ mod tests {
         let decision = engine.evaluate(request).await;
 
         assert_eq!(decision.status, PolicyStatus::Allowed);
+    }
+
+    #[test]
+    fn bash_classifier_should_detect_wrappers_and_metacharacters_and_secrets() {
+        assert_eq!(
+            classify_bash("python -c 'import sys; print(sys.version)'"),
+            RiskLevel::High
+        );
+        assert_eq!(classify_bash("cat foo.txt | grep bar"), RiskLevel::High);
+        assert_eq!(classify_bash("cat foo.txt ; ls"), RiskLevel::High);
+        assert_eq!(classify_bash("cat .env.local"), RiskLevel::High);
+    }
+
+    #[tokio::test]
+    async fn policy_should_deny_bash_secret_paths() {
+        let engine = MinimalPolicyEngine::default();
+        let decision = engine
+            .evaluate(request(
+                "bash",
+                json!({"command": "cat .env.local"}),
+                RiskLevel::High,
+                ExecutionMode::Yolo,
+            ))
+            .await;
+
+        assert_eq!(decision.status, PolicyStatus::Denied);
+        assert!(decision.reason.as_ref().unwrap().contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn policy_should_confirm_non_allowlisted_bash_in_yolo() {
+        let engine = MinimalPolicyEngine::default();
+        let decision = engine
+            .evaluate(request(
+                "bash",
+                json!({"command": "some-random-script.sh"}),
+                RiskLevel::Medium,
+                ExecutionMode::Yolo,
+            ))
+            .await;
+
+        assert_eq!(decision.status, PolicyStatus::Confirm);
     }
 }

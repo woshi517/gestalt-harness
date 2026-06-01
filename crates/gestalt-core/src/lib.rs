@@ -48,7 +48,7 @@ pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 pub use provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest};
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
 pub use tool::{
-    RiskLevel, Tool, ToolArtifact, ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput,
-    ToolSchema,
+    artifact_path, is_audited_local_command, sanitize_artifact_stem, RiskLevel, Tool, ToolArtifact,
+    ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolSchema,
 };
 pub use turn::{AssistantTurn, ProposedToolCall, TurnAccumulator};

@@ -2,8 +2,8 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
-    trace::TraceSink, AgentEvent, AgentLoop, AutoApprovalProvider, ExecutionMode, Message, Session,
-    SessionConfig, TokenBudget, ToolContext,
+    trace::TraceSink, AgentEvent, AgentLoop, ExecutionMode, Message, Session, SessionConfig,
+    TokenBudget, ToolContext,
 };
 use gestalt_models::registry;
 use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
@@ -29,6 +29,8 @@ pub async fn run_prompt(
 
     let model = config.selected_model().unwrap_or(provider_default_model);
     let session_id = format!("session-{}", std::process::id());
+    let (sink, run_paths) = JsonlTraceSink::create_run(config.run_log_dir(), &session_id)?;
+
     let mut session = Session::new(
         session_id.clone(),
         SessionConfig {
@@ -55,6 +57,8 @@ pub async fn run_prompt(
             allow_network: false,
             environment: HashMap::new(),
             max_output_bytes: config.tools.max_output_tokens.unwrap_or(4_000),
+            artifact_dir: Some(run_paths.artifacts.clone()),
+            current_tool_call_id: None,
         },
         config.selected_mode()?,
     );
@@ -63,8 +67,6 @@ pub async fn run_prompt(
             text: prompt.to_string(),
         }],
     });
-
-    let (sink, run_paths) = JsonlTraceSink::create_run(config.run_log_dir(), &session_id)?;
     sink.emit(AgentEvent::UserMessage {
         content: prompt.to_string(),
     })?;
@@ -114,7 +116,7 @@ fn build_policy(
 
 fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {
     match mode {
-        ExecutionMode::Yolo => Arc::new(AutoApprovalProvider),
+        ExecutionMode::Yolo => Arc::new(CliApprovalProvider),
         _ => Arc::new(CliApprovalProvider),
     }
 }

@@ -255,13 +255,30 @@ impl AgentLoop {
             .await?;
 
         for (_, id, result, duration_ms, policy_source) in tool_results {
-            let tool_name = tool_calls.iter().find(|c| c.id == id).map(|c| c.name.clone());
+            let tool_name = tool_calls
+                .iter()
+                .find(|c| c.id == id)
+                .map(|c| c.name.clone());
             let working_dir = Some(session.tool_ctx.working_dir.display().to_string());
-            let artifact_refs = result.artifact.as_ref().map(|art| vec![art.path.display().to_string()]);
+            let artifact_refs = result
+                .artifact
+                .as_ref()
+                .map(|art| vec![art.path.display().to_string()]);
 
-            let mut hasher = Sha256::new();
-            hasher.update(result.content.as_bytes());
-            let output_hash = format!("{:x}", hasher.finalize());
+            let output_hash = result.output_hash.clone().unwrap_or_else(|| {
+                let mut hasher = Sha256::new();
+                hasher.update(result.content.as_bytes());
+                format!("{:x}", hasher.finalize())
+            });
+
+            if let Some(ref artifact) = result.artifact {
+                emit(AgentEvent::ArtifactCreated {
+                    path: artifact.path.display().to_string(),
+                    size_bytes: artifact.size_bytes,
+                    mime_type: artifact.mime_type.clone(),
+                    hash: output_hash.clone(),
+                });
+            }
 
             emit(AgentEvent::ToolResult {
                 id: id.clone(),

@@ -1,4 +1,9 @@
-use std::{net::IpAddr, path::Path, sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 
 use encoding_rs::Encoding;
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
@@ -327,6 +332,8 @@ impl Tool for BashTool {
                     NetworkPolicy::None
                 },
                 mounts: Vec::new(),
+                artifact_dir: ctx.artifact_dir.clone(),
+                tool_call_id: ctx.current_tool_call_id.clone(),
             })
             .await
             .map_err(|err| match err {
@@ -343,21 +350,8 @@ impl Tool for BashTool {
     }
 }
 
-#[derive(Clone)]
-pub struct WebFetchTool {
-    client: reqwest::Client,
-}
-
-impl Default for WebFetchTool {
-    fn default() -> Self {
-        Self {
-            client: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
-        }
-    }
-}
+#[derive(Clone, Default)]
+pub struct WebFetchTool;
 
 #[async_trait::async_trait]
 impl Tool for WebFetchTool {
@@ -390,7 +384,7 @@ impl Tool for WebFetchTool {
 
         let input = parse_input::<WebFetchInput>(self.name(), input)?;
         let url = validate_public_http_url(&input.url).await?;
-        let (response, redirects) = fetch_with_redirects(&self.client, url).await?;
+        let (response, redirects) = fetch_with_redirects(url).await?;
         let final_url = response.url().to_string();
 
         if response
@@ -691,30 +685,50 @@ fn classify_bash(command: &str) -> RiskLevel {
     {
         return RiskLevel::Critical;
     }
+
+    if is_secret_command(command) {
+        return RiskLevel::High;
+    }
+
+    if has_shell_metacharacters(&normalized)
+        || normalized.contains("/dev/tcp")
+        || normalized.contains("/dev/udp")
+        || normalized.contains("python -c")
+        || normalized.contains("python3 -c")
+        || normalized.contains("sh -c")
+        || normalized.contains("bash -c")
+        || starts_with_any(&normalized, &["env", "xargs", "sudo -u"])
+        || normalized.contains(" env ")
+        || normalized.contains(" xargs ")
+        || normalized.contains(" sudo -u ")
+    {
+        return RiskLevel::High;
+    }
+
     if starts_with_any(
         &normalized,
         &["sudo", "docker", "git push", "ssh", "curl", "wget"],
     ) {
         return RiskLevel::High;
     }
-    if normalized.contains('>')
-        || starts_with_any(
-            &normalized,
-            &[
-                "rm",
-                "mv",
-                "cp",
-                "mkdir",
-                "cargo install",
-                "npm install",
-                "pnpm install",
-                "yarn add",
-                "pip install",
-            ],
-        )
-    {
+
+    if starts_with_any(
+        &normalized,
+        &[
+            "rm",
+            "mv",
+            "cp",
+            "mkdir",
+            "cargo install",
+            "npm install",
+            "pnpm install",
+            "yarn add",
+            "pip install",
+        ],
+    ) {
         return RiskLevel::Medium;
     }
+
     if starts_with_any(
         &normalized,
         &[
@@ -730,7 +744,33 @@ fn classify_bash(command: &str) -> RiskLevel {
     ) {
         return RiskLevel::Low;
     }
+
     RiskLevel::Medium
+}
+
+fn is_secret_command(command: &str) -> bool {
+    command.split_whitespace().any(|token| {
+        let token = token
+            .trim_matches(|c| c == '\'' || c == '"')
+            .to_ascii_lowercase();
+        token.contains(".env")
+            || token.ends_with(".key")
+            || token.ends_with(".pem")
+            || token.starts_with("secrets/")
+            || token.contains("/secrets/")
+            || token.contains("/secret/")
+            || token.starts_with("secret.")
+            || token.ends_with(".secret")
+    })
+}
+
+fn has_shell_metacharacters(command: &str) -> bool {
+    command.chars().any(|ch| {
+        matches!(
+            ch,
+            '>' | '<' | '|' | '&' | ';' | '`' | '$' | '\\' | '\n' | '\r'
+        )
+    })
 }
 
 fn starts_with_any(command: &str, prefixes: &[&str]) -> bool {
@@ -772,12 +812,10 @@ async fn validate_public_http_url(input: &str) -> Result<Url, ToolError> {
     Ok(url)
 }
 
-async fn fetch_with_redirects(
-    client: &reqwest::Client,
-    mut url: Url,
-) -> Result<(reqwest::Response, Vec<String>), ToolError> {
+async fn fetch_with_redirects(mut url: Url) -> Result<(reqwest::Response, Vec<String>), ToolError> {
     let mut redirects = Vec::new();
     for _ in 0..10 {
+        let client = pinned_client_for(&url).await?;
         let response = client
             .get(url.clone())
             .send()
@@ -805,6 +843,40 @@ async fn fetch_with_redirects(
     }
 
     Err(invalid_input("web_fetch", "too many redirects"))
+}
+
+async fn pinned_client_for(url: &Url) -> Result<reqwest::Client, ToolError> {
+    let url = validate_public_http_url(url.as_str()).await?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| invalid_input("web_fetch", "URL must include host"))?;
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addr = resolve_public_socket_addr(host, port).await?;
+
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve(host, addr)
+        .build()
+        .map_err(|err| invalid_input("web_fetch", err.to_string()))
+}
+
+async fn resolve_public_socket_addr(host: &str, port: u16) -> Result<SocketAddr, ToolError> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        reject_private_ip(ip)?;
+        return Ok(SocketAddr::new(ip, port));
+    }
+
+    let addrs = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|err| invalid_input("web_fetch", err.to_string()))?;
+    for addr in addrs {
+        reject_private_ip(addr.ip())?;
+        return Ok(addr);
+    }
+
+    Err(ToolError::NetworkDenied(format!(
+        "no public addresses resolved for host: {host}"
+    )))
 }
 
 fn reject_private_ip(ip: IpAddr) -> Result<(), ToolError> {
@@ -882,6 +954,8 @@ mod tests {
             allow_network: false,
             environment: HashMap::new(),
             max_output_bytes: 128,
+            artifact_dir: None,
+            current_tool_call_id: None,
         }
     }
 
@@ -1027,6 +1101,22 @@ mod tests {
 
         assert!(
             matches!(output, ToolOutput::Text { content } if content.contains("truncated: true"))
+        );
+    }
+
+    #[test]
+    fn bash_should_treat_shell_metacharacters_as_high_risk() {
+        assert_eq!(
+            BashTool::default().risk(&json!({"command": "cat foo.txt ; ls"})),
+            RiskLevel::High
+        );
+        assert_eq!(
+            BashTool::default().risk(&json!({"command": "cat /dev/tcp/127.0.0.1/80"})),
+            RiskLevel::High
+        );
+        assert_eq!(
+            BashTool::default().risk(&json!({"command": "grep secret docs.md"})),
+            RiskLevel::Low
         );
     }
 

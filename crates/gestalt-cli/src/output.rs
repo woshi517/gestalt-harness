@@ -136,6 +136,22 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
                 "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
             ))
         }
+        AgentEvent::ArtifactCreated {
+            path,
+            size_bytes,
+            mime_type,
+            hash,
+        } => Some(format!(
+            "artifact-created> {path} size={size_bytes} mime={mime_type} hash={}",
+            &hash[..8.min(hash.len())]
+        )),
+        AgentEvent::PolicyViolation {
+            tool_call_id,
+            tool_name,
+            reason,
+        } => Some(format!(
+            "policy-violation> {tool_call_id} tool={tool_name} reason={reason}"
+        )),
         AgentEvent::MemoryProposal { diff } => Some(format!("memory> {diff}")),
         AgentEvent::VerificationResult { report, .. } => report.clone(),
         AgentEvent::Usage {

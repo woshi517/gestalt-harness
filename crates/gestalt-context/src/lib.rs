@@ -6,7 +6,7 @@
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
 use gestalt_core::{
-    context::{ContextPipeline, TokenBudget, ContextPacket, ContextSourceRef, ContextOmission},
+    context::{ContextOmission, ContextPacket, ContextPipeline, ContextSourceRef, TokenBudget},
     message::{ContentBlock, ContentTrust, DocumentSource, Message},
 };
 
@@ -193,7 +193,7 @@ impl ContextPipeline for MinimalContextPipeline {
         use sha2::Digest as _;
         let build_result = self.build(history, budget);
         let version = self.version.clone();
-        
+
         let mut sources = Vec::new();
         let mut omissions = Vec::new();
 
@@ -231,7 +231,11 @@ impl ContextPipeline for MinimalContextPipeline {
                     Message::User { content } => {
                         let mut has_untrusted = false;
                         for block in content {
-                            if let ContentBlock::Document { trust: ContentTrust::Untrusted, .. } = block {
+                            if let ContentBlock::Document {
+                                trust: ContentTrust::Untrusted,
+                                ..
+                            } = block
+                            {
                                 has_untrusted = true;
                                 break;
                             }
@@ -267,7 +271,11 @@ impl ContextPipeline for MinimalContextPipeline {
                     Message::User { content } => {
                         let mut has_untrusted = false;
                         for block in content {
-                            if let ContentBlock::Document { trust: ContentTrust::Untrusted, .. } = block {
+                            if let ContentBlock::Document {
+                                trust: ContentTrust::Untrusted,
+                                ..
+                            } = block
+                            {
                                 has_untrusted = true;
                                 break;
                             }
@@ -297,12 +305,15 @@ impl ContextPipeline for MinimalContextPipeline {
         hasher.update(to_hash.as_bytes());
         let packet_hash = format!("{:x}", hasher.finalize());
 
-        let message_hashes = messages.iter().map(|msg| {
-            let msg_ser = serde_json::to_string(msg).unwrap_or_default();
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(msg_ser.as_bytes());
-            format!("{:x}", hasher.finalize())
-        }).collect();
+        let message_hashes = messages
+            .iter()
+            .map(|msg| {
+                let msg_ser = serde_json::to_string(msg).unwrap_or_default();
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(msg_ser.as_bytes());
+                format!("{:x}", hasher.finalize())
+            })
+            .collect();
 
         ContextPacket {
             messages,
@@ -518,13 +529,11 @@ mod tests {
     #[test]
     fn build_packet_contains_expected_fields() {
         let pipeline = sample_pipeline();
-        let history = vec![
-            Message::User {
-                content: vec![ContentBlock::Text {
-                    text: "hello".to_string(),
-                }],
-            },
-        ];
+        let history = vec![Message::User {
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
         let budget = TokenBudget {
             model_limit: 400,
             reserved_output: 32,
@@ -541,9 +550,18 @@ mod tests {
         assert!(!packet.packet_hash.is_empty());
         assert_eq!(packet.message_hashes.len(), packet.messages.len());
 
-        assert!(packet.sources.iter().any(|s| s.path_or_label == "workspace.md" && s.kind == "workspace"));
-        assert!(packet.sources.iter().any(|s| s.path_or_label == "memory.md" && s.kind == "memory"));
-        assert!(packet.sources.iter().any(|s| s.path_or_label == "history_message_0" && s.kind == "history"));
+        assert!(packet
+            .sources
+            .iter()
+            .any(|s| s.path_or_label == "workspace.md" && s.kind == "workspace"));
+        assert!(packet
+            .sources
+            .iter()
+            .any(|s| s.path_or_label == "memory.md" && s.kind == "memory"));
+        assert!(packet
+            .sources
+            .iter()
+            .any(|s| s.path_or_label == "history_message_0" && s.kind == "history"));
     }
 
     #[test]

@@ -85,6 +85,17 @@ pub enum AgentEvent {
         #[serde(default)]
         policy_source: Option<String>,
     },
+    ArtifactCreated {
+        path: String,
+        size_bytes: usize,
+        mime_type: String,
+        hash: String,
+    },
+    PolicyViolation {
+        tool_call_id: String,
+        tool_name: String,
+        reason: String,
+    },
     MemoryProposal {
         diff: String,
     },

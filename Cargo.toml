@@ -84,6 +84,7 @@ url = "2"
 
 # === Tools ===
 encoding_rs = "0.8"
+libc = "0.2"
 
 # === Optional / feature-gated ===
 ratatui = { version = "0.29" }
