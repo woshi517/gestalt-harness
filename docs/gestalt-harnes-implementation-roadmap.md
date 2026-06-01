@@ -276,11 +276,11 @@ flowchart TD
 
 ### P1.10 v0.1 Release Hardening
 
-- [ ] Add installation test for `cargo install --path crates/gestalt-cli` or equivalent package layout.
-- [ ] Validate Linux and macOS CI targets.
-- [ ] Audit default feature binary size against the under-10 MB stripped target where feasible.
-- [ ] Audit direct dependency count per crate against architecture §4.3.
-- [ ] Add release checklist and changelog entry.
+- [x] Add installation test for `cargo install --path crates/gestalt-cli` or equivalent package layout.
+- [x] Validate Linux and macOS CI targets.
+- [x] Audit default feature binary size against the under-10 MB stripped target where feasible.
+- [x] Audit direct dependency count per crate against architecture §4.3.
+- [x] Add release checklist and changelog entry.
 
 **Depends on:** P1.1-P1.9.  
 **Tests:** workspace test suite, clippy, fmt, install smoke, dependency audit, recorded-provider suite.  
@@ -608,7 +608,7 @@ flowchart TD
 
 - **Vector index in Phase 2:** PRD leaves open whether Phase 2 remains purely lexical or introduces a lightweight vector index. Default roadmap assumption: lexical only through v0.2.
 - **Pipeline step schema:** PRD leaves Markdown pipeline semantics open. Default roadmap assumption: structured YAML blocks inside Markdown for executable steps.
-- **Crate packaging layout:** decide whether `gestalt-cli` owns the published binary package named `gestalt-harness`, or whether a separate package wraps the CLI.
+- **Crate packaging layout:** resolved in favor of `crates/gestalt-cli` owning the published `gestalt-harness` package and continuing to install the `gestalt` binary.
 - **Provider cassette format:** choose a cassette format before implementing provider adapters.
 - **Binary size measurement method:** define standard stripped binary measurement command for Linux and macOS.
 

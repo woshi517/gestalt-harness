@@ -26,6 +26,12 @@ cargo test --workspace
 
 # Audit dependencies (enforces ADR-001)
 bash scripts/check-deps.sh
+
+# Prove an isolated install works
+bash scripts/install-smoke.sh
+
+# Measure the release binary size
+bash scripts/check-binary-size.sh
 ```
 
 ## Code Standards
@@ -40,6 +46,8 @@ bash scripts/check-deps.sh
   - Dependencies must strictly adhere to the crate-level budgets defined in [the architecture document](docs/gestalt-harness-architecture.md#43-dependency-budget-revised).
   - Adding any new dependency requires justification in the PR description.
   - All shared dependency versions must be pinned in the workspace `Cargo.toml`.
+  - `bash scripts/check-deps.sh` enforces the `gestalt-core` boundary plus the documented default non-dev direct external dependency budgets.
+  - Optional, path, and dev dependencies are reported separately by the audit so reviewers can see growth without confusing the enforced budget.
 
 ## System Invariants & Architecture Guardrails
 
@@ -62,6 +70,7 @@ bash scripts/check-deps.sh
 - **Tools:** Every tool must include tests for the happy path, schema validation, input risk classification, and path traversal vulnerabilities.
 - **Providers:** Network calls must be mocked. Provider tests must consume recorded JSONL HTTP cassettes located in `tests/fixtures/provider-streams/`. No live API keys are permitted in CI.
 - **Sacred Loop:** If you modify `AgentLoop`, you must update the mock-provider integration tests to verify correct state transitions.
+- **Release hardening:** Changes that affect packaging, install behavior, or default features must keep `scripts/install-smoke.sh` and `scripts/check-binary-size.sh` green.
 
 ## Security & Permissions
 

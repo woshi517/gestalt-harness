@@ -115,7 +115,7 @@ The PRD's original graph had `Core → Models/Tools/Context/Policy/Trace`, which
 
 ```mermaid
 graph TD
-    CLI[gestalt-cli]
+    CLI[gestalt-harness package]
     TUI[gestalt-tui]
 
     Core[gestalt-core<br/>traits · events · loop · session]
@@ -157,7 +157,7 @@ graph TD
     Exec --> Core
 ```
 
-`gestalt-cli` is the composition root. It wires together the concrete implementations and passes them into `AgentLoop` as trait objects. Core knows nothing about any of them.
+The `gestalt-harness` package in `crates/gestalt-cli` is the composition root. It wires together the concrete implementations and passes them into `AgentLoop` as trait objects. Core knows nothing about any of them.
 
 ### 4.2 What Lives in `gestalt-core`
 
@@ -181,12 +181,12 @@ gestalt-core/src/
 |Crate|Max direct deps|Required|
 |---|---|---|
 |`gestalt-core`|7|`tokio`, `serde`, `serde_json`, `schemars`, `thiserror`, `futures`, `async-trait`|
-|`gestalt-models`|7|`reqwest`, `tokio-stream`, `eventsource-stream`, `base64`, `chrono` (for trace timestamps)|
-|`gestalt-tools`|8|`tokio`, `encoding_rs`, `scraper`, `tokio-process`, `pdfium-render` (opt.)|
+|`gestalt-models`|8|`async-trait`, `chrono`, `eventsource-stream`, `futures`, `reqwest`, `serde`, `serde_json`, `tokio-stream`|
+|`gestalt-tools`|9|`async-trait`, `encoding_rs`, `glob`, `reqwest`, `schemars`, `serde`, `serde_json`, `tokio`, `url`|
 |`gestalt-context`|5|`tiktoken-rs`, `pulldown-cmark`, `regex`, `sha2`|
-|`gestalt-policy`|4|`glob`, `serde`, `toml`, `thiserror`|
-|`gestalt-trace`|5|`serde_json`, `chrono`, `tracing`, `tokio`, `uuid`|
-|`gestalt-cli`|7|`clap`, `toml`, `dirs`, `tracing-subscriber`, `ratatui` (opt.)|
+|`gestalt-policy`|7|`async-trait`, `glob`, `serde`, `serde_json`, `thiserror`, `toml`, `url`|
+|`gestalt-trace`|6|`chrono`, `serde`, `serde_json`, `tokio`, `tracing`, `uuid`|
+|`gestalt-harness`|9|`async-trait`, `clap`, `dirs`, `serde`, `serde_json`, `tokio`, `toml`, `tracing`, `tracing-subscriber` (`ratatui`, `crossterm` opt.)|
 
 `chrono` is a dependency of `gestalt-trace` (for `EventEnvelope` timestamps) and `gestalt-models` (for metadata). It is **not** a dependency of `gestalt-core`.
 
@@ -2895,7 +2895,7 @@ This enables embedding in the Gestalt frontend for local context compilation and
 
 **Status:** Accepted  
 **Context:** The PRD showed `gestalt-core` depending on `gestalt-models`, `gestalt-tools`, and `gestalt-trace`. This would make core non-pure and force downstream library users to inherit the full stack.  
-**Decision:** All concrete crates depend on core. Core defines only traits and types. `gestalt-cli` is the composition root.  
+**Decision:** All concrete crates depend on core. Core defines only traits and types. The `gestalt-harness` package in `crates/gestalt-cli` is the composition root.  
 **Consequences:** Library consumers can use only `gestalt-core` + the specific crates they need. Core stays under 7 direct dependencies. The loop is fully testable with mock implementations.
 
 ---

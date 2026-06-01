@@ -11,8 +11,12 @@ env:
 
 jobs:
   check:
-    name: Check & Lint
-    runs-on: ubuntu-latest
+    name: Check & Harden (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -44,5 +48,11 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
 
-      - name: Verify dependency boundaries
+      - name: Verify dependency boundaries and budgets
         run: bash scripts/check-deps.sh
+
+      - name: Verify install smoke
+        run: bash scripts/install-smoke.sh
+
+      - name: Verify release binary size
+        run: bash scripts/check-binary-size.sh

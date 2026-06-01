@@ -1106,7 +1106,7 @@ Target: a usable, reliable single-agent loop with a minimal policy gate and the 
 - `gestalt-policy`: minimal path/network/bash policy, confirm/yolo/deny routing, `policies.toml` parser
 - `gestalt-exec`: `NoSandbox` (subprocess + timeout + output cap + env allowlist)
 - `gestalt-trace`: JSONL writer and `gestalt replay --mode display`
-- `gestalt-cli`: `run`, `replay`, `cost`, `config validate` commands; plain-stdout mode
+- `gestalt-harness` package (`crates/gestalt-cli`): `run`, `replay`, `cost`, `config validate` commands; plain-stdout mode
 - Integration tests with mock provider (no live API calls in CI)
 - `cargo install gestalt-harness` works on Linux and macOS
 

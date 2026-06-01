@@ -624,30 +624,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gestalt-cli"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "clap",
- "crossterm",
- "dirs",
- "gestalt-context",
- "gestalt-core",
- "gestalt-mcp",
- "gestalt-models",
- "gestalt-policy",
- "gestalt-tools",
- "gestalt-trace",
- "ratatui",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "gestalt-context"
 version = "0.1.0"
 dependencies = [
@@ -692,6 +668,30 @@ dependencies = [
  "async-trait",
  "gestalt-core",
  "tokio",
+]
+
+[[package]]
+name = "gestalt-harness"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "crossterm",
+ "dirs",
+ "gestalt-context",
+ "gestalt-core",
+ "gestalt-mcp",
+ "gestalt-models",
+ "gestalt-policy",
+ "gestalt-tools",
+ "gestalt-trace",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
