@@ -13,3 +13,4 @@ workspace = true
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
 tokio = { workspace = true }
+async-trait = { workspace = true }
