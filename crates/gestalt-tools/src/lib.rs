@@ -4,3 +4,13 @@
 //! See the [architecture document](../../docs/gestalt-harness-architecture.md) for crate boundaries.
 
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
+
+mod path;
+mod registry;
+mod tools;
+
+pub use registry::ToolRegistry;
+pub use tools::{
+    default_registry, BashInput, BashTool, PatchInput, PatchTool, ReadInput, ReadTool, SearchInput,
+    SearchTool, WebFetchInput, WebFetchTool, WriteInput, WriteTool,
+};

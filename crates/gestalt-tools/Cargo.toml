@@ -13,8 +13,12 @@ workspace = true
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
 gestalt-exec = { path = "../gestalt-exec" }
+async-trait = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
 encoding_rs = { workspace = true }
+glob = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }

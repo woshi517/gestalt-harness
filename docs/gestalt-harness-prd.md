@@ -165,6 +165,56 @@ Six principles, in priority order. They govern every product decision — featur
 
 **6. Events as the Ground Truth.** The UI, the trace log, the cost analyzer, the replay engine, and the test harness all consume the same event stream. There is no separate logging path. An event that is not emitted did not happen.
 
+### 6.1 Harness Boundary: What Belongs Inside vs. Around gestalt-harness
+
+`gestalt-harness` must remain a harness: the runtime layer that safely connects a model to tools, context, files, policies, and traces. It should not become the full agent product, workflow engine, multi-agent framework, or domain application built on top of it.
+
+A feature belongs **inside gestalt-harness** only if it strengthens one of the harness’s runtime guarantees:
+
+1. The model can be called through a normalized provider interface.
+2. Tool calls are typed, policy-gated, executed, and logged.
+3. Context is assembled deterministically under a token budget.
+4. External content is marked with explicit trust boundaries.
+5. Sessions are observable, replayable, and auditable.
+6. Outputs can be verified through generic verifier interfaces.
+7. The library remains embeddable by applications that gestalt does not own.
+
+A feature should be built **around gestalt-harness** if it primarily defines domain behavior, workflow strategy, product UX, business logic, scheduling, team collaboration, agent personality, multi-agent topology, or vertical-specific output formats.
+
+Examples of features that belong inside the harness:
+
+* Agent loop
+* Provider abstraction
+* Tool registry and tool schema contracts
+* Policy engine and permission gates
+* Context compiler
+* Trust-boundary rendering
+* JSONL trace logging
+* Replay and cost accounting
+* Generic verifier interfaces
+* Built-in generic tools such as bash, read, write, patch, search, web fetch, and document ingestion
+
+Examples of features that should be built around the harness:
+
+* Literature review agents
+* Coding repair agents
+* Competitor intelligence workflows
+* ADR writing workflows
+* Multi-agent teams
+* Scheduling daemons
+* GUI products
+* Team dashboards
+* Domain-specific report templates
+* Business-specific approval flows
+
+The guiding test is simple:
+
+> If the feature improves safe, repeatable, observable model execution, it belongs inside the harness.
+> If the feature decides what the agent should do for a specific user, domain, product, or workflow, it belongs around the harness.
+
+This boundary prevents `gestalt-harness` from growing into a heavy framework. The harness provides control, safety, context, tools, and auditability. Products built around it provide intent, workflow, interface, collaboration, and domain intelligence.
+
+
 ---
 
 ## 7. Product Principles
@@ -1118,6 +1168,345 @@ Rules that prevent scope creep and keep the implementation fast to build and eas
 |**Cold Start**|Time from invocation to first token streamed, interactive mode, no workspace|< 100ms|
 |**Policy Coverage**|Fraction of tool calls in test suite that pass through a policy gate before execution|100%|
 |**Core Compile Time**|Time to compile `gestalt-core` from scratch on a modern developer machine|< 30 seconds|
+
+---
+
+## Appendix F: Future Considerations — Harness Refinements, Additions, and Improvements
+
+This appendix records future-facing improvements that may strengthen `gestalt-harness` without changing its core identity. These items are not immediate roadmap commitments. They are design directions to evaluate after the v0.1–v0.3 foundation is stable.
+
+The guiding rule remains:
+
+> Future improvements should deepen the harness as execution infrastructure, not expand it into a domain-specific agent product.
+
+A future feature belongs in the harness only if it improves safe, observable, reproducible, controllable, composable, or verifiable model execution.
+
+---
+
+### F.1 Execution Maturity
+
+Future versions may expand the execution substrate beyond the initial single-loop runtime while preserving the sacred loop contract.
+
+Potential improvements:
+
+* Resumable sessions from partial JSONL traces.
+* Durable checkpoints for long-running tasks.
+* Run cancellation and timeout propagation across providers and tools.
+* Child loop spawning with explicit budgets, inherited policies, and parent-child trace linkage.
+* Deterministic retry policies for provider failures, tool failures, and transient network errors.
+* Cost, token, time, and turn budgets enforced as first-class runtime constraints.
+* Parallel execution for independent read-only tool calls, with deterministic result ordering.
+
+Boundary rule:
+
+> The harness may provide bounded execution primitives. It should not define multi-agent organizational structures or product-specific planning strategies.
+
+---
+
+### F.2 Permission and Policy Refinement
+
+The policy layer should evolve from simple allow/confirm/deny routing into a stronger runtime control plane.
+
+Potential improvements:
+
+* Temporary session-scoped permission grants.
+* Policy simulation before running pipelines or yolo-mode sessions.
+* Diff-aware write approval for file modifications.
+* Path, tool, network, model, MCP-server, and sandbox-scoped policies.
+* Policy bundles for common operating profiles, such as research, coding, CI, or locked-down audit mode.
+* Risk explanations attached to every confirmation prompt.
+* Policy regression tests to confirm that future changes do not weaken safety guarantees.
+* Signed policy profiles for team or enterprise environments.
+
+Boundary rule:
+
+> The harness owns generic permission evaluation. Organization-specific compliance rules should live in external policy files or surrounding products.
+
+---
+
+### F.3 Context System Improvements
+
+Context engineering is a long-term differentiator for knowledge-work agents. Future improvements should make context assembly more explainable, inspectable, and reproducible.
+
+Potential improvements:
+
+* `gestalt context explain` to show what was included, excluded, summarized, trusted, or omitted.
+* Context packet snapshots stored in run traces.
+* Context diffs across turns and replay sessions.
+* Pluggable context-ranking strategies.
+* Stronger source provenance tracking, including byte ranges, page references, chunk IDs, and extraction timestamps.
+* Citation-aware chunking for research outputs.
+* Token-cost attribution per context item.
+* Context regression tests for deterministic assembly.
+* Optional semantic retrieval adapters, provided they do not compromise local-first auditability.
+
+Boundary rule:
+
+> The harness should decide how context is compiled, traced, budgeted, and bounded. Domain-specific judgments about what matters should be implemented as skills, plugins, or external applications.
+
+---
+
+### F.4 Tooling Substrate Improvements
+
+Tooling should expand through a stable substrate, not through endless built-in domain tools.
+
+Potential improvements:
+
+* Tool schema versioning.
+* Tool namespaces and capability discovery.
+* Tool mocks for deterministic tests.
+* Tool output streaming with cancellation.
+* Tool retry policies and structured failure classes.
+* Tool permission manifests.
+* Tool provenance metadata attached to every result.
+* Sandbox profiles per tool.
+* MCP tool normalization and trust-level enforcement.
+* External tool plugin registration.
+
+Built-in tools should remain generic: bash, read, write, patch, search, web fetch, document ingestion, and similar primitives.
+
+Boundary rule:
+
+> A tool should expose a capability. A skill or application should decide the procedure.
+
+---
+
+### F.5 Event Protocol and Observability
+
+The event stream should become a stable public contract. This allows external UIs, debuggers, dashboards, eval systems, and replay tools to build around the harness without modifying the core.
+
+Potential improvements:
+
+* Versioned event schemas.
+* Event correlation IDs.
+* Parent-child run relationships.
+* Context compilation events.
+* Policy decision events.
+* Tool provenance events.
+* Verification events.
+* Cost and latency events.
+* Security-relevant events.
+* Event redaction for sensitive outputs.
+* Event signing or hashing for audit integrity.
+* OpenTelemetry export behind an optional feature flag.
+
+Boundary rule:
+
+> The harness emits the canonical event stream. External systems consume and interpret it.
+
+---
+
+### F.6 Replay and Regression Testing
+
+Replay should evolve from passive session review into an engineering-grade reliability system.
+
+Potential improvements:
+
+* Deterministic replay of local tool calls.
+* Policy replay to confirm historical approval decisions.
+* Context replay to reconstruct model inputs.
+* Cost replay to compare provider and model usage.
+* Regression replay to check whether new harness versions preserve expected behavior.
+* Cross-model replay to compare outputs under identical tools and context.
+* Semantic invariant checks for final artifacts.
+* Golden trace fixtures for CI.
+
+Boundary rule:
+
+> Replay belongs in the harness when it verifies runtime behavior. Product-specific quality judgments should be implemented through verifier plugins.
+
+---
+
+### F.7 Verification Ecosystem
+
+Verification hooks should become a generic quality substrate for agent outputs.
+
+Potential improvements:
+
+* Verifier registry.
+* Pre-completion and post-write verification phases.
+* Repair-on-failure loops with explicit retry budgets.
+* Citation verification.
+* Quote-source alignment checks.
+* Schema validation.
+* Markdown link validation.
+* Patch applicability checks.
+* No-secrets verification.
+* Build and test verifiers for code workspaces.
+* Policy compliance verification.
+* External verifier plugins for domain-specific checks.
+
+Boundary rule:
+
+> The harness should define how verification runs and how results are represented. It should not hard-code every domain’s definition of quality.
+
+---
+
+### F.8 Plugin and Extension Architecture
+
+A mature harness should support ecosystem growth without bloating the core.
+
+Potential extension points:
+
+* Providers.
+* Tools.
+* Policy rules.
+* Context middleware.
+* Verifiers.
+* Skills.
+* Sandbox backends.
+* Event renderers.
+* Export formats.
+* Model catalog sources.
+
+Future work should evaluate whether plugins are compiled Rust crates, dynamically loaded libraries, WASM modules, external processes, or MCP-compatible services.
+
+Boundary rule:
+
+> The core should remain small, but extension points should be stable enough for serious downstream products.
+
+---
+
+### F.9 Sandbox and Isolation Improvements
+
+The initial execution model may start with subprocess isolation and timeouts. Future versions should strengthen isolation for higher-risk workflows.
+
+Potential improvements:
+
+* Bubblewrap sandbox on Linux.
+* Docker sandbox for cross-platform isolation.
+* Read-only workspace mounts.
+* Write allowlists enforced at the filesystem layer.
+* Network-disabled execution profiles.
+* Environment variable allowlists.
+* Secret redaction and secret access prevention.
+* Per-tool sandbox profiles.
+* Reproducible execution environments for CI and replay.
+
+Boundary rule:
+
+> Sandboxing is harness infrastructure. Deployment-specific infrastructure orchestration should remain outside the core.
+
+---
+
+### F.10 Memory and State Refinement
+
+Memory should remain human-readable and user-controlled, but the workflow around memory can improve.
+
+Potential improvements:
+
+* Memory proposal deduplication.
+* Memory confidence levels.
+* Memory provenance links to trace events.
+* Memory expiration or review dates.
+* Memory namespaces per workspace.
+* Memory diff review before persistence.
+* Memory import/export.
+* Optional generated summaries that remain clearly distinguishable from user-authored facts.
+
+Boundary rule:
+
+> The harness may manage readable memory files and approval flows. It should not become an opaque personal knowledge graph by default.
+
+---
+
+### F.11 Knowledge Work Enhancements
+
+Because `gestalt-harness` is optimized for knowledge work, document and source handling can deepen while remaining generic.
+
+Potential improvements:
+
+* Better PDF structure extraction.
+* Table extraction.
+* Figure and caption extraction.
+* OCR fallback for scanned PDFs.
+* Source deduplication by content hash.
+* Claim-to-source mapping.
+* Citation coverage reports.
+* Source reliability metadata.
+* Local source index improvements.
+* Exportable research audit packets.
+
+Boundary rule:
+
+> Document handling belongs in the harness when it improves source access, provenance, or verification. Domain-specific interpretation belongs in skills or applications.
+
+---
+
+### F.12 Embedding and Host Integration
+
+The harness should remain usable as both a CLI and embeddable library.
+
+Potential improvements:
+
+* Stable library API for host applications.
+* WASM-compatible build profile.
+* Headless execution mode for server-side use.
+* Structured callbacks for UI integration.
+* Event-stream subscription API.
+* Host-provided policy and tool registries.
+* Host-provided context sources.
+* Safe embedding contracts that prevent host applications from bypassing policy gates.
+
+Boundary rule:
+
+> The harness may expose embeddable primitives. It should not assume ownership of the host application’s UI, data model, or business workflow.
+
+---
+
+### F.13 Performance and Distribution
+
+Future improvements should preserve the lightweight distribution philosophy.
+
+Potential improvements:
+
+* Binary size monitoring in CI.
+* Compile-time budget checks.
+* Feature flags for optional heavy capabilities.
+* Startup latency benchmarks.
+* Hot-path allocation profiling.
+* Provider stream latency metrics.
+* Tool execution latency metrics.
+* Source-cache performance benchmarks.
+* Minimal default dependency set.
+
+Boundary rule:
+
+> New capabilities should be feature-gated when they impose significant binary size, compile-time, runtime, or dependency cost.
+
+---
+
+### F.14 Compatibility and Stability
+
+As the harness matures, compatibility guarantees become part of the product.
+
+Potential improvements:
+
+* Stable trait contracts for providers, tools, policies, and verifiers.
+* Versioned config schemas.
+* Versioned trace schemas.
+* Migration tools for old run logs and config files.
+* Backward-compatible replay behavior.
+* Deprecation policy for public APIs.
+* Compatibility test suite for external plugins.
+
+Boundary rule:
+
+> Stability work belongs in the harness because downstream products depend on it.
+
+---
+
+### F.15 Long-Term North Star
+
+The long-term goal is not for `gestalt-harness` to become the best research agent, coding agent, or workflow automation product.
+
+The long-term goal is:
+
+> `gestalt-harness` becomes the best local-first runtime for building trustworthy agents.
+
+That means future development should expand vertically into stronger execution, permissions, context, tools, events, replay, and verification — not horizontally into every possible agent workflow.
+
+Horizontal expansion should happen around the harness through skills, plugins, applications, and product-specific orchestration layers.
 
 ---
 

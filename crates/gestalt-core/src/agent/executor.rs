@@ -1,6 +1,6 @@
-use std::{collections::HashSet, sync::Arc};
 use futures::future::join_all;
 use serde_json::Value;
+use std::{collections::HashSet, sync::Arc};
 
 use crate::{
     approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest},
@@ -49,16 +49,13 @@ impl ToolExecutor {
         let mut confirm_queue = Vec::new();
 
         for (order, call) in tool_calls.into_iter().enumerate() {
-            let tool = match self.tools.get(&call.name) {
-                Some(t) => t,
-                None => {
-                    denied_results.push((
-                        order,
-                        call.id,
-                        ToolExecutionResult::error(format!("Tool not found: {}", call.name)),
-                    ));
-                    continue;
-                }
+            let Some(tool) = self.tools.get(&call.name) else {
+                denied_results.push((
+                    order,
+                    call.id,
+                    ToolExecutionResult::error(format!("Tool not found: {}", call.name)),
+                ));
+                continue;
             };
 
             let policy = if allowed_session_tools.contains(&call.name) {
@@ -69,7 +66,7 @@ impl ToolExecutor {
                 };
                 emit(AgentEvent::PolicyDecision {
                     tool_call_id: call.id.clone(),
-                    decision: p.status.clone(),
+                    decision: p.status,
                     reason: p.reason.clone(),
                 });
                 p
@@ -177,13 +174,15 @@ impl ToolExecutor {
                 current_parallel.push((order, id, name, input, tool));
             } else {
                 if !current_parallel.is_empty() {
-                    let futures = current_parallel.drain(..).map(|(order, id, _name, input, tool)| {
-                        let tool_ctx = session.tool_ctx.clone();
-                        async move {
-                            let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
-                            (order, id, result)
-                        }
-                    });
+                    let futures = std::mem::take(&mut current_parallel).into_iter().map(
+                        |(order, id, _name, input, tool)| {
+                            let tool_ctx = session.tool_ctx.clone();
+                            async move {
+                                let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
+                                (order, id, result)
+                            }
+                        },
+                    );
                     let parallel_results = join_all(futures).await;
                     for (order, id, result) in parallel_results {
                         results.push((order, id, result));
@@ -195,20 +194,22 @@ impl ToolExecutor {
         }
 
         if !current_parallel.is_empty() {
-            let futures = current_parallel.into_iter().map(|(order, id, _name, input, tool)| {
-                let tool_ctx = session.tool_ctx.clone();
-                async move {
-                    let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
-                    (order, id, result)
-                }
-            });
+            let futures = current_parallel
+                .into_iter()
+                .map(|(order, id, _name, input, tool)| {
+                    let tool_ctx = session.tool_ctx.clone();
+                    async move {
+                        let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
+                        (order, id, result)
+                    }
+                });
             let parallel_results = join_all(futures).await;
             for (order, id, result) in parallel_results {
                 results.push((order, id, result));
             }
         }
 
-        results.sort_by(|left, right| left.0.cmp(&right.0));
+        results.sort_by_key(|left| left.0);
         Ok(results)
     }
 

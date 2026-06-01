@@ -27,6 +27,8 @@ dirs = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
 
 [features]
 default = []
@@ -45,4 +47,3 @@ optional = true
 [dependencies.gestalt-mcp]
 path = "../gestalt-mcp"
 optional = true
-

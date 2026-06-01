@@ -176,14 +176,12 @@ impl AgentLoop {
                             stop_reason = *reason;
                         }
                         AgentEvent::Error {
-                            recoverable,
+                            recoverable: false,
                             message,
                         } => {
-                            if !recoverable {
-                                return Err(HarnessError::Provider(
-                                    ProviderError::InvalidResponse(message.clone()),
-                                ));
-                            }
+                            return Err(HarnessError::Provider(ProviderError::InvalidResponse(
+                                message.clone(),
+                            )));
                         }
                         _ => {}
                     }
@@ -250,8 +248,7 @@ impl AgentLoop {
         }
 
         match outcome {
-            TurnOutcome::ToolExecuted => None,
-            TurnOutcome::Stop(StopReason::ToolUse) => None,
+            TurnOutcome::ToolExecuted | TurnOutcome::Stop(StopReason::ToolUse) => None,
             TurnOutcome::Stop(reason) => Some(reason),
         }
     }

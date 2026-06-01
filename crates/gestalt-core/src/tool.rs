@@ -139,10 +139,10 @@ impl ToolExecutionResult {
         format!(
             "[Output truncated. Original: {} bytes. Full output saved to artifact: {}]",
             self.original_bytes.unwrap_or(0),
-            self.artifact
-                .as_ref()
-                .map(|artifact| artifact.path.display().to_string())
-                .unwrap_or_else(|| "unavailable".to_string())
+            self.artifact.as_ref().map_or_else(
+                || "unavailable".to_string(),
+                |artifact| artifact.path.display().to_string(),
+            )
         )
     }
 }

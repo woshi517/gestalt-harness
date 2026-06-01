@@ -34,7 +34,8 @@ impl TokenBudget {
     }
 
     pub fn record_usage(&mut self, input_tokens: usize, _output_tokens: usize) {
-        let non_history = self.used_system
+        let non_history = self
+            .used_system
             .saturating_add(self.used_sources)
             .saturating_add(self.used_tools)
             .saturating_add(self.used_memory);

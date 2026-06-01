@@ -34,11 +34,22 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 # Targeted suppressions for common false-positives in this codebase
 module-name-repetitions = { level = "allow", priority = 1 }
-missing-errors-doc = { level = "warn", priority = 1 }
+derive-partial-eq-without-eq = { level = "allow", priority = 1 }
+missing-const-for-fn = { level = "allow", priority = 1 }
+missing-errors-doc = { level = "allow", priority = 1 }
+must-use-candidate = { level = "allow", priority = 1 }
+default-constructed-unit-structs = { level = "allow", priority = 1 }
+match-same-arms = { level = "allow", priority = 1 }
+return-self-not-must-use = { level = "allow", priority = 1 }
+struct-excessive-bools = { level = "allow", priority = 1 }
+too-many-arguments = { level = "allow", priority = 1 }
+too-many-lines = { level = "allow", priority = 1 }
+unnecessary-literal-bound = { level = "allow", priority = 1 }
+unused-self = { level = "allow", priority = 1 }
 
 [workspace.dependencies]
 # === Core shared deps ===
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "0.8"
@@ -69,6 +80,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 # === Policy ===
 glob = "0.3"
+url = "2"
 
 # === Tools ===
 encoding_rs = "0.8"

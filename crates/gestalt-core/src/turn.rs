@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::{
     error::{HarnessError, ProviderError},
-    event::{AgentEvent, StopReason},
+    event::AgentEvent,
     message::{ContentBlock, Message},
 };
 
@@ -96,10 +96,6 @@ impl TurnAccumulator {
                     });
                 entry.input.push_str(input_delta);
             }
-            AgentEvent::Stop {
-                reason: StopReason::ToolUse | StopReason::EndTurn,
-            } => {}
-            AgentEvent::Error { .. } => {}
             _ => {}
         }
 

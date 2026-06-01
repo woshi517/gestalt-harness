@@ -627,6 +627,7 @@ dependencies = [
 name = "gestalt-cli"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "crossterm",
  "dirs",
@@ -638,6 +639,7 @@ dependencies = [
  "gestalt-tools",
  "gestalt-trace",
  "ratatui",
+ "serde_json",
  "tokio",
  "toml",
  "tracing",
@@ -686,6 +688,7 @@ dependencies = [
 name = "gestalt-exec"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "gestalt-core",
  "tokio",
 ]
@@ -734,24 +737,32 @@ dependencies = [
 name = "gestalt-policy"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "gestalt-core",
  "glob",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "toml",
+ "url",
 ]
 
 [[package]]
 name = "gestalt-tools"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "encoding_rs",
  "gestalt-core",
  "gestalt-exec",
+ "glob",
+ "reqwest",
  "schemars",
  "serde",
  "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -2155,6 +2166,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

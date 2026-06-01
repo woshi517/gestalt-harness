@@ -66,6 +66,10 @@ pub enum ToolError {
     },
     #[error("tool output too large: {tool_name} exceeded {limit} bytes")]
     OutputTooLarge { tool_name: String, limit: usize },
+    #[error("path not allowed: {0}")]
+    PathNotAllowed(String),
+    #[error("network denied: {0}")]
+    NetworkDenied(String),
     #[error("policy denied tool: {0}")]
     Denied(String),
 }

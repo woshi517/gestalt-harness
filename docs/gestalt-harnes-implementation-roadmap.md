@@ -194,14 +194,14 @@ flowchart TD
 
 ### P1.4 Tool Registry and Built-In Local Tools
 
-- [ ] Implement `ToolRegistry` with registration, schema listing, lookup, and execution.
-- [ ] Implement `ReadTool` with path validation, line ranges, encoding handling, and token/output limits.
-- [ ] Implement `SearchTool` using fast local search semantics.
-- [ ] Implement `WriteTool` with full replacement, parent directory creation, and diff preview support.
-- [ ] Implement `PatchTool` for unified diff application.
-- [ ] Implement `BashTool` as fresh subprocess execution.
-- [ ] Implement `WebFetchTool` with HTTP/HTTPS-only fetch, response size cap, redirect recording, readability extraction, and untrusted output tagging.
-- [ ] Derive JSON Schema for all tool inputs via `schemars`.
+- [x] Implement `ToolRegistry` with registration, schema listing, lookup, and execution.
+- [x] Implement `ReadTool` with path validation, line ranges, encoding handling, and token/output limits.
+- [x] Implement `SearchTool` using fast local search semantics.
+- [x] Implement `WriteTool` with full replacement, parent directory creation, and diff preview support.
+- [x] Implement `PatchTool` for unified diff application.
+- [x] Implement `BashTool` as fresh subprocess execution.
+- [x] Implement `WebFetchTool` with HTTP/HTTPS-only fetch, response size cap, redirect recording, readability extraction, and untrusted output tagging.
+- [x] Derive JSON Schema for all tool inputs via `schemars`.
 
 **Depends on:** P1.1, P1.6 for subprocess execution. Coordinate with P1.5 for shared path, risk, and policy integration.  
 **Tests:** schema snapshot tests; path traversal rejection; symlink escape rejection; read line ranges; write diff; patch success/failure; bash timeout/output cap; web SSRF/private IP/scheme rejection; truncation artifact behavior.  
@@ -209,13 +209,13 @@ flowchart TD
 
 ### P1.5 Minimal Policy and Approval
 
-- [ ] Parse `.gestalt/policies.toml` with minimal path, network, and bash sections.
-- [ ] Implement layered default policy behavior for `confirm`, `yolo`, `human`, `dry-run`, and `replay`.
-- [ ] Implement bash risk classifier from PRD §10.3.
-- [ ] Enforce read/write allow and deny path lists.
-- [ ] Deny secret/env paths by default.
-- [ ] Implement policy source reporting for trace audit.
-- [ ] Implement CLI approval provider with approve, deny, edit, and always-allow-for-session.
+- [x] Parse `.gestalt/policies.toml` with minimal path, network, and bash sections.
+- [x] Implement layered default policy behavior for `confirm`, `yolo`, `human`, `dry-run`, and `replay`.
+- [x] Implement bash risk classifier from PRD §10.3.
+- [x] Enforce read/write allow and deny path lists.
+- [x] Deny secret/env paths by default.
+- [x] Implement policy source reporting for trace audit.
+- [x] Implement CLI approval provider with approve, deny, edit, and always-allow-for-session.
 
 **Depends on:** P1.1. Coordinate with P1.4 for tool-specific risk classification and path extraction.  
 **Tests:** policy matrix tests; bash classifier tests; allow/deny precedence; mode routing; session-scoped approval; invalid policy file diagnostics.  
@@ -223,11 +223,11 @@ flowchart TD
 
 ### P1.6 `gestalt-exec` NoSandbox
 
-- [ ] Implement direct subprocess runner with working directory restriction.
-- [ ] Enforce timeout.
-- [ ] Enforce stdout/stderr output cap.
-- [ ] Pass only allowlisted environment variables.
-- [ ] Normalize exit status, stderr, stdout, timeout, and truncation into tool output.
+- [x] Implement direct subprocess runner with working directory restriction.
+- [x] Enforce timeout.
+- [x] Enforce stdout/stderr output cap.
+- [x] Pass only allowlisted environment variables.
+- [x] Normalize exit status, stderr, stdout, timeout, and truncation into tool output.
 
 **Depends on:** P1.1, P1.5.  
 **Tests:** command success/failure; timeout kill; output cap; environment redaction; working-dir restriction.  
@@ -394,6 +394,7 @@ flowchart TD
 - [ ] Enforce skill permissions: tools, network, write paths, scripts, token budget.
 - [ ] Implement `gestalt skill list` and `gestalt skill validate`.
 - [ ] Track skill trust level; only workspace-local skills auto-activate.
+- [ ] Keep the harness responsible for skill loading, trust, and policy enforcement only; domain-specific workflow skills stay outside the core runtime.
 
 **Depends on:** P2.1, P1.3, P1.9.  
 **Tests:** front matter fixtures; startup discovery token budget test; trigger matching; permission enforcement; validation diagnostics; untrusted skill activation behavior.  
@@ -425,11 +426,11 @@ flowchart TD
 
 ---
 
-## Phase 3: Autonomy, Scheduling & Embedding (v0.3)
+## Phase 3: Pipelines, Resumability & Embedding (v0.3)
 
-**Goal:** Add repeatable pipelines, resumability, bounded delegation, stronger sandbox options, export formats, optional observability, WASM embedding, and regression replay.
+**Goal:** Add repeatable pipelines, resumability, bounded delegation, stronger sandbox options, export formats, optional observability, WASM embedding, and regression replay. Keep workflow strategy, scheduling, and domain-specific templates outside the harness boundary.
 
-**Exit criteria:** users can run Markdown pipelines, resume interrupted sessions, spawn bounded sub-agents, use stronger sandbox backends, export ShareGPT data, and run regression replay checks.
+**Exit criteria:** users can run generic Markdown pipelines, resume interrupted sessions, spawn bounded sub-agents, use stronger sandbox backends, export ShareGPT data, and run regression replay checks.
 
 ### P3.1 Pipeline Mode
 
@@ -439,6 +440,7 @@ flowchart TD
 - [ ] Run each step with trace continuity.
 - [ ] Generate run diffs between pipeline executions.
 - [ ] Add `gestalt pipeline --file`.
+- [ ] Keep pipeline semantics generic; domain-specific workflow templates and scheduling logic live around the harness, not inside it.
 
 **Depends on:** P1.9, P2.7, P2.9.  
 **Tests:** parser fixtures; sequential execution with mock provider; human approval step; failed verification stops or repairs according to policy; run diff snapshots.  
@@ -462,6 +464,7 @@ flowchart TD
 - [ ] Forward child events to parent trace with correlation metadata.
 - [ ] Return summarized child result to parent history.
 - [ ] Prevent recursive unbounded spawning.
+- [ ] Keep delegation bounded and explicit; do not turn child loops into a general multi-agent planning topology.
 
 **Depends on:** P1.2, P1.5, P1.8, P2.1.  
 **Tests:** child loop fixture; restricted tool access; trace correlation; recursion limit; child failure propagation.  
@@ -583,6 +586,7 @@ flowchart TD
 - Never execute a tool without a `PolicyDecision` event.
 - Treat external content as untrusted: web, PDF, MCP, retrieved chunks, and downloaded skills.
 - Keep trace events as the source of truth for UI, replay, cost, verification, and exports.
+- Keep workflow strategy, scheduling, multi-agent orchestration, and domain-specific templates outside the harness.
 - Do not add dependencies to a crate without checking the dependency budget in architecture §4.3.
 - Do not introduce live provider calls in CI. Use recorded fixtures and mock providers.
 - Do not store provider API keys or secrets in config, traces, fixtures, or exports.
