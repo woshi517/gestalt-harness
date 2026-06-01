@@ -6,7 +6,7 @@
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
 use gestalt_core::{
-    context::{ContextPipeline, TokenBudget},
+    context::{ContextPipeline, TokenBudget, ContextPacket, ContextSourceRef, ContextOmission},
     message::{ContentBlock, ContentTrust, DocumentSource, Message},
 };
 
@@ -187,6 +187,133 @@ impl ContextPipeline for MinimalContextPipeline {
 
     fn version(&self) -> &str {
         &self.version
+    }
+
+    fn build_packet(&self, history: &[Message], budget: &TokenBudget) -> ContextPacket {
+        use sha2::Digest as _;
+        let build_result = self.build(history, budget);
+        let version = self.version.clone();
+        
+        let mut sources = Vec::new();
+        let mut omissions = Vec::new();
+
+        if let Some(workspace_md) = &self.workspace_md {
+            let ws_tokens = estimate_text_tokens(workspace_md);
+            sources.push(ContextSourceRef {
+                kind: "workspace".to_string(),
+                path_or_label: "workspace.md".to_string(),
+                trust: "trusted".to_string(),
+                token_estimate: ws_tokens,
+                included: true,
+            });
+        }
+
+        if let Some(memory_md) = &self.memory_md {
+            let mem_tokens = estimate_text_tokens(memory_md);
+            sources.push(ContextSourceRef {
+                kind: "memory".to_string(),
+                path_or_label: "memory.md".to_string(),
+                trust: "trusted".to_string(),
+                token_estimate: mem_tokens,
+                included: true,
+            });
+        }
+
+        let dropped_count = build_result.dropped_messages;
+        for (idx, msg) in history.iter().enumerate() {
+            let is_dropped = idx < dropped_count;
+            let msg_tokens = estimate_message_tokens(msg);
+            if is_dropped {
+                let trust = match msg {
+                    Message::System { .. } => "trusted".to_string(),
+                    Message::Assistant { .. } => "trusted".to_string(),
+                    Message::ToolResult { .. } => "untrusted".to_string(),
+                    Message::User { content } => {
+                        let mut has_untrusted = false;
+                        for block in content {
+                            if let ContentBlock::Document { trust: ContentTrust::Untrusted, .. } = block {
+                                has_untrusted = true;
+                                break;
+                            }
+                        }
+                        if has_untrusted {
+                            "untrusted".to_string()
+                        } else {
+                            "trusted".to_string()
+                        }
+                    }
+                };
+
+                let path_or_label = format!("history_message_{idx}");
+                sources.push(ContextSourceRef {
+                    kind: "history".to_string(),
+                    path_or_label: path_or_label.clone(),
+                    trust: trust.clone(),
+                    token_estimate: msg_tokens,
+                    included: false,
+                });
+                omissions.push(ContextOmission {
+                    kind: "history".to_string(),
+                    path_or_label,
+                    trust,
+                    reason: "budget_exhausted".to_string(),
+                    token_estimate: msg_tokens,
+                });
+            } else {
+                let trust = match msg {
+                    Message::System { .. } => "trusted".to_string(),
+                    Message::Assistant { .. } => "trusted".to_string(),
+                    Message::ToolResult { .. } => "untrusted".to_string(),
+                    Message::User { content } => {
+                        let mut has_untrusted = false;
+                        for block in content {
+                            if let ContentBlock::Document { trust: ContentTrust::Untrusted, .. } = block {
+                                has_untrusted = true;
+                                break;
+                            }
+                        }
+                        if has_untrusted {
+                            "untrusted".to_string()
+                        } else {
+                            "trusted".to_string()
+                        }
+                    }
+                };
+
+                sources.push(ContextSourceRef {
+                    kind: "history".to_string(),
+                    path_or_label: format!("history_message_{idx}"),
+                    trust,
+                    token_estimate: msg_tokens,
+                    included: true,
+                });
+            }
+        }
+
+        let messages = build_result.messages.clone();
+        let serialized_messages = serde_json::to_string(&messages).unwrap_or_default();
+        let to_hash = format!("{}:{}", serialized_messages, version);
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(to_hash.as_bytes());
+        let packet_hash = format!("{:x}", hasher.finalize());
+
+        let message_hashes = messages.iter().map(|msg| {
+            let msg_ser = serde_json::to_string(msg).unwrap_or_default();
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(msg_ser.as_bytes());
+            format!("{:x}", hasher.finalize())
+        }).collect();
+
+        ContextPacket {
+            messages,
+            packet_hash,
+            pipeline_version: version,
+            tokenizer_id: "default".to_string(),
+            token_estimate: build_result.estimated_tokens,
+            sources,
+            omissions,
+            message_hashes,
+        }
     }
 }
 
@@ -386,5 +513,129 @@ mod tests {
 
         assert!(build.budget_exhausted);
         assert!(build.messages.iter().any(|message| matches!(message, Message::System { content } if content.contains("context budget exhausted"))));
+    }
+
+    #[test]
+    fn build_packet_contains_expected_fields() {
+        let pipeline = sample_pipeline();
+        let history = vec![
+            Message::User {
+                content: vec![ContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+            },
+        ];
+        let budget = TokenBudget {
+            model_limit: 400,
+            reserved_output: 32,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 16,
+        };
+
+        let packet = pipeline.build_packet(&history, &budget);
+        assert_eq!(packet.pipeline_version, "pipeline-v1");
+        assert!(!packet.packet_hash.is_empty());
+        assert_eq!(packet.message_hashes.len(), packet.messages.len());
+
+        assert!(packet.sources.iter().any(|s| s.path_or_label == "workspace.md" && s.kind == "workspace"));
+        assert!(packet.sources.iter().any(|s| s.path_or_label == "memory.md" && s.kind == "memory"));
+        assert!(packet.sources.iter().any(|s| s.path_or_label == "history_message_0" && s.kind == "history"));
+    }
+
+    #[test]
+    fn build_packet_is_deterministic_for_same_inputs() {
+        let pipeline = sample_pipeline();
+        let history = vec![Message::User {
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let budget = TokenBudget {
+            model_limit: 400,
+            reserved_output: 32,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 16,
+        };
+
+        let first = pipeline.build_packet(&history, &budget);
+        let second = pipeline.build_packet(&history, &budget);
+        assert_eq!(first.packet_hash, second.packet_hash);
+        assert_eq!(first.message_hashes, second.message_hashes);
+    }
+
+    #[test]
+    fn build_packet_hash_changes_when_workspace_changes() {
+        let history = vec![Message::User {
+            content: vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        }];
+        let budget = TokenBudget {
+            model_limit: 400,
+            reserved_output: 32,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 16,
+        };
+
+        let first = MinimalContextPipeline::new("pipeline-v1")
+            .with_workspace_md("workspace rules")
+            .with_memory_md("stable memory")
+            .build_packet(&history, &budget);
+        let second = MinimalContextPipeline::new("pipeline-v1")
+            .with_workspace_md("workspace rules changed")
+            .with_memory_md("stable memory")
+            .build_packet(&history, &budget);
+        assert_ne!(first.packet_hash, second.packet_hash);
+    }
+
+    #[test]
+    fn build_packet_records_omission_provenance_for_trimmed_history() {
+        let pipeline = sample_pipeline();
+        let history = vec![
+            Message::User {
+                content: vec![ContentBlock::Text {
+                    text: "first".repeat(120),
+                }],
+            },
+            Message::User {
+                content: vec![ContentBlock::Text {
+                    text: "second".repeat(2),
+                }],
+            },
+        ];
+        let budget = TokenBudget {
+            model_limit: 80,
+            reserved_output: 16,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 8,
+        };
+
+        let packet = pipeline.build_packet(&history, &budget);
+        assert!(!packet.omissions.is_empty());
+        assert!(packet.omissions.iter().any(|o| {
+            o.kind == "history"
+                && o.path_or_label.starts_with("history_message_")
+                && o.reason == "budget_exhausted"
+        }));
+        assert!(packet
+            .sources
+            .iter()
+            .any(|s| s.kind == "history" && !s.included));
     }
 }

@@ -107,7 +107,7 @@ impl TraceSink for JsonlTraceSink {
             .lock()
             .map_err(|_| TraceError::WriteFailed(std::io::Error::other("trace sink poisoned")))?;
 
-        if matches!(event, AgentEvent::ModelRequest { .. }) {
+        if matches!(event, AgentEvent::ContextBuilt { .. }) {
             state.turn_id = state.turn_id.saturating_add(1);
         }
 
@@ -194,9 +194,38 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
             AgentEvent::ContextBuilt {
                 packet_id,
                 token_estimate,
-            } => lines.push(format!("context> {packet_id} ({token_estimate} tokens)")),
-            AgentEvent::ModelRequest { provider, model } => {
-                lines.push(format!("model> {provider}/{model}"));
+                packet_hash,
+                ..
+            } => {
+                let mut extra = String::new();
+                if let Some(h) = packet_hash {
+                    extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
+                }
+                lines.push(format!("context> {packet_id} ({token_estimate} tokens){extra}"));
+            }
+            AgentEvent::ModelRequest {
+                provider,
+                model,
+                packet_hash,
+                temperature,
+                max_tokens,
+                provider_request_hash,
+                ..
+            } => {
+                let mut extra = String::new();
+                if let Some(h) = packet_hash {
+                    extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
+                }
+                if let Some(t) = temperature {
+                    extra.push_str(&format!(" temp={}", t));
+                }
+                if let Some(m) = max_tokens {
+                    extra.push_str(&format!(" max_tokens={}", m));
+                }
+                if let Some(h) = provider_request_hash {
+                    extra.push_str(&format!(" request_hash={}", &h[..8.min(h.len())]));
+                }
+                lines.push(format!("model> {provider}/{model}{extra}"));
             }
             AgentEvent::Text { delta } => lines.push(format!("assistant> {delta}")),
             AgentEvent::Thinking { delta } => lines.push(format!("thinking> {delta}")),
@@ -206,14 +235,36 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
             }
             AgentEvent::PolicyDecision {
                 tool_call_id,
+                tool_name,
+                input_hash,
+                risk,
+                mode,
+                matched_rule,
                 decision,
                 reason,
                 policy_source,
-                ..
-            } => lines.push(format!(
-                "policy> {tool_call_id} {decision:?} source={policy_source} {}",
-                reason.clone().unwrap_or_default()
-            )),
+            } => {
+                let mut extra = String::new();
+                if let Some(name) = tool_name {
+                    extra.push_str(&format!(" tool={name}"));
+                }
+                if let Some(level) = risk {
+                    extra.push_str(&format!(" risk={level:?}"));
+                }
+                if let Some(m) = mode {
+                    extra.push_str(&format!(" mode={m:?}"));
+                }
+                if let Some(rule) = matched_rule {
+                    extra.push_str(&format!(" rule={rule}"));
+                }
+                if let Some(hash) = input_hash {
+                    extra.push_str(&format!(" input={}", &hash[..8.min(hash.len())]));
+                }
+                lines.push(format!(
+                    "policy> {tool_call_id} {decision:?} source={policy_source}{extra} {}",
+                    reason.clone().unwrap_or_default()
+                ));
+            }
             AgentEvent::ApprovalDecision {
                 tool_call_id,
                 decision,
@@ -247,9 +298,38 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 output,
                 is_error,
                 truncated,
-            } => lines.push(format!(
-                "tool-result> {id} error={is_error} truncated={truncated} {output}"
-            )),
+                tool_name,
+                working_dir,
+                duration_ms,
+                output_hash,
+                artifact_refs,
+                policy_source,
+            } => {
+                let mut extra = String::new();
+                if let Some(name) = tool_name {
+                    extra.push_str(&format!(" name={}", name));
+                }
+                if let Some(dir) = working_dir {
+                    extra.push_str(&format!(" dir={}", dir));
+                }
+                if let Some(ms) = duration_ms {
+                    extra.push_str(&format!(" duration={}ms", ms));
+                }
+                if let Some(h) = output_hash {
+                    extra.push_str(&format!(" hash={}", &h[..8.min(h.len())]));
+                }
+                if let Some(refs) = artifact_refs {
+                    if !refs.is_empty() {
+                        extra.push_str(&format!(" artifacts={}", refs.join(",")));
+                    }
+                }
+                if let Some(src) = policy_source {
+                    extra.push_str(&format!(" policy_source={}", src));
+                }
+                lines.push(format!(
+                    "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
+                ));
+            }
             AgentEvent::MemoryProposal { diff } => lines.push(format!("memory> {diff}")),
             AgentEvent::VerificationResult {
                 status,
@@ -288,7 +368,7 @@ pub fn aggregate_costs(
         let mut current_model = None::<String>;
         for envelope in events {
             match envelope.event {
-                AgentEvent::ModelRequest { provider, model } => {
+                AgentEvent::ModelRequest { provider, model, .. } => {
                     current_model = Some(format!("{provider}/{model}"));
                 }
                 AgentEvent::Usage {
@@ -415,8 +495,8 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             tool_name,
             input_hash,
             risk,
-            execution_mode,
-            matched_rule_id,
+            mode,
+            matched_rule,
             decision,
             reason,
             policy_source,
@@ -431,8 +511,8 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
                     tool_name: tool_name.clone(),
                     input_hash: input_hash.clone(),
                     risk: *risk,
-                    execution_mode: *execution_mode,
-                    matched_rule_id: matched_rule_id.clone(),
+                    mode: *mode,
+                    matched_rule: matched_rule.clone(),
                     decision: *decision,
                     reason,
                     policy_source: policy_source.clone(),
@@ -445,6 +525,12 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             output,
             is_error,
             truncated,
+            tool_name,
+            working_dir,
+            duration_ms,
+            output_hash,
+            artifact_refs,
+            policy_source,
         } => {
             let (output, redacted) = redact_string(output);
             (
@@ -453,6 +539,12 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
                     output,
                     is_error: *is_error,
                     truncated: *truncated,
+                    tool_name: tool_name.clone(),
+                    working_dir: working_dir.clone(),
+                    duration_ms: *duration_ms,
+                    output_hash: output_hash.clone(),
+                    artifact_refs: artifact_refs.clone(),
+                    policy_source: policy_source.clone(),
                 },
                 redacted,
             )

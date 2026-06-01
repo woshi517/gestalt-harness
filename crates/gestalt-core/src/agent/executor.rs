@@ -46,7 +46,7 @@ impl ToolExecutor {
         session_grants: &mut Vec<SessionGrant>,
         current_turn: usize,
         loop_max_turns: usize,
-    ) -> Result<Vec<(usize, String, ToolExecutionResult)>>
+    ) -> Result<Vec<(usize, String, ToolExecutionResult, u64, String)>>
     where
         F: FnMut(AgentEvent) + Send,
     {
@@ -74,6 +74,8 @@ impl ToolExecutor {
                     order,
                     call.id,
                     ToolExecutionResult::error(format!("Tool not found: {}", call.name)),
+                    0,
+                    "tool.not_found".to_string(),
                 ));
                 continue;
             };
@@ -108,10 +110,12 @@ impl ToolExecutor {
                         order,
                         call.id,
                         ToolExecutionResult::error(
-                            policy.reason.unwrap_or_else(|| {
+                            policy.reason.clone().unwrap_or_else(|| {
                                 format!("policy denied tool call {}", call.name)
                             }),
                         ),
+                        0,
+                        policy.policy_source.clone(),
                     ));
                 }
                 PolicyStatus::Confirm => {
@@ -129,8 +133,8 @@ impl ToolExecutor {
                     tool_call_id: id.clone(),
                     tool_name: name.clone(),
                     input: input.clone(),
-                    decision: policy.clone(),
                     description: tool.description().to_string(),
+                    decision: policy.clone(),
                 })
                 .await;
 
@@ -149,6 +153,8 @@ impl ToolExecutor {
                                 .clone()
                                 .unwrap_or_else(|| format!("approval denied tool call {name}")),
                         ),
+                        0,
+                        policy.policy_source.clone(),
                     ));
                     (ApprovalOutcome::Deny, None, None)
                 }
@@ -166,9 +172,11 @@ impl ToolExecutor {
                             denied_results.push((
                                 order,
                                 id,
-                                ToolExecutionResult::error(re_evaluated.reason.unwrap_or_else(
+                                ToolExecutionResult::error(re_evaluated.reason.clone().unwrap_or_else(
                                     || format!("policy denied edited tool call {name}"),
                                 )),
+                                0,
+                                re_evaluated.policy_source.clone(),
                             ));
                         }
                         PolicyStatus::Confirm => {
@@ -178,6 +186,8 @@ impl ToolExecutor {
                                 ToolExecutionResult::error(format!(
                                     "approval edit still requires confirmation for {name}"
                                 )),
+                                0,
+                                re_evaluated.policy_source.clone(),
                             ));
                         }
                     }
@@ -212,43 +222,49 @@ impl ToolExecutor {
         let mut results = denied_results;
         let mut current_parallel = Vec::new();
 
-        for (order, id, name, input, tool, _policy) in planned {
+        for (order, id, name, input, tool, policy) in planned {
             if tool.can_run_in_parallel(&input) {
-                current_parallel.push((order, id, name, input, tool));
+                current_parallel.push((order, id, name, input, tool, policy));
             } else {
                 if !current_parallel.is_empty() {
                     let futures = std::mem::take(&mut current_parallel).into_iter().map(
-                        |(order, id, _name, input, tool)| {
+                        |(order, id, _name, input, tool, policy)| {
                             let tool_ctx = session.tool_ctx.clone();
                             async move {
+                                let start = std::time::Instant::now();
                                 let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
-                                (order, id, result)
+                                let duration = start.elapsed().as_millis() as u64;
+                                (order, id, result, duration, policy.policy_source)
                             }
                         },
                     );
                     let parallel_results = join_all(futures).await;
-                    for (order, id, result) in parallel_results {
-                        results.push((order, id, result));
+                    for (order, id, result, duration, policy_source) in parallel_results {
+                        results.push((order, id, result, duration, policy_source));
                     }
                 }
+                let start = std::time::Instant::now();
                 let result = execute_tool(tool.as_ref(), input, &session.tool_ctx).await;
-                results.push((order, id, result));
+                let duration = start.elapsed().as_millis() as u64;
+                results.push((order, id, result, duration, policy.policy_source));
             }
         }
 
         if !current_parallel.is_empty() {
             let futures = current_parallel
                 .into_iter()
-                .map(|(order, id, _name, input, tool)| {
+                .map(|(order, id, _name, input, tool, policy)| {
                     let tool_ctx = session.tool_ctx.clone();
                     async move {
+                        let start = std::time::Instant::now();
                         let result = execute_tool(tool.as_ref(), input, &tool_ctx).await;
-                        (order, id, result)
+                        let duration = start.elapsed().as_millis() as u64;
+                        (order, id, result, duration, policy.policy_source)
                     }
                 });
             let parallel_results = join_all(futures).await;
-            for (order, id, result) in parallel_results {
-                results.push((order, id, result));
+            for (order, id, result, duration, policy_source) in parallel_results {
+                results.push((order, id, result, duration, policy_source));
             }
         }
 
@@ -286,7 +302,7 @@ impl ToolExecutor {
             decision
         };
 
-        let matched_rule_id = grant
+        let matched_rule = grant
             .map(|grant| grant.matched_rule.as_str())
             .unwrap_or(final_decision.policy_source.as_str());
 
@@ -298,7 +314,7 @@ impl ToolExecutor {
             risk,
             session.mode,
             &final_decision,
-            Some(matched_rule_id.to_string()),
+            Some(matched_rule.to_string()),
         );
         Ok(final_decision)
     }
@@ -347,17 +363,17 @@ fn emit_policy_decision(
     tool_name: &str,
     input: &Value,
     risk: RiskLevel,
-    execution_mode: crate::session::ExecutionMode,
+    mode: crate::session::ExecutionMode,
     decision: &PolicyDecision,
-    matched_rule_id: Option<String>,
+    matched_rule: Option<String>,
 ) {
     emit(AgentEvent::PolicyDecision {
         tool_call_id: tool_call_id.to_string(),
         tool_name: Some(tool_name.to_string()),
         input_hash: Some(hash_input(input)),
         risk: Some(risk),
-        execution_mode: Some(execution_mode),
-        matched_rule_id,
+        mode: Some(mode),
+        matched_rule,
         decision: decision.status,
         reason: decision.reason.clone(),
         policy_source: decision.policy_source.clone(),

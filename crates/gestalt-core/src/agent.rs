@@ -1,6 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use futures::StreamExt;
+use sha2::{Digest as _, Sha256};
 
 use crate::{
     approval::{ApprovalProvider, SessionGrant},
@@ -107,9 +108,9 @@ impl AgentLoop {
     where
         F: FnMut(AgentEvent),
     {
-        let messages = self
+        let packet = self
             .middleware
-            .process(&session.history, &session.token_budget);
+            .build_packet(&session.history, &session.token_budget);
 
         let model = if session.config.model.is_empty() {
             self.provider.default_model().to_string()
@@ -117,16 +118,19 @@ impl AgentLoop {
             session.config.model.clone()
         };
 
-        let token_estimate = self.provider.count_tokens(&model, &messages)?;
+        let token_estimate = self.provider.count_tokens(&model, &packet.messages)?;
 
         emit(AgentEvent::ContextBuilt {
             packet_id: session.id.clone(),
             token_estimate,
+            packet_hash: Some(packet.packet_hash.clone()),
+            sources: Some(packet.sources),
+            omissions: Some(packet.omissions),
         });
 
         let request = ProviderRequest {
             model,
-            messages,
+            messages: packet.messages,
             tools: self.executor.tools().schemas(),
             max_tokens: session.config.max_tokens,
             temperature: session.config.temperature,
@@ -135,9 +139,18 @@ impl AgentLoop {
             metadata: serde_json::Value::Null,
         };
 
+        let serialized_request = serde_json::to_string(&request).unwrap_or_default();
+        let mut hasher = Sha256::new();
+        hasher.update(serialized_request.as_bytes());
+        let provider_request_hash = format!("{:x}", hasher.finalize());
+
         emit(AgentEvent::ModelRequest {
             provider: self.provider.id().to_string(),
             model: request.model.clone(),
+            packet_hash: Some(packet.packet_hash),
+            temperature: request.temperature,
+            max_tokens: Some(request.max_tokens as usize),
+            provider_request_hash: Some(provider_request_hash),
         });
 
         Ok(request)
@@ -233,7 +246,7 @@ impl AgentLoop {
             .executor
             .execute_tool_batch(
                 session,
-                tool_calls,
+                tool_calls.clone(),
                 emit,
                 session_grants,
                 current_turn,
@@ -241,12 +254,26 @@ impl AgentLoop {
             )
             .await?;
 
-        for (_, id, result) in tool_results {
+        for (_, id, result, duration_ms, policy_source) in tool_results {
+            let tool_name = tool_calls.iter().find(|c| c.id == id).map(|c| c.name.clone());
+            let working_dir = Some(session.tool_ctx.working_dir.display().to_string());
+            let artifact_refs = result.artifact.as_ref().map(|art| vec![art.path.display().to_string()]);
+
+            let mut hasher = Sha256::new();
+            hasher.update(result.content.as_bytes());
+            let output_hash = format!("{:x}", hasher.finalize());
+
             emit(AgentEvent::ToolResult {
                 id: id.clone(),
                 output: result.content.clone(),
                 is_error: result.is_error,
                 truncated: result.truncated,
+                tool_name,
+                working_dir,
+                duration_ms: Some(duration_ms),
+                output_hash: Some(output_hash),
+                artifact_refs,
+                policy_source: Some(policy_source),
             });
             if let Some(artifact) = result.artifact.as_ref() {
                 artifacts.push(artifact.path.display().to_string());

@@ -14,10 +14,24 @@ pub enum AgentEvent {
     ContextBuilt {
         packet_id: String,
         token_estimate: usize,
+        #[serde(default)]
+        packet_hash: Option<String>,
+        #[serde(default)]
+        sources: Option<Vec<crate::context::ContextSourceRef>>,
+        #[serde(default)]
+        omissions: Option<Vec<crate::context::ContextOmission>>,
     },
     ModelRequest {
         provider: String,
         model: String,
+        #[serde(default)]
+        packet_hash: Option<String>,
+        #[serde(default)]
+        temperature: Option<f32>,
+        #[serde(default)]
+        max_tokens: Option<usize>,
+        #[serde(default)]
+        provider_request_hash: Option<String>,
     },
     Text {
         delta: String,
@@ -40,8 +54,8 @@ pub enum AgentEvent {
         tool_name: Option<String>,
         input_hash: Option<String>,
         risk: Option<RiskLevel>,
-        execution_mode: Option<ExecutionMode>,
-        matched_rule_id: Option<String>,
+        mode: Option<ExecutionMode>,
+        matched_rule: Option<String>,
         decision: PolicyStatus,
         reason: Option<String>,
         policy_source: String,
@@ -58,6 +72,18 @@ pub enum AgentEvent {
         output: String,
         is_error: bool,
         truncated: bool,
+        #[serde(default)]
+        tool_name: Option<String>,
+        #[serde(default)]
+        working_dir: Option<String>,
+        #[serde(default)]
+        duration_ms: Option<u64>,
+        #[serde(default)]
+        output_hash: Option<String>,
+        #[serde(default)]
+        artifact_refs: Option<Vec<String>>,
+        #[serde(default)]
+        policy_source: Option<String>,
     },
     MemoryProposal {
         diff: String,

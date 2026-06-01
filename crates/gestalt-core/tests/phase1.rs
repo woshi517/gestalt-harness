@@ -46,6 +46,12 @@ fn contract_types_round_trip_through_serde() {
         output: "done".to_string(),
         is_error: false,
         truncated: false,
+        tool_name: None,
+        working_dir: None,
+        duration_ms: None,
+        output_hash: None,
+        artifact_refs: None,
+        policy_source: None,
     };
     let encoded = serde_json::to_string(&event).expect("event encodes");
     let decoded: AgentEvent = serde_json::from_str(&encoded).expect("event decodes");
@@ -179,6 +185,93 @@ async fn agent_loop_executes_single_tool_call() {
     assert_eq!(result.turns, 2);
     assert_eq!(tool.executed_inputs.lock().expect("lock").len(), 1);
     assert!(session.history.iter().any(|message| matches!(message, Message::ToolResult { tool_use_id, content, is_error } if tool_use_id == "call-1" && content == "tool result" && !is_error)));
+}
+
+#[tokio::test]
+async fn agent_loop_emits_rich_context_model_and_tool_metadata() {
+    let tool = Arc::new(MockTool::new("read", true, "tool result"));
+    let provider = mock_provider(vec![
+        vec![
+            AgentEvent::ToolCallStreamed {
+                id: "call-1".to_string(),
+                name: "read".to_string(),
+                input_delta: "{\"path\":\"README.md\"}".to_string(),
+            },
+            AgentEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
+        ],
+        vec![AgentEvent::Stop {
+            reason: StopReason::EndTurn,
+        }],
+    ]);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(MockPolicy::allow_all());
+    let approval = Arc::new(AutoApprovalProvider);
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Yolo);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+
+    let context = recorded
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ContextBuilt {
+                packet_hash,
+                sources,
+                omissions,
+                ..
+            } => Some((packet_hash, sources, omissions)),
+            _ => None,
+        })
+        .expect("context built event present");
+    assert!(context.0.as_ref().is_some_and(|hash| !hash.is_empty()));
+    assert!(context.1.is_some());
+    assert!(context.2.is_some());
+
+    let model = recorded
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ModelRequest {
+                packet_hash,
+                max_tokens,
+                provider_request_hash,
+                ..
+            } => Some((packet_hash, max_tokens, provider_request_hash)),
+            _ => None,
+        })
+        .expect("model request event present");
+    assert!(model.0.as_ref().is_some_and(|hash| !hash.is_empty()));
+    assert!(model.1.is_some_and(|value| value > 0));
+    assert!(model.2.as_ref().is_some_and(|hash| !hash.is_empty()));
+
+    let tool_result = recorded
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolResult {
+                tool_name,
+                duration_ms,
+                output_hash,
+                policy_source,
+                ..
+            } => Some((tool_name, duration_ms, output_hash, policy_source)),
+            _ => None,
+        })
+        .expect("tool result event present");
+    assert_eq!(tool_result.0.as_deref(), Some("read"));
+    assert!(tool_result.1.is_some());
+    assert!(tool_result.2.as_ref().is_some_and(|hash| !hash.is_empty()));
+    assert_eq!(tool_result.3.as_deref(), Some("allow-all"));
 }
 
 #[tokio::test]
@@ -623,8 +716,8 @@ async fn unknown_tool_still_logs_a_policy_decision() {
         tool_name,
         input_hash,
         risk,
-        execution_mode,
-        matched_rule_id,
+        mode,
+        matched_rule,
         decision,
         policy_source,
         ..
@@ -635,8 +728,8 @@ async fn unknown_tool_still_logs_a_policy_decision() {
     assert_eq!(tool_name.as_deref(), Some("bash"));
     assert!(input_hash.as_deref().is_some_and(|hash| !hash.is_empty()));
     assert_eq!(risk, &Some(RiskLevel::Critical));
-    assert_eq!(execution_mode, &Some(ExecutionMode::Confirm));
-    assert_eq!(matched_rule_id.as_deref(), Some("tool.not_found"));
+    assert_eq!(mode, &Some(ExecutionMode::Confirm));
+    assert_eq!(matched_rule.as_deref(), Some("tool.not_found"));
     assert_eq!(*decision, PolicyStatus::Denied);
     assert_eq!(policy_source, "tool.not_found");
 
