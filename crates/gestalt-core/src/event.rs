@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::approval::SessionGrant;
+use crate::session::ExecutionMode;
+use crate::tool::RiskLevel;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
@@ -33,9 +37,21 @@ pub enum AgentEvent {
     },
     PolicyDecision {
         tool_call_id: String,
+        tool_name: Option<String>,
+        input_hash: Option<String>,
+        risk: Option<RiskLevel>,
+        execution_mode: Option<ExecutionMode>,
+        matched_rule_id: Option<String>,
         decision: PolicyStatus,
         reason: Option<String>,
         policy_source: String,
+    },
+    ApprovalDecision {
+        tool_call_id: String,
+        decision: ApprovalOutcome,
+        original_input_hash: String,
+        edited_input_hash: Option<String>,
+        grant_terms: Option<SessionGrant>,
     },
     ToolResult {
         id: String,
@@ -93,4 +109,13 @@ pub enum VerificationStatus {
     Failed,
     Warning,
     Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalOutcome {
+    Approve,
+    Deny,
+    Edit,
+    AlwaysAllow,
 }

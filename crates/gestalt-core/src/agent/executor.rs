@@ -1,14 +1,18 @@
+use std::sync::Arc;
+
 use futures::future::join_all;
 use serde_json::Value;
-use std::{collections::HashSet, sync::Arc};
 
 use crate::{
-    approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest},
+    approval::{
+        hash_input, hash_input_short, ApprovalDecision, ApprovalProvider, ApprovalRequest,
+        SessionGrant,
+    },
     error::Result,
-    event::{AgentEvent, PolicyStatus},
+    event::{AgentEvent, ApprovalOutcome, PolicyStatus},
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     session::Session,
-    tool::{Tool, ToolCatalog, ToolContext, ToolExecutionResult},
+    tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolExecutionResult},
 };
 
 pub struct ToolExecutor {
@@ -39,7 +43,9 @@ impl ToolExecutor {
         session: &Session,
         tool_calls: Vec<crate::turn::ProposedToolCall>,
         emit: &mut F,
-        allowed_session_tools: &mut HashSet<String>,
+        session_grants: &mut Vec<SessionGrant>,
+        current_turn: usize,
+        loop_max_turns: usize,
     ) -> Result<Vec<(usize, String, ToolExecutionResult)>>
     where
         F: FnMut(AgentEvent) + Send,
@@ -50,6 +56,20 @@ impl ToolExecutor {
 
         for (order, call) in tool_calls.into_iter().enumerate() {
             let Some(tool) = self.tools.get(&call.name) else {
+                let policy = PolicyDecision::denied(
+                    format!("Tool not found: {}", call.name),
+                    "tool.not_found".to_string(),
+                );
+                emit_policy_decision(
+                    emit,
+                    &call.id,
+                    &call.name,
+                    &call.input,
+                    RiskLevel::Critical,
+                    session.mode,
+                    &policy,
+                    Some("tool.not_found".to_string()),
+                );
                 denied_results.push((
                     order,
                     call.id,
@@ -58,30 +78,26 @@ impl ToolExecutor {
                 continue;
             };
 
-            let policy = if allowed_session_tools.contains(&call.name) {
-                let p = PolicyDecision {
-                    status: PolicyStatus::Allowed,
-                    reason: Some("Session approved".to_string()),
-                    policy_source: "session_bypass".to_string(),
-                };
-                emit(AgentEvent::PolicyDecision {
-                    tool_call_id: call.id.clone(),
-                    decision: p.status,
-                    reason: p.reason.clone(),
-                    policy_source: p.policy_source.clone(),
-                });
-                p
-            } else {
-                self.evaluate_policy(
+            let risk = tool.risk(&call.input);
+            let applicable_grant = self.find_applicable_grant(
+                session_grants,
+                &call.name,
+                &call.input,
+                risk,
+                current_turn,
+            );
+
+            let policy = self
+                .evaluate_policy(
                     session,
                     &call.id,
                     &call.name,
                     &call.input,
-                    tool.as_ref(),
+                    risk,
+                    applicable_grant.as_ref(),
                     emit,
                 )
-                .await?
-            };
+                .await?;
 
             match policy.status {
                 PolicyStatus::Allowed => {
@@ -105,6 +121,8 @@ impl ToolExecutor {
         }
 
         for (order, id, name, input, tool, policy) in confirm_queue {
+            let call_id = id.clone();
+            let original_input_hash = hash_input(&input);
             let approval = self
                 .approval
                 .approve(ApprovalRequest {
@@ -116,9 +134,10 @@ impl ToolExecutor {
                 })
                 .await;
 
-            match approval {
+            let (outcome, edited_input_hash, grant_terms) = match approval {
                 ApprovalDecision::Approve => {
                     planned.push((order, id, name, input, tool, policy));
+                    (ApprovalOutcome::Approve, None, None)
                 }
                 ApprovalDecision::Deny => {
                     denied_results.push((
@@ -131,22 +150,25 @@ impl ToolExecutor {
                                 .unwrap_or_else(|| format!("approval denied tool call {name}")),
                         ),
                     ));
+                    (ApprovalOutcome::Deny, None, None)
                 }
                 ApprovalDecision::Edit(new_input) => {
-                    let policy = self
-                        .evaluate_policy(session, &id, &name, &new_input, tool.as_ref(), emit)
+                    let edited_hash = hash_input(&new_input);
+                    let new_risk = tool.risk(&new_input);
+                    let re_evaluated = self
+                        .evaluate_policy(session, &id, &name, &new_input, new_risk, None, emit)
                         .await?;
-                    match policy.status {
+                    match re_evaluated.status {
                         PolicyStatus::Allowed => {
-                            planned.push((order, id, name, new_input, tool, policy));
+                            planned.push((order, id, name, new_input, tool, re_evaluated));
                         }
                         PolicyStatus::Denied => {
                             denied_results.push((
                                 order,
                                 id,
-                                ToolExecutionResult::error(policy.reason.unwrap_or_else(|| {
-                                    format!("policy denied edited tool call {name}")
-                                })),
+                                ToolExecutionResult::error(re_evaluated.reason.unwrap_or_else(
+                                    || format!("policy denied edited tool call {name}"),
+                                )),
                             ));
                         }
                         PolicyStatus::Confirm => {
@@ -159,12 +181,32 @@ impl ToolExecutor {
                             ));
                         }
                     }
+                    (ApprovalOutcome::Edit, Some(edited_hash), None)
                 }
                 ApprovalDecision::AlwaysAllowForSession => {
-                    allowed_session_tools.insert(name.clone());
+                    let risk_ceiling = tool.risk(&input);
+                    let grant = SessionGrant::new(
+                        name.clone(),
+                        &input,
+                        risk_ceiling,
+                        policy.policy_source.clone(),
+                        "session_grant",
+                        current_turn,
+                        loop_max_turns.max(1),
+                    );
+                    session_grants.push(grant.clone());
                     planned.push((order, id, name, input, tool, policy));
+                    (ApprovalOutcome::AlwaysAllow, None, Some(grant))
                 }
-            }
+            };
+
+            emit(AgentEvent::ApprovalDecision {
+                tool_call_id: call_id,
+                decision: outcome,
+                original_input_hash,
+                edited_input_hash,
+                grant_terms,
+            });
         }
 
         let mut results = denied_results;
@@ -220,7 +262,8 @@ impl ToolExecutor {
         tool_call_id: &str,
         tool_name: &str,
         input: &Value,
-        tool: &dyn Tool,
+        risk: RiskLevel,
+        grant: Option<&SessionGrant>,
         emit: &mut impl FnMut(AgentEvent),
     ) -> Result<PolicyDecision> {
         let decision = self
@@ -229,7 +272,7 @@ impl ToolExecutor {
                 tool_call_id: tool_call_id.to_string(),
                 tool_name: tool_name.to_string(),
                 input: input.clone(),
-                risk: tool.risk(input),
+                risk,
                 mode: session.mode,
                 working_dir: session.tool_ctx.working_dir.clone(),
                 workspace_root: session.tool_ctx.workspace_root.clone(),
@@ -237,14 +280,88 @@ impl ToolExecutor {
             })
             .await;
 
-        emit(AgentEvent::PolicyDecision {
-            tool_call_id: tool_call_id.to_string(),
-            decision: decision.status,
-            reason: decision.reason.clone(),
-            policy_source: decision.policy_source.clone(),
-        });
-        Ok(decision)
+        let final_decision = if let Some(grant) = grant {
+            apply_grant_override(decision, grant, tool_name)
+        } else {
+            decision
+        };
+
+        let matched_rule_id = grant
+            .map(|grant| grant.matched_rule.as_str())
+            .unwrap_or(final_decision.policy_source.as_str());
+
+        emit_policy_decision(
+            emit,
+            tool_call_id,
+            tool_name,
+            input,
+            risk,
+            session.mode,
+            &final_decision,
+            Some(matched_rule_id.to_string()),
+        );
+        Ok(final_decision)
     }
+
+    fn find_applicable_grant(
+        &self,
+        grants: &[SessionGrant],
+        tool_name: &str,
+        input: &Value,
+        risk: RiskLevel,
+        current_turn: usize,
+    ) -> Option<SessionGrant> {
+        grants
+            .iter()
+            .rev()
+            .find(|grant| grant.covers(tool_name, input, risk, current_turn))
+            .cloned()
+    }
+}
+
+fn apply_grant_override(
+    policy: PolicyDecision,
+    grant: &SessionGrant,
+    tool_name: &str,
+) -> PolicyDecision {
+    match policy.status {
+        PolicyStatus::Denied => policy,
+        PolicyStatus::Allowed | PolicyStatus::Confirm => {
+            let tool_tag = hash_input_short(&Value::String(tool_name.to_string()));
+            let policy_source = format!("session_grant:{}:{}", grant.matched_rule, tool_tag);
+            PolicyDecision {
+                status: PolicyStatus::Allowed,
+                reason: Some(format!(
+                    "matched session grant (rule={}, risk_ceiling={:?})",
+                    grant.matched_rule, grant.risk_ceiling
+                )),
+                policy_source,
+            }
+        }
+    }
+}
+
+fn emit_policy_decision(
+    emit: &mut impl FnMut(AgentEvent),
+    tool_call_id: &str,
+    tool_name: &str,
+    input: &Value,
+    risk: RiskLevel,
+    execution_mode: crate::session::ExecutionMode,
+    decision: &PolicyDecision,
+    matched_rule_id: Option<String>,
+) {
+    emit(AgentEvent::PolicyDecision {
+        tool_call_id: tool_call_id.to_string(),
+        tool_name: Some(tool_name.to_string()),
+        input_hash: Some(hash_input(input)),
+        risk: Some(risk),
+        execution_mode: Some(execution_mode),
+        matched_rule_id,
+        decision: decision.status,
+        reason: decision.reason.clone(),
+        policy_source: decision.policy_source.clone(),
+    });
 }
 
 pub fn emit_tool_call_proposals<F>(emit: &mut F, tool_calls: &[crate::turn::ProposedToolCall])

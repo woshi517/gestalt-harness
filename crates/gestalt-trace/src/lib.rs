@@ -209,10 +209,39 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 decision,
                 reason,
                 policy_source,
+                ..
             } => lines.push(format!(
                 "policy> {tool_call_id} {decision:?} source={policy_source} {}",
                 reason.clone().unwrap_or_default()
             )),
+            AgentEvent::ApprovalDecision {
+                tool_call_id,
+                decision,
+                original_input_hash,
+                edited_input_hash,
+                grant_terms,
+            } => {
+                let grant = grant_terms
+                    .as_ref()
+                    .map(|g| {
+                        format!(
+                            " grant={}#{}",
+                            g.tool_name,
+                            &g.input_hash[..8.min(g.input_hash.len())]
+                        )
+                    })
+                    .unwrap_or_default();
+                let edited = edited_input_hash
+                    .as_ref()
+                    .map(|h| format!(" edited={}", &h[..8.min(h.len())]))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "approval> {tool_call_id} {decision:?} orig={}{}{}",
+                    &original_input_hash[..8.min(original_input_hash.len())],
+                    edited,
+                    grant
+                ));
+            }
             AgentEvent::ToolResult {
                 id,
                 output,
@@ -383,6 +412,11 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
         }
         AgentEvent::PolicyDecision {
             tool_call_id,
+            tool_name,
+            input_hash,
+            risk,
+            execution_mode,
+            matched_rule_id,
             decision,
             reason,
             policy_source,
@@ -394,6 +428,11 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             (
                 AgentEvent::PolicyDecision {
                     tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    input_hash: input_hash.clone(),
+                    risk: *risk,
+                    execution_mode: *execution_mode,
+                    matched_rule_id: matched_rule_id.clone(),
                     decision: *decision,
                     reason,
                     policy_source: policy_source.clone(),

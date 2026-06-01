@@ -33,14 +33,15 @@ pub mod turn;
 
 pub use agent::AgentLoop;
 pub use approval::{
-    ApprovalDecision, ApprovalProvider, ApprovalRequest, AutoApprovalProvider, DenyApprovalProvider,
+    hash_input, hash_input_short, ApprovalDecision, ApprovalProvider, ApprovalRequest,
+    AutoApprovalProvider, DenyApprovalProvider, SessionGrant,
 };
 pub use context::{ContextPipeline, TokenBudget};
 pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,
     ToolError, TraceError,
 };
-pub use event::{AgentEvent, PolicyStatus, StopReason, VerificationStatus};
+pub use event::{AgentEvent, ApprovalOutcome, PolicyStatus, StopReason, VerificationStatus};
 pub use message::{ContentBlock, ContentTrust, DocumentSource, ImageSource, Message};
 pub use model::{ModelInfo, ModelInfoSource};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};

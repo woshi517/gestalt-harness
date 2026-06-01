@@ -18,10 +18,34 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             decision,
             reason,
             policy_source,
+            ..
         } => Some(format!(
             "policy> {tool_call_id} {decision:?} source={policy_source} {}",
             reason.clone().unwrap_or_default()
         )),
+        AgentEvent::ApprovalDecision {
+            tool_call_id,
+            decision,
+            original_input_hash,
+            edited_input_hash,
+            grant_terms,
+        } => {
+            let short = |s: &str| s.chars().take(8).collect::<String>();
+            let grant = grant_terms
+                .as_ref()
+                .map(|g| format!(" grant={}#{}", g.tool_name, short(&g.input_hash)))
+                .unwrap_or_default();
+            let edited = edited_input_hash
+                .as_ref()
+                .map(|h| format!(" edited={}", short(h)))
+                .unwrap_or_default();
+            Some(format!(
+                "approval> {tool_call_id} {decision:?} orig={}{}{}",
+                short(original_input_hash),
+                edited,
+                grant
+            ))
+        }
         AgentEvent::ToolResult {
             id,
             output,

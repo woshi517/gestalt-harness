@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use futures::StreamExt;
 
 use crate::{
-    approval::ApprovalProvider,
+    approval::{ApprovalProvider, SessionGrant},
     context::ContextPipeline,
     error::{HarnessError, ProviderError, Result},
     event::{AgentEvent, StopReason},
@@ -55,7 +55,7 @@ impl AgentLoop {
         let mut total_input_tokens = 0_usize;
         let mut total_output_tokens = 0_usize;
         let mut artifacts = Vec::new();
-        let mut allowed_session_tools = HashSet::new();
+        let mut session_grants: Vec<SessionGrant> = Vec::new();
         let final_stop = loop {
             if turns >= self.max_turns {
                 let reason = StopReason::MaxTurns;
@@ -77,7 +77,8 @@ impl AgentLoop {
                     &mut total_input_tokens,
                     &mut total_output_tokens,
                     &mut artifacts,
-                    &mut allowed_session_tools,
+                    &mut session_grants,
+                    turns,
                 )
                 .await?;
 
@@ -150,7 +151,8 @@ impl AgentLoop {
         total_input_tokens: &mut usize,
         total_output_tokens: &mut usize,
         artifacts: &mut Vec<String>,
-        allowed_session_tools: &mut HashSet<String>,
+        session_grants: &mut Vec<SessionGrant>,
+        current_turn: usize,
     ) -> Result<TurnOutcome>
     where
         F: FnMut(AgentEvent) + Send,
@@ -229,7 +231,14 @@ impl AgentLoop {
 
         let tool_results = self
             .executor
-            .execute_tool_batch(session, tool_calls, emit, allowed_session_tools)
+            .execute_tool_batch(
+                session,
+                tool_calls,
+                emit,
+                session_grants,
+                current_turn,
+                self.max_turns,
+            )
             .await?;
 
         for (_, id, result) in tool_results {

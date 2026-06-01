@@ -8,10 +8,12 @@ use std::{
 use futures::stream;
 use gestalt_core::{
     agent::AgentLoop,
-    approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest, AutoApprovalProvider},
+    approval::{
+        ApprovalDecision, ApprovalProvider, ApprovalRequest, AutoApprovalProvider, SessionGrant,
+    },
     context::{ContextPipeline, TokenBudget},
     error::{HarnessError, ProviderError},
-    event::{AgentEvent, PolicyStatus, StopReason},
+    event::{AgentEvent, ApprovalOutcome, PolicyStatus, StopReason},
     message::{ContentBlock, Message},
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
@@ -344,6 +346,560 @@ async fn agent_loop_stops_on_budget_exhaustion() {
     assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
 }
 
+fn capture_events() -> Arc<Mutex<Vec<AgentEvent>>> {
+    Arc::new(Mutex::new(Vec::new()))
+}
+
+fn approval_decisions(events: &[AgentEvent]) -> Vec<&AgentEvent> {
+    events
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ApprovalDecision { .. }))
+        .collect()
+}
+
+fn bash_call_event_stream(call_id: &str, command: &str, with_stop: StopReason) -> Vec<AgentEvent> {
+    let mut events = vec![AgentEvent::ToolCallStreamed {
+        id: call_id.to_string(),
+        name: "bash".to_string(),
+        input_delta: format!("{{\"command\":\"{command}\"}}"),
+    }];
+    events.push(AgentEvent::Stop { reason: with_stop });
+    events
+}
+
+#[tokio::test]
+async fn session_grant_auto_approves_same_input_with_session_grant_source() {
+    let tool = Arc::new(RiskAwareMockTool::new(
+        "bash",
+        |input| {
+            input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map_or(RiskLevel::Low, |c| {
+                    if c == "rm" {
+                        RiskLevel::High
+                    } else {
+                        RiskLevel::Low
+                    }
+                })
+        },
+        "ran",
+    ));
+    let provider = mock_provider(vec![
+        bash_call_event_stream("call-1", "safe-ls", StopReason::ToolUse),
+        bash_call_event_stream("call-2", "safe-ls", StopReason::EndTurn),
+    ]);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool.clone()]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(MockPolicy::confirm_all("confirm-required"));
+    let approval = Arc::new(MockApproval::always_allow());
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Confirm);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+    let policy_decisions: Vec<&AgentEvent> = recorded
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::PolicyDecision { .. }))
+        .collect();
+    assert_eq!(
+        policy_decisions.len(),
+        2,
+        "two policy decisions expected (call 1 + call 2)"
+    );
+    let AgentEvent::PolicyDecision {
+        policy_source: first_source,
+        ..
+    } = policy_decisions[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(
+        first_source, "confirm-all",
+        "first call has no prior grant, so policy_source is confirm-all"
+    );
+    let AgentEvent::PolicyDecision {
+        policy_source: second_source,
+        ..
+    } = policy_decisions[1]
+    else {
+        unreachable!()
+    };
+    assert!(
+        second_source.starts_with("session_grant:"),
+        "expected second policy_source to start with session_grant:, got {second_source}"
+    );
+    drop(policy_decisions);
+    drop(recorded);
+
+    assert_eq!(
+        tool.executed_inputs.lock().expect("lock").len(),
+        2,
+        "both calls should have executed (second auto-approved via the session grant)"
+    );
+
+    let recorded = events.lock().expect("lock");
+    let approval_events = approval_decisions(&recorded);
+    assert_eq!(approval_events.len(), 1, "only the first call was approved");
+    drop(approval_events);
+    drop(recorded);
+}
+#[tokio::test]
+async fn session_grant_does_not_apply_to_different_input() {
+    let tool = Arc::new(RiskAwareMockTool::new("bash", |_| RiskLevel::Medium, "ran"));
+    let provider = mock_provider(vec![
+        bash_call_event_stream("call-1", "ls", StopReason::ToolUse),
+        bash_call_event_stream("call-2", "rm", StopReason::EndTurn),
+    ]);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool.clone()]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(MockPolicy::confirm_all("confirm-required"));
+    let approval = Arc::new(MockApproval::always_allow());
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Confirm);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+    let policy_sources: Vec<&str> = recorded
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::PolicyDecision { policy_source, .. } => Some(policy_source.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(policy_sources.len(), 2, "two policy decisions expected");
+    assert_eq!(
+        policy_sources[0], "confirm-all",
+        "first call has no prior grant, so policy_source must be confirm-all (got {})",
+        policy_sources[0]
+    );
+    assert_eq!(
+        policy_sources[1], "confirm-all",
+        "second call has different input, so the grant must NOT apply and policy must re-confirm (got {})",
+        policy_sources[1]
+    );
+    drop(policy_sources);
+    let grants: Vec<&SessionGrant> = recorded
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ApprovalDecision {
+                grant_terms: Some(g),
+                ..
+            } => Some(g),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(grants.len(), 2, "both calls went through approval");
+    assert_ne!(grants[0].input_hash, grants[1].input_hash);
+    assert_ne!(grants[0].input_hash, "");
+    drop(grants);
+    drop(recorded);
+
+    assert_eq!(
+        tool.executed_inputs.lock().expect("lock").len(),
+        2,
+        "both calls approved, both should have executed"
+    );
+}
+
+#[tokio::test]
+async fn session_grant_blocks_riskier_call_after_low_risk_approval() {
+    let tool = Arc::new(RiskAwareMockTool::new(
+        "bash",
+        |input| {
+            input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map_or(RiskLevel::Low, |c| {
+                    if c == "rm" {
+                        RiskLevel::Critical
+                    } else {
+                        RiskLevel::Low
+                    }
+                })
+        },
+        "ran",
+    ));
+    let provider = mock_provider(vec![
+        bash_call_event_stream("call-1", "ls", StopReason::ToolUse),
+        bash_call_event_stream("call-2", "rm", StopReason::EndTurn),
+    ]);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool.clone()]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(DenyOnCriticalPolicy);
+    let approval = Arc::new(MockApproval::always_allow());
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Confirm);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+    let policy_decisions: Vec<&AgentEvent> = recorded
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::PolicyDecision { .. }))
+        .collect();
+    assert_eq!(policy_decisions.len(), 2);
+    let AgentEvent::PolicyDecision {
+        decision,
+        policy_source,
+        ..
+    } = policy_decisions[1]
+    else {
+        unreachable!()
+    };
+    assert_eq!(*decision, PolicyStatus::Denied);
+    assert_eq!(policy_source, "critical-denied");
+    drop(policy_decisions);
+    drop(recorded);
+
+    let executed = tool.executed_inputs.lock().expect("lock");
+    assert_eq!(
+        executed.len(),
+        1,
+        "only the first call should have executed"
+    );
+    assert_eq!(executed[0], json!({"command": "ls"}));
+    drop(executed);
+}
+
+#[tokio::test]
+async fn unknown_tool_still_logs_a_policy_decision() {
+    let provider = mock_provider(vec![bash_call_event_stream(
+        "call-1",
+        "ghost",
+        StopReason::EndTurn,
+    )]);
+    let tools = Arc::new(MockCatalog::default());
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(MockPolicy::confirm_all("confirm-required"));
+    let approval = Arc::new(MockApproval::approve_all());
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Confirm);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+    let policy_events: Vec<&AgentEvent> = recorded
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::PolicyDecision { .. }))
+        .collect();
+    assert_eq!(
+        policy_events.len(),
+        1,
+        "unknown tools should still log policy"
+    );
+
+    let AgentEvent::PolicyDecision {
+        tool_name,
+        input_hash,
+        risk,
+        execution_mode,
+        matched_rule_id,
+        decision,
+        policy_source,
+        ..
+    } = policy_events[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(tool_name.as_deref(), Some("bash"));
+    assert!(input_hash.as_deref().is_some_and(|hash| !hash.is_empty()));
+    assert_eq!(risk, &Some(RiskLevel::Critical));
+    assert_eq!(execution_mode, &Some(ExecutionMode::Confirm));
+    assert_eq!(matched_rule_id.as_deref(), Some("tool.not_found"));
+    assert_eq!(*decision, PolicyStatus::Denied);
+    assert_eq!(policy_source, "tool.not_found");
+
+    assert!(recorded.iter().any(|event| matches!(
+        event,
+        AgentEvent::ToolResult {
+            output,
+            is_error: true,
+            ..
+        } if output.contains("Tool not found: bash")
+    )));
+}
+
+#[tokio::test]
+async fn approval_decision_events_cover_approve_and_deny() {
+    let run = |approval: MockApproval| async move {
+        let tool = Arc::new(RiskAwareMockTool::new("bash", |_| RiskLevel::Low, "ran"));
+        let provider = mock_provider(vec![bash_call_event_stream(
+            "call-1",
+            "ls",
+            StopReason::EndTurn,
+        )]);
+        let tools = Arc::new(MockCatalog::with_tools(vec![tool.clone()]));
+        let pipeline = Arc::new(MockPipeline::default());
+        let policy = Arc::new(MockPolicy::confirm_all("confirm-required"));
+        let approval = Arc::new(approval);
+        let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+        let mut session = make_session(ExecutionMode::Confirm);
+        let events = capture_events();
+
+        let _ = loop_
+            .run(&mut session, {
+                let events = events.clone();
+                move |event| events.lock().expect("lock").push(event)
+            })
+            .await
+            .expect("run succeeds");
+
+        (tool, events)
+    };
+
+    let (approved_tool, approved_events) = run(MockApproval::approve_all()).await;
+    let approved_recorded = approved_events.lock().expect("lock");
+    let approved = approval_decisions(&approved_recorded);
+    assert_eq!(approved.len(), 1);
+    let AgentEvent::ApprovalDecision { decision, .. } = approved[0] else {
+        unreachable!()
+    };
+    assert_eq!(*decision, ApprovalOutcome::Approve);
+    assert_eq!(approved_tool.executed_inputs.lock().expect("lock").len(), 1);
+
+    let (denied_tool, denied_events) = run(MockApproval::deny_all()).await;
+    let denied_recorded = denied_events.lock().expect("lock");
+    let denied = approval_decisions(&denied_recorded);
+    assert_eq!(denied.len(), 1);
+    let AgentEvent::ApprovalDecision { decision, .. } = denied[0] else {
+        unreachable!()
+    };
+    assert_eq!(*decision, ApprovalOutcome::Deny);
+    assert_eq!(denied_tool.executed_inputs.lock().expect("lock").len(), 0);
+}
+
+#[tokio::test]
+async fn session_grant_emits_approval_decision_event_with_grant_terms() {
+    let tool = Arc::new(RiskAwareMockTool::new("bash", |_| RiskLevel::Low, "ran"));
+    let provider = mock_provider(vec![bash_call_event_stream(
+        "call-1",
+        "ls",
+        StopReason::EndTurn,
+    )]);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(MockPolicy::confirm_all("confirm-required"));
+    let approval = Arc::new(MockApproval::always_allow());
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Confirm);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+    let approvals = approval_decisions(&recorded);
+    assert_eq!(approvals.len(), 1);
+    let AgentEvent::ApprovalDecision {
+        tool_call_id,
+        decision,
+        grant_terms,
+        original_input_hash,
+        edited_input_hash,
+    } = approvals[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(tool_call_id, "call-1");
+    assert_eq!(*decision, ApprovalOutcome::AlwaysAllow);
+    assert!(grant_terms.is_some());
+    assert!(!original_input_hash.is_empty());
+    assert!(edited_input_hash.is_none());
+    let grant = grant_terms.as_ref().expect("grant present");
+    assert_eq!(grant.tool_name, "bash");
+    assert_eq!(grant.matched_rule, "confirm-all");
+    assert_eq!(grant.policy_source, "session_grant");
+    assert_eq!(grant.risk_ceiling, RiskLevel::Low);
+    assert_eq!(grant.granted_at_turn, 0);
+    assert_eq!(grant.expires_in_turns, 3);
+    drop(approvals);
+    drop(recorded);
+}
+
+#[tokio::test]
+async fn session_grant_edit_re_evaluates_policy_and_emits_edited_hash() {
+    let tool = Arc::new(RiskAwareMockTool::new(
+        "bash",
+        |input| {
+            input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map_or(RiskLevel::Medium, |c| {
+                    if c == "ls" {
+                        RiskLevel::Low
+                    } else {
+                        RiskLevel::Medium
+                    }
+                })
+        },
+        "ran",
+    ));
+    let provider = mock_provider(vec![bash_call_event_stream(
+        "call-1",
+        "bad-cmd",
+        StopReason::EndTurn,
+    )]);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool.clone()]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(AllowLowRiskConfirmHighPolicy);
+    let approval = Arc::new(MockApproval::edit_to_input(json!({"command": "ls"})));
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Confirm);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+    let policy_count = recorded
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::PolicyDecision { .. }))
+        .count();
+    assert_eq!(
+        policy_count, 2,
+        "two policy decisions: first for original, second for edited"
+    );
+    let approvals = approval_decisions(&recorded);
+    assert_eq!(approvals.len(), 1);
+    let AgentEvent::ApprovalDecision {
+        decision,
+        original_input_hash,
+        edited_input_hash,
+        grant_terms,
+        ..
+    } = approvals[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(*decision, ApprovalOutcome::Edit);
+    assert!(!original_input_hash.is_empty());
+    assert!(edited_input_hash.is_some());
+    assert_ne!(
+        original_input_hash.as_str(),
+        edited_input_hash.as_deref().expect("edit present")
+    );
+    assert!(grant_terms.is_none());
+    drop(approvals);
+    drop(recorded);
+
+    assert_eq!(
+        tool.executed_inputs.lock().expect("lock").len(),
+        1,
+        "edited input passed policy re-evaluation"
+    );
+}
+
+#[tokio::test]
+async fn session_grant_records_distinct_grants_for_different_inputs_under_repeated_approval() {
+    let tool = Arc::new(RiskAwareMockTool::new(
+        "bash",
+        |input| {
+            input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map_or(RiskLevel::Low, |c| {
+                    if c == "rm" {
+                        RiskLevel::High
+                    } else {
+                        RiskLevel::Low
+                    }
+                })
+        },
+        "ran",
+    ));
+    let provider = mock_provider(vec![
+        bash_call_event_stream("call-1", "ls", StopReason::ToolUse),
+        bash_call_event_stream("call-2", "rm", StopReason::EndTurn),
+    ]);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool.clone()]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(MockPolicy::confirm_all("confirm-required"));
+    let approval = Arc::new(MockApproval::always_allow());
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
+    let mut session = make_session(ExecutionMode::Confirm);
+    let events = capture_events();
+
+    let _ = loop_
+        .run(&mut session, {
+            let events = events.clone();
+            move |event| events.lock().expect("lock").push(event)
+        })
+        .await
+        .expect("run succeeds");
+
+    let recorded = events.lock().expect("lock");
+    let policy_decision_count = recorded
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::PolicyDecision { .. }))
+        .count();
+    assert_eq!(policy_decision_count, 2);
+    let grants: Vec<&SessionGrant> = recorded
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::ApprovalDecision {
+                grant_terms: Some(g),
+                ..
+            } => Some(g),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(grants.len(), 2, "both calls produced grants");
+    assert_eq!(grants[0].risk_ceiling, RiskLevel::Low);
+    assert_eq!(grants[1].risk_ceiling, RiskLevel::High);
+    assert_ne!(grants[0].input_hash, grants[1].input_hash);
+    drop(grants);
+    drop(recorded);
+
+    let executed = tool.executed_inputs.lock().expect("lock");
+    assert_eq!(
+        executed.len(),
+        2,
+        "both calls approved by user, both executed"
+    );
+    drop(executed);
+}
+
 fn accepts_trait_objects(
     _provider: Arc<dyn Provider>,
     _tools: Arc<dyn ToolCatalog>,
@@ -507,10 +1063,12 @@ struct MockCatalog {
 }
 
 impl MockCatalog {
-    fn with_tools(tools: Vec<Arc<MockTool>>) -> Self {
+    fn with_tools<T: Tool + 'static>(tools: Vec<Arc<T>>) -> Self {
         let mut catalog = Self::default();
         for tool in tools {
-            catalog.tools.insert(tool.name.clone(), tool);
+            catalog
+                .tools
+                .insert(tool.name().to_string(), tool as Arc<dyn Tool>);
         }
         catalog
     }
@@ -593,6 +1151,118 @@ impl MockApproval {
     fn approve_all() -> Self {
         Self {
             decision_for: Arc::new(|_request| ApprovalDecision::Approve),
+        }
+    }
+
+    fn deny_all() -> Self {
+        Self {
+            decision_for: Arc::new(|_request| ApprovalDecision::Deny),
+        }
+    }
+
+    fn always_allow() -> Self {
+        Self {
+            decision_for: Arc::new(|_request| ApprovalDecision::AlwaysAllowForSession),
+        }
+    }
+
+    fn edit_to_input(target: Value) -> Self {
+        Self {
+            decision_for: Arc::new(move |_request| ApprovalDecision::Edit(target.clone())),
+        }
+    }
+}
+
+struct RiskAwareMockTool {
+    name: String,
+    risk_for: Arc<dyn Fn(&Value) -> RiskLevel + Send + Sync>,
+    output: String,
+    executed_inputs: Arc<Mutex<Vec<Value>>>,
+}
+
+impl RiskAwareMockTool {
+    fn new(
+        name: impl Into<String>,
+        risk_for: impl Fn(&Value) -> RiskLevel + Send + Sync + 'static,
+        output: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            risk_for: Arc::new(risk_for),
+            output: output.into(),
+            executed_inputs: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for RiskAwareMockTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        "risk-aware mock tool"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        json!({
+            "type": "object",
+            "properties": {
+                "command": { "type": "string" }
+            }
+        })
+    }
+
+    fn risk(&self, input: &Value) -> RiskLevel {
+        (self.risk_for)(input)
+    }
+
+    fn can_run_in_parallel(&self, input: &Value) -> bool {
+        matches!(self.risk(input), RiskLevel::Low)
+    }
+
+    async fn execute(
+        &self,
+        input: Value,
+        _ctx: &ToolContext,
+    ) -> Result<ToolOutput, gestalt_core::ToolError> {
+        self.executed_inputs.lock().expect("lock").push(input);
+        Ok(ToolOutput::Text {
+            content: self.output.clone(),
+        })
+    }
+}
+
+struct AllowLowRiskConfirmHighPolicy;
+
+#[async_trait::async_trait]
+impl PolicyEngine for AllowLowRiskConfirmHighPolicy {
+    async fn evaluate(&self, request: PolicyRequest) -> PolicyDecision {
+        if matches!(request.risk, RiskLevel::Low) {
+            PolicyDecision {
+                status: PolicyStatus::Allowed,
+                reason: Some("low-risk allowed".to_string()),
+                policy_source: "allow-low-risk".to_string(),
+            }
+        } else {
+            PolicyDecision::confirm("confirm required".to_string(), "confirm-all".to_string())
+        }
+    }
+}
+
+struct DenyOnCriticalPolicy;
+
+#[async_trait::async_trait]
+impl PolicyEngine for DenyOnCriticalPolicy {
+    async fn evaluate(&self, request: PolicyRequest) -> PolicyDecision {
+        if matches!(request.risk, RiskLevel::Critical) {
+            PolicyDecision::denied(
+                "critical-risk call denied".to_string(),
+                "critical-denied".to_string(),
+            )
+        } else {
+            PolicyDecision::confirm("confirm required".to_string(), "confirm-all".to_string())
         }
     }
 }

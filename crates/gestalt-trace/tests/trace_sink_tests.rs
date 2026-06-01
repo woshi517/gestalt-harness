@@ -26,6 +26,11 @@ fn jsonl_trace_sink_writes_monotonic_redacted_envelopes() {
     .expect("emit text");
     sink.emit(AgentEvent::PolicyDecision {
         tool_call_id: "call-1".to_string(),
+        tool_name: Some("read".to_string()),
+        input_hash: Some("abcdabcdabcdabcd".to_string()),
+        risk: Some(gestalt_core::RiskLevel::Low),
+        execution_mode: Some(gestalt_core::ExecutionMode::Confirm),
+        matched_rule_id: Some("paths.allow_read".to_string()),
         decision: gestalt_core::PolicyStatus::Allowed,
         reason: Some("safe".to_string()),
         policy_source: "paths.allow_read".to_string(),
