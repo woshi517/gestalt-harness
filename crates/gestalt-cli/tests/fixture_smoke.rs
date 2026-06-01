@@ -36,3 +36,12 @@ fn minimal_workspace_fixture_exists() {
     assert!(workspace.join("workspace.md").exists());
     assert!(workspace.join("memory.md").exists());
 }
+
+#[test]
+fn provider_and_trace_fixtures_are_populated() {
+    let fixtures = Path::new("../../tests/fixtures");
+    assert!(fixtures.join("provider-streams/openai-multiple-tools.sse").exists());
+    assert!(fixtures.join("provider-streams/anthropic-single-tool.sse").exists());
+    assert!(fixtures.join("traces/minimal-run.jsonl").exists());
+    assert!(fixtures.join("cli-golden/replay-display.txt").exists());
+}

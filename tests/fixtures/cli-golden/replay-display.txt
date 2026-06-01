@@ -1,0 +1,7 @@
+model> openai/gpt-4o-mini
+assistant> hello
+tool> read#call-1 {"path":"README.md"}
+policy> call-1 Allowed source=paths.allow_read safe
+tool-result> call-1 error=false truncated=false ok
+usage> in=1000 out=500
+stop> EndTurn

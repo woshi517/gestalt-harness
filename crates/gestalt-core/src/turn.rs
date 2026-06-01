@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -68,9 +68,40 @@ pub struct TurnAccumulator {
     thinking_deltas: Vec<String>,
     pending_tool_calls: HashMap<String, PendingToolCall>,
     tool_call_order: Vec<String>,
+    proposed_tool_calls: HashSet<String>,
 }
 
 impl TurnAccumulator {
+    pub fn push(&mut self, event: AgentEvent) -> Result<Vec<AgentEvent>, HarnessError> {
+        self.record(&event)?;
+
+        match event {
+            AgentEvent::ToolCallStreamed { id, .. } => {
+                if self.proposed_tool_calls.contains(&id) {
+                    return Ok(vec![]);
+                }
+                if let Some(pending) = self.pending_tool_calls.get(&id) {
+                    if !pending.name.is_empty() {
+                        let trimmed = pending.input.trim();
+                        // A JSON input is complete and parseable for an object parameter list if it starts with '{' and ends with '}' and parses.
+                        if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                            if let Ok(input_val) = serde_json::from_str::<Value>(trimmed) {
+                                self.proposed_tool_calls.insert(id.clone());
+                                return Ok(vec![AgentEvent::ToolCallProposed {
+                                    id,
+                                    name: pending.name.clone(),
+                                    input: input_val,
+                                }]);
+                            }
+                        }
+                    }
+                }
+                Ok(vec![])
+            }
+            other => Ok(vec![other]),
+        }
+    }
+
     pub fn record(&mut self, event: &AgentEvent) -> Result<(), HarnessError> {
         match event {
             AgentEvent::Text { delta } => {
@@ -94,6 +125,9 @@ impl TurnAccumulator {
                             input: String::new(),
                         }
                     });
+                if !name.is_empty() && entry.name.is_empty() {
+                    entry.name.clone_from(name);
+                }
                 entry.input.push_str(input_delta);
             }
             _ => {}
@@ -108,6 +142,7 @@ impl TurnAccumulator {
             thinking_deltas,
             pending_tool_calls,
             tool_call_order,
+            proposed_tool_calls: _,
         } = self;
 
         let mut turn = AssistantTurn {
@@ -118,18 +153,18 @@ impl TurnAccumulator {
 
         for id in tool_call_order {
             let pending = pending_tool_calls.get(&id).ok_or_else(|| {
-                HarnessError::Provider(ProviderError::InvalidResponse(format!(
-                    "missing accumulated tool call: {id}"
-                )))
+                HarnessError::Provider(ProviderError::UnexpectedResponse {
+                    details: format!("missing accumulated tool call: {id}"),
+                })
             })?;
 
             let input = if pending.input.trim().is_empty() {
                 Value::Object(serde_json::Map::new())
             } else {
                 serde_json::from_str::<Value>(&pending.input).map_err(|err| {
-                    HarnessError::Provider(ProviderError::InvalidResponse(format!(
-                        "invalid tool call input for {id}: {err}"
-                    )))
+                    HarnessError::Provider(ProviderError::MalformedToolCall {
+                        details: format!("invalid tool call input for {id}: {err}"),
+                    })
                 })?
             };
 

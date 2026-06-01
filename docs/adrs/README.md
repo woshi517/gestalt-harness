@@ -15,3 +15,5 @@ The detailed descriptions and rationale are documented in the [architecture docu
 | [ADR-008](../gestalt-harness-architecture.md#adr-008-minimal-policy-ships-in-v01) | Minimal Policy Ships in v0.1 | Accepted |
 | [ADR-009](../gestalt-harness-architecture.md#adr-009-sandbox-deferred-to-v02) | Sandbox Deferred to v0.2+ | Accepted |
 | [ADR-010](../gestalt-harness-architecture.md#adr-010-contenttrust-tags-on-all-external-content) | ContentTrust Tags on All External Content | Accepted |
+| [ADR-011](../gestalt-harness-architecture.md#adr-011-credential-resolution-boundary-separate-from-provider-behavior-config) | Credential Resolution Boundary Separate from Provider Behavior Config | Accepted |
+| [ADR-012](../gestalt-harness-architecture.md#adr-012-preserve-provider-finish-reasons-in-normalized-stopreason) | Preserve Provider Finish Reasons in Normalized StopReason | Accepted |

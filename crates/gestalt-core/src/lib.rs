@@ -23,11 +23,13 @@ pub mod context;
 pub mod error;
 pub mod event;
 pub mod message;
+pub mod model;
 pub mod policy;
 pub mod provider;
 pub mod session;
 pub mod tool;
 pub mod turn;
+pub mod trace;
 
 pub use agent::AgentLoop;
 pub use approval::{
@@ -40,6 +42,7 @@ pub use error::{
 };
 pub use event::{AgentEvent, PolicyStatus, StopReason, VerificationStatus};
 pub use message::{ContentBlock, ContentTrust, DocumentSource, ImageSource, Message};
+pub use model::{ModelInfo, ModelInfoSource};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 pub use provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest};
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};

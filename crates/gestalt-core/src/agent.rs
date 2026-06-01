@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub mod executor;
-use executor::{emit_tool_call_proposals, ToolExecutor};
+use executor::ToolExecutor;
 
 pub struct AgentLoop {
     provider: Arc<dyn Provider>,
@@ -68,7 +68,7 @@ impl AgentLoop {
                 break reason;
             }
 
-            let request = self.build_request(session, &mut emit);
+            let request = self.build_request(session, &mut emit)?;
             let outcome = self
                 .run_turn(
                     session,
@@ -102,14 +102,21 @@ impl AgentLoop {
         })
     }
 
-    fn build_request<F>(&self, session: &Session, emit: &mut F) -> ProviderRequest
+    fn build_request<F>(&self, session: &Session, emit: &mut F) -> Result<ProviderRequest>
     where
         F: FnMut(AgentEvent),
     {
         let messages = self
             .middleware
             .process(&session.history, &session.token_budget);
-        let token_estimate = self.provider.count_tokens(&messages);
+
+        let model = if session.config.model.is_empty() {
+            self.provider.default_model().to_string()
+        } else {
+            session.config.model.clone()
+        };
+
+        let token_estimate = self.provider.count_tokens(&model, &messages)?;
 
         emit(AgentEvent::ContextBuilt {
             packet_id: session.id.clone(),
@@ -117,11 +124,7 @@ impl AgentLoop {
         });
 
         let request = ProviderRequest {
-            model: if session.config.model.is_empty() {
-                self.provider.default_model().to_string()
-            } else {
-                session.config.model.clone()
-            },
+            model,
             messages,
             tools: self.executor.tools().schemas(),
             max_tokens: session.config.max_tokens,
@@ -132,11 +135,11 @@ impl AgentLoop {
         };
 
         emit(AgentEvent::ModelRequest {
-            provider: self.provider.name().to_string(),
+            provider: self.provider.id().to_string(),
             model: request.model.clone(),
         });
 
-        request
+        Ok(request)
     }
 
     async fn run_turn<F>(
@@ -155,38 +158,43 @@ impl AgentLoop {
         let mut stream = self.provider.stream(request).await?;
         let mut accumulator = crate::turn::TurnAccumulator::default();
         let mut stop_reason = StopReason::EndTurn;
+        let mut emitted_proposals = HashSet::new();
 
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
-                    emit(event.clone());
-                    match &event {
-                        AgentEvent::Usage {
-                            input_tokens,
-                            output_tokens,
-                        } => {
-                            *total_input_tokens = total_input_tokens.saturating_add(*input_tokens);
-                            *total_output_tokens =
-                                total_output_tokens.saturating_add(*output_tokens);
-                            session
-                                .token_budget
-                                .record_usage(*input_tokens, *output_tokens);
+                    let accumulated = accumulator.push(event)?;
+                    for acc_ev in accumulated {
+                        if let AgentEvent::ToolCallProposed { id, .. } = &acc_ev {
+                            emitted_proposals.insert(id.clone());
                         }
-                        AgentEvent::Stop { reason } => {
-                            stop_reason = *reason;
+                        emit(acc_ev.clone());
+                        match &acc_ev {
+                            AgentEvent::Usage {
+                                input_tokens,
+                                output_tokens,
+                            } => {
+                                *total_input_tokens = total_input_tokens.saturating_add(*input_tokens);
+                                *total_output_tokens =
+                                    total_output_tokens.saturating_add(*output_tokens);
+                                session
+                                    .token_budget
+                                    .record_usage(*input_tokens, *output_tokens);
+                            }
+                            AgentEvent::Stop { reason } => {
+                                stop_reason = *reason;
+                            }
+                            AgentEvent::Error {
+                                recoverable: false,
+                                message,
+                            } => {
+                                return Err(HarnessError::Provider(ProviderError::UnexpectedResponse {
+                                    details: message.clone(),
+                                }));
+                            }
+                            _ => {}
                         }
-                        AgentEvent::Error {
-                            recoverable: false,
-                            message,
-                        } => {
-                            return Err(HarnessError::Provider(ProviderError::InvalidResponse(
-                                message.clone(),
-                            )));
-                        }
-                        _ => {}
                     }
-
-                    accumulator.record(&event)?;
                 }
                 Err(err) => {
                     emit(AgentEvent::Error {
@@ -206,7 +214,15 @@ impl AgentLoop {
             return Ok(TurnOutcome::Stop(stop_reason));
         }
 
-        emit_tool_call_proposals(emit, &tool_calls);
+        for call in &tool_calls {
+            if !emitted_proposals.contains(&call.id) {
+                emit(AgentEvent::ToolCallProposed {
+                    id: call.id.clone(),
+                    name: call.name.clone(),
+                    input: call.input.clone(),
+                });
+            }
+        }
 
         let tool_results = self
             .executor

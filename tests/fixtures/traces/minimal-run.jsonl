@@ -1,0 +1,7 @@
+{"v":1,"session_id":"session-1","turn_id":1,"seq":1,"ts":"2026-06-01T00:00:00Z","event":{"type":"model_request","provider":"openai","model":"gpt-4o-mini"},"redacted":false}
+{"v":1,"session_id":"session-1","turn_id":1,"seq":2,"ts":"2026-06-01T00:00:01Z","event":{"type":"text","delta":"hello"},"redacted":false}
+{"v":1,"session_id":"session-1","turn_id":1,"seq":3,"ts":"2026-06-01T00:00:02Z","event":{"type":"tool_call_proposed","id":"call-1","name":"read","input":{"path":"README.md"}},"redacted":false}
+{"v":1,"session_id":"session-1","turn_id":1,"seq":4,"ts":"2026-06-01T00:00:03Z","event":{"type":"policy_decision","tool_call_id":"call-1","decision":"allowed","reason":"safe","policy_source":"paths.allow_read"},"redacted":false}
+{"v":1,"session_id":"session-1","turn_id":1,"seq":5,"ts":"2026-06-01T00:00:04Z","event":{"type":"tool_result","id":"call-1","output":"ok","is_error":false,"truncated":false},"redacted":false}
+{"v":1,"session_id":"session-1","turn_id":1,"seq":6,"ts":"2026-06-01T00:00:05Z","event":{"type":"usage","input_tokens":1000,"output_tokens":500},"redacted":false}
+{"v":1,"session_id":"session-1","turn_id":1,"seq":7,"ts":"2026-06-01T00:00:06Z","event":{"type":"stop","reason":"end_turn"},"redacted":false}

@@ -639,6 +639,7 @@ dependencies = [
  "gestalt-tools",
  "gestalt-trace",
  "ratatui",
+ "serde",
  "serde_json",
  "tokio",
  "toml",
@@ -724,8 +725,10 @@ dependencies = [
 name = "gestalt-models"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "eventsource-stream",
+ "futures",
  "gestalt-core",
  "reqwest",
  "serde",
@@ -771,6 +774,8 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "gestalt-core",
+ "gestalt-models",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

@@ -35,6 +35,7 @@ pub enum AgentEvent {
         tool_call_id: String,
         decision: PolicyStatus,
         reason: Option<String>,
+        policy_source: String,
     },
     ToolResult {
         id: String,
@@ -77,6 +78,8 @@ pub enum PolicyStatus {
 pub enum StopReason {
     EndTurn,
     ToolUse,
+    MaxOutput,
+    ContentFiltered,
     MaxTurns,
     BudgetExhausted,
     PolicyViolation,

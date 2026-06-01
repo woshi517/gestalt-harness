@@ -39,14 +39,24 @@ impl HarnessError {
 pub enum ProviderError {
     #[error("unknown provider: {0}")]
     UnknownProvider(String),
-    #[error("provider rate limit; retry after {retry_after_secs}s")]
-    RateLimit { retry_after_secs: u64 },
+    #[error("provider authentication failed: {provider}")]
+    AuthFailed { provider: String },
+    #[error("provider rate limit; retry after {retry_after_secs:?}s")]
+    RateLimit { retry_after_secs: Option<u64> },
     #[error("context too long: {tokens} tokens exceeds limit {limit}")]
     ContextTooLong { tokens: usize, limit: usize },
+    #[error("invalid model: {model}")]
+    InvalidModel { model: String },
+    #[error("provider request timed out")]
+    Timeout,
     #[error("provider stream interrupted")]
     StreamInterrupted,
-    #[error("invalid provider response: {0}")]
-    InvalidResponse(String),
+    #[error("provider returned malformed tool call JSON: {details}")]
+    MalformedToolCall { details: String },
+    #[error("provider does not support requested capability: {capability}")]
+    UnsupportedCapability { capability: String },
+    #[error("provider returned an unexpected response: {details}")]
+    UnexpectedResponse { details: String },
     #[error("provider transport error: {0}")]
     Transport(#[from] io::Error),
 }

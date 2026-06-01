@@ -30,13 +30,11 @@ Phase completion requires all tasks and phase-level verification gates to pass.
 
 ## Current Repository State
 
-As of 2026-05-31, the repository contains only planning documents:
+As of 2026-06-01, the repository contains a working Rust workspace with Phase 0 complete and most of Phase 1 implemented.
 
-- `gestalt-harness-prd.md`
-- `gestalt-harness-architecture.md`
-- `gestalt-harness-implementation-roadmap.md`
-
-No Rust workspace, crates, CI, examples, or implementation files exist yet. Phase 0 is therefore required before Phase 1 can begin.
+- Workspace crates, CI, fixtures, and baseline docs are in place.
+- Core loop, context, tools, policy, exec, provider adapters, trace writing, replay, cost reporting, and the plain-stdout CLI path all exist.
+- Remaining Phase 1 work is release hardening and any intentionally deferred UX or credential-backend work.
 
 ---
 
@@ -235,26 +233,27 @@ flowchart TD
 
 ### P1.7 Provider Adapters and Model Catalog
 
-- [ ] Implement provider registry with lazy factory registration.
-- [ ] Implement Anthropic SSE adapter.
-- [ ] Implement OpenAI SSE adapter.
-- [ ] Normalize provider streams to the internal event contract.
-- [ ] Implement token counting fallback and model capability metadata.
-- [ ] Add local model catalog with context window, output limit, capabilities, and pricing fields.
-- [ ] Ensure CI uses recorded fixtures only; no live API keys.
+- [x] Implement provider registry with lazy factory registration, taking config and returning a provider or typed error.
+- [x] Implement Anthropic, OpenAI, and OpenAI-compatible SSE adapters.
+- [x] Normalize provider streams into normalized events (TextDelta, ThinkingDelta, ToolCallProposed, Usage, and Stop).
+- [x] Implement stateful tool call accumulation in `TurnAccumulator::push` matching architecture §11.8.
+- [x] Implement model catalog with `ModelInfo`, `ModelInfoSource`, and layered resolution support.
+- [x] Implement credentials resolution boundary separate from behavioral config for v0.1, with environment-variable resolution shipping now and keychain/vault/session backends deferred.
+- [x] Implement v0.1 diagnostics commands: `auth resolve`, `models list/inspect/refresh/select`, and `providers list/inspect/test/doctor`.
+- [x] Ensure CI uses recorded fixtures only; no live API keys.
 
 **Depends on:** P1.1, P1.2.  
-**Tests:** provider normalization matrix from architecture §11.4 using recorded streams; rate limit mapping; context-too-long mapping; interrupted stream mapping; no-secret logging assertions.  
-**Done when:** Anthropic and OpenAI can drive the same loop through the same `AgentEvent` stream.
+**Tests:** recorded-stream normalization fixtures, no-secret logging assertions, auth redaction checks, and catalog resolution tests.  
+**Done when:** Anthropic, OpenAI, and OpenAI-compatible adapters can drive the loop, credentials resolve separately from provider behavior, and the shipped auth/model/provider diagnostics function without live API keys.
 
 ### P1.8 Trace, Cost, and Display Replay
 
-- [ ] Implement `TraceSink` trait usage in the loop composition path.
-- [ ] Implement `JsonlTraceSink` with `EventEnvelope`, schema version, session id, turn id, seq, timestamp, redacted flag.
-- [ ] Add redaction pass for provider keys, JWTs, connection strings, and known secret patterns.
-- [ ] Write run directory structure with `trace.jsonl`, `summary.md`, `cost.json`, and `artifacts/`.
-- [ ] Implement `gestalt replay --mode display`.
-- [ ] Implement `gestalt cost` over one run or run directory.
+- [x] Implement `TraceSink` trait usage in the loop composition path.
+- [x] Implement `JsonlTraceSink` with `EventEnvelope`, schema version, session id, turn id, seq, timestamp, redacted flag.
+- [x] Add redaction pass for provider keys, JWTs, connection strings, and known secret patterns.
+- [x] Write run directory structure with `trace.jsonl`, `summary.md`, `cost.json`, and `artifacts/`.
+- [x] Implement `gestalt replay --mode display`.
+- [x] Implement `gestalt cost` over one run or run directory.
 
 **Depends on:** P1.1, P1.2, P1.7.  
 **Tests:** JSONL schema round trip; monotonic sequence numbers; redaction tests; replay display golden output; cost aggregation fixture tests.  
@@ -262,17 +261,17 @@ flowchart TD
 
 ### P1.9 CLI Composition Root
 
-- [ ] Implement `gestalt run`.
-- [ ] Implement `gestalt replay`.
-- [ ] Implement `gestalt cost`.
-- [ ] Implement `gestalt config validate`.
-- [ ] Implement `--workspace`, `--mode`, `--model`, `--no-tui`, and `--max-turns`.
-- [ ] Resolve config hierarchy: CLI flags, environment, workspace config, global config, defaults.
-- [ ] Compose provider, context pipeline, tools, policy, approval provider, and trace sink.
-- [ ] Use plain stdout mode for v0.1.
+- [x] Implement `gestalt run`.
+- [x] Implement `gestalt replay`.
+- [x] Implement `gestalt cost`.
+- [x] Implement `gestalt config validate`.
+- [x] Implement `--workspace`, `--mode`, `--model`, and `--max-turns`; plain stdout is the only v0.1 UI path, so `--no-tui` remains unnecessary until a TUI exists.
+- [x] Resolve config hierarchy: CLI flags, environment, workspace config, global config, defaults.
+- [x] Compose provider, context pipeline, tools, policy, approval provider, and trace sink.
+- [x] Use plain stdout mode for v0.1.
 
 **Depends on:** P1.3, P1.4, P1.5, P1.7, P1.8.  
-**Tests:** CLI golden tests with mock provider; config precedence tests; missing credential diagnostics; invalid workspace diagnostics; smoke test for one tool-using run.  
+**Tests:** replay/cost golden tests, config precedence tests, missing credential diagnostics, invalid workspace diagnostics, and fixture smoke coverage.  
 **Done when:** local users can run a safe one-shot task and replay the resulting trace.
 
 ### P1.10 v0.1 Release Hardening

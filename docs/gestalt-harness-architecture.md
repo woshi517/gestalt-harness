@@ -696,6 +696,13 @@ pub enum AgentEvent {
         delta: String,
     },
 
+    /// Partial tool-call bytes streamed before a complete JSON payload exists.
+    ToolCallStreamed {
+        id: String,
+        name: String,
+        input_delta: String,
+    },
+
     /// A complete tool call collected from the stream.
     /// Emitted once per tool call after the full input has been accumulated.
     ToolCallProposed {
@@ -708,6 +715,7 @@ pub enum AgentEvent {
         tool_call_id: String,
         decision: PolicyStatus,
         reason: Option<String>,
+        policy_source: String,
     },
 
     ToolResult {
@@ -755,6 +763,9 @@ pub enum PolicyStatus {
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
     EndTurn,
+    ToolUse,
+    MaxOutput,
+    ContentFiltered,
     MaxTurns,
     BudgetExhausted,
     PolicyViolation,
@@ -1749,12 +1760,51 @@ flowchart LR
 
 ## 11. Provider Architecture
 
-### 11.1 Provider Trait
+The provider layer isolates `gestalt-harness` from model-specific APIs. Every model backend maps its native request format, streaming protocol, authentication mechanism, error model, and usage reporting into a small set of stable runtime contracts.
+
+The agent loop must never depend on Anthropic, OpenAI, Ollama, Groq, Mistral, or any provider-specific wire format. It only sees:
+
+* `Provider`
+* `ProviderRequest`
+* `AgentEvent`
+* `ProviderCapabilities`
+* `ProviderError`
+* `ModelInfo`
+
+Provider adapters are responsible for protocol translation. The harness runtime is responsible for execution, policy, context, tool dispatch, tracing, and replay.
+
+---
+
+### 11.1 Provider Responsibilities
+
+A provider adapter owns five concerns:
+
+1. **Request translation** — Convert `ProviderRequest` into the provider’s native API payload.
+2. **Stream normalization** — Convert native SSE, HTTP, or local model output into `AgentEvent`.
+3. **Tool-call normalization** — Convert provider-specific tool-call formats into complete, parseable tool-call proposals.
+4. **Usage normalization** — Report token usage, cost-relevant metadata, and stop reasons in a common format.
+5. **Error normalization** — Convert provider failures into typed `HarnessError::Provider` variants.
+
+A provider adapter must not:
+
+* Execute tools.
+* Apply workspace policy.
+* Read project files.
+* Mutate run state.
+* Decide which context should be loaded.
+* Implement domain-specific workflow behavior.
+
+Those responsibilities belong to the harness runtime or to layers built around it.
+
+---
+
+### 11.2 Provider Trait
 
 ```rust
 // gestalt-core/src/provider.rs
 
 use std::pin::Pin;
+
 use async_trait::async_trait;
 use futures::Stream;
 
@@ -1762,6 +1812,7 @@ use crate::{
     error::HarnessError,
     event::AgentEvent,
     message::Message,
+    model::ModelInfo,
     tool::ToolSchema,
 };
 
@@ -1770,44 +1821,175 @@ pub type EventStream =
 
 #[async_trait]
 pub trait Provider: Send + Sync {
-    fn name(&self) -> &str;
-    fn default_model(&self) -> &str;
-    fn capabilities(&self) -> &ProviderCapabilities;
-    fn count_tokens(&self, messages: &[Message]) -> usize;
+    /// Stable provider identifier, e.g. "anthropic", "openai", "ollama".
+    fn id(&self) -> &str;
 
+    /// Human-readable provider name, e.g. "Anthropic".
+    fn display_name(&self) -> &str;
+
+    /// Default model used when no model is specified by config or CLI.
+    fn default_model(&self) -> &str;
+
+    /// Provider-level capabilities. Model-specific capabilities are exposed
+    /// through `model_info`.
+    fn capabilities(&self) -> &ProviderCapabilities;
+
+    /// Return known metadata for a model.
+    fn model_info(&self, model: &str) -> Option<ModelInfo>;
+
+    /// Count tokens for a fully assembled message list.
+    ///
+    /// Providers should use native tokenizers when available. If a provider
+    /// cannot count exactly, it must return a conservative estimate.
+    fn count_tokens(&self, model: &str, messages: &[Message]) -> Result<usize, HarnessError>;
+
+    /// Stream a normalized event sequence for one model request.
+    ///
+    /// The returned stream must emit only `AgentEvent` values. Provider-native
+    /// events must not leak beyond the adapter boundary.
     async fn stream(
         &self,
         request: ProviderRequest,
     ) -> Result<EventStream, HarnessError>;
 }
+```
 
-/// Provider capabilities used by the runtime to validate features and
-/// by the context engine to set token budget limits.
-#[derive(Debug, Clone)]
+---
+
+### 11.3 Provider Capabilities
+
+```rust
+// gestalt-core/src/provider.rs
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderCapabilities {
+    /// Provider can call harness tools.
     pub supports_tools: bool,
+
+    /// Provider may emit more than one tool call in a single assistant turn.
     pub supports_parallel_tools: bool,
+
+    /// Provider supports image inputs.
     pub supports_vision: bool,
+
+    /// Provider supports document-native inputs.
     pub supports_documents: bool,
+
+    /// Provider exposes reasoning/thinking deltas or summaries.
     pub supports_thinking: bool,
+
+    /// Provider supports strict JSON-schema tool definitions.
     pub supports_json_schema_tools: bool,
+
+    /// Provider supports prompt or context caching.
     pub supports_prompt_caching: bool,
+
+    /// Provider can return token usage during or after streaming.
+    pub supports_usage_reporting: bool,
+
+    /// Provider supports streaming output.
+    pub supports_streaming: bool,
+}
+```
+
+Provider capabilities describe the backend as a whole. Model-specific limits, such as context window, max output tokens, cost, and tool support exceptions, belong in `ModelInfo`.
+
+---
+
+### 11.4 Model Metadata
+
+```rust
+// gestalt-core/src/model.rs
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelInfo {
+    /// Fully qualified model reference, e.g. "anthropic/claude-sonnet-4-6".
+    pub qualified_id: String,
+
+    /// Provider-local model ID, e.g. "claude-sonnet-4-6".
+    pub model_id: String,
+
+    /// Human-readable name.
+    pub display_name: String,
+
+    /// Maximum input context window.
     pub max_context_tokens: usize,
+
+    /// Maximum generation length.
     pub max_output_tokens: usize,
+
+    /// Whether this model supports tool use.
+    pub supports_tools: bool,
+
+    /// Whether this model supports vision inputs.
+    pub supports_vision: bool,
+
+    /// Whether this model supports structured JSON/schema output.
+    pub supports_json_schema: bool,
+
+    /// Whether this model supports reasoning/thinking mode.
+    pub supports_thinking: bool,
+
+    /// Optional input price per million tokens.
+    pub input_cost_per_million: Option<f64>,
+
+    /// Optional output price per million tokens.
+    pub output_cost_per_million: Option<f64>,
+
+    /// Source of this metadata: built-in, refreshed catalog, provider API,
+    /// user config, or workspace override.
+    pub source: ModelInfoSource,
+
+    /// ISO-8601 date or timestamp when this metadata was last refreshed.
+    pub last_updated: Option<String>,
 }
 
-/// A fully specified provider request. All optional fields default to
-/// None/empty, not to provider-specific magic values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelInfoSource {
+    BuiltIn,
+    RefreshedCatalog,
+    ProviderDiscovered,
+    UserDefined,
+    WorkspaceOverride,
+}
+```
+
+The model catalog is used by the context engine, cost analyzer, provider selector, and config validator. It is not a provider implementation detail.
+
+---
+
+### 11.5 Provider Request
+
+```rust
+// gestalt-core/src/provider.rs
+
 #[derive(Debug, Clone)]
 pub struct ProviderRequest {
+    /// Provider-local model ID.
     pub model: String,
+
+    /// Fully assembled message list after context compilation.
     pub messages: Vec<Message>,
+
+    /// Tool schemas available to the model for this turn.
     pub tools: Vec<ToolSchema>,
+
+    /// Maximum output tokens requested for this turn.
     pub max_tokens: u32,
+
+    /// Optional sampling controls. `None` means the harness does not send
+    /// the parameter unless the provider requires it.
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
+
+    /// Stop sequences passed to the provider.
     pub stop_sequences: Vec<String>,
-    /// Opaque provider-specific extensions, e.g. cache hints.
+
+    /// Optional provider-specific extensions.
+    ///
+    /// This is intentionally opaque to `gestalt-core`. Provider adapters may
+    /// interpret this for features such as prompt caching, reasoning effort,
+    /// response format hints, or beta flags.
     pub metadata: serde_json::Value,
 }
 
@@ -1827,18 +2009,81 @@ impl Default for ProviderRequest {
 }
 ```
 
-### 11.2 Unified Event Stream Mapping
+Request construction happens after provider, model, auth, policy, and context resolution. The provider adapter receives a fully specified request and should not perform implicit workspace lookup.
 
-Each provider adapter translates its native SSE wire format to `AgentEvent`. The loop never sees provider-specific types.
+---
+
+### 11.6 Authentication Boundary
+
+Provider adapters receive non-secret behavioral configuration plus a credential-resolution boundary. In v0.1, adapters keep `ProviderAuthConfig` and a `CredentialResolver`, then resolve secrets from the environment when a request is made.
+
+Secrets must not be stored in `workspace.md`, `models.toml`, or provider config files.
+
+Shipped in v0.1:
+
+1. Environment variables.
+
+Planned but not yet implemented:
+
+1. OS keychain.
+2. Encrypted local credential vault.
+3. Session-only credentials.
+
+Provider config describes behavior:
+
+```toml
+[providers.anthropic]
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+base_url = "https://api.anthropic.com"
+default_model = "claude-sonnet-4-6"
+```
+
+The provider config may also carry an optional logical auth reference for future multi-account backends without embedding the secret itself:
+
+```toml
+[providers.openai-compatible]
+type = "openai-compatible"
+auth_ref = "gateway/company"
+api_key_env = "OPENAI_COMPATIBLE_API_KEY"
+base_url = "https://gateway.example.com/v1"
+default_model = "my-model"
+```
+
+Future credential storage remains separate:
+
+```text
+anthropic/default
+openai/work
+openrouter/research
+mygateway/company
+```
+
+The v0.1 resolver is deterministic:
+
+1. CLI-selected provider and model.
+2. Workspace provider config.
+3. Global provider config.
+4. Provider-specific `api_key_env`.
+
+Future auth backends may extend resolution order with credential selection and interactive login, but they must preserve the same invariant: stored credentials may satisfy auth, but may not override explicit provider behavior.
+
+The provider layer must never silently override an explicit base URL, model, or provider config with stored auth metadata.
+
+---
+
+### 11.7 Unified Event Stream Mapping
+
+Each provider adapter translates native streaming output into the same `AgentEvent` stream. The loop never sees provider-specific SSE, JSON, or local inference events.
 
 ```mermaid
 graph LR
     subgraph Anthropic["Anthropic SSE wire"]
-        A1["content_block_delta (text)"]
-        A2["content_block_delta (thinking)"]
-        A3["content_block_start (tool_use)"]
-        A4["content_block_delta (input_json_delta)"]
-        A5["message_delta (stop_reason, usage)"]
+        A1["content_block_delta: text"]
+        A2["content_block_delta: thinking"]
+        A3["content_block_start: tool_use"]
+        A4["content_block_delta: input_json_delta"]
+        A5["message_delta: usage / stop_reason"]
     end
 
     subgraph OpenAI["OpenAI SSE wire"]
@@ -1848,12 +2093,19 @@ graph LR
         O4["finish_reason"]
     end
 
-    subgraph Gestalt["AgentEvent stream (unified)"]
-        U1["Text { delta }"]
-        U2["Thinking { delta }"]
-        U3["ToolCallStreamed { id, name, input_delta }"]
-        U4["Usage { input_tokens, output_tokens }"]
-        U5["Stop { reason }"]
+    subgraph Local["Local / Ollama wire"]
+        L1["response delta"]
+        L2["tool call delta"]
+        L3["done reason"]
+        L4["eval counts"]
+    end
+
+    subgraph Gestalt["Gestalt AgentEvent stream"]
+        U1["TextDelta"]
+        U2["ThinkingDelta"]
+        U3["ToolCallDelta"]
+        U4["Usage"]
+        U5["Stop"]
     end
 
     A1 --> U1
@@ -1867,11 +2119,63 @@ graph LR
     O2 --> U3
     O3 --> U4
     O4 --> U5
+
+    L1 --> U1
+    L2 --> U3
+    L3 --> U5
+    L4 --> U4
 ```
 
-`ToolCallStreamed` carries input deltas while the model is still streaming. The `TurnAccumulator` assembles complete calls from deltas and only emits `ToolCallProposed` when the input JSON is complete and parseable.
+Provider adapters may emit streamed tool-call deltas, but the agent loop must not execute a tool until a complete assistant turn has been accumulated and validated.
 
-### 11.3 Provider Registry
+---
+
+### 11.8 Tool Call Accumulation
+
+Providers differ in how they stream tool calls. Some send complete JSON arguments. Others stream partial JSON deltas. Some emit multiple tool calls in a single assistant turn.
+
+`TurnAccumulator` normalizes this behavior.
+
+```rust
+// gestalt-core/src/turn.rs
+
+pub struct TurnAccumulator {
+    // Internal buffers for text, thinking, usage, and tool-call deltas.
+}
+
+impl TurnAccumulator {
+    pub fn push(&mut self, event: AgentEvent) -> Result<Vec<AgentEvent>, HarnessError> {
+        // Accumulate streamed provider events.
+        // Emit ToolCallProposed only after the tool name and full JSON input
+        // are complete and parseable.
+        todo!()
+    }
+
+    pub fn finish(self) -> Result<AssistantTurn, HarnessError> {
+        // Return a complete assistant turn.
+        // No tools are executed before this succeeds.
+        todo!()
+    }
+}
+```
+
+Rules:
+
+1. Tool calls are accumulated until their JSON input is complete and parseable.
+2. Multiple tool calls may be proposed in one assistant turn.
+3. The harness executes tools only after the full assistant turn is complete.
+4. The policy engine evaluates every proposed tool call before execution.
+5. Tool results are appended to history in the original provider order.
+6. Read-only tools may execute in parallel only after policy approval.
+7. Write, network, and shared-state tools execute sequentially.
+
+This preserves correctness for providers that stream partial tool arguments and providers that emit multiple tool calls per turn.
+
+---
+
+### 11.9 Provider Registry
+
+Providers are registered lazily via factory closures. Adding a provider must not require changes to the agent loop.
 
 ```rust
 // gestalt-models/src/registry.rs
@@ -1886,26 +2190,29 @@ use gestalt_core::{
     provider::Provider,
 };
 
-type ProviderConfig = serde_json::Value;
-type ProviderFactory =
+pub type ProviderConfig = serde_json::Value;
+
+pub type ProviderFactory =
     Box<dyn Fn(ProviderConfig) -> Result<Arc<dyn Provider>> + Send + Sync>;
 
 static REGISTRY: OnceLock<RwLock<HashMap<&'static str, ProviderFactory>>> =
     OnceLock::new();
 
-pub fn register(name: &'static str, factory: ProviderFactory) {
-    REGISTRY
+pub fn register(name: &'static str, factory: ProviderFactory) -> Result<()> {
+    let mut registry = REGISTRY
         .get_or_init(init_defaults)
         .write()
-        .expect("provider registry poisoned")
-        .insert(name, factory);
+        .map_err(|_| HarnessError::Internal("provider registry poisoned".into()))?;
+
+    registry.insert(name, factory);
+    Ok(())
 }
 
 pub fn get(name: &str, config: ProviderConfig) -> Result<Arc<dyn Provider>> {
     let registry = REGISTRY
         .get_or_init(init_defaults)
         .read()
-        .expect("provider registry poisoned");
+        .map_err(|_| HarnessError::Internal("provider registry poisoned".into()))?;
 
     let factory = registry
         .get(name)
@@ -1917,37 +2224,152 @@ pub fn get(name: &str, config: ProviderConfig) -> Result<Arc<dyn Provider>> {
 fn init_defaults() -> RwLock<HashMap<&'static str, ProviderFactory>> {
     let mut map: HashMap<&'static str, ProviderFactory> = HashMap::new();
 
-    map.insert("anthropic",
-        Box::new(|c| Ok(Arc::new(AnthropicProvider::new(c)?))));
-    map.insert("openai",
-        Box::new(|c| Ok(Arc::new(OpenAIProvider::new(c)?))));
-    map.insert("mistral",
-        Box::new(|c| Ok(Arc::new(MistralProvider::new(c)?))));
-    map.insert("groq",
-        Box::new(|c| Ok(Arc::new(GroqProvider::new(c)?))));
-    map.insert("ollama",
-        Box::new(|c| Ok(Arc::new(OllamaProvider::new(c)?))));
+    map.insert(
+        "anthropic",
+        Box::new(|config| Ok(Arc::new(AnthropicProvider::new(config)?))),
+    );
+
+    map.insert(
+        "openai",
+        Box::new(|config| Ok(Arc::new(OpenAIProvider::new(config)?))),
+    );
+
+    map.insert(
+        "mistral",
+        Box::new(|config| Ok(Arc::new(MistralProvider::new(config)?))),
+    );
+
+    map.insert(
+        "groq",
+        Box::new(|config| Ok(Arc::new(GroqProvider::new(config)?))),
+    );
+
+    map.insert(
+        "ollama",
+        Box::new(|config| Ok(Arc::new(OllamaProvider::new(config)?))),
+    );
 
     RwLock::new(map)
 }
 ```
 
-`OnceLock` is in the Rust standard library since 1.70. No `once_cell` dependency needed.
+`OnceLock` is available in the Rust standard library since Rust 1.70, so no `once_cell` dependency is required.
 
-### 11.4 Provider Normalization Test Matrix
+Provider registration is runtime-extensible inside the process. Future plugin systems may register providers through compiled crates, external processes, WASM modules, or MCP-compatible provider bridges.
 
-Every provider adapter must pass this test suite in CI using recorded HTTP cassettes (no live keys):
+---
 
-|Test case|Expected behavior|
-|---|---|
-|Text-only response|Single `Text` event stream, then `Stop { EndTurn }`|
-|Single tool call response|`ToolCallProposed` with complete input, then `Stop { ToolUse }`|
-|Multiple tool calls in one turn|Multiple `ToolCallProposed` events before `Stop`|
-|Partial streamed tool arguments|Accumulates deltas; single `ToolCallProposed` only when complete|
-|Usage reporting|`Usage` event with non-zero token counts|
-|Rate limit error|`HarnessError::Provider(RateLimit { retry_after_secs })`|
-|Context too long|`HarnessError::Provider(ContextTooLong { tokens, limit })`|
-|Stream interruption mid-turn|`HarnessError::Provider(StreamInterrupted)`|
+### 11.10 Provider and Model Management Commands
+
+The CLI exposes provider and model management as first-class operations.
+
+```bash
+gestalt providers list
+gestalt providers inspect <provider>
+gestalt providers test <provider>
+gestalt providers doctor [provider]
+
+gestalt models list
+gestalt models inspect <provider>/<model>
+gestalt models refresh
+gestalt models select <provider>/<model>
+
+gestalt auth resolve <provider>
+```
+
+The broader auth-management surface (`auth login/list/remove/set-default`) and mutating provider/model commands remain future work once non-env credential backends exist.
+
+Provider health checks should validate:
+
+* Provider config exists.
+* Credential source resolves.
+* Selected model exists or is user-defined.
+* Model metadata is available.
+
+In v0.1, `providers doctor` is a local diagnostic: it validates configured provider presence and credential-source resolution without making a network request. Reachability checks, capability probes, and minimal live requests are future work.
+
+---
+
+### 11.11 Provider Normalization Test Matrix
+
+Every provider adapter must pass the normalization test matrix in CI using recorded HTTP cassettes or local mock servers. No live API keys are allowed in CI.
+
+| Test case                       | Expected behavior                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| Text-only response              | Emits `TextDelta` events, then `Stop { EndTurn }`.                                |
+| Thinking response               | Emits `ThinkingDelta` events without leaking provider-native reasoning fields.    |
+| Single tool call response       | Emits one complete `ToolCallProposed` after input JSON is parseable.              |
+| Multiple tool calls in one turn | Emits multiple `ToolCallProposed` events before tool execution.                   |
+| Partial streamed tool arguments | Accumulates deltas and emits one complete proposal per tool call.                 |
+| Usage reporting                 | Emits `Usage` with non-zero token counts when provider supports usage reporting.  |
+| Missing usage reporting         | Completes successfully with usage marked unavailable or estimated.                |
+| Context too long                | Returns `HarnessError::Provider(ContextTooLong { tokens, limit })`.               |
+| Rate limit error                | Returns `HarnessError::Provider(RateLimit { retry_after_secs })`.                 |
+| Authentication failure          | Returns `HarnessError::Provider(AuthFailed { provider })`.                        |
+| Invalid model                   | Returns `HarnessError::Provider(InvalidModel { model })`.                         |
+| Provider timeout                | Returns `HarnessError::Provider(Timeout)`.                                        |
+| Stream interruption mid-turn    | Returns `HarnessError::Provider(StreamInterrupted)`.                              |
+| Malformed tool JSON             | Returns a parse error before policy evaluation or tool execution.                 |
+| Provider-native unknown event   | Ignores safely or returns a typed unsupported-event error, depending on severity. |
+
+---
+
+### 11.12 Provider Error Normalization
+
+Provider adapters must normalize remote and local backend failures into typed harness errors.
+
+```rust
+// gestalt-core/src/error.rs
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProviderError {
+    #[error("provider authentication failed: {provider}")]
+    AuthFailed { provider: String },
+
+    #[error("provider rate limited the request")]
+    RateLimit { retry_after_secs: Option<u64> },
+
+    #[error("context too long: {tokens} tokens exceeds limit {limit}")]
+    ContextTooLong { tokens: usize, limit: usize },
+
+    #[error("invalid model: {model}")]
+    InvalidModel { model: String },
+
+    #[error("provider request timed out")]
+    Timeout,
+
+    #[error("provider stream interrupted")]
+    StreamInterrupted,
+
+    #[error("provider returned malformed tool call JSON")]
+    MalformedToolCall { details: String },
+
+    #[error("provider does not support requested capability: {capability}")]
+    UnsupportedCapability { capability: String },
+
+    #[error("provider returned an unexpected response: {details}")]
+    UnexpectedResponse { details: String },
+}
+```
+
+Provider-specific errors may be attached as structured metadata in the trace, but provider-native error types must not leak into `gestalt-core`.
+
+---
+
+### 11.13 Design Invariants
+
+The provider layer must preserve these invariants:
+
+1. The agent loop never sees provider-native wire formats.
+2. Provider adapters never execute tools.
+3. Provider adapters never apply workspace policy.
+4. Provider adapters never read or write workspace files.
+5. Tool calls are not executed until the full assistant turn is complete.
+6. Provider credentials are resolved outside normal config files.
+7. Explicit provider config must never be silently overridden by stored credentials.
+8. Model metadata is available to the context engine before request construction.
+9. Every provider emits the same normalized event types.
+10. Every provider adapter is testable without live API keys.
 
 ---
 
@@ -2556,6 +2978,24 @@ This enables embedding in the Gestalt frontend for local context compilation and
 **Context:** External content (web, PDF, MCP, retrieved chunks) can contain adversarial prompt injection. The context pipeline must treat it differently from user-authored instructions.  
 **Decision:** All content items carry `ContentTrust`. `TrustBoundaryRenderer` wraps untrusted items in explicit markup before rendering to the provider.  
 **Consequences:** Prompt injection from external sources is structurally harder. The model receives a clear signal about the provenance of each content block. Legitimate use cases (reading a web page) are unaffected — only the trust markup is added.
+
+---
+
+### ADR-011: Credential Resolution Boundary Separate from Provider Behavior Config
+
+**Status:** Accepted  
+**Context:** The original provider/auth design anticipated keychain, vault, and session-backed credentials, but v0.1 needed safe shipping behavior immediately. Provider configs also needed to remain portable, reviewable, and secret-free.  
+**Decision:** Provider configuration stores only behavioral settings plus auth selectors such as `api_key_env` and optional `auth_ref`. Concrete adapters receive a `CredentialResolver` boundary and never accept inline secrets. v0.1 ships an environment-backed resolver; richer credential stores are deferred behind the same interface.  
+**Consequences:** Secrets stay out of config and traces. Provider behavior remains deterministic under config precedence. Future keychain/vault/session support can be added without changing provider constructors or the core loop.
+
+---
+
+### ADR-012: Preserve Provider Finish Reasons in Normalized StopReason
+
+**Status:** Accepted  
+**Context:** The original normalized `StopReason` enum was too small to represent common provider finish conditions like tool-use handoff, output truncation, and content filtering. Collapsing them into `EndTurn` or `ProviderError` would lose replay and audit fidelity.  
+**Decision:** Extend normalized `StopReason` with `ToolUse`, `MaxOutput`, and `ContentFiltered` while keeping provider-native wire details out of `gestalt-core`. Providers map their finish reasons into these shared variants.  
+**Consequences:** Replay, summaries, and diagnostics can distinguish normal turn completion from tool delegation, output truncation, and provider-side filtering. The loop still consumes a provider-agnostic contract.
 
 ---
 

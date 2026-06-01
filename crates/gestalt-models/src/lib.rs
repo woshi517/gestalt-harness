@@ -1,6 +1,16 @@
-//! `gestalt-models` — Provider adapters (Anthropic, `OpenAI`)
-//!
-//! This crate is part of the gestalt-harness workspace.
-//! See the [architecture document](../../docs/gestalt-harness-architecture.md) for crate boundaries.
+//! `gestalt-models` — Provider adapters and local model catalog.
 
-// Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
+pub mod anthropic;
+pub mod auth;
+pub mod catalog;
+pub mod openai;
+pub mod registry;
+mod sse;
+
+pub use anthropic::AnthropicProvider;
+pub use auth::{
+    CredentialResolver, CredentialSource, EnvironmentCredentialResolver, ProviderAuthConfig,
+    ResolvedCredential,
+};
+pub use catalog::ModelCatalog;
+pub use openai::OpenAiProvider;

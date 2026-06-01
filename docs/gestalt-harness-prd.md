@@ -546,23 +546,142 @@ Citations carry structured metadata in the trace — source hash, byte range, re
 
 ## 15. Provider Layer
 
-The provider layer isolates gestalt from model-specific APIs. Every provider maps its native streaming format to the same five internal events: `Text`, `Thinking`, `ToolCall`, `Usage`, `Stop`. The agent loop never sees provider-specific wire formats.
+The provider layer isolates `gestalt-harness` from model-specific APIs. Every provider maps its native request format, streaming protocol, authentication mechanism, error model, and usage reporting into a small set of normalized runtime contracts.
+
+The agent loop never sees provider-specific wire formats. It only consumes the unified event stream:
+
+* `Text`
+* `Thinking`
+* `ToolCall`
+* `Usage`
+* `Stop`
+
+Provider adapters are responsible for translating model-specific behavior into these events. They must not execute tools, apply workspace policy, read project files, mutate run state, or implement domain-specific workflow behavior.
 
 ### 15.1 Supported Providers
 
-|Provider|v0.1|v0.2|Notes|
-|---|---|---|---|
-|Anthropic|✓|✓|Primary. Extended thinking, prompt caching.|
-|OpenAI|✓|✓|Primary.|
-|Mistral|—|✓||
-|Groq|—|✓|Fast inference for extraction tasks.|
-|Ollama|—|✓|Local models; no API key required.|
+| Provider          | v0.1 | v0.2 | Notes                                                                                           |
+| ----------------- | ---: | ---: | ----------------------------------------------------------------------------------------------- |
+| Anthropic         |    ✓ |    ✓ | Primary provider. Supports tool use, extended thinking, and prompt caching where available.     |
+| OpenAI            |    ✓ |    ✓ | Primary provider. Supports tool use and broad model availability.                               |
+| OpenAI-compatible |    ✓ |    ✓ | Generic adapter for gateways, self-hosted APIs, and compatible inference endpoints.             |
+| Ollama            |    — |    ✓ | Local models; no API key required. Useful for extraction, summarization, and offline workflows. |
+| Mistral           |    — |    ✓ | Native hosted provider support.                                                                 |
+| Groq              |    — |    ✓ | Fast inference for extraction and low-latency tasks.                                            |
 
-Providers are registered lazily via factory functions. Adding a new provider does not require modifying the agent loop or any other crate.
+Providers are registered lazily via factory functions. Adding a new provider must not require modifying the agent loop. Provider-specific request construction, streaming normalization, error handling, and authentication are contained inside the provider adapter.
 
-### 15.2 Task-Based Model Routing
+### 15.2 Provider Authentication
 
-Different tasks within a session can be routed to different models. Expensive frontier models handle final synthesis; fast or local models handle extraction, summarization, and search.
+Provider authentication is a first-class harness concern because model execution must be repeatable, inspectable, and safe. Credentials are separated from normal configuration.
+
+Configuration files describe behavior:
+
+```toml
+[providers.anthropic]
+type = "anthropic"
+auth = "anthropic/default"
+base_url = "https://api.anthropic.com"
+default_model = "claude-sonnet-4-6"
+```
+
+Secrets are resolved from credential sources.
+
+Shipped in v0.1:
+
+1. Environment variables.
+
+Planned after v0.1:
+
+1. OS keychain, where available.
+2. Encrypted local credential vault.
+3. Session-only credentials.
+
+Secrets must not be stored directly in `config.toml`, `workspace.md`, `models.toml`, or model catalog files.
+
+Gestalt provides authentication commands:
+
+```bash
+gestalt auth resolve <provider>
+```
+
+v0.1 ships `gestalt auth resolve <provider>` for credential diagnostics. Login, listing, removal, and default-selection commands are deferred until non-environment credential backends ship.
+
+Credential records are multi-account from the beginning:
+
+```text
+anthropic/default
+anthropic/work
+openai/personal
+openrouter/research
+mygateway/company
+```
+
+Credential resolution is deterministic. Gestalt must never silently override an explicit provider, base URL, model, or workspace config with stored auth metadata. In v0.1, `gestalt auth resolve <provider>` reports the active environment-variable source and whether a value is present without printing the secret.
+
+### 15.3 Provider Management
+
+Gestalt exposes provider management as a user-facing CLI surface.
+
+```bash
+gestalt providers list
+gestalt providers inspect <provider>
+gestalt providers test <provider>
+gestalt providers doctor
+```
+
+Provider health checks validate:
+
+* Provider config exists.
+* Credential source resolves.
+
+In v0.1, `providers doctor` is intentionally local-only: it reports config presence and credential resolution status without making live provider requests. Reachability probes and minimal live test requests remain future work.
+
+Custom OpenAI-compatible providers can be added without hard-coding secrets into config files. Their config stores provider ID, protocol type, base URL, default model, and model overrides. Credentials remain in the auth subsystem.
+
+### 15.4 Model Catalog
+
+Gestalt maintains a local model catalog for token budgeting, feature detection, provider validation, and cost analysis.
+
+Model metadata includes:
+
+* Provider ID
+* Model ID
+* Display name
+* Context window
+* Maximum output tokens
+* Tool support
+* Vision support
+* Thinking/reasoning support
+* JSON/schema support
+* Prompt caching support
+* Input and output cost metadata
+* Metadata source
+* Last updated timestamp
+
+Model catalogs are layered in this order:
+
+1. Built-in model metadata.
+2. Refreshed provider/model catalog.
+3. Provider-discovered models.
+4. User-defined global models.
+5. Workspace-specific overrides.
+6. CLI-selected model.
+
+Gestalt provides model management commands:
+
+```bash
+gestalt models list
+gestalt models inspect <provider>/<model>
+gestalt models refresh
+gestalt models select <provider>/<model>
+```
+
+Catalog entries include a `last_updated` field. Users should refresh periodically because model capabilities, pricing, and context limits change over time.
+
+### 15.5 Task-Based Model Routing
+
+Different tasks within a session may be routed to different models. Expensive frontier models can handle planning and final synthesis, while cheaper or local models can handle extraction, summarization, search expansion, and mechanical transformations.
 
 ```toml
 # .gestalt/models.toml
@@ -580,18 +699,42 @@ provider = "groq"
 model = "llama-3.1-8b-instant"
 ```
 
-Routing is advisory. CLI flags and session config always override task routing.
+Routing is advisory. CLI flags, workspace config, and explicit session config always override task-based routing.
 
-### 15.3 Model Catalog
+The routing layer must validate that the selected model supports the required capabilities for the task. For example, a tool-using turn must not be routed to a model that lacks tool support, and a vision task must not be routed to a text-only model unless the context pipeline has already converted the input into text.
 
-Gestalt maintains a local model catalog for token budgeting, feature detection, and cost analysis. The catalog includes context window size, cost per token, and capability flags (vision, tool use, thinking, JSON schema).
+### 15.6 Provider Resolution Order
 
-```bash
-gestalt models list
-gestalt models refresh   # Pull updated catalog
-```
+Before a model request is sent, gestalt resolves the active provider, model, auth record, and capability profile.
 
-Catalog entries include a `last_updated` field. Users should refresh periodically as provider pricing and capabilities change.
+Resolution order:
+
+1. CLI flags.
+2. Active session overrides.
+3. Workspace config.
+4. Global config.
+5. Task-based model routing.
+6. Default model config.
+7. Built-in defaults.
+
+Credential resolution is handled separately by the auth subsystem. Explicit provider config must not be overwritten by stored credentials.
+
+The resolved provider plan is recorded in the session trace so users can audit which provider, model, credential source, and catalog metadata were used for each model call.
+
+### 15.7 Provider Design Invariants
+
+The provider layer must preserve these invariants:
+
+1. The agent loop never sees provider-native wire formats.
+2. Provider adapters never execute tools.
+3. Provider adapters never apply workspace policy.
+4. Provider adapters never read or write workspace files.
+5. Tool calls are not executed until the full assistant turn is complete.
+6. Provider credentials are resolved outside normal config files.
+7. Explicit provider config is never silently overridden by stored credentials.
+8. Model metadata is available to the context engine before request construction.
+9. Every provider emits the same normalized event types.
+10. Every provider adapter is testable without live API keys.
 
 ---
 
@@ -609,6 +752,8 @@ COMMANDS:
   pipeline   Run a Markdown pipeline file non-interactively
   replay     Replay a trace from JSONL (display mode by default)
   cost       Summarize token usage and estimated cost across runs
+  auth       Inspect credential resolution for a provider
+  providers  Inspect configured providers
   models     List available models or refresh the model catalog
   mcp        Inspect or configure MCP server connections
   skill      List, validate, or trigger workspace skills
@@ -619,9 +764,10 @@ OPTIONS:
   --workspace <PATH>   Project workspace directory (default: current directory)
   --mode <MODE>        confirm | yolo | human | dry-run | replay
   --model <MODEL>      Override the session model
-  --no-tui             Use plain stdout (implied when not attached to a TTY)
   --max-turns <N>      Maximum agent turns (default: 50)
 ```
+
+v0.1 uses plain stdout only. A dedicated `--no-tui` flag becomes relevant only once a TUI exists.
 
 ### 16.2 Interactive Slash Commands
 
@@ -774,7 +920,7 @@ log_format = "jsonl"
 token_alert_threshold = 100000
 ```
 
-API keys and secrets must always come from environment variables. Configuration files define behavior, not credentials.
+In v0.1, API keys and secrets come from environment variables. Configuration files define behavior, not credentials. Later auth backends may satisfy the same credential boundary without changing config semantics.
 
 ### 17.3 `workspace.md` Front Matter
 
@@ -804,9 +950,9 @@ max_turns = 80
 
 ```bash
 gestalt config validate        # Check for errors, unknown keys, missing credentials
-gestalt config explain         # Describe what each active setting does
-gestalt config effective       # Show the merged configuration after all layers apply
 ```
+
+In v0.1, `config validate` checks config parsing and schema correctness. `config explain`, `config effective`, and explicit missing-credential validation remain planned follow-on commands.
 
 ---
 

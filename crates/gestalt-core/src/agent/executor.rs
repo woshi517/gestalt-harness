@@ -68,6 +68,7 @@ impl ToolExecutor {
                     tool_call_id: call.id.clone(),
                     decision: p.status,
                     reason: p.reason.clone(),
+                    policy_source: p.policy_source.clone(),
                 });
                 p
             } else {
@@ -240,6 +241,7 @@ impl ToolExecutor {
             tool_call_id: tool_call_id.to_string(),
             decision: decision.status,
             reason: decision.reason.clone(),
+            policy_source: decision.policy_source.clone(),
         });
         Ok(decision)
     }

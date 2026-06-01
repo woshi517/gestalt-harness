@@ -399,8 +399,12 @@ struct MockProvider {
 
 #[async_trait::async_trait]
 impl Provider for MockProvider {
-    fn name(&self) -> &str {
+    fn id(&self) -> &str {
         "mock"
+    }
+
+    fn display_name(&self) -> &str {
+        "Mock Provider"
     }
 
     fn default_model(&self) -> &str {
@@ -411,8 +415,12 @@ impl Provider for MockProvider {
         &self.capabilities
     }
 
-    fn count_tokens(&self, messages: &[Message]) -> usize {
-        messages.len().saturating_mul(8)
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+
+    fn count_tokens(&self, _model: &str, messages: &[Message]) -> Result<usize, HarnessError> {
+        Ok(messages.len().saturating_mul(8))
     }
 
     async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, HarnessError> {
