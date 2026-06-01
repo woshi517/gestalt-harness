@@ -9,9 +9,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use gestalt_core::{
-    AgentEvent, RunResult, StopReason, TraceError,
-    model::ModelInfo,
-    trace::TraceSink,
+    model::ModelInfo, trace::TraceSink, AgentEvent, RunResult, StopReason, TraceError,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -72,7 +70,10 @@ struct TraceState {
 }
 
 impl JsonlTraceSink {
-    pub fn new(session_id: impl Into<String>, trace_path: impl AsRef<Path>) -> Result<Self, TraceError> {
+    pub fn new(
+        session_id: impl Into<String>,
+        trace_path: impl AsRef<Path>,
+    ) -> Result<Self, TraceError> {
         let trace_path = trace_path.as_ref();
         if let Some(parent) = trace_path.parent() {
             fs::create_dir_all(parent).map_err(TraceError::WriteFailed)?;
@@ -89,7 +90,10 @@ impl JsonlTraceSink {
         })
     }
 
-    pub fn create_run(base_dir: impl AsRef<Path>, session_id: &str) -> Result<(Self, RunPaths), TraceError> {
+    pub fn create_run(
+        base_dir: impl AsRef<Path>,
+        session_id: &str,
+    ) -> Result<(Self, RunPaths), TraceError> {
         let paths = create_run_paths(base_dir, session_id)?;
         let sink = Self::new(session_id.to_string(), &paths.trace)?;
         Ok((sink, paths))
@@ -138,7 +142,10 @@ impl TraceSink for JsonlTraceSink {
     }
 }
 
-pub fn create_run_paths(base_dir: impl AsRef<Path>, session_id: &str) -> Result<RunPaths, TraceError> {
+pub fn create_run_paths(
+    base_dir: impl AsRef<Path>,
+    session_id: &str,
+) -> Result<RunPaths, TraceError> {
     let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
     let root = base_dir.as_ref().join(format!("{stamp}-{session_id}"));
     let artifacts = root.join("artifacts");
@@ -264,11 +271,11 @@ pub fn aggregate_costs(
 
                     if let Some(model_id) = current_model.as_deref() {
                         if let Some(info) = resolver(model_id) {
-                            if let (Some(input), Some(output)) = (
-                                info.input_cost_per_million,
-                                info.output_cost_per_million,
-                            ) {
-                                let delta = token_cost(input_tokens, input) + token_cost(output_tokens, output);
+                            if let (Some(input), Some(output)) =
+                                (info.input_cost_per_million, info.output_cost_per_million)
+                            {
+                                let delta = token_cost(input_tokens, input)
+                                    + token_cost(output_tokens, output);
                                 report.estimated_cost_usd =
                                     Some(report.estimated_cost_usd.unwrap_or(0.0) + delta);
                             } else {
@@ -519,7 +526,10 @@ fn is_jwt_like(token: &str) -> bool {
     parts.len() == 3 && parts.iter().all(|part| part.len() >= 8)
 }
 
-#[expect(clippy::cast_precision_loss, reason = "approximate token pricing is reported in USD")]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "approximate token pricing is reported in USD"
+)]
 fn token_cost(tokens: usize, rate_per_million: f64) -> f64 {
     (tokens as f64 / 1_000_000.0) * rate_per_million
 }

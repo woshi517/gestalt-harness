@@ -10,7 +10,9 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
         AgentEvent::Text { delta } => Some(format!("assistant> {delta}")),
         AgentEvent::Thinking { delta } => Some(format!("thinking> {delta}")),
         AgentEvent::ToolCallStreamed { .. } => None,
-        AgentEvent::ToolCallProposed { id, name, input } => Some(format!("tool> {name}#{id} {input}")),
+        AgentEvent::ToolCallProposed { id, name, input } => {
+            Some(format!("tool> {name}#{id} {input}"))
+        }
         AgentEvent::PolicyDecision {
             tool_call_id,
             decision,

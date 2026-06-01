@@ -1,8 +1,12 @@
-use std::{collections::HashMap, fs, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use gestalt_core::{ConfigError, ExecutionMode, HarnessError};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -131,12 +135,24 @@ impl WorkspaceConfig {
         self.defaults.mode = other.defaults.mode.or(self.defaults.mode);
         self.defaults.max_turns = other.defaults.max_turns.or(self.defaults.max_turns);
 
-        self.tools.bash_timeout_secs = other.tools.bash_timeout_secs.or(self.tools.bash_timeout_secs);
-        self.tools.max_output_tokens = other.tools.max_output_tokens.or(self.tools.max_output_tokens);
+        self.tools.bash_timeout_secs = other
+            .tools
+            .bash_timeout_secs
+            .or(self.tools.bash_timeout_secs);
+        self.tools.max_output_tokens = other
+            .tools
+            .max_output_tokens
+            .or(self.tools.max_output_tokens);
         self.tools.sandbox_type = other.tools.sandbox_type.or(self.tools.sandbox_type);
 
-        self.context.max_context_window = other.context.max_context_window.or(self.context.max_context_window);
-        self.context.reserved_output_tokens = other.context.reserved_output_tokens.or(self.context.reserved_output_tokens);
+        self.context.max_context_window = other
+            .context
+            .max_context_window
+            .or(self.context.max_context_window);
+        self.context.reserved_output_tokens = other
+            .context
+            .reserved_output_tokens
+            .or(self.context.reserved_output_tokens);
 
         self.observe.run_log_dir = other.observe.run_log_dir.or(self.observe.run_log_dir);
         self.observe.log_format = other.observe.log_format.or(self.observe.log_format);
@@ -269,6 +285,8 @@ pub fn mode_from_str(value: &str) -> Result<ExecutionMode, HarnessError> {
     }
 }
 
-pub fn validate_workspace_config(overrides: &CliOverrides) -> Result<EffectiveConfig, HarnessError> {
+pub fn validate_workspace_config(
+    overrides: &CliOverrides,
+) -> Result<EffectiveConfig, HarnessError> {
     load_effective_config(overrides)
 }

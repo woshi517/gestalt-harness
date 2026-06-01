@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use gestalt_core::provider::Provider;
 use gestalt_models::{
-    AnthropicProvider, OpenAiProvider, ResolvedCredential,
     auth::{CredentialResolver, CredentialSource, ProviderAuthConfig},
+    AnthropicProvider, OpenAiProvider, ResolvedCredential,
 };
 use serde_json::json;
 
@@ -26,8 +26,8 @@ impl CredentialResolver for StubResolver {
 #[test]
 fn anthropic_auth_resolves_custom_env_var() {
     let config = json!({"api_key_env": "GESTALT_TEST_ANTHROPIC_KEY"});
-    let provider =
-        AnthropicProvider::new_with_resolver(&config, Arc::new(StubResolver)).expect("provider constructs");
+    let provider = AnthropicProvider::new_with_resolver(&config, Arc::new(StubResolver))
+        .expect("provider constructs");
 
     let resolved = StubResolver
         .resolve(provider.auth_config())
@@ -54,7 +54,10 @@ fn openai_compatible_preserves_base_url_and_model() {
 
     assert_eq!(provider.id(), "openai-compatible");
     assert_eq!(provider.default_model(), "gpt-4o-mini");
-    assert_eq!(provider.auth_config().api_key_env, "GESTALT_TEST_OPENAI_KEY");
+    assert_eq!(
+        provider.auth_config().api_key_env,
+        "GESTALT_TEST_OPENAI_KEY"
+    );
 }
 
 #[test]

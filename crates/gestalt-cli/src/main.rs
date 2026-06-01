@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use gestalt_cli::{
     auth::resolve_auth,
-    config::{CliOverrides, load_effective_config, validate_workspace_config},
+    config::{load_effective_config, validate_workspace_config, CliOverrides},
     cost::{calculate_cost, render_cost},
     models::{inspect_model, list_models, refresh_models, select_model},
     providers::{doctor_provider, inspect_provider, list_providers},
@@ -155,7 +155,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             ModelsSubcommand::Inspect { model } => {
                 let config = load_effective_config(&overrides)?;
-                println!("{}", serde_json::to_string_pretty(&inspect_model(&config, &model)?)?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&inspect_model(&config, &model)?)?
+                );
             }
             ModelsSubcommand::Refresh => {
                 let config = load_effective_config(&overrides)?;

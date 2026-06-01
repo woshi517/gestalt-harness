@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use gestalt_cli::{
-    config::{CliOverrides, load_effective_config},
+    config::{load_effective_config, CliOverrides},
     models::inspect_model,
     providers::list_providers,
 };
@@ -17,7 +17,9 @@ fn config() -> gestalt_cli::config::EffectiveConfig {
 #[test]
 fn provider_list_includes_openai_compatible() {
     let providers = list_providers(&config());
-    assert!(providers.iter().any(|provider| provider == "openai-compatible"));
+    assert!(providers
+        .iter()
+        .any(|provider| provider == "openai-compatible"));
 }
 
 #[test]

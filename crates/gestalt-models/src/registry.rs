@@ -29,20 +29,17 @@ pub fn register(name: &'static str, factory: ProviderFactory) -> Result<(), Harn
 }
 
 pub fn get(name: &str, config: ProviderConfig) -> Result<Arc<dyn Provider>, HarnessError> {
-    let registry = REGISTRY
-        .get_or_init(init_defaults)
-        .read()
-        .map_err(|_| {
-            HarnessError::Provider(gestalt_core::ProviderError::UnexpectedResponse {
-                details: "provider registry poisoned".to_string(),
-            })
-        })?;
+    let registry = REGISTRY.get_or_init(init_defaults).read().map_err(|_| {
+        HarnessError::Provider(gestalt_core::ProviderError::UnexpectedResponse {
+            details: "provider registry poisoned".to_string(),
+        })
+    })?;
 
-    let factory = registry
-        .get(name)
-        .ok_or_else(|| {
-            HarnessError::Provider(gestalt_core::ProviderError::UnknownProvider(name.to_string()))
-        })?;
+    let factory = registry.get(name).ok_or_else(|| {
+        HarnessError::Provider(gestalt_core::ProviderError::UnknownProvider(
+            name.to_string(),
+        ))
+    })?;
     let provider = factory(config);
     drop(registry);
 
@@ -55,7 +52,10 @@ pub fn registered() -> Vec<String> {
         return Vec::new();
     };
 
-    let mut providers = registry.keys().map(|key| (*key).to_string()).collect::<Vec<_>>();
+    let mut providers = registry
+        .keys()
+        .map(|key| (*key).to_string())
+        .collect::<Vec<_>>();
     providers.sort();
     providers
 }
@@ -100,7 +100,9 @@ fn merge_defaults(mut config: ProviderConfig, defaults: ProviderConfig) -> Provi
     };
 
     for (key, value) in default_map {
-        config_map.entry(key.clone()).or_insert_with(|| value.clone());
+        config_map
+            .entry(key.clone())
+            .or_insert_with(|| value.clone());
     }
 
     config

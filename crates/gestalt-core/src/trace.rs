@@ -1,7 +1,4 @@
-use crate::{
-    error::TraceError,
-    event::AgentEvent,
-};
+use crate::{error::TraceError, event::AgentEvent};
 
 pub trait TraceSink: Send + Sync {
     fn emit(&self, event: AgentEvent) -> Result<(), TraceError>;

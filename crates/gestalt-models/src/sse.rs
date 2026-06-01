@@ -1,4 +1,4 @@
-use gestalt_core::{AgentEvent, HarnessError, ProviderError, event::StopReason};
+use gestalt_core::{event::StopReason, AgentEvent, HarnessError, ProviderError};
 use serde_json::Value;
 
 pub fn parse_sse(input: &str) -> Vec<(Option<String>, String)> {
@@ -40,11 +40,14 @@ pub fn provider_error_for_status(status: reqwest::StatusCode, body: &str) -> Pro
             retry_after_secs: Some(1),
         },
         400 if lower.contains("context") || lower.contains("maximum context") => {
-            ProviderError::ContextTooLong { tokens: 0, limit: 0 }
+            ProviderError::ContextTooLong {
+                tokens: 0,
+                limit: 0,
+            }
         }
-        400 if lower.contains("model") && lower.contains("invalid") => ProviderError::InvalidModel {
-            model: details,
-        },
+        400 if lower.contains("model") && lower.contains("invalid") => {
+            ProviderError::InvalidModel { model: details }
+        }
         _ => ProviderError::UnexpectedResponse {
             details: format!("HTTP {status}: {details}"),
         },
@@ -105,6 +108,8 @@ fn is_jwt_like(token: &str) -> bool {
 }
 
 #[allow(dead_code)]
-pub fn stream_from_events(events: Vec<Result<AgentEvent, HarnessError>>) -> gestalt_core::EventStream {
+pub fn stream_from_events(
+    events: Vec<Result<AgentEvent, HarnessError>>,
+) -> gestalt_core::EventStream {
     Box::pin(futures::stream::iter(events))
 }

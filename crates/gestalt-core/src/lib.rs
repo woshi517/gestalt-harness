@@ -28,8 +28,8 @@ pub mod policy;
 pub mod provider;
 pub mod session;
 pub mod tool;
-pub mod turn;
 pub mod trace;
+pub mod turn;
 
 pub use agent::AgentLoop;
 pub use approval::{

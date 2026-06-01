@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
-use gestalt_core::{AgentEvent, trace::TraceSink};
-use gestalt_trace::{JsonlTraceSink, read_trace};
+use gestalt_core::{trace::TraceSink, AgentEvent};
+use gestalt_trace::{read_trace, JsonlTraceSink};
 
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("gestalt-trace-{name}-{}", std::process::id()));
@@ -37,5 +37,7 @@ fn jsonl_trace_sink_writes_monotonic_redacted_envelopes() {
     assert_eq!(events[0].seq, 1);
     assert_eq!(events[1].seq, 2);
     assert!(events[1].redacted);
-    assert!(matches!(&events[2].event, AgentEvent::PolicyDecision { policy_source, .. } if policy_source == "paths.allow_read"));
+    assert!(
+        matches!(&events[2].event, AgentEvent::PolicyDecision { policy_source, .. } if policy_source == "paths.allow_read")
+    );
 }

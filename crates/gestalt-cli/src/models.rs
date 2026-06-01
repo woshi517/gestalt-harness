@@ -1,4 +1,4 @@
-use gestalt_core::{ConfigError, HarnessError, model::ModelInfo};
+use gestalt_core::{model::ModelInfo, ConfigError, HarnessError};
 use gestalt_models::ModelCatalog;
 
 use crate::config::EffectiveConfig;
@@ -21,10 +21,16 @@ pub fn inspect_model(config: &EffectiveConfig, model: &str) -> Result<ModelInfo,
 }
 
 pub fn refresh_models(config: &EffectiveConfig) -> String {
-    format!("built-in catalog available: {} models", list_models(config).len())
+    format!(
+        "built-in catalog available: {} models",
+        list_models(config).len()
+    )
 }
 
 pub fn select_model(config: &EffectiveConfig, model: &str) -> Result<String, HarnessError> {
     let info = inspect_model(config, model)?;
-    Ok(format!("selected {} ({})", info.qualified_id, info.display_name))
+    Ok(format!(
+        "selected {} ({})",
+        info.qualified_id, info.display_name
+    ))
 }

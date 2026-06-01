@@ -2,18 +2,20 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
-    AgentEvent, AgentLoop, AutoApprovalProvider, ExecutionMode, Message, Session, SessionConfig,
-    TokenBudget, ToolContext,
-    trace::TraceSink,
+    trace::TraceSink, AgentEvent, AgentLoop, AutoApprovalProvider, ExecutionMode, Message, Session,
+    SessionConfig, TokenBudget, ToolContext,
 };
 use gestalt_models::registry;
 use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
 use gestalt_tools::default_registry;
-use gestalt_trace::{JsonlTraceSink, aggregate_costs, write_cost_report, write_summary};
+use gestalt_trace::{aggregate_costs, write_cost_report, write_summary, JsonlTraceSink};
 
 use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::render_event};
 
-pub async fn run_prompt(config: &EffectiveConfig, prompt: &str) -> Result<PathBuf, gestalt_core::HarnessError> {
+pub async fn run_prompt(
+    config: &EffectiveConfig,
+    prompt: &str,
+) -> Result<PathBuf, gestalt_core::HarnessError> {
     let provider_name = config.selected_provider()?;
     let provider = registry::get(&provider_name, config.provider_json(&provider_name))?;
     let provider_default_model = provider.default_model().to_string();
@@ -25,9 +27,7 @@ pub async fn run_prompt(config: &EffectiveConfig, prompt: &str) -> Result<PathBu
     let max_turns = config.max_turns();
     let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, max_turns);
 
-    let model = config
-        .selected_model()
-        .unwrap_or(provider_default_model);
+    let model = config.selected_model().unwrap_or(provider_default_model);
     let session_id = format!("session-{}", std::process::id());
     let mut session = Session::new(
         session_id.clone(),
@@ -80,7 +80,9 @@ pub async fn run_prompt(config: &EffectiveConfig, prompt: &str) -> Result<PathBu
     sink.flush()?;
 
     write_summary(&run_paths.summary, &result)?;
-    let report = aggregate_costs(&run_paths.trace, |model| gestalt_models::ModelCatalog::new().get(model))?;
+    let report = aggregate_costs(&run_paths.trace, |model| {
+        gestalt_models::ModelCatalog::new().get(model)
+    })?;
     write_cost_report(&run_paths.cost, &report)?;
     Ok(run_paths.root)
 }
@@ -98,7 +100,9 @@ fn build_pipeline(config: &EffectiveConfig) -> MinimalContextPipeline {
     pipeline
 }
 
-fn build_policy(config: &EffectiveConfig) -> Result<MinimalPolicyEngine, gestalt_core::HarnessError> {
+fn build_policy(
+    config: &EffectiveConfig,
+) -> Result<MinimalPolicyEngine, gestalt_core::HarnessError> {
     let policies = config.workspace_file("policies.toml");
     let policy = if policies.exists() {
         PolicyConfig::from_file(policies)?

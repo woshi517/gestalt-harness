@@ -5,16 +5,15 @@ use std::{
 
 use async_trait::async_trait;
 use gestalt_core::{
-    AgentEvent, ContentBlock, HarnessError, Message, Provider, ProviderCapabilities,
-    ProviderError, ProviderRequest, StopReason,
+    AgentEvent, ContentBlock, HarnessError, Message, Provider, ProviderCapabilities, ProviderError,
+    ProviderRequest, StopReason,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 
 use crate::{
     auth::{
-        CredentialResolver, EnvironmentCredentialResolver, ProviderAuthConfig,
-        provider_auth_config,
+        provider_auth_config, CredentialResolver, EnvironmentCredentialResolver, ProviderAuthConfig,
     },
     catalog::ModelCatalog,
     sse,
@@ -55,7 +54,10 @@ impl Default for AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    #[expect(clippy::needless_pass_by_value, reason = "registry factories pass serde_json::Value by value")]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "registry factories pass serde_json::Value by value"
+    )]
     pub fn new(config: Value) -> Result<Self, HarnessError> {
         Self::new_with_resolver(&config, Arc::new(EnvironmentCredentialResolver))
     }
@@ -188,7 +190,10 @@ impl Provider for AnthropicProvider {
         Ok(ModelCatalog::count_tokens(messages))
     }
 
-    async fn stream(&self, request: ProviderRequest) -> Result<gestalt_core::EventStream, HarnessError> {
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+    ) -> Result<gestalt_core::EventStream, HarnessError> {
         use eventsource_stream::Eventsource;
         use futures::StreamExt;
 
@@ -207,7 +212,9 @@ impl Provider for AnthropicProvider {
                 .text()
                 .await
                 .map_err(|err| ProviderError::Transport(std::io::Error::other(err)))?;
-            return Err(HarnessError::Provider(sse::provider_error_for_status(status, &body)));
+            return Err(HarnessError::Provider(sse::provider_error_for_status(
+                status, &body,
+            )));
         }
 
         let index_to_id = Arc::new(Mutex::new(HashMap::new()));
@@ -223,12 +230,14 @@ impl Provider for AnthropicProvider {
                     std::io::Error::other(err),
                 ))),
             })
-            .map(|result| -> futures::stream::BoxStream<'static, Result<AgentEvent, HarnessError>> {
-                match result {
-                    Ok(events) => Box::pin(futures::stream::iter(events.into_iter().map(Ok))),
-                    Err(err) => Box::pin(futures::stream::iter(vec![Err(err)])),
-                }
-            })
+            .map(
+                |result| -> futures::stream::BoxStream<'static, Result<AgentEvent, HarnessError>> {
+                    match result {
+                        Ok(events) => Box::pin(futures::stream::iter(events.into_iter().map(Ok))),
+                        Err(err) => Box::pin(futures::stream::iter(vec![Err(err)])),
+                    }
+                },
+            )
             .flatten();
 
         Ok(Box::pin(stream))
@@ -359,11 +368,14 @@ fn map_error(value: &Value) -> ProviderError {
         Some("rate_limit_error") => ProviderError::RateLimit {
             retry_after_secs: Some(1),
         },
-        Some("invalid_request_error") if lowered.contains("model") => ProviderError::InvalidModel {
-            model: sanitized,
-        },
+        Some("invalid_request_error") if lowered.contains("model") => {
+            ProviderError::InvalidModel { model: sanitized }
+        }
         Some("invalid_request_error") if lowered.contains("context") => {
-            ProviderError::ContextTooLong { tokens: 0, limit: 0 }
+            ProviderError::ContextTooLong {
+                tokens: 0,
+                limit: 0,
+            }
         }
         _ => ProviderError::UnexpectedResponse { details: sanitized },
     }

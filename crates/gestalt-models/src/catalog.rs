@@ -92,7 +92,12 @@ impl ModelCatalog {
     }
 
     #[must_use]
-    pub fn estimate_cost(&self, model: &str, input_tokens: usize, output_tokens: usize) -> Option<f64> {
+    pub fn estimate_cost(
+        &self,
+        model: &str,
+        input_tokens: usize,
+        output_tokens: usize,
+    ) -> Option<f64> {
         let info = self.get(model)?;
         let input_rate = info.input_cost_per_million?;
         let output_rate = info.output_cost_per_million?;
@@ -189,7 +194,10 @@ fn message_chars(message: &Message) -> usize {
     }
 }
 
-#[expect(clippy::cast_precision_loss, reason = "approximate token pricing is reported in USD")]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "approximate token pricing is reported in USD"
+)]
 fn token_cost(tokens: usize, rate_per_million: f64) -> f64 {
     (tokens as f64 / 1_000_000.0) * rate_per_million
 }

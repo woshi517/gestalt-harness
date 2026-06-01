@@ -5,16 +5,15 @@ use std::{
 
 use async_trait::async_trait;
 use gestalt_core::{
-    AgentEvent, ContentBlock, HarnessError, Message, Provider, ProviderCapabilities,
-    ProviderError, ProviderRequest, StopReason,
+    AgentEvent, ContentBlock, HarnessError, Message, Provider, ProviderCapabilities, ProviderError,
+    ProviderRequest, StopReason,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::{
     auth::{
-        CredentialResolver, EnvironmentCredentialResolver, ProviderAuthConfig,
-        provider_auth_config,
+        provider_auth_config, CredentialResolver, EnvironmentCredentialResolver, ProviderAuthConfig,
     },
     catalog::ModelCatalog,
     sse,
@@ -65,7 +64,10 @@ impl Default for OpenAiProvider {
 }
 
 impl OpenAiProvider {
-    #[expect(clippy::needless_pass_by_value, reason = "registry factories pass serde_json::Value by value")]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "registry factories pass serde_json::Value by value"
+    )]
     pub fn new(config: Value) -> Result<Self, HarnessError> {
         Self::new_with_resolver(&config, Arc::new(EnvironmentCredentialResolver))
     }
@@ -216,7 +218,10 @@ impl Provider for OpenAiProvider {
         Ok(ModelCatalog::count_tokens(messages))
     }
 
-    async fn stream(&self, request: ProviderRequest) -> Result<gestalt_core::EventStream, HarnessError> {
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+    ) -> Result<gestalt_core::EventStream, HarnessError> {
         use eventsource_stream::Eventsource;
         use futures::StreamExt;
 
@@ -238,7 +243,9 @@ impl Provider for OpenAiProvider {
             if let Ok(value) = serde_json::from_str::<Value>(&body) {
                 return Err(HarnessError::Provider(map_error(&value, &self.id)));
             }
-            return Err(HarnessError::Provider(sse::provider_error_for_status(status, &body)));
+            return Err(HarnessError::Provider(sse::provider_error_for_status(
+                status, &body,
+            )));
         }
 
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -254,12 +261,14 @@ impl Provider for OpenAiProvider {
                     std::io::Error::other(err),
                 ))),
             })
-            .map(|result| -> futures::stream::BoxStream<'static, Result<AgentEvent, HarnessError>> {
-                match result {
-                    Ok(events) => Box::pin(futures::stream::iter(events.into_iter().map(Ok))),
-                    Err(err) => Box::pin(futures::stream::iter(vec![Err(err)])),
-                }
-            })
+            .map(
+                |result| -> futures::stream::BoxStream<'static, Result<AgentEvent, HarnessError>> {
+                    match result {
+                        Ok(events) => Box::pin(futures::stream::iter(events.into_iter().map(Ok))),
+                        Err(err) => Box::pin(futures::stream::iter(vec![Err(err)])),
+                    }
+                },
+            )
             .flatten();
 
         Ok(Box::pin(stream))
@@ -275,7 +284,10 @@ fn normalize_payload(
 
     if let Some(usage) = value.get("usage") {
         let input_tokens = u64_to_usize(
-            usage.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0),
+            usage
+                .get("prompt_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
         );
         let output_tokens = u64_to_usize(
             usage
@@ -364,7 +376,10 @@ fn map_error(value: &Value, provider: &str) -> ProviderError {
     let lowered = message.to_ascii_lowercase();
     let sanitized = sse::sanitize_detail(message);
 
-    if matches!(error.get("code").and_then(Value::as_str), Some("invalid_api_key")) {
+    if matches!(
+        error.get("code").and_then(Value::as_str),
+        Some("invalid_api_key")
+    ) {
         return ProviderError::AuthFailed {
             provider: provider.to_string(),
         };
@@ -375,11 +390,14 @@ fn map_error(value: &Value, provider: &str) -> ProviderError {
             retry_after_secs: None,
         },
         Some("invalid_request_error") if lowered.contains("context") => {
-            ProviderError::ContextTooLong { tokens: 0, limit: 0 }
+            ProviderError::ContextTooLong {
+                tokens: 0,
+                limit: 0,
+            }
         }
-        Some("invalid_request_error") if lowered.contains("model") => ProviderError::InvalidModel {
-            model: sanitized,
-        },
+        Some("invalid_request_error") if lowered.contains("model") => {
+            ProviderError::InvalidModel { model: sanitized }
+        }
         _ if lowered.contains("timed out") => ProviderError::Timeout,
         _ => ProviderError::UnexpectedResponse { details: sanitized },
     }

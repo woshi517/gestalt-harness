@@ -16,10 +16,12 @@ pub fn list_providers(config: &EffectiveConfig) -> Vec<String> {
 
 pub fn inspect_provider(config: &EffectiveConfig, provider: &str) -> Result<String, HarnessError> {
     let value = config.provider_json(provider);
-    serde_json::to_string_pretty(&value).map_err(|err| HarnessError::Config(ConfigError::InvalidValue {
+    serde_json::to_string_pretty(&value).map_err(|err| {
+        HarnessError::Config(ConfigError::InvalidValue {
             field: provider.to_string(),
             reason: err.to_string(),
-        }))
+        })
+    })
 }
 
 pub fn doctor_provider(config: &EffectiveConfig, provider: &str) -> Result<String, HarnessError> {

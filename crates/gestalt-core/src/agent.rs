@@ -174,7 +174,8 @@ impl AgentLoop {
                                 input_tokens,
                                 output_tokens,
                             } => {
-                                *total_input_tokens = total_input_tokens.saturating_add(*input_tokens);
+                                *total_input_tokens =
+                                    total_input_tokens.saturating_add(*input_tokens);
                                 *total_output_tokens =
                                     total_output_tokens.saturating_add(*output_tokens);
                                 session
@@ -188,9 +189,11 @@ impl AgentLoop {
                                 recoverable: false,
                                 message,
                             } => {
-                                return Err(HarnessError::Provider(ProviderError::UnexpectedResponse {
-                                    details: message.clone(),
-                                }));
+                                return Err(HarnessError::Provider(
+                                    ProviderError::UnexpectedResponse {
+                                        details: message.clone(),
+                                    },
+                                ));
                             }
                             _ => {}
                         }
