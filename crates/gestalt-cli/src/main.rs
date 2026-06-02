@@ -4,8 +4,14 @@ use clap::{Args, Parser, Subcommand};
 use gestalt_cli::{
     auth::resolve_auth,
     config::{load_effective_config, validate_workspace_config, CliOverrides},
-    cost::{calculate_cost, render_cost},
-    models::{inspect_model, list_models, refresh_models, select_model},
+    cost::calculate_cost,
+    models::{inspect_model, list_models},
+    output::{
+        AuthResolveReport, CliErrorPayload, CliReport, ConfigValidateReport, CostReportWrapper,
+        JsonEnvelope, ModelsInspectReport, ModelsListReport, ModelsRefreshReport, ModelsSelectReport,
+        OutputFormat, ProvidersDoctorReport, ProvidersInspectReport, ProvidersListReport,
+        ReplayReport, RunReport,
+    },
     providers::{doctor_provider, inspect_provider, list_providers},
     replay::replay_display,
     run::run_prompt,
@@ -14,16 +20,24 @@ use gestalt_cli::{
 #[derive(Parser)]
 #[command(name = "gestalt")]
 struct Cli {
-    #[arg(long)]
+    #[arg(long, global = true)]
     workspace: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, global = true)]
     model: Option<String>,
-    #[arg(long)]
+    #[arg(long, global = true)]
     mode: Option<String>,
-    #[arg(long)]
+    #[arg(long, global = true)]
     max_turns: Option<usize>,
-    #[arg(long)]
+    #[arg(long, global = true)]
     provider: Option<String>,
+    #[arg(long, default_value = "text", global = true)]
+    format: String,
+    #[arg(long, short, global = true)]
+    quiet: bool,
+    #[arg(long, short, global = true)]
+    verbose: bool,
+    #[arg(long, global = true)]
+    no_color: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -89,6 +103,107 @@ enum ModelsSubcommand {
     Select { model: String },
 }
 
+fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload {
+    if let Some(harness_err) = err.downcast_ref::<gestalt_core::HarnessError>() {
+        match harness_err {
+            gestalt_core::HarnessError::Config(cfg_err) => CliErrorPayload {
+                code: "CONFIG_ERROR".to_string(),
+                message: cfg_err.to_string(),
+                details: None,
+            },
+            gestalt_core::HarnessError::Provider(prov_err) => CliErrorPayload {
+                code: "PROVIDER_ERROR".to_string(),
+                message: prov_err.to_string(),
+                details: None,
+            },
+            gestalt_core::HarnessError::Policy(pol_err) => CliErrorPayload {
+                code: "POLICY_ERROR".to_string(),
+                message: pol_err.to_string(),
+                details: None,
+            },
+            gestalt_core::HarnessError::Context(ctx_err) => CliErrorPayload {
+                code: "CONTEXT_ERROR".to_string(),
+                message: ctx_err.to_string(),
+                details: None,
+            },
+            gestalt_core::HarnessError::Tool(t_err) => CliErrorPayload {
+                code: "TOOL_ERROR".to_string(),
+                message: t_err.to_string(),
+                details: None,
+            },
+            gestalt_core::HarnessError::Trace(tr_err) => CliErrorPayload {
+                code: "TRACE_ERROR".to_string(),
+                message: tr_err.to_string(),
+                details: None,
+            },
+            gestalt_core::HarnessError::Approval(app_err) => CliErrorPayload {
+                code: "APPROVAL_ERROR".to_string(),
+                message: app_err.to_string(),
+                details: None,
+            },
+        }
+    } else if let Some(trace_err) = err.downcast_ref::<gestalt_core::TraceError>() {
+        CliErrorPayload {
+            code: "TRACE_ERROR".to_string(),
+            message: trace_err.to_string(),
+            details: None,
+        }
+    } else {
+        CliErrorPayload {
+            code: "INTERNAL_ERROR".to_string(),
+            message: err.to_string(),
+            details: None,
+        }
+    }
+}
+
+fn handle_result<T: CliReport>(
+    res: Result<T, Box<dyn std::error::Error>>,
+    format: OutputFormat,
+    quiet: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match res {
+        Ok(report) => {
+            match format {
+                OutputFormat::Json => {
+                    let envelope = JsonEnvelope {
+                        schema_version: 1,
+                        kind: report.kind().to_string(),
+                        data: report,
+                    };
+                    println!("{}", serde_json::to_string(&envelope)?);
+                }
+                OutputFormat::Text => {
+                    if !quiet {
+                        let text = report.render_text();
+                        if !text.is_empty() {
+                            println!("{}", text);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+        Err(err) => {
+            let payload = map_to_cli_error(err.as_ref());
+            match format {
+                OutputFormat::Json => {
+                    let envelope = JsonEnvelope {
+                        schema_version: 1,
+                        kind: "error".to_string(),
+                        data: payload,
+                    };
+                    eprintln!("{}", serde_json::to_string(&envelope)?);
+                }
+                OutputFormat::Text => {
+                    eprintln!("error: {}", payload.message);
+                }
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -100,73 +215,134 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workspace: cli.workspace.clone(),
     };
 
+    let format = match cli.format.to_lowercase().as_str() {
+        "json" => OutputFormat::Json,
+        _ => OutputFormat::Text,
+    };
+    let quiet = cli.quiet;
+
     match cli.command {
         Command::Run { prompt } => {
-            let config = load_effective_config(&overrides)?;
-            let run_dir = run_prompt(&config, &prompt).await?;
-            println!("run_dir={}", run_dir.display());
+            let res: Result<RunReport, gestalt_core::HarnessError> = async {
+                let config = load_effective_config(&overrides)?;
+                let run_dir = run_prompt(&config, &prompt).await?;
+                Ok(RunReport { run_dir })
+            }.await;
+            handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
         }
-        Command::Replay { path } => println!("{}", replay_display(&path)?),
-        Command::Cost { path } => println!("{}", render_cost(&calculate_cost(&path)?)),
+        Command::Replay { path } => {
+            let res: Result<ReplayReport, gestalt_core::TraceError> = (|| {
+                let rendered = replay_display(&path)?;
+                Ok(ReplayReport { rendered })
+            })();
+            handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+        }
+        Command::Cost { path } => {
+            let res: Result<CostReportWrapper, gestalt_core::TraceError> = (|| {
+                let report = calculate_cost(&path)?;
+                Ok(CostReportWrapper(report))
+            })();
+            handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+        }
         Command::Config(command) => match command.command {
             ConfigSubcommand::Validate => {
-                let config = validate_workspace_config(&overrides)?;
-                println!("valid workspace={}", config.workspace_root.display());
+                let res: Result<ConfigValidateReport, gestalt_core::HarnessError> = (|| {
+                    let config = validate_workspace_config(&overrides)?;
+                    Ok(ConfigValidateReport {
+                        workspace_root: config.workspace_root,
+                    })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
         },
         Command::Auth(command) => match command.command {
             AuthSubcommand::Resolve { provider } => {
-                let config = load_effective_config(&overrides)?;
-                println!("{}", resolve_auth(&config, &provider)?);
+                let res: Result<AuthResolveReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let report = resolve_auth(&config, &provider)?;
+                    Ok(report)
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
         },
         Command::Providers(command) => match command.command {
             ProvidersSubcommand::List => {
-                let config = load_effective_config(&overrides)?;
-                for provider in list_providers(&config) {
-                    println!("{provider}");
-                }
+                let res: Result<ProvidersListReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let providers = list_providers(&config);
+                    Ok(ProvidersListReport { providers })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
             ProvidersSubcommand::Inspect { provider } => {
-                let config = load_effective_config(&overrides)?;
-                println!("{}", inspect_provider(&config, &provider)?);
+                let res: Result<ProvidersInspectReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let value = inspect_provider(&config, &provider)?;
+                    Ok(ProvidersInspectReport { provider, config: value })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
             ProvidersSubcommand::Test { provider } => {
-                let config = load_effective_config(&overrides)?;
-                println!("{}", doctor_provider(&config, &provider)?);
+                let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let result = doctor_provider(&config, &provider)?;
+                    Ok(ProvidersDoctorReport {
+                        results: vec![result],
+                    })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
             ProvidersSubcommand::Doctor { provider } => {
-                let config = load_effective_config(&overrides)?;
-                if let Some(provider) = provider {
-                    println!("{}", doctor_provider(&config, &provider)?);
-                } else {
-                    for provider in list_providers(&config) {
-                        println!("{}", doctor_provider(&config, &provider)?);
+                let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let mut results = Vec::new();
+                    if let Some(provider) = provider {
+                        results.push(doctor_provider(&config, &provider)?);
+                    } else {
+                        for p in list_providers(&config) {
+                            results.push(doctor_provider(&config, &p)?);
+                        }
                     }
-                }
+                    Ok(ProvidersDoctorReport { results })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
         },
         Command::Models(command) => match command.command {
             ModelsSubcommand::List => {
-                let config = load_effective_config(&overrides)?;
-                for model in list_models(&config) {
-                    println!("{}", model.qualified_id);
-                }
+                let res: Result<ModelsListReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let models = list_models(&config);
+                    Ok(ModelsListReport { models })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
             ModelsSubcommand::Inspect { model } => {
-                let config = load_effective_config(&overrides)?;
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&inspect_model(&config, &model)?)?
-                );
+                let res: Result<ModelsInspectReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let model_info = inspect_model(&config, &model)?;
+                    Ok(ModelsInspectReport { model: model_info })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
             ModelsSubcommand::Refresh => {
-                let config = load_effective_config(&overrides)?;
-                println!("{}", refresh_models(&config));
+                let res: Result<ModelsRefreshReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let count = list_models(&config).len();
+                    Ok(ModelsRefreshReport { count })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
             ModelsSubcommand::Select { model } => {
-                let config = load_effective_config(&overrides)?;
-                println!("{}", select_model(&config, &model)?);
+                let res: Result<ModelsSelectReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let info = inspect_model(&config, &model)?;
+                    Ok(ModelsSelectReport {
+                        qualified_id: info.qualified_id,
+                        display_name: info.display_name,
+                    })
+                })();
+                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
             }
         },
     }

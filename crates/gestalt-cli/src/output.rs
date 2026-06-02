@@ -1,4 +1,8 @@
-use gestalt_core::AgentEvent;
+use std::path::PathBuf;
+use gestalt_core::{model::ModelInfo, AgentEvent};
+use gestalt_trace::CostReport;
+use serde::Serialize;
+use serde_json::Value;
 
 #[allow(clippy::format_push_string)]
 pub fn render_event(event: &AgentEvent) -> Option<String> {
@@ -168,5 +172,225 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             snapshot_id,
             dirty,
         } => Some(format!("snapshot> id={snapshot_id} dirty={dirty}")),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputFormat {
+    Text,
+    Json,
+}
+
+#[derive(Serialize)]
+pub struct JsonEnvelope<T> {
+    pub schema_version: u32,
+    pub kind: String,
+    pub data: T,
+}
+
+#[derive(Serialize)]
+pub struct CliErrorPayload {
+    pub code: String,
+    pub message: String,
+    pub details: Option<Value>,
+}
+
+pub trait CliReport: Serialize {
+    fn kind(&self) -> &'static str;
+    fn render_text(&self) -> String;
+}
+
+#[derive(Serialize)]
+pub struct RunReport {
+    pub run_dir: PathBuf,
+}
+
+impl CliReport for RunReport {
+    fn kind(&self) -> &'static str {
+        "run"
+    }
+    fn render_text(&self) -> String {
+        format!("run_dir={}", self.run_dir.display())
+    }
+}
+
+#[derive(Serialize)]
+pub struct ReplayReport {
+    pub rendered: String,
+}
+
+impl CliReport for ReplayReport {
+    fn kind(&self) -> &'static str {
+        "replay"
+    }
+    fn render_text(&self) -> String {
+        self.rendered.clone()
+    }
+}
+
+#[derive(Serialize)]
+pub struct CostReportWrapper(pub CostReport);
+
+impl CliReport for CostReportWrapper {
+    fn kind(&self) -> &'static str {
+        "cost"
+    }
+    fn render_text(&self) -> String {
+        crate::cost::render_cost(&self.0)
+    }
+}
+
+#[derive(Serialize)]
+pub struct ConfigValidateReport {
+    pub workspace_root: PathBuf,
+}
+
+impl CliReport for ConfigValidateReport {
+    fn kind(&self) -> &'static str {
+        "config.validate"
+    }
+    fn render_text(&self) -> String {
+        format!("valid workspace={}", self.workspace_root.display())
+    }
+}
+
+#[derive(Serialize)]
+pub struct AuthResolveReport {
+    pub provider: String,
+    pub source: String,
+    pub variable: String,
+    pub status: String,
+}
+
+impl CliReport for AuthResolveReport {
+    fn kind(&self) -> &'static str {
+        "auth.resolve"
+    }
+    fn render_text(&self) -> String {
+        format!(
+            "provider={} source={} variable={} status={}",
+            self.provider, self.source, self.variable, self.status
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct ProvidersListReport {
+    pub providers: Vec<String>,
+}
+
+impl CliReport for ProvidersListReport {
+    fn kind(&self) -> &'static str {
+        "providers.list"
+    }
+    fn render_text(&self) -> String {
+        self.providers.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ProvidersInspectReport {
+    pub provider: String,
+    pub config: Value,
+}
+
+impl CliReport for ProvidersInspectReport {
+    fn kind(&self) -> &'static str {
+        "providers.inspect"
+    }
+    fn render_text(&self) -> String {
+        serde_json::to_string_pretty(&self.config).unwrap_or_default()
+    }
+}
+
+#[derive(Serialize)]
+pub struct ProviderDoctorResult {
+    pub provider: String,
+    pub auth_variable: String,
+    pub auth_status: String,
+}
+
+#[derive(Serialize)]
+pub struct ProvidersDoctorReport {
+    pub results: Vec<ProviderDoctorResult>,
+}
+
+impl CliReport for ProvidersDoctorReport {
+    fn kind(&self) -> &'static str {
+        "providers.doctor"
+    }
+    fn render_text(&self) -> String {
+        self.results
+            .iter()
+            .map(|r| {
+                format!(
+                    "provider={}\nprovider={} source=env variable={} status={}",
+                    r.provider, r.provider, r.auth_variable, r.auth_status
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ModelsListReport {
+    pub models: Vec<ModelInfo>,
+}
+
+impl CliReport for ModelsListReport {
+    fn kind(&self) -> &'static str {
+        "models.list"
+    }
+    fn render_text(&self) -> String {
+        self.models
+            .iter()
+            .map(|m| m.qualified_id.clone())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ModelsInspectReport {
+    pub model: ModelInfo,
+}
+
+impl CliReport for ModelsInspectReport {
+    fn kind(&self) -> &'static str {
+        "models.inspect"
+    }
+    fn render_text(&self) -> String {
+        serde_json::to_string_pretty(&self.model).unwrap_or_default()
+    }
+}
+
+#[derive(Serialize)]
+pub struct ModelsRefreshReport {
+    pub count: usize,
+}
+
+impl CliReport for ModelsRefreshReport {
+    fn kind(&self) -> &'static str {
+        "models.refresh"
+    }
+    fn render_text(&self) -> String {
+        format!("built-in catalog available: {} models", self.count)
+    }
+}
+
+#[derive(Serialize)]
+pub struct ModelsSelectReport {
+    pub qualified_id: String,
+    pub display_name: String,
+}
+
+impl CliReport for ModelsSelectReport {
+    fn kind(&self) -> &'static str {
+        "models.select"
+    }
+    fn render_text(&self) -> String {
+        format!("selected {} ({})", self.qualified_id, self.display_name)
     }
 }

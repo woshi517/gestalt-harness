@@ -1,7 +1,7 @@
-use gestalt_core::{ConfigError, HarnessError};
+use gestalt_core::HarnessError;
 use gestalt_models::registry;
 
-use crate::{auth::resolve_auth, config::EffectiveConfig};
+use crate::{auth::resolve_auth, config::EffectiveConfig, output::ProviderDoctorResult};
 
 pub fn list_providers(config: &EffectiveConfig) -> Vec<String> {
     let mut providers = registry::registered();
@@ -14,17 +14,15 @@ pub fn list_providers(config: &EffectiveConfig) -> Vec<String> {
     providers
 }
 
-pub fn inspect_provider(config: &EffectiveConfig, provider: &str) -> Result<String, HarnessError> {
-    let value = config.provider_json(provider);
-    serde_json::to_string_pretty(&value).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: provider.to_string(),
-            reason: err.to_string(),
-        })
-    })
+pub fn inspect_provider(config: &EffectiveConfig, provider: &str) -> Result<serde_json::Value, HarnessError> {
+    Ok(config.provider_json(provider))
 }
 
-pub fn doctor_provider(config: &EffectiveConfig, provider: &str) -> Result<String, HarnessError> {
+pub fn doctor_provider(config: &EffectiveConfig, provider: &str) -> Result<ProviderDoctorResult, HarnessError> {
     let auth = resolve_auth(config, provider)?;
-    Ok(format!("provider={provider}\n{auth}"))
+    Ok(ProviderDoctorResult {
+        provider: provider.to_string(),
+        auth_variable: auth.variable,
+        auth_status: auth.status,
+    })
 }

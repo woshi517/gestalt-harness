@@ -1,9 +1,9 @@
 use gestalt_core::{ConfigError, HarnessError};
 use gestalt_models::{registry, AnthropicProvider, OpenAiProvider};
 
-use crate::config::EffectiveConfig;
+use crate::{config::EffectiveConfig, output::AuthResolveReport};
 
-pub fn resolve_auth(config: &EffectiveConfig, provider: &str) -> Result<String, HarnessError> {
+pub fn resolve_auth(config: &EffectiveConfig, provider: &str) -> Result<AuthResolveReport, HarnessError> {
     let provider_config = config.provider_json(provider);
 
     let env_var = match provider {
@@ -30,12 +30,15 @@ pub fn resolve_auth(config: &EffectiveConfig, provider: &str) -> Result<String, 
     };
 
     let status = if std::env::var(&env_var).is_ok() {
-        "present"
+        "present".to_string()
     } else {
-        "missing"
+        "missing".to_string()
     };
 
-    Ok(format!(
-        "provider={provider} source=env variable={env_var} status={status}"
-    ))
+    Ok(AuthResolveReport {
+        provider: provider.to_string(),
+        source: "env".to_string(),
+        variable: env_var,
+        status,
+    })
 }
