@@ -1,5 +1,13 @@
 //! `gestalt-trace` — JSONL trace writer + `EventEnvelope`
 
+pub mod fixture;
+pub mod golden;
+pub mod evaluator;
+
+pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
+pub use golden::{GoldenTrace, GoldenTraceRunner};
+pub use evaluator::{TraceEvaluator, NoopTraceEvaluator, EvalStatus, EvalResult, EvaluatorHook};
+
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},

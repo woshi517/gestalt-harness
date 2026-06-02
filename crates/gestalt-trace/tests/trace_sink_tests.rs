@@ -21,6 +21,7 @@ fn jsonl_trace_sink_writes_monotonic_redacted_envelopes() {
         packet_hash: Some("abcd1234efgh5678".to_string()),
         sources: None,
         omissions: None,
+        prompt_source: None,
     })
     .expect("emit context built");
     sink.emit(AgentEvent::ModelRequest {

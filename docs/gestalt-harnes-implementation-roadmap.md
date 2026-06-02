@@ -830,5 +830,7 @@ Following a comprehensive v0.1 harness-engineering review, we hardened the primi
 - **Audited Permissions:** Bounded session approval grants (auto-approves matching input hash and risk ceiling).
 - **Observable/Auditable Context:** Expanded `ContextBuilt`, `PolicyDecision`, and `ToolResult` schemas. Full truncated tool output is saved to `artifacts/`.
 - **Workspace State Correlation:** Added `WorkspaceSnapshot` capturing git state + tracked files hash, linking every session and trace run to a specific workspace state.
+- **Regression Verification:** Shipped `TraceFixture` / `GoldenTrace` registry and `GoldenTraceRunner` (asserting event ordering, policy decisions, and tool executions against canonical trace files) with `TraceEvaluator` hook.
+- **Default Overridable System Prompt:** Added a default system prompt coverage in `MinimalContextPipeline` with overrides via `prompt.override` or `prompt.override_file` in `.gestalt/policies.toml`.
 
 For detailed analysis, refer to [Harness Engineering Review Learnings](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/docs/solutions/2026-06-01-001-v0-1-harness-engineering-review.md).

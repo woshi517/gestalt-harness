@@ -229,6 +229,7 @@ impl AgentLoop {
             packet_hash: Some(packet.packet_hash.clone()),
             sources: Some(packet.sources),
             omissions: Some(packet.omissions),
+            prompt_source: packet.prompt_source.clone(),
         })?;
 
         let request = ProviderRequest {

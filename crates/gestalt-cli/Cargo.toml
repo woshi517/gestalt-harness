@@ -54,3 +54,9 @@ optional = true
 [dependencies.gestalt-mcp]
 path = "../gestalt-mcp"
 optional = true
+
+[dev-dependencies]
+uuid = { workspace = true }
+futures = { workspace = true }
+
+

@@ -18,6 +18,8 @@ pub struct ContextPacket {
     pub sources: Vec<ContextSourceRef>,
     pub omissions: Vec<ContextOmission>,
     pub message_hashes: Vec<String>,
+    #[serde(default)]
+    pub prompt_source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -67,6 +69,7 @@ pub trait ContextPipeline: Send + Sync {
             sources: Vec::new(),
             omissions: Vec::new(),
             message_hashes,
+            prompt_source: None,
         }
     }
 }

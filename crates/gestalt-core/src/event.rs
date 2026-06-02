@@ -20,6 +20,8 @@ pub enum AgentEvent {
         sources: Option<Vec<crate::context::ContextSourceRef>>,
         #[serde(default)]
         omissions: Option<Vec<crate::context::ContextOmission>>,
+        #[serde(default)]
+        prompt_source: Option<String>,
     },
     ModelRequest {
         provider: String,

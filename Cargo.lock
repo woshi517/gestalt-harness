@@ -682,6 +682,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dirs",
+ "futures",
  "gestalt-context",
  "gestalt-core",
  "gestalt-mcp",
@@ -697,6 +698,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -777,11 +779,15 @@ dependencies = [
 name = "gestalt-trace"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
+ "futures",
  "gestalt-core",
  "gestalt-models",
+ "gestalt-policy",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing",
  "uuid",

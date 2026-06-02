@@ -1,0 +1,44 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "read a secret file"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call-1",
+          "name": "read",
+          "input": {
+            "path": ".env"
+          }
+        }
+      ]
+    },
+    {
+      "role": "toolresult",
+      "tool_use_id": "call-1",
+      "content": "path denied by policy: .env",
+      "is_error": true
+    }
+  ],
+  "packet_hash": "ca816eda52e342580c5bc25bf7cb39e59bc6ada39b892387ecb1e31c004f672c",
+  "pipeline_version": "fixture-pipeline",
+  "tokenizer_id": "default",
+  "token_estimate": 0,
+  "sources": [],
+  "omissions": [],
+  "message_hashes": [
+    "464cd74ef78b7d7648cbbb3ee93b298702120d20055f06987a8240d079cee5ab",
+    "3b610a2e161bfd5c10ec318e1f552dc2fd4e500defee749fe0036b9d4a0ec7c7",
+    "ef3bd3739d1e4a667e6ea94a4d3be393c946d173b8c285ebc723079a273805e4"
+  ],
+  "prompt_source": "default"
+}

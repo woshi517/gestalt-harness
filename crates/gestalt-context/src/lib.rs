@@ -5,6 +5,8 @@
 
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
+pub mod default_prompt;
+
 use gestalt_core::{
     context::{ContextOmission, ContextPacket, ContextPipeline, ContextSourceRef, TokenBudget},
     message::{ContentBlock, ContentTrust, DocumentSource, Message},
@@ -15,6 +17,12 @@ pub struct MinimalContextPipeline {
     version: String,
     workspace_md: Option<String>,
     memory_md: Option<String>,
+    prompt_override: Option<String>,
+    prompt_override_source: Option<String>,
+    workspace_root: Option<std::path::PathBuf>,
+    mode: Option<String>,
+    max_turns: Option<usize>,
+    available_tools: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +40,33 @@ impl MinimalContextPipeline {
             version: version.into(),
             workspace_md: None,
             memory_md: None,
+            prompt_override: None,
+            prompt_override_source: None,
+            workspace_root: None,
+            mode: None,
+            max_turns: None,
+            available_tools: None,
         }
+    }
+
+    pub fn with_workspace_root(mut self, root: std::path::PathBuf) -> Self {
+        self.workspace_root = Some(root);
+        self
+    }
+
+    pub fn with_mode(mut self, mode: impl Into<String>) -> Self {
+        self.mode = Some(mode.into());
+        self
+    }
+
+    pub fn with_max_turns(mut self, max_turns: usize) -> Self {
+        self.max_turns = Some(max_turns);
+        self
+    }
+
+    pub fn with_available_tools(mut self, tools: Vec<String>) -> Self {
+        self.available_tools = Some(tools);
+        self
     }
 
     pub fn with_workspace_md(mut self, workspace_md: impl Into<String>) -> Self {
@@ -45,8 +79,48 @@ impl MinimalContextPipeline {
         self
     }
 
+    pub fn with_prompt_override(mut self, prompt_override: impl Into<String>) -> Self {
+        self.prompt_override = Some(prompt_override.into());
+        self.prompt_override_source = Some("override".to_string());
+        self
+    }
+
+    pub fn with_prompt_override_file(mut self, source: impl Into<String>, content: impl Into<String>) -> Self {
+        self.prompt_override = Some(content.into());
+        self.prompt_override_source = Some(source.into());
+        self
+    }
+
     pub fn build(&self, history: &[Message], budget: &TokenBudget) -> ContextBuild {
         let mut messages = Vec::new();
+
+        let prompt_content = if let Some(over) = &self.prompt_override {
+            if over.trim().is_empty() {
+                let tools_slice = self.available_tools.as_ref().map(|t| t.as_slice());
+                Some(default_prompt::get_default_prompt(
+                    self.workspace_root.as_deref(),
+                    self.mode.as_deref(),
+                    self.max_turns,
+                    tools_slice,
+                ))
+            } else {
+                Some(over.to_string())
+            }
+        } else {
+            let tools_slice = self.available_tools.as_ref().map(|t| t.as_slice());
+            Some(default_prompt::get_default_prompt(
+                self.workspace_root.as_deref(),
+                self.mode.as_deref(),
+                self.max_turns,
+                tools_slice,
+            ))
+        };
+
+        if let Some(content) = prompt_content {
+            messages.push(Message::System {
+                content,
+            });
+        }
 
         if let Some(workspace_md) = &self.workspace_md {
             messages.push(Message::System {
@@ -290,6 +364,17 @@ impl ContextPipeline for MinimalContextPipeline {
             })
             .collect();
 
+        let is_default = if let Some(over) = &self.prompt_override {
+            over.trim().is_empty()
+        } else {
+            true
+        };
+        let prompt_source = if is_default {
+            Some("default".to_string())
+        } else {
+            Some(self.prompt_override_source.clone().unwrap_or_else(|| "default".to_string()))
+        };
+
         ContextPacket {
             messages,
             packet_hash,
@@ -299,6 +384,7 @@ impl ContextPipeline for MinimalContextPipeline {
             sources,
             omissions,
             message_hashes,
+            prompt_source,
         }
     }
 }
@@ -408,7 +494,7 @@ mod tests {
 
     #[test]
     fn build_trims_oldest_history_first() {
-        let pipeline = sample_pipeline();
+        let pipeline = sample_pipeline().with_prompt_override("Test prompt");
         let history = vec![
             Message::User {
                 content: vec![ContentBlock::Text {
@@ -422,7 +508,7 @@ mod tests {
             },
         ];
         let budget = TokenBudget {
-            model_limit: 80,
+            model_limit: 120,
             reserved_output: 16,
             used_system: 0,
             used_history: 0,
@@ -440,7 +526,7 @@ mod tests {
 
     #[test]
     fn build_wraps_untrusted_documents() {
-        let pipeline = MinimalContextPipeline::new("pipeline-v1");
+        let pipeline = MinimalContextPipeline::new("pipeline-v1").with_prompt_override("Test prompt");
         let history = vec![Message::User {
             content: vec![ContentBlock::Document {
                 source: DocumentSource {
@@ -464,7 +550,7 @@ mod tests {
 
         let build = pipeline.build(&history, &budget);
 
-        match &build.messages[0] {
+        match &build.messages[1] {
             Message::User { content } => match &content[0] {
                 ContentBlock::Text { text } => {
                     assert!(text.contains("external_untrusted"));
@@ -631,4 +717,110 @@ mod tests {
             .iter()
             .any(|s| s.kind == "history" && !s.included));
     }
+
+    #[test]
+    fn test_context_pipeline_uses_default_prompt() {
+        let pipeline = MinimalContextPipeline::new("pipeline-v1");
+        let budget = TokenBudget {
+            model_limit: 1000,
+            reserved_output: 16,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 8,
+        };
+        let packet = pipeline.build_packet(&[], &budget);
+        assert_eq!(packet.prompt_source.as_deref(), Some("default"));
+        
+        let first_msg = &packet.messages[0];
+        if let Message::System { content } = first_msg {
+            assert!(content.contains("You are the gestalt-harness local agent"));
+        } else {
+            panic!("First message is not system prompt");
+        }
+    }
+
+    #[test]
+    fn test_context_pipeline_uses_override_prompt() {
+        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+            .with_prompt_override("Custom instruction overrides.");
+        let budget = TokenBudget {
+            model_limit: 1000,
+            reserved_output: 16,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 8,
+        };
+        let packet = pipeline.build_packet(&[], &budget);
+        assert_eq!(packet.prompt_source.as_deref(), Some("override"));
+        
+        let first_msg = &packet.messages[0];
+        if let Message::System { content } = first_msg {
+            assert!(content.contains("Custom instruction overrides."));
+        } else {
+            panic!("First message is not system prompt");
+        }
+    }
+
+    #[test]
+    fn test_context_pipeline_uses_override_file() {
+        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+            .with_prompt_override_file(".gestalt/system_prompt.md", "File custom prompt");
+        let budget = TokenBudget {
+            model_limit: 1000,
+            reserved_output: 16,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 8,
+        };
+        let packet = pipeline.build_packet(&[], &budget);
+        assert_eq!(packet.prompt_source.as_deref(), Some(".gestalt/system_prompt.md"));
+        
+        let first_msg = &packet.messages[0];
+        if let Message::System { content } = first_msg {
+            assert!(content.contains("File custom prompt"));
+        } else {
+            panic!("First message is not system prompt");
+        }
+    }
+
+    #[test]
+    fn test_context_pipeline_empty_override_falls_back_to_default() {
+        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+            .with_prompt_override("  ")
+            .with_mode("Confirm")
+            .with_max_turns(3)
+            .with_available_tools(vec!["bash".to_string()]);
+        let budget = TokenBudget {
+            model_limit: 1000,
+            reserved_output: 16,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 8,
+        };
+        let packet = pipeline.build_packet(&[], &budget);
+        assert_eq!(packet.prompt_source.as_deref(), Some("default"));
+        
+        let first_msg = &packet.messages[0];
+        if let Message::System { content } = first_msg {
+            assert!(content.contains("gestalt-harness local agent"));
+            assert!(content.contains("- Execution mode: Confirm"));
+            assert!(content.contains("- Max turns: 3"));
+            assert!(content.contains("- Available tools: bash"));
+        } else {
+            panic!("First message is not system prompt");
+        }
+    }
 }
+

@@ -255,7 +255,7 @@ Mode can be set in `config.toml`, in `workspace.md` front matter, via a CLI flag
 
 On startup, `gestalt` assembles initial workspace state from the project directory:
 
-1. **`.gestalt/workspace.md`** — Prepended as the system prompt prefix. Defines the project's operating goals, output standards, and tone. Treated as a trusted instruction. If absent, gestalt starts in plain mode with a minimal default system prompt.
+1. **`.gestalt/workspace.md`** — Prepended as the system prompt prefix. Defines the project's operating goals, output standards, and tone. Treated as a trusted instruction. If absent, gestalt starts with a default system prompt (defining identity, environment, tool-use policy, and output rules) which can be overridden in `.gestalt/policies.toml` via `prompt.override` or `prompt.override_file`.
 2. **`.gestalt/memory.md`** — Prepended as persistent context. Contains accumulated facts from prior sessions that the user has approved.
 3. **`/sources/`** — Enumerated to build a file index (names, sizes, types) for token-budget-aware loading.
 4. **`/docs/`** — Enumerated as the deliverables index.
@@ -1030,6 +1030,18 @@ Verification results are emitted as first-class trace events. They are:
 
 Verification failures can block completion (hard fail), warn without blocking (soft fail), or trigger a repair turn where the agent attempts to fix the identified issue before retrying.
 
+### 19.3 Verification Substrate (v0.1)
+
+In v0.1, verification is implemented by the `gestalt-verify` crate, which provides:
+- A `Verifier` trait for implementing modular checks.
+- A `VerifierRegistry` executing verifiers in hook lifecycles.
+- Standard built-in verifiers:
+  - `CommandVerifier`: Executes verified check commands.
+  - `FileExistsVerifier`: Asserts target files exist.
+  - `NoSecretsVerifier`: Checks for raw secrets.
+  - `PatchAppliesVerifier`: Confirms dry-run application of patches.
+  - `MarkdownStructureVerifier`: Validates structural elements of Markdown outputs.
+
 ---
 
 ## 20. Observability
@@ -1089,6 +1101,13 @@ gestalt export ./runs/latest --format sharegpt     # Fine-tuning data export
 |`regression`|Re-runs full session and checks semantic output invariants.|End-to-end quality checks|
 
 `gestalt replay` without a `--mode` flag defaults to `display`. Re-execution requires explicit opt-in.
+
+### 20.5 Regression & Replay Harness (v0.1)
+
+To protect invariants across changes, v0.1 ships with:
+- **TraceFixture / GoldenTrace:** Directory-based test cases containing inputs and expected `expected.jsonl` traces, allowing regression verification without provider API calls.
+- **GoldenTraceRunner:** Asserts event ordering, policy decisions, and tool executions of a run against expected traces.
+- **TraceEvaluator:** Future-extension point for programmatic trace analysis and evaluation scoring.
 
 ---
 

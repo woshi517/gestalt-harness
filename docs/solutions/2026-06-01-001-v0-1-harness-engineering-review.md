@@ -27,11 +27,13 @@ During the pre-release review of `gestalt-harness` v0.1, a harness-engineering a
 - **Transient Context Packages:** Ccontext compiling produced only a raw message vector, discarding the rich metadata (pipeline version, omitted items, trust tags, and tokenizer stats) returned by the pipeline.
 - **Lack of Output Spillover:** Truncated tool outputs (exceeding maximum token/byte caps) were dropped silently in memory, rendering them unavailable in trace files and audit replays.
 - **Verification Placeholder:** Verification remained a simple event enum placeholder with no actual validator implementations or registry execution in the main loop.
+- **Lack of Default/Overridable System Prompt:** v0.1 lacked a standard, non-forking way to configure the agent's identity, policy constraints, and output rules via configuration.
 
 ### Hardening Measures
 1. **ContextPacket Integration:** Promoted `ContextPipeline` to output a deterministic `ContextPacket` capturing packet hash, tokenizer metadata, message hashes, context source refs, and omissions (retaining provenance for dropped items).
 2. **Artifact Spillover:** Configured the executor to save the full content of truncated outputs to `artifacts/` under the run directory. Added artifact path, size, MIME type, and SHA-256 hashes to the `ToolResult` event.
 3. **Verifier Registry Crate:** Created the `gestalt-verify` crate establishing the `Verifier` trait, `VerifierRegistry`, and five core verification filters (`CommandVerifier`, `FileExistsVerifier`, `NoSecretsVerifier`, `PatchAppliesVerifier`, and `MarkdownStructureVerifier`).
+4. **Default Overridable System Prompt:** Implemented a standard default system prompt covering identity, environment, tool policy, and output rules. Allowed overriding this default prompt via `.gestalt/policies.toml` (`prompt.override` / `prompt.override_file`), enforcing trust tags on custom prompts.
 
 ## 3. Observability & Lifecycle Gaps (Invariants: *No Throwaway Trtraces*, *No Invisible Action*)
 
