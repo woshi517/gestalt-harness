@@ -164,5 +164,9 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             message,
             recoverable,
         } => Some(format!("error> recoverable={recoverable} {message}")),
+        AgentEvent::WorkspaceSnapshotCaptured {
+            snapshot_id,
+            dirty,
+        } => Some(format!("snapshot> id={snapshot_id} dirty={dirty}")),
     }
 }

@@ -23,6 +23,10 @@ pub struct EventEnvelope {
     pub ts: DateTime<Utc>,
     pub event: AgentEvent,
     pub redacted: bool,
+    #[serde(default)]
+    pub workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,12 +71,14 @@ struct TraceState {
     writer: BufWriter<File>,
     seq: u64,
     turn_id: usize,
+    workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
 }
 
 impl JsonlTraceSink {
     pub fn new(
         session_id: impl Into<String>,
         trace_path: impl AsRef<Path>,
+        workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<Self, TraceError> {
         let trace_path = trace_path.as_ref();
         if let Some(parent) = trace_path.parent() {
@@ -86,6 +92,7 @@ impl JsonlTraceSink {
                 writer: BufWriter::new(file),
                 seq: 0,
                 turn_id: 0,
+                workspace_snapshot,
             }),
         })
     }
@@ -93,9 +100,10 @@ impl JsonlTraceSink {
     pub fn create_run(
         base_dir: impl AsRef<Path>,
         session_id: &str,
+        workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<(Self, RunPaths), TraceError> {
         let paths = create_run_paths(base_dir, session_id)?;
-        let sink = Self::new(session_id.to_string(), &paths.trace)?;
+        let sink = Self::new(session_id.to_string(), &paths.trace, workspace_snapshot)?;
         Ok((sink, paths))
     }
 }
@@ -113,6 +121,9 @@ impl TraceSink for JsonlTraceSink {
 
         state.seq = state.seq.saturating_add(1);
         let (event, redacted) = redact_event(&event);
+        let snapshot_id = state.workspace_snapshot.as_ref().map(|s| {
+            s.content_hash.chars().take(12).collect::<String>()
+        });
         let envelope = EventEnvelope {
             v: 1,
             session_id: self.session_id.clone(),
@@ -121,6 +132,8 @@ impl TraceSink for JsonlTraceSink {
             ts: Utc::now(),
             event,
             redacted,
+            workspace_snapshot: state.workspace_snapshot.clone(),
+            snapshot_id,
         };
 
         serde_json::to_writer(&mut state.writer, &envelope)
@@ -139,6 +152,12 @@ impl TraceSink for JsonlTraceSink {
             .lock()
             .map_err(|_| TraceError::WriteFailed(std::io::Error::other("trace sink poisoned")))?;
         state.writer.flush().map_err(TraceError::WriteFailed)
+    }
+
+    fn update_snapshot(&self, snapshot: gestalt_core::snapshot::WorkspaceSnapshot) {
+        if let Ok(mut state) = self.state.lock() {
+            state.workspace_snapshot = Some(snapshot);
+        }
     }
 }
 
@@ -369,6 +388,10 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 message,
                 recoverable,
             } => lines.push(format!("error> recoverable={recoverable} {message}")),
+            AgentEvent::WorkspaceSnapshotCaptured {
+                snapshot_id,
+                dirty,
+            } => lines.push(format!("snapshot> id={snapshot_id} dirty={dirty}")),
         }
     }
 
@@ -432,9 +455,15 @@ pub fn aggregate_costs(
 }
 
 pub fn write_summary(path: impl AsRef<Path>, result: &RunResult) -> Result<(), TraceError> {
+    let snapshot_str = result
+        .workspace_snapshot_id
+        .as_ref()
+        .map(|id| format!("- Workspace snapshot: {}\n", id))
+        .unwrap_or_default();
     let summary = format!(
-        "# Run Summary\n\n- Session: {}\n- Turns: {}\n- Stop reason: {:?}\n- Input tokens: {}\n- Output tokens: {}\n- Artifacts: {}\n",
+        "# Run Summary\n\n- Session: {}\n{}- Turns: {}\n- Stop reason: {:?}\n- Input tokens: {}\n- Output tokens: {}\n- Artifacts: {}\n",
         result.session_id,
+        snapshot_str,
         result.turns,
         result.stop_reason,
         result.total_input_tokens,

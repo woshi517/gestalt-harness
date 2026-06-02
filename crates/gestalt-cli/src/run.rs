@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, AgentLoop, ExecutionMode, Message, Session, SessionConfig,
-    TokenBudget, ToolContext,
+    TokenBudget, ToolContext, WorkspaceSnapshotter,
 };
 use gestalt_models::registry;
 use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
@@ -44,7 +44,11 @@ pub async fn run_prompt(
 
     let model = config.selected_model().unwrap_or(provider_default_model);
     let session_id = format!("session-{}", std::process::id());
-    let (sink, run_paths) = JsonlTraceSink::create_run(config.run_log_dir(), &session_id)?;
+
+    let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
+    let snapshot = snapshotter.capture(&config.workspace_root).await?;
+
+    let (sink, run_paths) = JsonlTraceSink::create_run(config.run_log_dir(), &session_id, Some(snapshot.clone()))?;
 
     let mut session = Session::new(
         session_id.clone(),
@@ -76,7 +80,14 @@ pub async fn run_prompt(
             current_tool_call_id: None,
         },
         config.selected_mode()?,
+        snapshot.clone(),
     );
+
+    let snapshot_id: String = snapshot.content_hash.chars().take(12).collect();
+    sink.emit(AgentEvent::WorkspaceSnapshotCaptured {
+        snapshot_id,
+        dirty: snapshot.git_dirty.unwrap_or(false),
+    })?;
     session.history.push(Message::User {
         content: vec![gestalt_core::ContentBlock::Text {
             text: prompt.to_string(),

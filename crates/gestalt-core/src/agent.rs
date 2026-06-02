@@ -163,6 +163,7 @@ impl AgentLoop {
             }
         }
 
+        let snapshot_id: String = session.snapshot.content_hash.chars().take(12).collect();
         Ok(RunResult {
             session_id: session.id.clone(),
             turns,
@@ -170,6 +171,7 @@ impl AgentLoop {
             total_input_tokens,
             total_output_tokens,
             artifacts,
+            workspace_snapshot_id: Some(snapshot_id),
         })
     }
 

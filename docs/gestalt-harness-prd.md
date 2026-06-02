@@ -1104,7 +1104,7 @@ Target: a usable, reliable single-agent loop with a minimal policy gate and the 
 - `gestalt-models`: Anthropic and OpenAI SSE stream adapters, model catalog
 - `gestalt-tools`: `BashTool`, `ReadTool`, `WriteTool`, `PatchTool`, `SearchTool`, `WebFetchTool`
 - `gestalt-policy`: minimal path/network/bash policy, confirm/yolo/deny routing, `policies.toml` parser
-- `gestalt-exec`: `NoSandbox` (subprocess + timeout + output cap + env allowlist)
+- `gestalt-exec`: `NoSandbox` (unconfined host subprocess + timeout + output cap + env allowlist; *explicitly documented as not a security boundary*)
 - `gestalt-trace`: JSONL writer and `gestalt replay --mode display`
 - `gestalt-harness` package (`crates/gestalt-cli`): `run`, `replay`, `cost`, `config validate` commands; plain-stdout mode
 - Integration tests with mock provider (no live API calls in CI)

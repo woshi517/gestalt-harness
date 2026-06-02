@@ -118,6 +118,10 @@ pub enum AgentEvent {
         message: String,
         recoverable: bool,
     },
+    WorkspaceSnapshotCaptured {
+        snapshot_id: String,
+        dirty: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

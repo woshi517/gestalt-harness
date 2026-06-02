@@ -2786,7 +2786,10 @@ pub struct SandboxMount {
 |`BubblewrapSandbox`|Linux only. Requires bubblewrap binary. v0.3 target.|
 |`DockerSandbox`|Cross-platform. Requires Docker daemon. v0.3 target.|
 
-The `NoSandbox` implementation in v0.1 enforces working directory restriction, timeout, output size cap, and env allowlist, but executes processes directly on the host machine under the current user's privileges. It is NOT a security sandbox and does not provide process, network, mount, or user namespace isolation.
+> [!WARNING]
+> **NoSandbox Honesty Warning:**
+> The `NoSandbox` implementation in v0.1 executes processes directly on the host machine under the current user's privileges. It is **NOT** a security sandbox and does not provide process, network, mount, or user namespace isolation.
+> Due to this, the CLI defaults all bash tool execution to require explicit human confirmation unless the command matches a tiny audited read-only allowlist.
 
 ---
 

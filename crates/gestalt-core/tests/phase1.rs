@@ -65,6 +65,7 @@ fn contract_types_round_trip_through_serde() {
         total_input_tokens: 11,
         total_output_tokens: 7,
         artifacts: vec!["artifact.txt".to_string()],
+        workspace_snapshot_id: None,
     };
     let encoded = serde_json::to_string(&result).expect("run result encodes");
     let decoded: RunResult = serde_json::from_str(&encoded).expect("run result decodes");
@@ -88,6 +89,135 @@ fn error_display_and_source_are_preserved() {
 
     assert!(format!("{err}").contains("provider error"));
     assert!(err.source().is_some());
+}
+
+#[tokio::test]
+async fn test_workspace_snapshotter_captures_correctly() {
+    use gestalt_core::snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter};
+    use std::fs;
+    let temp_dir = std::env::temp_dir().join(format!("gestalt-snapshot-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    fs::write(temp_dir.join("file1.txt"), "hello world").unwrap();
+    fs::write(temp_dir.join("file2.txt"), "rust is cool").unwrap();
+    fs::create_dir_all(temp_dir.join(".gestalt/runs")).unwrap();
+    fs::write(temp_dir.join(".gestalt/runs/trace.jsonl"), "trace").unwrap();
+
+    let snapshotter = GitWorkspaceSnapshotter;
+    let snapshot = snapshotter.capture(&temp_dir).await.unwrap();
+
+    assert_eq!(snapshot.workspace_root.canonicalize().unwrap(), temp_dir.canonicalize().unwrap());
+    assert!(!snapshot.content_hash.is_empty());
+    assert!(snapshot.git_sha.is_none());
+
+    let mut session = make_session(ExecutionMode::Yolo);
+    session.tool_ctx.workspace_root = Some(temp_dir.clone());
+    session.refresh_snapshot(&snapshotter, None).await.unwrap();
+    assert_eq!(session.snapshot.workspace_root.canonicalize().unwrap(), temp_dir.canonicalize().unwrap());
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn test_workspace_snapshotter_git_path() {
+    use gestalt_core::snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter};
+    use std::fs;
+    use std::process::Command;
+
+    let temp_dir = std::env::temp_dir().join(format!("gestalt-snapshot-git-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let run_cmd = |args: &[&str]| {
+        let status = Command::new(args[0])
+            .args(&args[1..])
+            .current_dir(&temp_dir)
+            .status();
+        status.is_ok() && status.unwrap().success()
+    };
+
+    assert!(run_cmd(&["git", "init"]), "failed to run git init");
+
+    run_cmd(&["git", "config", "user.name", "Test User"]);
+    run_cmd(&["git", "config", "user.email", "test@example.com"]);
+
+    let file1_path = temp_dir.join("file1.txt");
+    fs::write(&file1_path, "initial content").unwrap();
+    run_cmd(&["git", "add", "file1.txt"]);
+    run_cmd(&["git", "commit", "-m", "first commit"]);
+
+    let snapshotter = GitWorkspaceSnapshotter;
+
+    // Clean check
+    let snapshot = snapshotter.capture(&temp_dir).await.unwrap();
+    assert!(snapshot.git_sha.is_some());
+    assert_eq!(snapshot.git_dirty, Some(false));
+    assert_eq!(snapshot.untracked_count, Some(0));
+    let hash_clean = snapshot.content_hash.clone();
+
+    // Tracked dirty check
+    fs::write(&file1_path, "modified content").unwrap();
+    let snapshot_dirty = snapshotter.capture(&temp_dir).await.unwrap();
+    assert_eq!(snapshot_dirty.git_dirty, Some(true));
+    assert_ne!(snapshot_dirty.content_hash, hash_clean);
+
+    // Commit changes to make clean again
+    run_cmd(&["git", "add", "file1.txt"]);
+    run_cmd(&["git", "commit", "-m", "commit modifications"]);
+    let snapshot_clean2 = snapshotter.capture(&temp_dir).await.unwrap();
+    assert_eq!(snapshot_clean2.git_dirty, Some(false));
+    let hash_clean2 = snapshot_clean2.content_hash.clone();
+
+    // Untracked-only dirty check
+    let file2_path = temp_dir.join("file2.txt");
+    fs::write(&file2_path, "untracked content").unwrap();
+    let snapshot_untracked = snapshotter.capture(&temp_dir).await.unwrap();
+    assert_eq!(snapshot_untracked.untracked_count, Some(1));
+    assert_eq!(snapshot_untracked.git_dirty, Some(true));
+    assert_eq!(snapshot_untracked.content_hash, hash_clean2);
+
+    let mut session = make_session(ExecutionMode::Yolo);
+    session.tool_ctx.workspace_root = Some(temp_dir.clone());
+
+    struct MockTraceSink {
+        events: Mutex<Vec<AgentEvent>>,
+        snapshot: Mutex<Option<gestalt_core::snapshot::WorkspaceSnapshot>>,
+    }
+    impl gestalt_core::trace::TraceSink for MockTraceSink {
+        fn emit(&self, event: AgentEvent) -> Result<(), gestalt_core::TraceError> {
+            self.events.lock().unwrap().push(event);
+            Ok(())
+        }
+        fn flush(&self) -> Result<(), gestalt_core::TraceError> {
+            Ok(())
+        }
+        fn update_snapshot(&self, snapshot: gestalt_core::snapshot::WorkspaceSnapshot) {
+            *self.snapshot.lock().unwrap() = Some(snapshot);
+        }
+    }
+
+    let sink = MockTraceSink {
+        events: Mutex::new(Vec::new()),
+        snapshot: Mutex::new(None),
+    };
+
+    session.refresh_snapshot(&snapshotter, Some(&sink)).await.unwrap();
+
+    let updated_snapshot = sink.snapshot.lock().unwrap().clone().unwrap();
+    assert_eq!(updated_snapshot.content_hash, hash_clean2);
+
+    let events = sink.events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    match &events[0] {
+        AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
+            assert_eq!(snapshot_id, &hash_clean2[..12]);
+            assert_eq!(dirty, &true);
+        }
+        _ => panic!("Expected WorkspaceSnapshotCaptured event"),
+    }
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
@@ -1297,6 +1427,14 @@ fn accepts_trait_objects(
 }
 
 fn make_session(mode: ExecutionMode) -> Session {
+    let snapshot = gestalt_core::snapshot::WorkspaceSnapshot {
+        workspace_root: std::env::current_dir().expect("cwd"),
+        git_sha: None,
+        git_dirty: None,
+        untracked_count: None,
+        content_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        captured_at: chrono::Utc::now(),
+    };
     Session::new(
         "session-1",
         SessionConfig {
@@ -1327,6 +1465,7 @@ fn make_session(mode: ExecutionMode) -> Session {
             current_tool_call_id: None,
         },
         mode,
+        snapshot,
     )
 }
 
