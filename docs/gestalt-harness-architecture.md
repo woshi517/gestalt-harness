@@ -3002,4 +3002,85 @@ This enables embedding in the Gestalt frontend for local context compilation and
 
 ---
 
-_gestalt-harness-architecture v1.0 — Maintained alongside gestalt-harness-prd_
+### ADR-013: Bounded Session Approval Grants instead of Tool-Name Keys
+
+**Status:** Accepted  
+**Context:** Storing session-wide tool approvals by tool name alone (`allowed_session_tools`) meant approving one benign tool call (e.g., `bash echo "hi"`) auto-approved any future high-risk tool call (e.g., `bash rm -rf /`).  
+**Decision:** Bounded grants (`SessionGrant`) containing input hash, risk ceiling, matched rule, and Turn-based expiry. Re-evaluate policy on every turn, and only auto-approve if the request's risk is at or below the grant's risk ceiling and the input hash matches the grant.  
+**Consequences:** Eliminates risk escalation. The user can confidently approve one call without opening a blanket authorization for that tool. Traces record explicit approval provenance.
+
+---
+
+### ADR-014: Rich ContextPacket and ContextBuilt Events
+
+**Status:** Accepted  
+**Context:** The context compilation pipeline returned only a list of messages, discarding metadata such as tokenizer ID, trust boundary tags, omissions, and sources. This prevented offline context analysis, replication, or validation of context-trimming policies.  
+**Decision:** Return a structured `ContextPacket` from the pipeline. Compute a stable, deterministic SHA-256 hash over the compiled messages and parameters. Emit a `ContextBuilt` event containing the packet hash, source lists, and omissions.  
+**Consequences:** Context becomes a deterministic, inspectable, and replay-ready artifact. Observability tools can track exactly what content (and which trust tier) was sent to the model per turn.
+
+---
+
+### ADR-015: Artifact Spillover for Truncated Tool Output
+
+**Status:** Accepted  
+**Context:** Capping model context required truncating large tool outputs. Simply dropping bytes at the trace boundary meant full output was lost for debugging or compliance, even though the system claimed full output was saved.  
+**Decision:** Save full truncated tool outputs to `.gestalt/runs/<id>/artifacts/`. Emit `ArtifactCreated` events, and include path, size, MIME type, and SHA-256 hashes in `ToolResult` metadata.  
+**Consequences:** Replay tools and human operators can inspect full outputs. Verification steps can run on the raw files even if the model only received a truncated summary.
+
+---
+
+### ADR-016: Honest Host Execution (NoSandbox) and Network Policy Enforcement
+
+**Status:** Accepted  
+**Context:** The `NoSandbox` executor ran processes directly on the host but was presented as a security boundary. It lacked mount/network confinement, did not enforce network policies, failed to clean up child process descendants on timeout, and classified bash commands weakly.  
+**Decision:** Document `NoSandbox` as host execution and default bash to confirm unless on a small read-only allowlist. Enforce network policies in `NoSandbox` (failing closed when network access is disallowed). Run commands in their own process groups, killing the group on timeout. Treat shell operators and interpreter wrappers as high-risk.  
+**Consequences:** A clear security model that does not promise false sandboxing. Improved stability through process-group cleanup. Hardened policy checks block command injection and unauthorized network access.
+
+---
+
+### ADR-017: Dedicated Verification Substrate (gestalt-verify)
+
+**Status:** Accepted  
+**Context:** Verifying task outcomes (e.g., verifying a file exists, confirming a test passes, checking for secrets, or validating a diff) was handled as ad-hoc event placeholders or left entirely to model self-reflection, leading to brittle success criteria.  
+**Decision:** Introduce a dedicated `gestalt-verify` crate. Define `Verifier`, `VerifierRegistry`, and `VerifyContext` abstractions. Ship core verifiers (Command, FileExists, NoSecrets, PatchApplies, MarkdownStructure) and emit structured `VerificationResult` events after writes.  
+**Consequences:** Success verification becomes independent of the model's output interpretation. The loop gains structured, testable assertions that run deterministically against the workspace.
+
+---
+
+### ADR-018: Internal Lifecycle Hooks for Extensibility
+
+**Status:** Accepted  
+**Context:** Custom behaviors (logging, auditing, evaluation, tracing) needed to run at specific points in the agent loop. Introducing a dynamic plugin system in v0.1 would overcomplicate the codebase and destabilize the harness API.  
+**Decision:** Implement internal, static Rust trait hooks (`SessionHook`, `ContextHook`, `ModelHook`, `ToolHook`, `VerificationHook`, `TraceHook`) invoked at lifecycle seams. Change the runner to abort on trace emission failures rather than swallowing them.  
+**Consequences:** Crate-private extensibility is locked in without public plugin API commitments. Robust trace persistence is guaranteed by failing the run when the JSONL trace sink cannot write.
+
+---
+
+### ADR-019: Workspace State Snapshotting in Session Metadata
+
+**Status:** Accepted  
+**Context:** Traces captured what the agent did, but not the state of the codebase it acted upon. This made reproducing bugs, verifying code generation, and running offline replays highly dependent on the host environment's mutable state.  
+**Decision:** Capture a `WorkspaceSnapshot` (git commit SHA, dirty flag, untracked file count, and a SHA-256 content hash of tracked files) at session start and refresh. Store the snapshot ID in the trace envelope and run summaries.  
+**Consequences:** Runs are tied to a specific workspace state, making replays reproducible. Allows tools to verify if a workspace was modified before or during a run.
+
+---
+
+### ADR-020: Trace-Driven Regression Testing via Golden Traces
+
+**Status:** Accepted  
+**Context:** Testing the behavior of the policy engine, event sequence, and tool execution required running real provider calls, which is slow, non-deterministic, and expensive.  
+**Decision:** Create a regression harness using offline `TraceFixture` and `GoldenTrace` files. Implement `GoldenTraceRunner` to replay sessions against mock provider responses and assert event schemas, ordering, and tool parameters. Define a `TraceEvaluator` trait as an evaluation extension point.  
+**Consequences:** Allows testing policy and loop logic in CI without API keys. Simplifies regression detection for policy changes and provides a hook for future LLM-as-judge evaluation.
+
+---
+
+### ADR-021: Default System Prompt with Local Policy Overrides
+
+**Status:** Accepted  
+**Context:** The harness lacked a default system prompt for provider routing. Having to define a full prompt from scratch in every client workspace or fork core to update instructions was inefficient.  
+**Decision:** Inject a sane, built-in system prompt (covering identity, environment, tool policy, and output formatting) as the first system message. Support local overrides from `.gestalt/policies.toml` or custom files.  
+**Consequences:** Immediate out-of-the-box utility for CLI agents. Users can customize instructions per workspace without altering the core framework code.
+
+---
+
+_gestalt-harness-architecture v1.1 — Maintained alongside gestalt-harness-prd_
