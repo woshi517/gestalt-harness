@@ -394,3 +394,159 @@ impl CliReport for ModelsSelectReport {
         format!("selected {} ({})", self.qualified_id, self.display_name)
     }
 }
+
+#[derive(Serialize)]
+pub struct WorkspaceInitReport {
+    pub workspace_root: PathBuf,
+    pub created_files: Vec<String>,
+}
+
+impl CliReport for WorkspaceInitReport {
+    fn kind(&self) -> &'static str {
+        "workspace.init"
+    }
+    fn render_text(&self) -> String {
+        format!(
+            "initialized workspace={}\ncreated files:\n{}",
+            self.workspace_root.display(),
+            self.created_files.iter().map(|f| format!("  - {f}")).collect::<Vec<_>>().join("\n")
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceStatusReport {
+    pub workspace_root: PathBuf,
+    pub config_valid: bool,
+    pub active_provider: Option<String>,
+    pub active_model: Option<String>,
+    pub active_mode: Option<String>,
+    pub recent_runs_count: usize,
+    pub auth_summary: std::collections::HashMap<String, String>,
+    pub warnings: Vec<String>,
+}
+
+impl CliReport for WorkspaceStatusReport {
+    fn kind(&self) -> &'static str {
+        "workspace.status"
+    }
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("workspace_root={}", self.workspace_root.display()),
+            format!("config_valid={}", self.config_valid),
+        ];
+        if let Some(ref p) = self.active_provider {
+            lines.push(format!("active_provider={p}"));
+        }
+        if let Some(ref m) = self.active_model {
+            lines.push(format!("active_model={m}"));
+        }
+        if let Some(ref mode) = self.active_mode {
+            lines.push(format!("active_mode={mode}"));
+        }
+        lines.push(format!("recent_runs_count={}", self.recent_runs_count));
+        
+        let mut auths: Vec<_> = self.auth_summary.iter().collect();
+        auths.sort_by_key(|(k, _)| *k);
+        for (provider, status) in auths {
+            lines.push(format!("auth.{provider}={status}"));
+        }
+        
+        if !self.warnings.is_empty() {
+            lines.push("warnings:".to_string());
+            for warning in &self.warnings {
+                lines.push(format!("  - {warning}"));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceInfoReport {
+    pub workspace_root: PathBuf,
+    pub config_path: PathBuf,
+    pub policies_path: PathBuf,
+    pub workspace_md_path: PathBuf,
+    pub memory_md_path: PathBuf,
+}
+
+impl CliReport for WorkspaceInfoReport {
+    fn kind(&self) -> &'static str {
+        "workspace.info"
+    }
+    fn render_text(&self) -> String {
+        format!(
+            "workspace_root={}\nconfig_path={}\npolicies_path={}\nworkspace_md_path={}\nmemory_md_path={}",
+            self.workspace_root.display(),
+            self.config_path.display(),
+            self.policies_path.display(),
+            self.workspace_md_path.display(),
+            self.memory_md_path.display()
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceSnapshotReport {
+    pub snapshot: gestalt_core::snapshot::WorkspaceSnapshot,
+}
+
+impl CliReport for WorkspaceSnapshotReport {
+    fn kind(&self) -> &'static str {
+        "workspace.snapshot"
+    }
+    fn render_text(&self) -> String {
+        format!(
+            "workspace_root={}\ngit_sha={}\ngit_dirty={}\nuntracked_count={}\ncontent_hash={}\ncaptured_at={}",
+            self.snapshot.workspace_root.display(),
+            self.snapshot.git_sha.as_deref().unwrap_or("none"),
+            self.snapshot.git_dirty.unwrap_or(false),
+            self.snapshot.untracked_count.unwrap_or(0),
+            self.snapshot.content_hash,
+            self.snapshot.captured_at
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceDoctorReport {
+    pub workspace_root: PathBuf,
+    pub config_valid: bool,
+    pub config_error: Option<String>,
+    pub policies_valid: bool,
+    pub policies_error: Option<String>,
+    pub missing_files: Vec<String>,
+    pub auth_summary: std::collections::HashMap<String, String>,
+    pub run_dir_writable: bool,
+}
+
+impl CliReport for WorkspaceDoctorReport {
+    fn kind(&self) -> &'static str {
+        "workspace.doctor"
+    }
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("workspace_root={}", self.workspace_root.display()),
+            format!("config_valid={}", self.config_valid),
+        ];
+        if let Some(ref err) = self.config_error {
+            lines.push(format!("config_error={err}"));
+        }
+        lines.push(format!("policies_valid={}", self.policies_valid));
+        if let Some(ref err) = self.policies_error {
+            lines.push(format!("policies_error={err}"));
+        }
+        if !self.missing_files.is_empty() {
+            lines.push(format!("missing_files={}", self.missing_files.join(", ")));
+        }
+        
+        let mut auths: Vec<_> = self.auth_summary.iter().collect();
+        auths.sort_by_key(|(k, _)| *k);
+        for (provider, status) in auths {
+            lines.push(format!("auth.{provider}={status}"));
+        }
+        lines.push(format!("run_dir_writable={}", self.run_dir_writable));
+        lines.join("\n")
+    }
+}

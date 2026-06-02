@@ -58,5 +58,6 @@ optional = true
 [dev-dependencies]
 uuid = { workspace = true }
 futures = { workspace = true }
+chrono = { workspace = true }
 
 
