@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 
@@ -108,7 +108,13 @@ fn list_files_recursive(dir: &Path, current_dir: &Path) -> Vec<PathBuf> {
                 if name == ".git" || name == "target" {
                     continue;
                 }
-                if name == "runs" && path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) == Some(".gestalt") {
+                if name == "runs"
+                    && path
+                        .parent()
+                        .and_then(|p| p.file_name())
+                        .and_then(|n| n.to_str())
+                        == Some(".gestalt")
+                {
                     continue;
                 }
                 files.extend(list_files_recursive(dir, &path));
@@ -156,9 +162,9 @@ fn compute_content_hash(root: &Path, relative_paths: &[PathBuf]) -> String {
             let file_hash = file_hasher.finalize();
 
             hasher.update(path_str.as_bytes());
-            hasher.update(&file_hash);
+            hasher.update(file_hash);
         }
     }
     let final_hash = hasher.finalize();
-    format!("{:x}", final_hash)
+    format!("{final_hash:x}")
 }

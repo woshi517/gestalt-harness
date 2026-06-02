@@ -1,12 +1,12 @@
 //! `gestalt-trace` — JSONL trace writer + `EventEnvelope`
 
+pub mod evaluator;
 pub mod fixture;
 pub mod golden;
-pub mod evaluator;
 
+pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
 pub use golden::{GoldenTrace, GoldenTraceRunner};
-pub use evaluator::{TraceEvaluator, NoopTraceEvaluator, EvalStatus, EvalResult, EvaluatorHook};
 
 use std::{
     fs::{self, File},
@@ -129,9 +129,10 @@ impl TraceSink for JsonlTraceSink {
 
         state.seq = state.seq.saturating_add(1);
         let (event, redacted) = redact_event(&event);
-        let snapshot_id = state.workspace_snapshot.as_ref().map(|s| {
-            s.content_hash.chars().take(12).collect::<String>()
-        });
+        let snapshot_id = state
+            .workspace_snapshot
+            .as_ref()
+            .map(|s| s.content_hash.chars().take(12).collect::<String>());
         let envelope = EventEnvelope {
             v: 1,
             session_id: self.session_id.clone(),
@@ -396,10 +397,9 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 message,
                 recoverable,
             } => lines.push(format!("error> recoverable={recoverable} {message}")),
-            AgentEvent::WorkspaceSnapshotCaptured {
-                snapshot_id,
-                dirty,
-            } => lines.push(format!("snapshot> id={snapshot_id} dirty={dirty}")),
+            AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
+                lines.push(format!("snapshot> id={snapshot_id} dirty={dirty}"));
+            }
         }
     }
 
@@ -466,7 +466,7 @@ pub fn write_summary(path: impl AsRef<Path>, result: &RunResult) -> Result<(), T
     let snapshot_str = result
         .workspace_snapshot_id
         .as_ref()
-        .map(|id| format!("- Workspace snapshot: {}\n", id))
+        .map(|id| format!("- Workspace snapshot: {id}\n"))
         .unwrap_or_default();
     let summary = format!(
         "# Run Summary\n\n- Session: {}\n{}- Turns: {}\n- Stop reason: {:?}\n- Input tokens: {}\n- Output tokens: {}\n- Artifacts: {}\n",

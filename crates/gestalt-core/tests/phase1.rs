@@ -95,7 +95,8 @@ fn error_display_and_source_are_preserved() {
 async fn test_workspace_snapshotter_captures_correctly() {
     use gestalt_core::snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter};
     use std::fs;
-    let temp_dir = std::env::temp_dir().join(format!("gestalt-snapshot-test-{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("gestalt-snapshot-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
 
@@ -107,14 +108,20 @@ async fn test_workspace_snapshotter_captures_correctly() {
     let snapshotter = GitWorkspaceSnapshotter;
     let snapshot = snapshotter.capture(&temp_dir).await.unwrap();
 
-    assert_eq!(snapshot.workspace_root.canonicalize().unwrap(), temp_dir.canonicalize().unwrap());
+    assert_eq!(
+        snapshot.workspace_root.canonicalize().unwrap(),
+        temp_dir.canonicalize().unwrap()
+    );
     assert!(!snapshot.content_hash.is_empty());
     assert!(snapshot.git_sha.is_none());
 
     let mut session = make_session(ExecutionMode::Yolo);
     session.tool_ctx.workspace_root = Some(temp_dir.clone());
     session.refresh_snapshot(&snapshotter, None).await.unwrap();
-    assert_eq!(session.snapshot.workspace_root.canonicalize().unwrap(), temp_dir.canonicalize().unwrap());
+    assert_eq!(
+        session.snapshot.workspace_root.canonicalize().unwrap(),
+        temp_dir.canonicalize().unwrap()
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -125,7 +132,8 @@ async fn test_workspace_snapshotter_git_path() {
     use std::fs;
     use std::process::Command;
 
-    let temp_dir = std::env::temp_dir().join(format!("gestalt-snapshot-git-test-{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("gestalt-snapshot-git-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
 
@@ -202,7 +210,10 @@ async fn test_workspace_snapshotter_git_path() {
         snapshot: Mutex::new(None),
     };
 
-    session.refresh_snapshot(&snapshotter, Some(&sink)).await.unwrap();
+    session
+        .refresh_snapshot(&snapshotter, Some(&sink))
+        .await
+        .unwrap();
 
     let updated_snapshot = sink.snapshot.lock().unwrap().clone().unwrap();
     assert_eq!(updated_snapshot.content_hash, hash_clean2);
@@ -1432,7 +1443,8 @@ fn make_session(mode: ExecutionMode) -> Session {
         git_sha: None,
         git_dirty: None,
         untracked_count: None,
-        content_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+            .to_string(),
         captured_at: chrono::Utc::now(),
     };
     Session::new(

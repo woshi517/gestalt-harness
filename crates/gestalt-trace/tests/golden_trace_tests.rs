@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use gestalt_core::event::AgentEvent;
 use gestalt_trace::{EventEnvelope, GoldenTrace, GoldenTraceRunner};
+use std::path::PathBuf;
 
 fn get_trace_fixtures_dir() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -114,10 +114,7 @@ async fn test_assert_golden_negative_cases() {
             let res = GoldenTraceRunner::assert_golden(&golden, &bad_actual, &actual_packet);
             assert!(res.is_err());
             let err = res.unwrap_err();
-            assert!(
-                err.contains("Event type mismatch")
-                    || err.contains("Sequence ID mismatch")
-            );
+            assert!(err.contains("Event type mismatch") || err.contains("Sequence ID mismatch"));
         }
     }
 
@@ -126,7 +123,11 @@ async fn test_assert_golden_negative_cases() {
         let mut bad_actual = actual.clone();
         let mut modified = false;
         for env in &mut bad_actual {
-            if let AgentEvent::ToolResult { ref mut output_hash, .. } = env.event {
+            if let AgentEvent::ToolResult {
+                ref mut output_hash,
+                ..
+            } = env.event
+            {
                 *output_hash = Some("wrong_hash".to_string());
                 modified = true;
                 break;

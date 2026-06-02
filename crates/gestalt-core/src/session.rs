@@ -40,7 +40,11 @@ impl Session {
         snapshotter: &S,
         trace_sink: Option<&dyn crate::trace::TraceSink>,
     ) -> crate::error::Result<()> {
-        let root = self.tool_ctx.workspace_root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let root = self
+            .tool_ctx
+            .workspace_root
+            .clone()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let new_snapshot = snapshotter.capture(&root).await?;
         self.snapshot = new_snapshot.clone();
 

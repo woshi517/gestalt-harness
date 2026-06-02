@@ -18,24 +18,23 @@ pub fn get_default_prompt(
     max_turns: Option<usize>,
     available_tools: Option<&[String]>,
 ) -> String {
-    let root_str = workspace_root.map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "unknown".to_string());
+    let root_str = workspace_root.map_or_else(|| "unknown".to_string(), |p| p.to_string_lossy().into_owned());
     let mode_str = mode.unwrap_or("confirm");
-    let turns_str = max_turns.map(|t| t.to_string()).unwrap_or_else(|| "unlimited".to_string());
-    let tools_str = available_tools.map(|t| t.join(", ")).unwrap_or_else(|| "none".to_string());
+    let turns_str = max_turns.map_or_else(|| "unlimited".to_string(), |t| t.to_string());
+    let tools_str = available_tools.map_or_else(|| "none".to_string(), |t| t.join(", "));
 
     format!(
         "# Identity\n\
          You are the gestalt-harness local agent, a powerful AI assistant designed for local workspace task execution.\n\n\
          # Environment\n\
-         - Workspace root: {}\n\
-         - Execution mode: {}\n\
-         - Max turns: {}\n\
-         - Available tools: {}\n\n\
+         - Workspace root: {root_str}\n\
+         - Execution mode: {mode_str}\n\
+         - Max turns: {turns_str}\n\
+         - Available tools: {tools_str}\n\n\
          # Tool-Use Policy\n\
          Read-only tools may run in parallel. Writing tools and network calls are subject to policies and will prompt for human confirmation by default unless pre-approved or allowlisted.\n\n\
          # Output Rules\n\
-         Be concise. Always quote exact file paths and line numbers when referencing codebase elements. Never claim a tool result you did not see in the environment.\n",
-        root_str, mode_str, turns_str, tools_str
+         Be concise. Always quote exact file paths and line numbers when referencing codebase elements. Never claim a tool result you did not see in the environment.\n"
     )
 }
 

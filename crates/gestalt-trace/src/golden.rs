@@ -1,28 +1,28 @@
-use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::Value;
 use sha2::Digest;
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use gestalt_core::{
     agent::AgentLoop,
-    approval::{ApprovalProvider, ApprovalDecision, ApprovalRequest},
+    approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest},
     context::{ContextPacket, ContextPipeline, TokenBudget},
     error::{HarnessError, ToolError},
     event::AgentEvent,
     message::Message,
     policy::PolicyEngine,
-    provider::{Provider, ProviderCapabilities, EventStream, ProviderRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     session::Session,
     snapshot::WorkspaceSnapshot,
-    tool::{Tool, ToolCatalog, ToolSchema, ToolOutput, ToolContext, RiskLevel},
+    tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
     trace::TraceSink,
 };
 use gestalt_policy::MinimalPolicyEngine;
 
-use crate::{EventEnvelope, read_trace, JsonlTraceSink};
 use crate::fixture::{FixtureInput, MockToolConfig};
+use crate::{read_trace, EventEnvelope, JsonlTraceSink};
 
 #[derive(Debug, Clone)]
 pub struct GoldenTrace {
@@ -39,18 +39,24 @@ impl GoldenTrace {
         let context_path = dir.join("context.json");
         let expected_path = dir.join("expected.jsonl");
 
-        let input_file = std::fs::File::open(&input_path)
-            .map_err(|err| TraceErrorWrapper::Io(err, format!("Failed to open input.json in {dir:?}")))?;
-        let input: FixtureInput = serde_json::from_reader(input_file)
-            .map_err(|err| TraceErrorWrapper::Serde(err, format!("Failed to parse input.json in {dir:?}")))?;
+        let input_file = std::fs::File::open(&input_path).map_err(|err| {
+            TraceErrorWrapper::Io(err, format!("Failed to open input.json in {}", dir.display()))
+        })?;
+        let input: FixtureInput = serde_json::from_reader(input_file).map_err(|err| {
+            TraceErrorWrapper::Serde(err, format!("Failed to parse input.json in {}", dir.display()))
+        })?;
 
-        let context_file = std::fs::File::open(&context_path)
-            .map_err(|err| TraceErrorWrapper::Io(err, format!("Failed to open context.json in {dir:?}")))?;
-        let context_packet: ContextPacket = serde_json::from_reader(context_file)
-            .map_err(|err| TraceErrorWrapper::Serde(err, format!("Failed to parse context.json in {dir:?}")))?;
+        let context_file = std::fs::File::open(&context_path).map_err(|err| {
+            TraceErrorWrapper::Io(err, format!("Failed to open context.json in {}", dir.display()))
+        })?;
+        let context_packet: ContextPacket =
+            serde_json::from_reader(context_file).map_err(|err| {
+                TraceErrorWrapper::Serde(err, format!("Failed to parse context.json in {}", dir.display()))
+            })?;
 
-        let expected = read_trace(&expected_path)
-            .map_err(|err| TraceErrorWrapper::Trace(err, format!("Failed to read expected.jsonl in {dir:?}")))?;
+        let expected = read_trace(&expected_path).map_err(|err| {
+            TraceErrorWrapper::Trace(err, format!("Failed to read expected.jsonl in {}", dir.display()))
+        })?;
 
         Ok(Self {
             dir,
@@ -104,7 +110,9 @@ impl Tool for FixtureTool {
     }
     async fn execute(&self, _input: Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if self.config.is_error {
-            Err(ToolError::ExecutionFailed(std::io::Error::new(std::io::ErrorKind::Other, self.config.output.clone())))
+            Err(ToolError::ExecutionFailed(std::io::Error::other(
+                self.config.output.clone(),
+            )))
         } else {
             Ok(ToolOutput::Text {
                 content: self.config.output.clone(),
@@ -206,16 +214,11 @@ impl Provider for FixtureProvider {
     }
 
     async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, HarnessError> {
-        let events = self
-            .turns
-            .lock()
-            .unwrap()
-            .pop_front()
-            .unwrap_or_else(|| {
-                vec![AgentEvent::Stop {
-                    reason: gestalt_core::event::StopReason::EndTurn,
-                }]
-            });
+        let events = self.turns.lock().unwrap().pop_front().unwrap_or_else(|| {
+            vec![AgentEvent::Stop {
+                reason: gestalt_core::event::StopReason::EndTurn,
+            }]
+        });
 
         let stream = futures::stream::iter(events.into_iter().map(Ok::<_, HarnessError>));
         Ok(Box::pin(stream))
@@ -230,27 +233,36 @@ struct FixtureApprovalProvider {
 impl ApprovalProvider for FixtureApprovalProvider {
     async fn approve(&self, request: ApprovalRequest) -> ApprovalDecision {
         let guard = self.decisions.lock().unwrap();
-        guard.get(&request.tool_call_id).cloned().unwrap_or(ApprovalDecision::Approve)
+        guard
+            .get(&request.tool_call_id)
+            .cloned()
+            .unwrap_or(ApprovalDecision::Approve)
     }
 }
-
 
 pub struct GoldenTraceRunner;
 
 impl GoldenTraceRunner {
-    pub async fn run_golden(golden: &GoldenTrace) -> Result<(Vec<EventEnvelope>, ContextPacket), HarnessError> {
-        let temp_dir = std::env::temp_dir().join(format!("gestalt-golden-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp_dir).map_err(|e| HarnessError::Trace(gestalt_core::error::TraceError::WriteFailed(e)))?;
-        
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn run_golden(
+        golden: &GoldenTrace,
+    ) -> Result<(Vec<EventEnvelope>, ContextPacket), HarnessError> {
+        let temp_dir =
+            std::env::temp_dir().join(format!("gestalt-golden-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir)
+            .map_err(|e| HarnessError::Trace(gestalt_core::error::TraceError::WriteFailed(e)))?;
+
         let trace_path = temp_dir.join("trace.jsonl");
         let sink = JsonlTraceSink::new(
             "session-1",
             &trace_path,
             golden.input.workspace_snapshot.clone(),
-        ).map_err(|e| HarnessError::Trace(e))?;
+        )
+        .map_err(HarnessError::Trace)?;
         let sink = Arc::new(sink);
 
-        let turns_deque: VecDeque<Vec<AgentEvent>> = golden.input.mock_turns.clone().into_iter().collect();
+        let turns_deque: VecDeque<Vec<AgentEvent>> =
+            golden.input.mock_turns.clone().into_iter().collect();
         let provider = Arc::new(FixtureProvider {
             turns: Mutex::new(turns_deque),
             capabilities: ProviderCapabilities::default(),
@@ -258,7 +270,10 @@ impl GoldenTraceRunner {
 
         let mut tools_map = HashMap::new();
         for tc in &golden.input.tools {
-            tools_map.insert(tc.name.clone(), Arc::new(FixtureTool { config: tc.clone() }) as Arc<dyn Tool>);
+            tools_map.insert(
+                tc.name.clone(),
+                Arc::new(FixtureTool { config: tc.clone() }) as Arc<dyn Tool>,
+            );
         }
         let tools = Arc::new(FixtureToolCatalog { tools: tools_map });
 
@@ -267,9 +282,10 @@ impl GoldenTraceRunner {
             captured: captured_packet.clone(),
         });
 
-        let policy: Arc<dyn PolicyEngine> = if let Some(ref policy_toml) = golden.input.policy_toml {
+        let policy: Arc<dyn PolicyEngine> = if let Some(ref policy_toml) = golden.input.policy_toml
+        {
             let cfg = gestalt_policy::PolicyConfig::parse_toml(policy_toml)
-                .map_err(|e| HarnessError::Policy(e))?;
+                .map_err(HarnessError::Policy)?;
             Arc::new(MinimalPolicyEngine::new(cfg))
         } else {
             Arc::new(MinimalPolicyEngine::default())
@@ -293,24 +309,38 @@ impl GoldenTraceRunner {
 
         let evaluator = Arc::new(crate::evaluator::NoopTraceEvaluator);
         let sink_clone = sink.clone();
-        let evaluator_hook = Arc::new(crate::evaluator::EvaluatorHook::new(evaluator, Some(golden.clone()))
-            .with_flush_trigger(Arc::new(move || {
-                let _ = sink_clone.flush();
-            })));
+        let evaluator_hook = Arc::new(
+            crate::evaluator::EvaluatorHook::new(evaluator, Some(golden.clone()))
+                .with_flush_trigger(Arc::new(move || {
+                    let _ = sink_clone.flush();
+                })),
+        );
         let mut hooks = gestalt_core::HookRegistry::new();
         hooks.register_session_hook(evaluator_hook);
 
-        let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, golden.input.session_config.max_turns)
-            .with_hooks(hooks);
+        let loop_ = AgentLoop::new(
+            provider,
+            tools,
+            pipeline,
+            policy,
+            approval,
+            golden.input.session_config.max_turns,
+        )
+        .with_hooks(hooks);
 
-        let snapshot = golden.input.workspace_snapshot.clone().unwrap_or_else(|| WorkspaceSnapshot {
-            workspace_root: temp_dir.clone(),
-            git_sha: None,
-            git_dirty: None,
-            untracked_count: None,
-            content_hash: "dummy".to_string(),
-            captured_at: chrono::Utc::now(),
-        });
+        let snapshot =
+            golden
+                .input
+                .workspace_snapshot
+                .clone()
+                .unwrap_or_else(|| WorkspaceSnapshot {
+                    workspace_root: temp_dir.clone(),
+                    git_sha: None,
+                    git_dirty: None,
+                    untracked_count: None,
+                    content_hash: "dummy".to_string(),
+                    captured_at: chrono::Utc::now(),
+                });
 
         let mut session = Session::new(
             "session-1",
@@ -346,29 +376,35 @@ impl GoldenTraceRunner {
         });
 
         let sink_run = sink.clone();
-        loop_.run(&mut session, |event| {
-            sink_run.emit(event).map_err(HarnessError::Trace)?;
-            Ok(())
-        }).await?;
+        loop_
+            .run(&mut session, |event| {
+                sink_run.emit(event).map_err(HarnessError::Trace)?;
+                Ok(())
+            })
+            .await?;
 
         sink.flush().map_err(HarnessError::Trace)?;
 
-        let envelopes = read_trace(&trace_path)
-            .map_err(|e| HarnessError::Trace(e))?;
+        let envelopes = read_trace(&trace_path).map_err(HarnessError::Trace)?;
 
         let _ = std::fs::remove_dir_all(&temp_dir);
 
-        let actual_packet = captured_packet.lock().unwrap().clone().unwrap_or_else(|| ContextPacket {
-            messages: vec![],
-            packet_hash: "dummy_hash".to_string(),
-            pipeline_version: "fixture-pipeline".to_string(),
-            tokenizer_id: "default".to_string(),
-            token_estimate: 0,
-            sources: vec![],
-            omissions: vec![],
-            message_hashes: vec![],
-            prompt_source: Some("default".to_string()),
-        });
+        let actual_packet =
+            captured_packet
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| ContextPacket {
+                    messages: vec![],
+                    packet_hash: "dummy_hash".to_string(),
+                    pipeline_version: "fixture-pipeline".to_string(),
+                    tokenizer_id: "default".to_string(),
+                    token_estimate: 0,
+                    sources: vec![],
+                    omissions: vec![],
+                    message_hashes: vec![],
+                    prompt_source: Some("default".to_string()),
+                });
 
         Ok((envelopes, actual_packet))
     }
@@ -387,7 +423,8 @@ impl GoldenTraceRunner {
         }
 
         let actual_events: Vec<AgentEvent> = actual.iter().map(|e| e.event.clone()).collect();
-        let expected_events: Vec<AgentEvent> = golden.expected.iter().map(|e| e.event.clone()).collect();
+        let expected_events: Vec<AgentEvent> =
+            golden.expected.iter().map(|e| e.event.clone()).collect();
 
         policy_decisions_match(&expected_events, &actual_events)?;
         event_ordering_match(&golden.expected, actual)?;
@@ -412,8 +449,14 @@ fn get_event_type(event: &AgentEvent) -> String {
 }
 
 fn policy_decisions_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_decisions: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::PolicyDecision { .. })).collect();
-    let actual_decisions: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::PolicyDecision { .. })).collect();
+    let expected_decisions: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::PolicyDecision { .. }))
+        .collect();
+    let actual_decisions: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::PolicyDecision { .. }))
+        .collect();
 
     if expected_decisions.len() != actual_decisions.len() {
         return Err(format!(
@@ -423,7 +466,11 @@ fn policy_decisions_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Res
         ));
     }
 
-    for (i, (exp, act)) in expected_decisions.iter().zip(actual_decisions.iter()).enumerate() {
+    for (i, (exp, act)) in expected_decisions
+        .iter()
+        .zip(actual_decisions.iter())
+        .enumerate()
+    {
         match (exp, act) {
             (
                 AgentEvent::PolicyDecision {
@@ -450,28 +497,42 @@ fn policy_decisions_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Res
                 },
             ) => {
                 if exp_tn != act_tn {
-                    return Err(format!("Decision #{i} tool_name mismatch: expected {exp_tn:?}, got {act_tn:?}"));
+                    return Err(format!(
+                        "Decision #{i} tool_name mismatch: expected {exp_tn:?}, got {act_tn:?}"
+                    ));
                 }
                 if exp_ih != act_ih {
-                    return Err(format!("Decision #{i} input_hash mismatch: expected {exp_ih:?}, got {act_ih:?}"));
+                    return Err(format!(
+                        "Decision #{i} input_hash mismatch: expected {exp_ih:?}, got {act_ih:?}"
+                    ));
                 }
                 if exp_r != act_r {
-                    return Err(format!("Decision #{i} risk mismatch: expected {exp_r:?}, got {act_r:?}"));
+                    return Err(format!(
+                        "Decision #{i} risk mismatch: expected {exp_r:?}, got {act_r:?}"
+                    ));
                 }
                 if exp_m != act_m {
-                    return Err(format!("Decision #{i} mode mismatch: expected {exp_m:?}, got {act_m:?}"));
+                    return Err(format!(
+                        "Decision #{i} mode mismatch: expected {exp_m:?}, got {act_m:?}"
+                    ));
                 }
                 if exp_mr != act_mr {
-                    return Err(format!("Decision #{i} matched_rule mismatch: expected {exp_mr:?}, got {act_mr:?}"));
+                    return Err(format!(
+                        "Decision #{i} matched_rule mismatch: expected {exp_mr:?}, got {act_mr:?}"
+                    ));
                 }
                 if exp_d != act_d {
-                    return Err(format!("Decision #{i} decision mismatch: expected {exp_d:?}, got {act_d:?}"));
+                    return Err(format!(
+                        "Decision #{i} decision mismatch: expected {exp_d:?}, got {act_d:?}"
+                    ));
                 }
                 if exp_reason != act_reason {
                     return Err(format!("Decision #{i} reason mismatch: expected {exp_reason:?}, got {act_reason:?}"));
                 }
                 if exp_ps != act_ps {
-                    return Err(format!("Decision #{i} policy_source mismatch: expected {exp_ps:?}, got {act_ps:?}"));
+                    return Err(format!(
+                        "Decision #{i} policy_source mismatch: expected {exp_ps:?}, got {act_ps:?}"
+                    ));
                 }
             }
             _ => unreachable!(),
@@ -480,7 +541,10 @@ fn policy_decisions_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Res
     Ok(())
 }
 
-fn event_ordering_match(expected: &[EventEnvelope], actual: &[EventEnvelope]) -> Result<(), String> {
+fn event_ordering_match(
+    expected: &[EventEnvelope],
+    actual: &[EventEnvelope],
+) -> Result<(), String> {
     if expected.len() != actual.len() {
         return Err(format!(
             "Event count mismatch: expected {}, got {}",
@@ -510,8 +574,14 @@ fn event_ordering_match(expected: &[EventEnvelope], actual: &[EventEnvelope]) ->
 }
 
 fn tool_execution_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_results: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::ToolResult { .. })).collect();
-    let actual_results: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::ToolResult { .. })).collect();
+    let expected_results: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ToolResult { .. }))
+        .collect();
+    let actual_results: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ToolResult { .. }))
+        .collect();
 
     if expected_results.len() != actual_results.len() {
         return Err(format!(
@@ -523,7 +593,12 @@ fn tool_execution_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Resul
 
     let get_input_hash = |events: &[AgentEvent], call_id: &str| -> Option<String> {
         for ev in events {
-            if let AgentEvent::PolicyDecision { tool_call_id, input_hash, .. } = ev {
+            if let AgentEvent::PolicyDecision {
+                tool_call_id,
+                input_hash,
+                ..
+            } = ev
+            {
                 if tool_call_id == call_id {
                     if let Some(ref ih) = input_hash {
                         return Some(ih.clone());
@@ -544,7 +619,11 @@ fn tool_execution_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Resul
         None
     };
 
-    for (i, (exp, act)) in expected_results.iter().zip(actual_results.iter()).enumerate() {
+    for (i, (exp, act)) in expected_results
+        .iter()
+        .zip(actual_results.iter())
+        .enumerate()
+    {
         match (exp, act) {
             (
                 AgentEvent::ToolResult {
@@ -563,10 +642,14 @@ fn tool_execution_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Resul
                 },
             ) => {
                 if exp_tn != act_tn {
-                    return Err(format!("ToolResult #{i} tool_name mismatch: expected {exp_tn:?}, got {act_tn:?}"));
+                    return Err(format!(
+                        "ToolResult #{i} tool_name mismatch: expected {exp_tn:?}, got {act_tn:?}"
+                    ));
                 }
                 if exp_oh != act_oh {
-                    return Err(format!("ToolResult #{i} output_hash mismatch: expected {exp_oh:?}, got {act_oh:?}"));
+                    return Err(format!(
+                        "ToolResult #{i} output_hash mismatch: expected {exp_oh:?}, got {act_oh:?}"
+                    ));
                 }
                 if exp_ar != act_ar {
                     return Err(format!("ToolResult #{i} artifact_refs mismatch: expected {exp_ar:?}, got {act_ar:?}"));
@@ -586,9 +669,18 @@ fn tool_execution_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Resul
     Ok(())
 }
 
-fn artifact_created_events_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_artifacts: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::ArtifactCreated { .. })).collect();
-    let actual_artifacts: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::ArtifactCreated { .. })).collect();
+fn artifact_created_events_match(
+    expected: &[AgentEvent],
+    actual: &[AgentEvent],
+) -> Result<(), String> {
+    let expected_artifacts: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ArtifactCreated { .. }))
+        .collect();
+    let actual_artifacts: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ArtifactCreated { .. }))
+        .collect();
 
     if expected_artifacts.len() != actual_artifacts.len() {
         return Err(format!(
@@ -598,7 +690,11 @@ fn artifact_created_events_match(expected: &[AgentEvent], actual: &[AgentEvent])
         ));
     }
 
-    for (i, (exp, act)) in expected_artifacts.iter().zip(actual_artifacts.iter()).enumerate() {
+    for (i, (exp, act)) in expected_artifacts
+        .iter()
+        .zip(actual_artifacts.iter())
+        .enumerate()
+    {
         match (exp, act) {
             (
                 AgentEvent::ArtifactCreated {
@@ -620,13 +716,19 @@ fn artifact_created_events_match(expected: &[AgentEvent], actual: &[AgentEvent])
                     return Err(format!("Artifact #{i} filename mismatch: expected {exp_filename:?}, got {act_filename:?}"));
                 }
                 if exp_size != act_size {
-                    return Err(format!("Artifact #{i} size mismatch: expected {exp_size}, got {act_size}"));
+                    return Err(format!(
+                        "Artifact #{i} size mismatch: expected {exp_size}, got {act_size}"
+                    ));
                 }
                 if exp_mime != act_mime {
-                    return Err(format!("Artifact #{i} mime_type mismatch: expected {exp_mime:?}, got {act_mime:?}"));
+                    return Err(format!(
+                        "Artifact #{i} mime_type mismatch: expected {exp_mime:?}, got {act_mime:?}"
+                    ));
                 }
                 if exp_hash != act_hash {
-                    return Err(format!("Artifact #{i} hash mismatch: expected {exp_hash:?}, got {act_hash:?}"));
+                    return Err(format!(
+                        "Artifact #{i} hash mismatch: expected {exp_hash:?}, got {act_hash:?}"
+                    ));
                 }
             }
             _ => unreachable!(),
@@ -635,9 +737,18 @@ fn artifact_created_events_match(expected: &[AgentEvent], actual: &[AgentEvent])
     Ok(())
 }
 
-fn context_built_events_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_built: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::ContextBuilt { .. })).collect();
-    let actual_built: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::ContextBuilt { .. })).collect();
+fn context_built_events_match(
+    expected: &[AgentEvent],
+    actual: &[AgentEvent],
+) -> Result<(), String> {
+    let expected_built: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ContextBuilt { .. }))
+        .collect();
+    let actual_built: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ContextBuilt { .. }))
+        .collect();
 
     if expected_built.len() != actual_built.len() {
         return Err(format!(
@@ -649,15 +760,23 @@ fn context_built_events_match(expected: &[AgentEvent], actual: &[AgentEvent]) ->
 
     for (i, (exp, act)) in expected_built.iter().zip(actual_built.iter()).enumerate() {
         if exp != act {
-            return Err(format!("ContextBuilt event #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"));
+            return Err(format!(
+                "ContextBuilt event #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"
+            ));
         }
     }
     Ok(())
 }
 
 fn approval_decisions_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_decisions: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::ApprovalDecision { .. })).collect();
-    let actual_decisions: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::ApprovalDecision { .. })).collect();
+    let expected_decisions: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ApprovalDecision { .. }))
+        .collect();
+    let actual_decisions: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::ApprovalDecision { .. }))
+        .collect();
 
     if expected_decisions.len() != actual_decisions.len() {
         return Err(format!(
@@ -667,17 +786,29 @@ fn approval_decisions_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> R
         ));
     }
 
-    for (i, (exp, act)) in expected_decisions.iter().zip(actual_decisions.iter()).enumerate() {
+    for (i, (exp, act)) in expected_decisions
+        .iter()
+        .zip(actual_decisions.iter())
+        .enumerate()
+    {
         if exp != act {
-            return Err(format!("ApprovalDecision #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"));
+            return Err(format!(
+                "ApprovalDecision #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"
+            ));
         }
     }
     Ok(())
 }
 
 fn usage_events_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_usage: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::Usage { .. })).collect();
-    let actual_usage: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::Usage { .. })).collect();
+    let expected_usage: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::Usage { .. }))
+        .collect();
+    let actual_usage: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::Usage { .. }))
+        .collect();
 
     if expected_usage.len() != actual_usage.len() {
         return Err(format!(
@@ -689,15 +820,23 @@ fn usage_events_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<
 
     for (i, (exp, act)) in expected_usage.iter().zip(actual_usage.iter()).enumerate() {
         if exp != act {
-            return Err(format!("Usage event #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"));
+            return Err(format!(
+                "Usage event #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"
+            ));
         }
     }
     Ok(())
 }
 
 fn stop_events_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_stop: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::Stop { .. })).collect();
-    let actual_stop: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::Stop { .. })).collect();
+    let expected_stop: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::Stop { .. }))
+        .collect();
+    let actual_stop: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::Stop { .. }))
+        .collect();
 
     if expected_stop.len() != actual_stop.len() {
         return Err(format!(
@@ -709,15 +848,26 @@ fn stop_events_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(
 
     for (i, (exp, act)) in expected_stop.iter().zip(actual_stop.iter()).enumerate() {
         if exp != act {
-            return Err(format!("Stop event #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"));
+            return Err(format!(
+                "Stop event #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"
+            ));
         }
     }
     Ok(())
 }
 
-fn verification_results_match(expected: &[AgentEvent], actual: &[AgentEvent]) -> Result<(), String> {
-    let expected_ver: Vec<&AgentEvent> = expected.iter().filter(|e| matches!(e, AgentEvent::VerificationResult { .. })).collect();
-    let actual_ver: Vec<&AgentEvent> = actual.iter().filter(|e| matches!(e, AgentEvent::VerificationResult { .. })).collect();
+fn verification_results_match(
+    expected: &[AgentEvent],
+    actual: &[AgentEvent],
+) -> Result<(), String> {
+    let expected_ver: Vec<&AgentEvent> = expected
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::VerificationResult { .. }))
+        .collect();
+    let actual_ver: Vec<&AgentEvent> = actual
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::VerificationResult { .. }))
+        .collect();
 
     if expected_ver.len() != actual_ver.len() {
         return Err(format!(
@@ -729,9 +879,10 @@ fn verification_results_match(expected: &[AgentEvent], actual: &[AgentEvent]) ->
 
     for (i, (exp, act)) in expected_ver.iter().zip(actual_ver.iter()).enumerate() {
         if exp != act {
-            return Err(format!("VerificationResult #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"));
+            return Err(format!(
+                "VerificationResult #{i} mismatch:\nExpected: {exp:?}\nActual: {act:?}"
+            ));
         }
     }
     Ok(())
 }
-

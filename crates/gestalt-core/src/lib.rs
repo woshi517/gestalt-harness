@@ -55,7 +55,7 @@ pub use model::{ModelInfo, ModelInfoSource};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 pub use provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest};
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
-pub use snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter, GitWorkspaceSnapshotter};
+pub use snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshot, WorkspaceSnapshotter};
 pub use tool::{
     artifact_path, is_audited_local_command, sanitize_artifact_stem, RiskLevel, Tool, ToolArtifact,
     ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolSchema,
