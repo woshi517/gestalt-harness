@@ -1,8 +1,8 @@
-use std::path::PathBuf;
 use gestalt_core::{model::ModelInfo, AgentEvent};
 use gestalt_trace::CostReport;
 use serde::Serialize;
 use serde_json::Value;
+use std::path::PathBuf;
 
 #[allow(clippy::format_push_string)]
 pub fn render_event(event: &AgentEvent) -> Option<String> {
@@ -168,10 +168,9 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             message,
             recoverable,
         } => Some(format!("error> recoverable={recoverable} {message}")),
-        AgentEvent::WorkspaceSnapshotCaptured {
-            snapshot_id,
-            dirty,
-        } => Some(format!("snapshot> id={snapshot_id} dirty={dirty}")),
+        AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
+            Some(format!("snapshot> id={snapshot_id} dirty={dirty}"))
+        }
     }
 }
 
@@ -409,7 +408,11 @@ impl CliReport for WorkspaceInitReport {
         format!(
             "initialized workspace={}\ncreated files:\n{}",
             self.workspace_root.display(),
-            self.created_files.iter().map(|f| format!("  - {f}")).collect::<Vec<_>>().join("\n")
+            self.created_files
+                .iter()
+                .map(|f| format!("  - {f}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         )
     }
 }
@@ -445,13 +448,13 @@ impl CliReport for WorkspaceStatusReport {
             lines.push(format!("active_mode={mode}"));
         }
         lines.push(format!("recent_runs_count={}", self.recent_runs_count));
-        
+
         let mut auths: Vec<_> = self.auth_summary.iter().collect();
         auths.sort_by_key(|(k, _)| *k);
         for (provider, status) in auths {
             lines.push(format!("auth.{provider}={status}"));
         }
-        
+
         if !self.warnings.is_empty() {
             lines.push("warnings:".to_string());
             for warning in &self.warnings {
@@ -540,7 +543,7 @@ impl CliReport for WorkspaceDoctorReport {
         if !self.missing_files.is_empty() {
             lines.push(format!("missing_files={}", self.missing_files.join(", ")));
         }
-        
+
         let mut auths: Vec<_> = self.auth_summary.iter().collect();
         auths.sort_by_key(|(k, _)| *k);
         for (provider, status) in auths {

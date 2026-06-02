@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, AgentLoop, ExecutionMode, Message, Session, SessionConfig,
-    TokenBudget, ToolContext, WorkspaceSnapshotter, ToolCatalog,
+    TokenBudget, ToolCatalog, ToolContext, WorkspaceSnapshotter,
 };
 use gestalt_models::registry;
 use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
@@ -38,7 +38,8 @@ pub async fn run_prompt(
     let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
     let snapshot = snapshotter.capture(&config.workspace_root).await?;
 
-    let (sink_inner, run_paths) = JsonlTraceSink::create_run(config.run_log_dir(), &session_id, Some(snapshot.clone()))?;
+    let (sink_inner, run_paths) =
+        JsonlTraceSink::create_run(config.run_log_dir(), &session_id, Some(snapshot.clone()))?;
     let sink = Arc::new(sink_inner);
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -53,10 +54,13 @@ pub async fn run_prompt(
     let verification_hook = Arc::new(gestalt_verify::VerificationToolHook::new(verifier_registry));
     let evaluator = Arc::new(gestalt_trace::evaluator::NoopTraceEvaluator);
     let sink_clone = sink.clone();
-    let evaluator_hook = Arc::new(gestalt_trace::evaluator::EvaluatorHook::new(evaluator, None)
-        .with_flush_trigger(Arc::new(move || {
-            let _ = sink_clone.flush();
-        })));
+    let evaluator_hook = Arc::new(
+        gestalt_trace::evaluator::EvaluatorHook::new(evaluator, None).with_flush_trigger(Arc::new(
+            move || {
+                let _ = sink_clone.flush();
+            },
+        )),
+    );
     let mut hooks = gestalt_core::HookRegistry::new();
     hooks.register_tool_hook(verification_hook);
     hooks.register_session_hook(evaluator_hook);
@@ -152,60 +156,81 @@ fn build_pipeline(
 
     let policies_path = config.workspace_file("policies.toml");
     if policies_path.exists() {
-        let toml_content = fs::read_to_string(&policies_path)
-            .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+        let toml_content = fs::read_to_string(&policies_path).map_err(|e| {
+            gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
                 field: "policies.toml".to_string(),
                 reason: format!("Failed to read policies.toml: {e}"),
-            }))?;
-        let value = toml::from_str::<toml::Value>(&toml_content)
-            .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+            })
+        })?;
+        let value = toml::from_str::<toml::Value>(&toml_content).map_err(|e| {
+            gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
                 field: "policies.toml".to_string(),
                 reason: format!("Failed to parse policies.toml: {e}"),
-            }))?;
+            })
+        })?;
         if let Some(prompt) = value.get("prompt") {
             if let Some(over_val) = prompt.get("override") {
                 let over = over_val.as_str().ok_or_else(|| {
-                    gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override".to_string(),
-                        reason: "Expected prompt.override to be a string".to_string(),
-                    })
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override".to_string(),
+                            reason: "Expected prompt.override to be a string".to_string(),
+                        },
+                    )
                 })?;
                 pipeline = pipeline.with_prompt_override(over);
             } else if let Some(file_path_val) = prompt.get("override_file") {
                 let file_path = file_path_val.as_str().ok_or_else(|| {
-                    gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: "Expected prompt.override_file to be a string".to_string(),
-                    })
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: "Expected prompt.override_file to be a string".to_string(),
+                        },
+                    )
                 })?;
                 let target_path = config.workspace_root.join(file_path);
                 if !target_path.exists() {
-                    return Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Override file '{file_path}' does not exist"),
-                    }));
+                    return Err(gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!("Override file '{file_path}' does not exist"),
+                        },
+                    ));
                 }
-                let canonical_root = fs::canonicalize(&config.workspace_root)
-                    .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "workspace_root".to_string(),
-                        reason: format!("Failed to canonicalize workspace root: {e}"),
-                    }))?;
-                let canonical_target = fs::canonicalize(&target_path)
-                    .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Failed to canonicalize override file: {e}"),
-                    }))?;
+                let canonical_root = fs::canonicalize(&config.workspace_root).map_err(|e| {
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "workspace_root".to_string(),
+                            reason: format!("Failed to canonicalize workspace root: {e}"),
+                        },
+                    )
+                })?;
+                let canonical_target = fs::canonicalize(&target_path).map_err(|e| {
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!("Failed to canonicalize override file: {e}"),
+                        },
+                    )
+                })?;
                 if !canonical_target.starts_with(&canonical_root) {
-                    return Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Override file path '{file_path}' escapes the workspace root"),
-                    }));
+                    return Err(gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!(
+                                "Override file path '{file_path}' escapes the workspace root"
+                            ),
+                        },
+                    ));
                 }
-                let content = fs::read_to_string(&canonical_target)
-                    .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Failed to read override file '{file_path}': {e}"),
-                    }))?;
+                let content = fs::read_to_string(&canonical_target).map_err(|e| {
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!("Failed to read override file '{file_path}': {e}"),
+                        },
+                    )
+                })?;
                 pipeline = pipeline.with_prompt_override_file(file_path, content);
             }
         }
@@ -315,11 +340,19 @@ mod tests {
 
     #[test]
     fn test_build_pipeline_override_scenarios() {
-        use std::fs;
-        use crate::config::{EffectiveConfig, DefaultsConfig, ToolsConfig, ContextConfig, ObserveConfig};
+        use crate::config::{
+            ContextConfig, DefaultsConfig, EffectiveConfig, ObserveConfig, ToolsConfig,
+        };
         use std::collections::HashMap;
+        use std::fs;
 
-        let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-test-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "gestalt-cli-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let gestalt_dir = temp_dir.join(".gestalt");
         fs::create_dir_all(&gestalt_dir).unwrap();
 
@@ -348,7 +381,13 @@ mod tests {
         };
 
         // Scenario 1: No policies.toml => uses default prompt
-        let pipeline = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]).unwrap();
+        let pipeline = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        )
+        .unwrap();
         let budget = gestalt_core::context::TokenBudget {
             model_limit: 1000,
             reserved_output: 16,
@@ -369,20 +408,39 @@ mod tests {
 override = "Manual override text"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml).unwrap();
-        let pipeline = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]).unwrap();
+        let pipeline = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        )
+        .unwrap();
         let packet = pipeline.build_packet(&[], &budget);
         assert_eq!(packet.prompt_source.as_deref(), Some("override"));
-        
+
         // Scenario 3: policies.toml with prompt.override_file (valid)
         let policies_toml_file = r#"
 [prompt]
 override_file = ".gestalt/custom_prompt.md"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_file).unwrap();
-        fs::write(temp_dir.join(".gestalt/custom_prompt.md"), "File custom text").unwrap();
-        let pipeline = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]).unwrap();
+        fs::write(
+            temp_dir.join(".gestalt/custom_prompt.md"),
+            "File custom text",
+        )
+        .unwrap();
+        let pipeline = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        )
+        .unwrap();
         let packet = pipeline.build_packet(&[], &budget);
-        assert_eq!(packet.prompt_source.as_deref(), Some(".gestalt/custom_prompt.md"));
+        assert_eq!(
+            packet.prompt_source.as_deref(),
+            Some(".gestalt/custom_prompt.md")
+        );
 
         // Scenario 4: policies.toml with prompt.override_file (missing)
         let policies_toml_missing = r#"
@@ -390,9 +448,17 @@ override_file = ".gestalt/custom_prompt.md"
 override_file = ".gestalt/nonexistent_prompt.md"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_missing).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "prompt.override_file");
             assert!(reason.contains("does not exist"));
         } else {
@@ -405,11 +471,21 @@ override_file = ".gestalt/nonexistent_prompt.md"
 override_file = "../../../etc/passwd"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_escape).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "prompt.override_file");
-            assert!(reason.contains("escapes the workspace root") || reason.contains("does not exist"));
+            assert!(
+                reason.contains("escapes the workspace root") || reason.contains("does not exist")
+            );
         } else {
             panic!("expected path escape or does not exist config error");
         }
@@ -420,9 +496,17 @@ override_file = "../../../etc/passwd"
 override = "Manual override text"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_invalid).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "policies.toml");
             assert!(reason.contains("Failed to parse policies.toml"));
         } else {
@@ -435,9 +519,17 @@ override = "Manual override text"
 override = 12345
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_bad_shape).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "prompt.override");
             assert!(reason.contains("Expected prompt.override to be a string"));
         } else {

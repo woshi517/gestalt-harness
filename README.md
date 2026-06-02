@@ -94,6 +94,42 @@ gestalt --workspace tests/fixtures/workspaces/minimal config validate
 
 ---
 
+## Workspace Management
+
+Manage and inspect your agent workspace with the following CLI commands:
+
+- **Initialize a Workspace:**
+  ```bash
+  gestalt init
+  # Or force overwrite existing files:
+  gestalt init --force
+  ```
+  Scaffolds a new workspace containing default `.gestalt/config.toml`, `policies.toml`, `workspace.md`, and `memory.md` templates.
+
+- **Check Workspace Status:**
+  ```bash
+  gestalt status
+  ```
+  Provides a top-level summary of active options, configuration health, recent runs count, and provider credential warnings.
+
+- **Workspace Diagnostics (`workspace` subcommands):**
+  - **Info**: List paths to configuration and data files.
+    ```bash
+    gestalt workspace info
+    ```
+  - **Snapshot**: Capture git metadata and workspace state.
+    ```bash
+    gestalt workspace snapshot
+    ```
+  - **Doctor**: Run syntactical, file-presence, credential, and permission diagnostics.
+    ```bash
+    gestalt workspace doctor
+    ```
+
+You can use `--format json` to get machine-readable output envelopes for any of these commands.
+
+---
+
 ## Documentation
 
 | Document | Description |

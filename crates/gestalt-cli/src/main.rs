@@ -8,13 +8,17 @@ use gestalt_cli::{
     models::{inspect_model, list_models},
     output::{
         AuthResolveReport, CliErrorPayload, CliReport, ConfigValidateReport, CostReportWrapper,
-        JsonEnvelope, ModelsInspectReport, ModelsListReport, ModelsRefreshReport, ModelsSelectReport,
-        OutputFormat, ProvidersDoctorReport, ProvidersInspectReport, ProvidersListReport,
-        ReplayReport, RunReport,
+        JsonEnvelope, ModelsInspectReport, ModelsListReport, ModelsRefreshReport,
+        ModelsSelectReport, OutputFormat, ProvidersDoctorReport, ProvidersInspectReport,
+        ProvidersListReport, ReplayReport, RunReport, WorkspaceDoctorReport, WorkspaceInfoReport,
+        WorkspaceInitReport, WorkspaceSnapshotReport, WorkspaceStatusReport,
     },
     providers::{doctor_provider, inspect_provider, list_providers},
     replay::replay_display,
     run::run_prompt,
+    workspace::{
+        doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
+    },
 };
 
 #[derive(Parser)]
@@ -44,13 +48,38 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    Run { prompt: String },
-    Replay { path: PathBuf },
-    Cost { path: PathBuf },
+    Run {
+        prompt: String,
+    },
+    Replay {
+        path: PathBuf,
+    },
+    Cost {
+        path: PathBuf,
+    },
     Config(ConfigCommand),
     Auth(AuthCommand),
     Providers(ProvidersCommand),
     Models(ModelsCommand),
+    Init {
+        #[arg(long)]
+        force: bool,
+    },
+    Status,
+    Workspace(WorkspaceCommand),
+}
+
+#[derive(Args)]
+struct WorkspaceCommand {
+    #[command(subcommand)]
+    command: WorkspaceSubcommand,
+}
+
+#[derive(Subcommand)]
+enum WorkspaceSubcommand {
+    Info,
+    Snapshot,
+    Doctor,
 }
 
 #[derive(Args)]
@@ -227,22 +256,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let config = load_effective_config(&overrides)?;
                 let run_dir = run_prompt(&config, &prompt).await?;
                 Ok(RunReport { run_dir })
-            }.await;
-            handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+            }
+            .await;
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
         }
         Command::Replay { path } => {
             let res: Result<ReplayReport, gestalt_core::TraceError> = (|| {
                 let rendered = replay_display(&path)?;
                 Ok(ReplayReport { rendered })
             })();
-            handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
         }
         Command::Cost { path } => {
             let res: Result<CostReportWrapper, gestalt_core::TraceError> = (|| {
                 let report = calculate_cost(&path)?;
                 Ok(CostReportWrapper(report))
             })();
-            handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
         }
         Command::Config(command) => match command.command {
             ConfigSubcommand::Validate => {
@@ -251,8 +293,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(ConfigValidateReport {
                         workspace_root: config.workspace_root,
                     })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
         },
         Command::Auth(command) => match command.command {
@@ -261,8 +308,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let report = resolve_auth(&config, &provider)?;
                     Ok(report)
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
         },
         Command::Providers(command) => match command.command {
@@ -271,16 +323,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let providers = list_providers(&config);
                     Ok(ProvidersListReport { providers })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
             ProvidersSubcommand::Inspect { provider } => {
                 let res: Result<ProvidersInspectReport, gestalt_core::HarnessError> = (|| {
                     let config = load_effective_config(&overrides)?;
                     let value = inspect_provider(&config, &provider)?;
-                    Ok(ProvidersInspectReport { provider, config: value })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                    Ok(ProvidersInspectReport {
+                        provider,
+                        config: value,
+                    })
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
             ProvidersSubcommand::Test { provider } => {
                 let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = (|| {
@@ -289,8 +354,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(ProvidersDoctorReport {
                         results: vec![result],
                     })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
             ProvidersSubcommand::Doctor { provider } => {
                 let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = (|| {
@@ -304,8 +374,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Ok(ProvidersDoctorReport { results })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
         },
         Command::Models(command) => match command.command {
@@ -314,24 +389,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let models = list_models(&config);
                     Ok(ModelsListReport { models })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
             ModelsSubcommand::Inspect { model } => {
                 let res: Result<ModelsInspectReport, gestalt_core::HarnessError> = (|| {
                     let config = load_effective_config(&overrides)?;
                     let model_info = inspect_model(&config, &model)?;
                     Ok(ModelsInspectReport { model: model_info })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
             ModelsSubcommand::Refresh => {
                 let res: Result<ModelsRefreshReport, gestalt_core::HarnessError> = (|| {
                     let config = load_effective_config(&overrides)?;
                     let count = list_models(&config).len();
                     Ok(ModelsRefreshReport { count })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
             ModelsSubcommand::Select { model } => {
                 let res: Result<ModelsSelectReport, gestalt_core::HarnessError> = (|| {
@@ -341,8 +431,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         qualified_id: info.qualified_id,
                         display_name: info.display_name,
                     })
-                })();
-                handle_result(res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>), format, quiet)?;
+                })(
+                );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+        },
+        Command::Init { force } => {
+            let res: Result<WorkspaceInitReport, gestalt_core::HarnessError> = (|| {
+                let workspace_root = overrides.workspace.clone().unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                });
+                init_workspace(&workspace_root, force)
+            })();
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
+        }
+        Command::Status => {
+            let res: Result<WorkspaceStatusReport, gestalt_core::HarnessError> =
+                (|| status_workspace(&overrides))();
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
+        }
+        Command::Workspace(command) => match command.command {
+            WorkspaceSubcommand::Info => {
+                let res: Result<WorkspaceInfoReport, gestalt_core::HarnessError> =
+                    (|| info_workspace(&overrides))();
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            WorkspaceSubcommand::Snapshot => {
+                let res: Result<WorkspaceSnapshotReport, gestalt_core::HarnessError> =
+                    async { snapshot_workspace(&overrides).await }.await;
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            WorkspaceSubcommand::Doctor => {
+                let res: Result<WorkspaceDoctorReport, gestalt_core::HarnessError> =
+                    (|| doctor_workspace(&overrides))();
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
         },
     }

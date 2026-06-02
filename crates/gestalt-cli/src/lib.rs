@@ -7,3 +7,4 @@ pub mod output;
 pub mod providers;
 pub mod replay;
 pub mod run;
+pub mod workspace;

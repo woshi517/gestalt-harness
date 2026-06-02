@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
+use chrono::Utc;
 use gestalt_cli::output::{
-    CliReport, JsonEnvelope, WorkspaceInitReport, WorkspaceStatusReport,
-    WorkspaceInfoReport, WorkspaceSnapshotReport, WorkspaceDoctorReport,
+    CliReport, JsonEnvelope, WorkspaceDoctorReport, WorkspaceInfoReport, WorkspaceInitReport,
+    WorkspaceSnapshotReport, WorkspaceStatusReport,
 };
 use gestalt_core::snapshot::WorkspaceSnapshot;
-use chrono::Utc;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[test]
 fn test_workspace_init_report_contract() {
@@ -17,7 +17,9 @@ fn test_workspace_init_report_contract() {
         ],
     };
     assert_eq!(report.kind(), "workspace.init");
-    assert!(report.render_text().contains("initialized workspace=/workspace"));
+    assert!(report
+        .render_text()
+        .contains("initialized workspace=/workspace"));
     assert!(report.render_text().contains("- .gestalt/config.toml"));
 
     let envelope = JsonEnvelope {
@@ -68,7 +70,9 @@ fn test_workspace_info_report_contract() {
         memory_md_path: PathBuf::from("/workspace/.gestalt/memory.md"),
     };
     assert_eq!(report.kind(), "workspace.info");
-    assert!(report.render_text().contains("config_path=/workspace/.gestalt/config.toml"));
+    assert!(report
+        .render_text()
+        .contains("config_path=/workspace/.gestalt/config.toml"));
 
     let envelope = JsonEnvelope {
         schema_version: 1,

@@ -14,11 +14,17 @@ pub fn list_providers(config: &EffectiveConfig) -> Vec<String> {
     providers
 }
 
-pub fn inspect_provider(config: &EffectiveConfig, provider: &str) -> Result<serde_json::Value, HarnessError> {
+pub fn inspect_provider(
+    config: &EffectiveConfig,
+    provider: &str,
+) -> Result<serde_json::Value, HarnessError> {
     Ok(config.provider_json(provider))
 }
 
-pub fn doctor_provider(config: &EffectiveConfig, provider: &str) -> Result<ProviderDoctorResult, HarnessError> {
+pub fn doctor_provider(
+    config: &EffectiveConfig,
+    provider: &str,
+) -> Result<ProviderDoctorResult, HarnessError> {
     let auth = resolve_auth(config, provider)?;
     Ok(ProviderDoctorResult {
         provider: provider.to_string(),

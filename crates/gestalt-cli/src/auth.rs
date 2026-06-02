@@ -3,7 +3,10 @@ use gestalt_models::{registry, AnthropicProvider, OpenAiProvider};
 
 use crate::{config::EffectiveConfig, output::AuthResolveReport};
 
-pub fn resolve_auth(config: &EffectiveConfig, provider: &str) -> Result<AuthResolveReport, HarnessError> {
+pub fn resolve_auth(
+    config: &EffectiveConfig,
+    provider: &str,
+) -> Result<AuthResolveReport, HarnessError> {
     let provider_config = config.provider_json(provider);
 
     let env_var = match provider {

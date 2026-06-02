@@ -1,9 +1,9 @@
-use std::path::PathBuf;
 use gestalt_cli::output::{
     CliReport, ConfigValidateReport, JsonEnvelope, ModelsListReport, ProvidersListReport,
     ReplayReport, RunReport,
 };
 use gestalt_core::model::{ModelInfo, ModelInfoSource};
+use std::path::PathBuf;
 
 #[test]
 fn test_run_report_contract() {
@@ -88,9 +88,7 @@ fn test_models_list_report_contract() {
         source: ModelInfoSource::BuiltIn,
         last_updated: None,
     };
-    let report = ModelsListReport {
-        models: vec![m1],
-    };
+    let report = ModelsListReport { models: vec![m1] };
     assert_eq!(report.kind(), "models.list");
     assert_eq!(report.render_text(), "anthropic/claude-3");
 }
