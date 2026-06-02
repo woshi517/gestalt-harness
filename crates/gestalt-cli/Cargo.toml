@@ -26,6 +26,7 @@ gestalt-tools = { path = "../gestalt-tools" }
 gestalt-context = { path = "../gestalt-context" }
 gestalt-policy = { path = "../gestalt-policy" }
 gestalt-trace = { path = "../gestalt-trace" }
+gestalt-verify = { path = "../gestalt-verify" }
 clap = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }

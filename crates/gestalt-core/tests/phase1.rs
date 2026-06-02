@@ -13,7 +13,8 @@ use gestalt_core::{
     },
     context::{ContextPipeline, TokenBudget},
     error::{HarnessError, ProviderError},
-    event::{AgentEvent, ApprovalOutcome, PolicyStatus, StopReason},
+    event::{AgentEvent, ApprovalOutcome, PolicyStatus, StopReason, VerificationStatus},
+    hook::{HookRegistry, ToolHook},
     message::{ContentBlock, Message},
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
@@ -272,6 +273,8 @@ async fn agent_loop_emits_rich_context_model_and_tool_metadata() {
     assert!(tool_result.1.is_some());
     assert!(tool_result.2.as_ref().is_some_and(|hash| !hash.is_empty()));
     assert_eq!(tool_result.3.as_deref(), Some("allow-all"));
+
+    drop(recorded);
 }
 
 #[tokio::test]
@@ -741,6 +744,8 @@ async fn unknown_tool_still_logs_a_policy_decision() {
             ..
         } if output.contains("Tool not found: bash")
     )));
+
+    drop(recorded);
 }
 
 #[tokio::test]
@@ -772,23 +777,33 @@ async fn approval_decision_events_cover_approve_and_deny() {
     };
 
     let (approved_tool, approved_events) = run(MockApproval::approve_all()).await;
-    let approved_recorded = approved_events.lock().expect("lock");
-    let approved = approval_decisions(&approved_recorded);
-    assert_eq!(approved.len(), 1);
-    let AgentEvent::ApprovalDecision { decision, .. } = approved[0] else {
-        unreachable!()
+    let approved = {
+        let approved_recorded = approved_events.lock().expect("lock");
+        approval_decisions(&approved_recorded)
+            .into_iter()
+            .map(|event| match event {
+                AgentEvent::ApprovalDecision { decision, .. } => *decision,
+                _ => unreachable!(),
+            })
+            .collect::<Vec<_>>()
     };
-    assert_eq!(*decision, ApprovalOutcome::Approve);
+    assert_eq!(approved.len(), 1);
+    assert_eq!(approved[0], ApprovalOutcome::Approve);
     assert_eq!(approved_tool.executed_inputs.lock().expect("lock").len(), 1);
 
     let (denied_tool, denied_events) = run(MockApproval::deny_all()).await;
-    let denied_recorded = denied_events.lock().expect("lock");
-    let denied = approval_decisions(&denied_recorded);
-    assert_eq!(denied.len(), 1);
-    let AgentEvent::ApprovalDecision { decision, .. } = denied[0] else {
-        unreachable!()
+    let denied = {
+        let denied_recorded = denied_events.lock().expect("lock");
+        approval_decisions(&denied_recorded)
+            .into_iter()
+            .map(|event| match event {
+                AgentEvent::ApprovalDecision { decision, .. } => *decision,
+                _ => unreachable!(),
+            })
+            .collect::<Vec<_>>()
     };
-    assert_eq!(*decision, ApprovalOutcome::Deny);
+    assert_eq!(denied.len(), 1);
+    assert_eq!(denied[0], ApprovalOutcome::Deny);
     assert_eq!(denied_tool.executed_inputs.lock().expect("lock").len(), 0);
 }
 
@@ -991,6 +1006,285 @@ async fn session_grant_records_distinct_grants_for_different_inputs_under_repeat
         "both calls approved by user, both executed"
     );
     drop(executed);
+}
+
+#[derive(Default)]
+struct MockWriteTool;
+
+#[async_trait::async_trait]
+impl Tool for MockWriteTool {
+    fn name(&self) -> &str {
+        "write"
+    }
+
+    fn description(&self) -> &str {
+        "mock write"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        json!({"name": "write"})
+    }
+
+    fn risk(&self, _input: &Value) -> RiskLevel {
+        RiskLevel::Medium
+    }
+
+    fn can_run_in_parallel(&self, _input: &Value) -> bool {
+        false
+    }
+
+    async fn execute(
+        &self,
+        input: Value,
+        ctx: &ToolContext,
+    ) -> Result<ToolOutput, gestalt_core::ToolError> {
+        let path = input
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let content = input
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let target = if std::path::Path::new(path).is_absolute() {
+            std::path::PathBuf::from(path)
+        } else {
+            ctx.working_dir.join(path)
+        };
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(gestalt_core::ToolError::ExecutionFailed)?;
+        }
+        std::fs::write(&target, content.as_bytes())
+            .map_err(gestalt_core::ToolError::ExecutionFailed)?;
+
+        Ok(ToolOutput::Text {
+            content: json!({
+                "path": path,
+                "bytes_written": content.len(),
+            })
+            .to_string(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn agent_loop_runs_real_verification_hook_and_emits_verification_result() {
+    let root = std::env::temp_dir().join(format!(
+        "phase1-verification-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create temp workspace");
+
+    let provider = mock_provider(vec![
+        vec![
+            AgentEvent::ToolCallStreamed {
+                id: "call-1".to_string(),
+                name: "write".to_string(),
+                input_delta: "{\"path\":\"notes.md\",\"content\":\"# Title\\n\\nBody\"}"
+                    .to_string(),
+            },
+            AgentEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
+        ],
+        vec![AgentEvent::Stop {
+            reason: StopReason::EndTurn,
+        }],
+    ]);
+
+    let tool = Arc::new(MockWriteTool);
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool.clone()]));
+
+    let pipeline = Arc::new(MockPipeline);
+    let policy = Arc::new(MockPolicy {
+        decision_for: Arc::new(|_| PolicyDecision::allowed(None)),
+    });
+    let approval = Arc::new(AutoApprovalProvider);
+
+    let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
+    verifier_registry.register(Box::new(gestalt_verify::FileExistsVerifier));
+    verifier_registry.register(Box::new(gestalt_verify::MarkdownStructureVerifier));
+
+    let mut hooks = HookRegistry::new();
+    hooks.register_tool_hook(Arc::new(gestalt_verify::VerificationToolHook::new(
+        verifier_registry,
+    )));
+
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3).with_hooks(hooks);
+
+    let mut session = make_session(ExecutionMode::Yolo);
+    session.tool_ctx.working_dir = root.clone();
+    session.tool_ctx.workspace_root = Some(root.clone());
+
+    let mut events = Vec::new();
+    let result = loop_
+        .run(&mut session, |event| {
+            events.push(event);
+            Ok(())
+        })
+        .await;
+
+    assert!(result.is_ok());
+
+    let verification_events: Vec<_> = events
+        .iter()
+        .filter(|ev| matches!(ev, AgentEvent::VerificationResult { .. }))
+        .collect();
+    assert_eq!(
+        verification_events.len(),
+        2,
+        "real registry should emit one result per verifier"
+    );
+    for ev in verification_events {
+        if let AgentEvent::VerificationResult { status, failed, .. } = ev {
+            assert_eq!(*status, VerificationStatus::Passed);
+            assert_eq!(*failed, 0);
+        }
+    }
+    assert!(
+        root.join("notes.md").exists(),
+        "mock write tool should create the file"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[derive(Clone)]
+struct RecordingToolOrderHook {
+    log: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl ToolHook for RecordingToolOrderHook {
+    async fn before_tool_execution(
+        &self,
+        session: &Session,
+        _tool_name: &str,
+        _input: &Value,
+    ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
+        let call_id = session
+            .tool_ctx
+            .current_tool_call_id
+            .as_deref()
+            .unwrap_or("missing");
+        self.log
+            .lock()
+            .expect("lock")
+            .push(format!("before:{call_id}"));
+        Ok(vec![])
+    }
+
+    async fn after_tool_execution(
+        &self,
+        _session: &Session,
+        _tool_name: &str,
+        _result: &gestalt_core::tool::ToolExecutionResult,
+    ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
+        Ok(vec![])
+    }
+}
+
+#[derive(Clone)]
+struct RecordingToolOrderTool {
+    log: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl Tool for RecordingToolOrderTool {
+    fn name(&self) -> &str {
+        "record"
+    }
+
+    fn description(&self) -> &str {
+        "record ordering"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        json!({"name": "record"})
+    }
+
+    fn risk(&self, _input: &Value) -> RiskLevel {
+        RiskLevel::Medium
+    }
+
+    fn can_run_in_parallel(&self, _input: &Value) -> bool {
+        false
+    }
+
+    async fn execute(
+        &self,
+        _input: Value,
+        ctx: &ToolContext,
+    ) -> Result<ToolOutput, gestalt_core::ToolError> {
+        let call_id = ctx
+            .current_tool_call_id
+            .as_deref()
+            .unwrap_or("missing")
+            .to_string();
+        self.log
+            .lock()
+            .expect("lock")
+            .push(format!("tool:{call_id}"));
+        Ok(ToolOutput::Text {
+            content: format!("executed:{call_id}"),
+        })
+    }
+}
+
+#[tokio::test]
+async fn agent_loop_runs_tool_hook_immediately_before_each_tool_execution() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let provider = mock_provider(vec![
+        vec![
+            AgentEvent::ToolCallStreamed {
+                id: "call-1".to_string(),
+                name: "record".to_string(),
+                input_delta: "{}".to_string(),
+            },
+            AgentEvent::ToolCallStreamed {
+                id: "call-2".to_string(),
+                name: "record".to_string(),
+                input_delta: "{}".to_string(),
+            },
+            AgentEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
+        ],
+        vec![AgentEvent::Stop {
+            reason: StopReason::EndTurn,
+        }],
+    ]);
+
+    let tool = Arc::new(RecordingToolOrderTool { log: log.clone() });
+    let tools = Arc::new(MockCatalog::with_tools(vec![tool]));
+    let pipeline = Arc::new(MockPipeline::default());
+    let policy = Arc::new(MockPolicy::allow_all());
+    let approval = Arc::new(AutoApprovalProvider);
+
+    let mut hooks = HookRegistry::new();
+    hooks.register_tool_hook(Arc::new(RecordingToolOrderHook { log: log.clone() }));
+
+    let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3).with_hooks(hooks);
+    let mut session = make_session(ExecutionMode::Yolo);
+
+    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    assert_eq!(result.turns, 2);
+
+    let recorded = log.lock().expect("lock").clone();
+    assert_eq!(
+        recorded,
+        vec![
+            "before:call-1",
+            "tool:call-1",
+            "before:call-2",
+            "tool:call-2"
+        ]
+    );
 }
 
 fn accepts_trait_objects(

@@ -22,6 +22,7 @@ pub mod approval;
 pub mod context;
 pub mod error;
 pub mod event;
+pub mod hook;
 pub mod message;
 pub mod model;
 pub mod policy;
@@ -41,7 +42,13 @@ pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,
     ToolError, TraceError,
 };
-pub use event::{AgentEvent, ApprovalOutcome, PolicyStatus, StopReason, VerificationStatus};
+pub use event::{
+    AgentEvent, ApprovalOutcome, FindingSeverity, PolicyStatus, StopReason, VerificationFinding,
+    VerificationStatus,
+};
+pub use hook::{
+    ContextHook, HookRegistry, ModelHook, SessionHook, ToolHook, TraceHook, VerificationHook,
+};
 pub use message::{ContentBlock, ContentTrust, DocumentSource, ImageSource, Message};
 pub use model::{ModelInfo, ModelInfoSource};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};

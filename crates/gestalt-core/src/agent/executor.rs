@@ -46,9 +46,10 @@ impl ToolExecutor {
         session_grants: &mut Vec<SessionGrant>,
         current_turn: usize,
         loop_max_turns: usize,
+        hooks: &crate::hook::HookRegistry,
     ) -> Result<Vec<(usize, String, ToolExecutionResult, u64, String)>>
     where
-        F: FnMut(AgentEvent) + Send,
+        F: FnMut(AgentEvent) -> crate::error::Result<()> + Send,
     {
         let mut planned = Vec::with_capacity(tool_calls.len());
         let mut denied_results = Vec::new();
@@ -69,7 +70,7 @@ impl ToolExecutor {
                     session.mode,
                     &policy,
                     Some("tool.not_found".to_string()),
-                );
+                )?;
                 denied_results.push((
                     order,
                     call.id,
@@ -218,62 +219,65 @@ impl ToolExecutor {
                 original_input_hash,
                 edited_input_hash,
                 grant_terms,
-            });
+            })?;
         }
 
         let mut results = denied_results;
         let mut current_parallel = Vec::new();
 
         for (order, id, name, input, tool, policy) in planned {
-            if tool.can_run_in_parallel(&input) {
-                current_parallel.push((order, id, name, input, tool, policy));
-            } else {
-                if !current_parallel.is_empty() {
-                    let futures = std::mem::take(&mut current_parallel).into_iter().map(
-                        |(order, id, _name, input, tool, policy)| {
-                            let mut tool_ctx = session.tool_ctx.clone();
-                            tool_ctx.current_tool_call_id = Some(id.clone());
-                            let tool_call_id = id.clone();
-                            async move {
-                                let start = std::time::Instant::now();
-                                let result =
-                                    execute_tool(tool.as_ref(), input, &tool_ctx, &tool_call_id)
-                                        .await;
-                                let duration = start.elapsed().as_millis() as u64;
-                                (order, id, result, duration, policy.policy_source)
-                            }
-                        },
-                    );
-                    let parallel_results = join_all(futures).await;
-                    for (order, id, result, duration, policy_source) in parallel_results {
-                        results.push((order, id, result, duration, policy_source));
-                    }
-                }
-                let mut tool_ctx = session.tool_ctx.clone();
-                tool_ctx.current_tool_call_id = Some(id.clone());
-                let start = std::time::Instant::now();
-                let result = execute_tool(tool.as_ref(), input, &tool_ctx, &id).await;
-                let duration = start.elapsed().as_millis() as u64;
-                results.push((order, id, result, duration, policy.policy_source));
-            }
-        }
+            let mut tool_ctx = session.tool_ctx.clone();
+            tool_ctx.current_tool_call_id = Some(id.clone());
+            let mut tool_session = session.clone();
+            tool_session.tool_ctx = tool_ctx.clone();
 
-        if !current_parallel.is_empty() {
-            let futures =
-                current_parallel
-                    .into_iter()
-                    .map(|(order, id, _name, input, tool, policy)| {
-                        let mut tool_ctx = session.tool_ctx.clone();
-                        tool_ctx.current_tool_call_id = Some(id.clone());
+            if tool.can_run_in_parallel(&input) {
+                emit_tool_hooks_before(hooks, &tool_session, &name, &input, emit).await?;
+                current_parallel.push((order, id, name, input, tool, policy, tool_ctx));
+                continue;
+            }
+
+            if !current_parallel.is_empty() {
+                let futures = std::mem::take(&mut current_parallel).into_iter().map(
+                    |(order, id, _name, input, tool, policy, tool_ctx)| {
                         let tool_call_id = id.clone();
                         async move {
                             let start = std::time::Instant::now();
                             let result =
                                 execute_tool(tool.as_ref(), input, &tool_ctx, &tool_call_id).await;
-                            let duration = start.elapsed().as_millis() as u64;
+                            let duration =
+                                u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                             (order, id, result, duration, policy.policy_source)
                         }
-                    });
+                    },
+                );
+                let parallel_results = join_all(futures).await;
+                for (order, id, result, duration, policy_source) in parallel_results {
+                    results.push((order, id, result, duration, policy_source));
+                }
+            }
+
+            emit_tool_hooks_before(hooks, &tool_session, &name, &input, emit).await?;
+            let start = std::time::Instant::now();
+            let result = execute_tool(tool.as_ref(), input, &tool_ctx, &id).await;
+            let duration = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            results.push((order, id, result, duration, policy.policy_source));
+        }
+
+        if !current_parallel.is_empty() {
+            let futures = current_parallel.into_iter().map(
+                |(order, id, _name, input, tool, policy, tool_ctx)| {
+                    let tool_call_id = id.clone();
+                    async move {
+                        let start = std::time::Instant::now();
+                        let result =
+                            execute_tool(tool.as_ref(), input, &tool_ctx, &tool_call_id).await;
+                        let duration =
+                            u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        (order, id, result, duration, policy.policy_source)
+                    }
+                },
+            );
             let parallel_results = join_all(futures).await;
             for (order, id, result, duration, policy_source) in parallel_results {
                 results.push((order, id, result, duration, policy_source));
@@ -292,7 +296,7 @@ impl ToolExecutor {
         input: &Value,
         risk: RiskLevel,
         grant: Option<&SessionGrant>,
-        emit: &mut impl FnMut(AgentEvent),
+        emit: &mut impl FnMut(AgentEvent) -> crate::error::Result<()>,
     ) -> Result<PolicyDecision> {
         // Network policy check
         if tool_name == "bash" && !session.tool_ctx.allow_network {
@@ -302,14 +306,13 @@ impl ToolExecutor {
                 .unwrap_or_default();
             if !crate::tool::is_audited_local_command(command) {
                 let reason = format!(
-                    "Command '{}' violates network policy (no network access allowed)",
-                    command
+                    "Command '{command}' violates network policy (no network access allowed)"
                 );
                 emit(AgentEvent::PolicyViolation {
                     tool_call_id: tool_call_id.to_string(),
                     tool_name: tool_name.to_string(),
                     reason: reason.clone(),
-                });
+                })?;
                 let decision = PolicyDecision {
                     status: PolicyStatus::Denied,
                     reason: Some(reason),
@@ -324,7 +327,7 @@ impl ToolExecutor {
                     session.mode,
                     &decision,
                     Some("policy_violation:network_denied".to_string()),
-                );
+                )?;
                 return Ok(decision);
             }
         }
@@ -349,9 +352,9 @@ impl ToolExecutor {
             decision
         };
 
-        let matched_rule = grant
-            .map(|grant| grant.matched_rule.as_str())
-            .unwrap_or(final_decision.policy_source.as_str());
+        let matched_rule = grant.map_or(final_decision.policy_source.as_str(), |grant| {
+            grant.matched_rule.as_str()
+        });
 
         emit_policy_decision(
             emit,
@@ -362,7 +365,7 @@ impl ToolExecutor {
             session.mode,
             &final_decision,
             Some(matched_rule.to_string()),
-        );
+        )?;
         Ok(final_decision)
     }
 
@@ -405,7 +408,7 @@ fn apply_grant_override(
 }
 
 fn emit_policy_decision(
-    emit: &mut impl FnMut(AgentEvent),
+    emit: &mut impl FnMut(AgentEvent) -> crate::error::Result<()>,
     tool_call_id: &str,
     tool_name: &str,
     input: &Value,
@@ -413,7 +416,7 @@ fn emit_policy_decision(
     mode: crate::session::ExecutionMode,
     decision: &PolicyDecision,
     matched_rule: Option<String>,
-) {
+) -> crate::error::Result<()> {
     emit(AgentEvent::PolicyDecision {
         tool_call_id: tool_call_id.to_string(),
         tool_name: Some(tool_name.to_string()),
@@ -424,7 +427,35 @@ fn emit_policy_decision(
         decision: decision.status,
         reason: decision.reason.clone(),
         policy_source: decision.policy_source.clone(),
-    });
+    })
+}
+
+async fn emit_tool_hooks_before<F>(
+    hooks: &crate::hook::HookRegistry,
+    session: &Session,
+    tool_name: &str,
+    input: &Value,
+    emit: &mut F,
+) -> crate::error::Result<()>
+where
+    F: FnMut(AgentEvent) -> crate::error::Result<()> + Send,
+{
+    for hook in &hooks.tool_hooks {
+        match hook.before_tool_execution(session, tool_name, input).await {
+            Ok(events) => {
+                for ev in events {
+                    emit(ev)?;
+                }
+            }
+            Err(err) => {
+                emit(AgentEvent::Error {
+                    message: format!("ToolHook.before_tool_execution failed: {err}"),
+                    recoverable: true,
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn emit_tool_call_proposals<F>(emit: &mut F, tool_calls: &[crate::turn::ProposedToolCall])

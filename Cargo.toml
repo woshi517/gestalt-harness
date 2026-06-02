@@ -13,6 +13,7 @@ members = [
     "crates/gestalt-index",
     "crates/gestalt-memory",
     "crates/gestalt-mcp",
+    "crates/gestalt-verify",
 ]
 
 [workspace.package]

@@ -114,7 +114,7 @@ impl ToolOutput {
                 if path.exists() {
                     let bytes = std::fs::read(&path).map_err(ToolError::ExecutionFailed)?;
                     artifact = Some(ToolArtifact {
-                        path: path.clone(),
+                        path,
                         mime_type: "text/plain".to_string(),
                         size_bytes: bytes.len(),
                     });
@@ -128,7 +128,7 @@ impl ToolOutput {
                     }
                     std::fs::write(&path, &full_content).map_err(ToolError::ExecutionFailed)?;
                     artifact = Some(ToolArtifact {
-                        path: path.clone(),
+                        path,
                         mime_type: "text/plain".to_string(),
                         size_bytes: original_len,
                     });
@@ -148,9 +148,9 @@ impl ToolOutput {
                 if path.exists() {
                     let metadata = std::fs::metadata(&path).map_err(ToolError::ExecutionFailed)?;
                     artifact = Some(ToolArtifact {
-                        path: path.clone(),
+                        path,
                         mime_type: "text/plain".to_string(),
-                        size_bytes: metadata.len() as usize,
+                        size_bytes: usize::try_from(metadata.len()).unwrap_or(usize::MAX),
                     });
                 }
             }

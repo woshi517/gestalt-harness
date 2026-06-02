@@ -104,6 +104,8 @@ pub enum AgentEvent {
         checks: usize,
         failed: usize,
         report: Option<String>,
+        #[serde(default)]
+        findings: Option<Vec<VerificationFinding>>,
     },
     Usage {
         input_tokens: usize,
@@ -155,4 +157,19 @@ pub enum ApprovalOutcome {
     Deny,
     Edit,
     AlwaysAllow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationFinding {
+    pub severity: FindingSeverity,
+    pub message: String,
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingSeverity {
+    Error,
+    Warning,
+    Info,
 }

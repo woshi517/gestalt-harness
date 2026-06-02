@@ -223,31 +223,30 @@ impl ContextPipeline for MinimalContextPipeline {
         for (idx, msg) in history.iter().enumerate() {
             let is_dropped = idx < dropped_count;
             let msg_tokens = estimate_message_tokens(msg);
-            if is_dropped {
-                let trust = match msg {
-                    Message::System { .. } => "trusted".to_string(),
-                    Message::Assistant { .. } => "trusted".to_string(),
-                    Message::ToolResult { .. } => "untrusted".to_string(),
-                    Message::User { content } => {
-                        let mut has_untrusted = false;
-                        for block in content {
-                            if let ContentBlock::Document {
-                                trust: ContentTrust::Untrusted,
-                                ..
-                            } = block
-                            {
-                                has_untrusted = true;
-                                break;
-                            }
-                        }
-                        if has_untrusted {
-                            "untrusted".to_string()
-                        } else {
-                            "trusted".to_string()
+            let trust = match msg {
+                Message::System { .. } => "trusted".to_string(),
+                Message::Assistant { .. } => "trusted".to_string(),
+                Message::ToolResult { .. } => "untrusted".to_string(),
+                Message::User { content } => {
+                    let mut has_untrusted = false;
+                    for block in content {
+                        if let ContentBlock::Document {
+                            trust: ContentTrust::Untrusted,
+                            ..
+                        } = block
+                        {
+                            has_untrusted = true;
+                            break;
                         }
                     }
-                };
-
+                    if has_untrusted {
+                        "untrusted".to_string()
+                    } else {
+                        "trusted".to_string()
+                    }
+                }
+            };
+            if is_dropped {
                 let path_or_label = format!("history_message_{idx}");
                 sources.push(ContextSourceRef {
                     kind: "history".to_string(),
@@ -264,30 +263,6 @@ impl ContextPipeline for MinimalContextPipeline {
                     token_estimate: msg_tokens,
                 });
             } else {
-                let trust = match msg {
-                    Message::System { .. } => "trusted".to_string(),
-                    Message::Assistant { .. } => "trusted".to_string(),
-                    Message::ToolResult { .. } => "untrusted".to_string(),
-                    Message::User { content } => {
-                        let mut has_untrusted = false;
-                        for block in content {
-                            if let ContentBlock::Document {
-                                trust: ContentTrust::Untrusted,
-                                ..
-                            } = block
-                            {
-                                has_untrusted = true;
-                                break;
-                            }
-                        }
-                        if has_untrusted {
-                            "untrusted".to_string()
-                        } else {
-                            "trusted".to_string()
-                        }
-                    }
-                };
-
                 sources.push(ContextSourceRef {
                     kind: "history".to_string(),
                     path_or_label: format!("history_message_{idx}"),
@@ -300,7 +275,7 @@ impl ContextPipeline for MinimalContextPipeline {
 
         let messages = build_result.messages.clone();
         let serialized_messages = serde_json::to_string(&messages).unwrap_or_default();
-        let to_hash = format!("{}:{}", serialized_messages, version);
+        let to_hash = format!("{serialized_messages}:{version}");
         let mut hasher = sha2::Sha256::new();
         hasher.update(to_hash.as_bytes());
         let packet_hash = format!("{:x}", hasher.finalize());

@@ -98,7 +98,9 @@ impl Drop for ProcessGroupKiller {
         #[cfg(unix)]
         if let Some(pid) = self.child_id {
             unsafe {
-                libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                if let Ok(pid) = i32::try_from(pid) {
+                    libc::kill(-pid, libc::SIGKILL);
+                }
             }
         }
     }
@@ -118,8 +120,7 @@ impl ExecutionSandbox for NoSandbox {
             let cmd_str = request.command.join(" ");
             if !is_audited_local_command(&cmd_str) {
                 return Err(HarnessError::Tool(ToolError::NetworkDenied(format!(
-                    "Command '{}' violates network policy (no network access allowed)",
-                    cmd_str
+                    "Command '{cmd_str}' violates network policy (no network access allowed)"
                 ))));
             }
         }
@@ -144,11 +145,9 @@ impl ExecutionSandbox for NoSandbox {
 
         let mut child = cmd.spawn().map_err(ToolError::ExecutionFailed)?;
 
-        let mut stdout_file = None;
-        let mut stderr_file = None;
-        let mut stdout_path = None;
-        let mut stderr_path = None;
-        let mut combined_path = None;
+        let (mut stdout_file, mut stderr_file, mut stdout_path, mut stderr_path, mut combined_path) =
+            (None, None, None, None, None);
+
         if let (Some(ref art_dir), Some(ref tc_id)) = (&request.artifact_dir, &request.tool_call_id)
         {
             tokio::fs::create_dir_all(art_dir)
@@ -157,6 +156,7 @@ impl ExecutionSandbox for NoSandbox {
             let out_path = artifact_path(art_dir, tc_id, "_stdout.txt");
             let err_path = artifact_path(art_dir, tc_id, "_stderr.txt");
             let comb_path = artifact_path(art_dir, tc_id, ".txt");
+
             stdout_file = Some(
                 tokio::fs::File::create(&out_path)
                     .await
@@ -209,7 +209,9 @@ impl ExecutionSandbox for NoSandbox {
             #[cfg(unix)]
             if let Some(pid) = child.id() {
                 unsafe {
-                    libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                    if let Ok(pid) = i32::try_from(pid) {
+                        libc::kill(-pid, libc::SIGKILL);
+                    }
                 }
             }
             let _ = child.kill().await;

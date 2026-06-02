@@ -516,14 +516,18 @@ fn is_secret_command(command: &str) -> bool {
             .trim_matches(|c| c == '\'' || c == '"')
             .to_ascii_lowercase();
         token.contains(".env")
-            || token.ends_with(".key")
-            || token.ends_with(".pem")
+            || ends_with_ignore_ascii_case(&token, ".key")
+            || ends_with_ignore_ascii_case(&token, ".pem")
             || token.starts_with("secrets/")
             || token.contains("/secrets/")
             || token.contains("/secret/")
             || token.starts_with("secret.")
-            || token.ends_with(".secret")
+            || ends_with_ignore_ascii_case(&token, ".secret")
     })
+}
+
+fn ends_with_ignore_ascii_case(text: &str, suffix: &str) -> bool {
+    text.len() >= suffix.len() && text[text.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
 }
 
 fn has_shell_metacharacters(command: &str) -> bool {

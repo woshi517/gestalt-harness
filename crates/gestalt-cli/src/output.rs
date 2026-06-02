@@ -1,5 +1,6 @@
 use gestalt_core::AgentEvent;
 
+#[allow(clippy::format_push_string)]
 pub fn render_event(event: &AgentEvent) -> Option<String> {
     match event {
         AgentEvent::UserMessage { content } => Some(format!("user> {content}")),
@@ -28,10 +29,10 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
                 extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
             }
             if let Some(t) = temperature {
-                extra.push_str(&format!(" temp={}", t));
+                extra.push_str(&format!(" temp={t}"));
             }
             if let Some(m) = max_tokens {
-                extra.push_str(&format!(" max_tokens={}", m));
+                extra.push_str(&format!(" max_tokens={m}"));
             }
             if let Some(h) = provider_request_hash {
                 extra.push_str(&format!(" request_hash={}", &h[..8.min(h.len())]));
@@ -113,13 +114,13 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
         } => {
             let mut extra = String::new();
             if let Some(name) = tool_name {
-                extra.push_str(&format!(" name={}", name));
+                extra.push_str(&format!(" name={name}"));
             }
             if let Some(dir) = working_dir {
-                extra.push_str(&format!(" dir={}", dir));
+                extra.push_str(&format!(" dir={dir}"));
             }
             if let Some(ms) = duration_ms {
-                extra.push_str(&format!(" duration={}ms", ms));
+                extra.push_str(&format!(" duration={ms}ms"));
             }
             if let Some(h) = output_hash {
                 extra.push_str(&format!(" hash={}", &h[..8.min(h.len())]));
@@ -130,7 +131,7 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
                 }
             }
             if let Some(src) = policy_source {
-                extra.push_str(&format!(" policy_source={}", src));
+                extra.push_str(&format!(" policy_source={src}"));
             }
             Some(format!(
                 "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"

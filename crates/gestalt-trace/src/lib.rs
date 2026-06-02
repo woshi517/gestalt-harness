@@ -185,6 +185,7 @@ pub fn read_trace(path: impl AsRef<Path>) -> Result<Vec<EventEnvelope>, TraceErr
     Ok(events)
 }
 
+#[allow(clippy::format_push_string)]
 pub fn render_display(events: &[EventEnvelope]) -> String {
     let mut lines = Vec::new();
 
@@ -219,10 +220,10 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                     extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
                 }
                 if let Some(t) = temperature {
-                    extra.push_str(&format!(" temp={}", t));
+                    extra.push_str(&format!(" temp={t}"));
                 }
                 if let Some(m) = max_tokens {
-                    extra.push_str(&format!(" max_tokens={}", m));
+                    extra.push_str(&format!(" max_tokens={m}"));
                 }
                 if let Some(h) = provider_request_hash {
                     extra.push_str(&format!(" request_hash={}", &h[..8.min(h.len())]));
@@ -309,13 +310,13 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
             } => {
                 let mut extra = String::new();
                 if let Some(name) = tool_name {
-                    extra.push_str(&format!(" name={}", name));
+                    extra.push_str(&format!(" name={name}"));
                 }
                 if let Some(dir) = working_dir {
-                    extra.push_str(&format!(" dir={}", dir));
+                    extra.push_str(&format!(" dir={dir}"));
                 }
                 if let Some(ms) = duration_ms {
-                    extra.push_str(&format!(" duration={}ms", ms));
+                    extra.push_str(&format!(" duration={ms}ms"));
                 }
                 if let Some(h) = output_hash {
                     extra.push_str(&format!(" hash={}", &h[..8.min(h.len())]));
@@ -326,7 +327,7 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                     }
                 }
                 if let Some(src) = policy_source {
-                    extra.push_str(&format!(" policy_source={}", src));
+                    extra.push_str(&format!(" policy_source={src}"));
                 }
                 lines.push(format!(
                     "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
@@ -354,6 +355,7 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 checks,
                 failed,
                 report,
+                ..
             } => lines.push(format!(
                 "verification> {status:?} checks={checks} failed={failed} {}",
                 report.clone().unwrap_or_default()
@@ -607,6 +609,7 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             checks,
             failed,
             report,
+            findings,
         } => {
             let (report, redacted) = report.as_ref().map_or((None, false), |report| {
                 let (report, redacted) = redact_string(report);
@@ -618,6 +621,7 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
                     checks: *checks,
                     failed: *failed,
                     report,
+                    findings: findings.clone(),
                 },
                 redacted,
             )

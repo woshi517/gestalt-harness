@@ -42,7 +42,10 @@ impl ToolRegistry {
             .get(name)
             .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
         let output = tool.execute(input, ctx).await?;
-        let tool_call_id = ctx.current_tool_call_id.as_deref().unwrap_or(tool.name());
+        let tool_call_id = ctx
+            .current_tool_call_id
+            .as_deref()
+            .unwrap_or_else(|| tool.name());
         output.into_execution_result(false, ctx.max_output_bytes, ctx, tool_call_id)
     }
 }
