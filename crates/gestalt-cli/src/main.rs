@@ -16,6 +16,7 @@ use gestalt_cli::{
     providers::{doctor_provider, inspect_provider, list_providers},
     replay::replay_display,
     run::run_prompt,
+    runs,
     workspace::{
         doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
     },
@@ -67,6 +68,48 @@ enum Command {
     },
     Status,
     Workspace(WorkspaceCommand),
+    Runs(RunsCommand),
+}
+
+#[derive(Args)]
+pub struct RunsCommand {
+    #[command(subcommand)]
+    pub command: RunsSubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum RunsSubcommand {
+    List {
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        json: bool,
+    },
+    Inspect {
+        run_id_or_path: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Tail {
+        run_id_or_path: String,
+    },
+    Prune {
+        #[arg(long)]
+        older_than: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, short)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    Delete {
+        run_id_or_path: String,
+        #[arg(long, short)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args)]
@@ -265,26 +308,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         Command::Replay { path } => {
-            let res: Result<ReplayReport, gestalt_core::TraceError> = (|| {
-                let rendered = replay_display(&path)?;
+            let res: Result<ReplayReport, Box<dyn std::error::Error>> = (|| {
+                let resolved = if path.exists() {
+                    if path.is_dir() {
+                        path.join("trace.jsonl")
+                    } else {
+                        path.clone()
+                    }
+                } else {
+                    let config = load_effective_config(&overrides)?;
+                    let run_dir = runs::resolve_run_path(&config, &path.to_string_lossy())?;
+                    run_dir.join("trace.jsonl")
+                };
+                let rendered = replay_display(&resolved)?;
                 Ok(ReplayReport { rendered })
             })();
-            handle_result(
-                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
-                format,
-                quiet,
-            )?;
+            handle_result(res, format, quiet)?;
         }
         Command::Cost { path } => {
-            let res: Result<CostReportWrapper, gestalt_core::TraceError> = (|| {
-                let report = calculate_cost(&path)?;
+            let res: Result<CostReportWrapper, Box<dyn std::error::Error>> = (|| {
+                let resolved = if path.exists() {
+                    path.clone()
+                } else {
+                    let config = load_effective_config(&overrides)?;
+                    runs::resolve_run_path(&config, &path.to_string_lossy())?
+                };
+                let report = calculate_cost(&resolved)?;
                 Ok(CostReportWrapper(report))
             })();
-            handle_result(
-                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
-                format,
-                quiet,
-            )?;
+            handle_result(res, format, quiet)?;
         }
         Command::Config(command) => match command.command {
             ConfigSubcommand::Validate => {
@@ -487,6 +539,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
+                    quiet,
+                )?;
+            }
+        },
+        Command::Runs(command) => match command.command {
+            RunsSubcommand::List { limit, json } => {
+                let fmt = if json { OutputFormat::Json } else { format };
+                let res = runs::list_runs(&load_effective_config(&overrides)?, limit);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    fmt,
+                    quiet,
+                )?;
+            }
+            RunsSubcommand::Inspect { run_id_or_path, json } => {
+                let fmt = if json { OutputFormat::Json } else { format };
+                let res = runs::inspect_run(&load_effective_config(&overrides)?, &run_id_or_path);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    fmt,
+                    quiet,
+                )?;
+            }
+            RunsSubcommand::Tail { run_id_or_path } => {
+                let config = load_effective_config(&overrides)?;
+                if let Err(e) = runs::tail_run(&config, &run_id_or_path, format) {
+                    let payload = map_to_cli_error(&e);
+                    match format {
+                        OutputFormat::Json => {
+                            let envelope = JsonEnvelope {
+                                schema_version: 1,
+                                kind: "error".to_string(),
+                                data: payload,
+                            };
+                            eprintln!("{}", serde_json::to_string(&envelope)?);
+                        }
+                        OutputFormat::Text => {
+                            eprintln!("error: {}", payload.message);
+                        }
+                    }
+                    std::process::exit(1);
+                }
+            }
+            RunsSubcommand::Prune { older_than, dry_run, yes, json } => {
+                let config = load_effective_config(&overrides)?;
+                let fmt = if json { OutputFormat::Json } else { format };
+                let res = runs::prune_runs(&config, older_than, dry_run, yes);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    fmt,
+                    quiet,
+                )?;
+            }
+            RunsSubcommand::Delete { run_id_or_path, yes, json } => {
+                let config = load_effective_config(&overrides)?;
+                let fmt = if json { OutputFormat::Json } else { format };
+                let res = runs::delete_run(&config, &run_id_or_path, yes);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    fmt,
                     quiet,
                 )?;
             }

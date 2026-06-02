@@ -553,3 +553,218 @@ impl CliReport for WorkspaceDoctorReport {
         lines.join("\n")
     }
 }
+
+/// An entry in the run log index listing.
+#[derive(Serialize, Clone)]
+pub struct RunIndexEntry {
+    /// Unique run identifier.
+    pub run_id: String,
+    /// Absolute filesystem path to the run directory.
+    pub path: PathBuf,
+    /// Run start timestamp.
+    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Associated session identifier.
+    pub session_id: String,
+    /// LLM provider (e.g. "openai").
+    pub provider: Option<String>,
+    /// LLM model name.
+    pub model: Option<String>,
+    /// Whether the trace.jsonl file exists.
+    pub trace_exists: bool,
+    /// Whether the summary.md file exists.
+    pub summary_exists: bool,
+    /// Whether the cost.json file exists.
+    pub cost_exists: bool,
+    /// Number of generated workspace artifacts.
+    pub artifact_count: usize,
+    /// Current apparent status of the run.
+    pub apparent_status: String,
+    /// Input tokens consumed.
+    pub total_input_tokens: Option<usize>,
+    /// Output tokens consumed.
+    pub total_output_tokens: Option<usize>,
+    /// Estimated total cost of the run in USD.
+    pub estimated_cost_usd: Option<f64>,
+}
+
+/// Report containing a list of run entries.
+#[derive(Serialize)]
+pub struct RunsListReport {
+    /// List of indexed runs.
+    pub runs: Vec<RunIndexEntry>,
+}
+
+impl CliReport for RunsListReport {
+    fn kind(&self) -> &'static str {
+        "runs.list"
+    }
+    fn render_text(&self) -> String {
+        if self.runs.is_empty() {
+            return "No runs found.".to_string();
+        }
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "{:<30} | {:<20} | {:<30} | {:<12} | {:<15} | {:<10}",
+            "RUN ID", "START TIME", "PROVIDER/MODEL", "STATUS", "TOKENS (IN/OUT)", "COST"
+        ));
+        lines.push("-".repeat(129));
+        for r in &self.runs {
+            let start_time_str = r.start_time
+                .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            let prov_mod = match (&r.provider, &r.model) {
+                (Some(p), Some(m)) => format!("{p}/{m}"),
+                (Some(p), None) => p.to_string(),
+                (None, Some(m)) => m.to_string(),
+                _ => "unknown".to_string(),
+            };
+            let tokens_str = match (r.total_input_tokens, r.total_output_tokens) {
+                (Some(i), Some(o)) => format!("{i}/{o}"),
+                _ => "unknown".to_string(),
+            };
+            let cost_str = r.estimated_cost_usd
+                .map(|c| format!("${c:.6}"))
+                .unwrap_or_else(|| "unknown".to_string());
+            lines.push(format!(
+                "{:<30} | {:<20} | {:<30} | {:<12} | {:<15} | {:<10}",
+                r.run_id, start_time_str, prov_mod, r.apparent_status, tokens_str, cost_str
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+/// Detailed run inspection report.
+#[derive(Serialize)]
+pub struct RunsInspectReport {
+    /// Unique run identifier.
+    pub run_id: String,
+    /// Absolute filesystem path to the run directory.
+    pub path: PathBuf,
+    /// Run start timestamp.
+    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Associated session identifier.
+    pub session_id: String,
+    /// LLM provider (e.g. "openai").
+    pub provider: Option<String>,
+    /// LLM model name.
+    pub model: Option<String>,
+    /// Whether the trace.jsonl file exists.
+    pub trace_exists: bool,
+    /// Whether the summary.md file exists.
+    pub summary_exists: bool,
+    /// Whether the cost.json file exists.
+    pub cost_exists: bool,
+    /// Current apparent status of the run.
+    pub apparent_status: String,
+    /// Total turns executed.
+    pub turns: Option<usize>,
+    /// Stop reason description.
+    pub stop_reason: Option<String>,
+    /// Total input tokens consumed.
+    pub total_input_tokens: Option<usize>,
+    /// Total output tokens consumed.
+    pub total_output_tokens: Option<usize>,
+    /// Estimated total cost of the run in USD.
+    pub estimated_cost_usd: Option<f64>,
+    /// Workspace snapshot identifier.
+    pub workspace_snapshot_id: Option<String>,
+    /// List of generated workspace artifacts.
+    pub artifacts: Vec<String>,
+}
+
+impl CliReport for RunsInspectReport {
+    fn kind(&self) -> &'static str {
+        "runs.inspect"
+    }
+    fn render_text(&self) -> String {
+        let start_time_str = self.start_time
+            .map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let prov_mod = match (&self.provider, &self.model) {
+            (Some(p), Some(m)) => format!("{p}/{m}"),
+            (Some(p), None) => p.to_string(),
+            (None, Some(m)) => m.to_string(),
+            _ => "unknown".to_string(),
+        };
+        let tokens_str = match (self.total_input_tokens, self.total_output_tokens) {
+            (Some(i), Some(o)) => format!("{i} in / {o} out"),
+            _ => "unknown".to_string(),
+        };
+        let cost_str = self.estimated_cost_usd
+            .map(|c| format!("${c:.6}"))
+            .unwrap_or_else(|| "unknown".to_string());
+        
+        let mut lines = vec![
+            format!("Run ID: {}", self.run_id),
+            format!("Path: {}", self.path.display()),
+            format!("Start Time: {start_time_str}"),
+            format!("Status: {}", self.apparent_status),
+            format!("Provider/Model: {prov_mod}"),
+            format!("Turns: {}", self.turns.map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string())),
+            format!("Stop Reason: {}", self.stop_reason.as_deref().unwrap_or("unknown")),
+            format!("Tokens: {tokens_str}"),
+            format!("Cost: {cost_str}"),
+            format!("Workspace Snapshot ID: {}", self.workspace_snapshot_id.as_deref().unwrap_or("none")),
+            format!("Artifacts: {} artifacts", self.artifacts.len()),
+        ];
+        for a in &self.artifacts {
+            lines.push(format!("  - {a}"));
+        }
+        lines.join("\n")
+    }
+}
+
+/// Report containing metrics of pruned runs.
+#[derive(Serialize)]
+pub struct RunsPruneReport {
+    /// List of pruned run identifiers.
+    pub pruned_runs: Vec<String>,
+    /// Reclaimed disk space in bytes.
+    pub reclaimed_bytes: u64,
+    /// Whether this was a dry run.
+    pub dry_run: bool,
+}
+
+impl CliReport for RunsPruneReport {
+    fn kind(&self) -> &'static str {
+        "runs.prune"
+    }
+    fn render_text(&self) -> String {
+        let prefix = if self.dry_run { "Would prune" } else { "Pruned" };
+        if self.pruned_runs.is_empty() {
+            return "No runs found to prune.".to_string();
+        }
+        let size_mb = self.reclaimed_bytes as f64 / 1_048_576.0;
+        let mut lines = vec![
+            format!("{prefix} {} runs (reclaiming {size_mb:.2} MB):", self.pruned_runs.len())
+        ];
+        for r in &self.pruned_runs {
+            lines.push(format!("  - {r}"));
+        }
+        lines.join("\n")
+    }
+}
+
+/// Report containing metrics of a deleted run.
+#[derive(Serialize)]
+pub struct RunsDeleteReport {
+    /// Deleted run identifier.
+    pub deleted_run: String,
+    /// Reclaimed disk space in bytes.
+    pub reclaimed_bytes: u64,
+}
+
+impl CliReport for RunsDeleteReport {
+    fn kind(&self) -> &'static str {
+        "runs.delete"
+    }
+    fn render_text(&self) -> String {
+        let size_mb = self.reclaimed_bytes as f64 / 1_048_576.0;
+        format!(
+            "Deleted run {} (reclaimed {size_mb:.2} MB).",
+            self.deleted_run
+        )
+    }
+}
+
