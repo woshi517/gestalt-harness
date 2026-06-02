@@ -17,3 +17,13 @@ The detailed descriptions and rationale are documented in the [architecture docu
 | [ADR-010](../gestalt-harness-architecture.md#adr-010-contenttrust-tags-on-all-external-content) | ContentTrust Tags on All External Content | Accepted |
 | [ADR-011](../gestalt-harness-architecture.md#adr-011-credential-resolution-boundary-separate-from-provider-behavior-config) | Credential Resolution Boundary Separate from Provider Behavior Config | Accepted |
 | [ADR-012](../gestalt-harness-architecture.md#adr-012-preserve-provider-finish-reasons-in-normalized-stopreason) | Preserve Provider Finish Reasons in Normalized StopReason | Accepted |
+| [ADR-013](../gestalt-harness-architecture.md#adr-013-bounded-session-approval-grants-instead-of-tool-name-keys) | Bounded Session Approval Grants instead of Tool-Name Keys | Accepted |
+| [ADR-014](../gestalt-harness-architecture.md#adr-014-rich-contextpacket-and-contextbuilt-events) | Rich ContextPacket and ContextBuilt Events | Accepted |
+| [ADR-015](../gestalt-harness-architecture.md#adr-015-artifact-spillover-for-truncated-tool-output) | Artifact Spillover for Truncated Tool Output | Accepted |
+| [ADR-016](../gestalt-harness-architecture.md#adr-016-honest-host-execution-nosandbox-and-network-policy-enforcement) | Honest Host Execution (NoSandbox) and Network Policy Enforcement | Accepted |
+| [ADR-017](../gestalt-harness-architecture.md#adr-017-dedicated-verification-substrate-gestalt-verify) | Dedicated Verification Substrate (gestalt-verify) | Accepted |
+| [ADR-018](../gestalt-harness-architecture.md#adr-018-internal-lifecycle-hooks-for-extensibility) | Internal Lifecycle Hooks for Extensibility | Accepted |
+| [ADR-019](../gestalt-harness-architecture.md#adr-019-workspace-state-snapshotting-in-session-metadata) | Workspace State Snapshotting in Session Metadata | Accepted |
+| [ADR-020](../gestalt-harness-architecture.md#adr-020-trace-driven-regression-testing-via-golden-traces) | Trace-Driven Regression Testing via Golden Traces | Accepted |
+| [ADR-021](../gestalt-harness-architecture.md#adr-021-default-system-prompt-with-local-policy-overrides) | Default System Prompt with Local Policy Overrides | Accepted |
+

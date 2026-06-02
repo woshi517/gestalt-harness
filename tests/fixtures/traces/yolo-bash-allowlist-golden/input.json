@@ -1,0 +1,53 @@
+{
+  "user_prompt": "run a safe bash command",
+  "session_config": {
+    "model": "mock-model",
+    "provider": "fixture-provider",
+    "max_tokens": 4096,
+    "temperature": 0.0,
+    "max_turns": 3
+  },
+  "execution_mode": "yolo",
+  "tools": [
+    {
+      "name": "bash",
+      "description": "run bash command",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "command": { "type": "string" }
+        }
+      },
+      "output": "hello world",
+      "is_error": false,
+      "parallel_safe": true
+    }
+  ],
+  "policy_toml": "[tools.bash]\nyolo_allow = [\"echo hello\"]",
+  "mock_turns": [
+    [
+      {
+        "type": "tool_call_streamed",
+        "id": "call-1",
+        "name": "bash",
+        "input_delta": "{\"command\": \"echo hello\"}"
+      },
+      {
+        "type": "stop",
+        "reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "usage",
+        "input_tokens": 15,
+        "output_tokens": 7
+      },
+      {
+        "type": "stop",
+        "reason": "end_turn"
+      }
+    ]
+  ],
+  "workspace_snapshot": null
+}

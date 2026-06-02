@@ -1,3 +1,4 @@
+#![allow(unsafe_code)]
 //! `gestalt-exec` — Subprocess execution / sandbox
 //!
 //! This crate is part of the gestalt-harness workspace.
@@ -12,7 +13,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use gestalt_core::{HarnessError, ToolError};
+use gestalt_core::{artifact_path, is_audited_local_command, HarnessError, ToolError};
 use tokio::{
     io::AsyncReadExt,
     process::Command,
@@ -34,6 +35,8 @@ pub struct ExecRequest {
     pub max_output_bytes: usize,
     pub network_policy: NetworkPolicy,
     pub mounts: Vec<SandboxMount>,
+    pub artifact_dir: Option<PathBuf>,
+    pub tool_call_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,8 +80,31 @@ pub struct SandboxMount {
     pub read_only: bool,
 }
 
+/// Host subprocess execution runner.
+///
+/// # WARNING
+/// This is NOT a security sandbox. It executes processes directly on the host machine
+/// under the current user's privileges. It does NOT provide chroot, mount namespace,
+/// network confinement, or seccomp isolation.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoSandbox;
+
+struct ProcessGroupKiller {
+    child_id: Option<u32>,
+}
+
+impl Drop for ProcessGroupKiller {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.child_id {
+            unsafe {
+                if let Ok(pid) = i32::try_from(pid) {
+                    libc::kill(-pid, libc::SIGKILL);
+                }
+            }
+        }
+    }
+}
 
 #[async_trait]
 impl ExecutionSandbox for NoSandbox {
@@ -90,17 +116,61 @@ impl ExecutionSandbox for NoSandbox {
             .split_first()
             .ok_or_else(|| invalid_input("command must not be empty"))?;
 
+        if request.network_policy == NetworkPolicy::None {
+            let cmd_str = request.command.join(" ");
+            if !is_audited_local_command(&cmd_str) {
+                return Err(HarnessError::Tool(ToolError::NetworkDenied(format!(
+                    "Command '{cmd_str}' violates network policy (no network access allowed)"
+                ))));
+            }
+        }
+
         let started = Instant::now();
-        let mut child = Command::new(program)
-            .args(args)
+        let mut cmd = Command::new(program);
+        cmd.args(args)
             .current_dir(&request.working_dir)
             .env_clear()
             .envs(request.env.iter())
             .kill_on_drop(true)
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(ToolError::ExecutionFailed)?;
+            .stderr(std::process::Stdio::piped());
+
+        #[cfg(unix)]
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+
+        let mut child = cmd.spawn().map_err(ToolError::ExecutionFailed)?;
+
+        let (mut stdout_file, mut stderr_file, mut stdout_path, mut stderr_path, mut combined_path) =
+            (None, None, None, None, None);
+
+        if let (Some(ref art_dir), Some(ref tc_id)) = (&request.artifact_dir, &request.tool_call_id)
+        {
+            tokio::fs::create_dir_all(art_dir)
+                .await
+                .map_err(ToolError::ExecutionFailed)?;
+            let out_path = artifact_path(art_dir, tc_id, "_stdout.txt");
+            let err_path = artifact_path(art_dir, tc_id, "_stderr.txt");
+            let comb_path = artifact_path(art_dir, tc_id, ".txt");
+
+            stdout_file = Some(
+                tokio::fs::File::create(&out_path)
+                    .await
+                    .map_err(ToolError::ExecutionFailed)?,
+            );
+            stderr_file = Some(
+                tokio::fs::File::create(&err_path)
+                    .await
+                    .map_err(ToolError::ExecutionFailed)?,
+            );
+            stdout_path = Some(out_path);
+            stderr_path = Some(err_path);
+            combined_path = Some(comb_path);
+        }
 
         let stdout = child
             .stdout
@@ -112,34 +182,98 @@ impl ExecutionSandbox for NoSandbox {
             .ok_or_else(|| invalid_input("failed to capture stderr"))?;
 
         let deadline = TokioInstant::now() + request.timeout;
-        let stdout_task = tokio::spawn(read_capped(stdout, request.max_output_bytes, deadline));
-        let stderr_task = tokio::spawn(read_capped(stderr, request.max_output_bytes, deadline));
+        let stdout_task = tokio::spawn(read_capped(
+            stdout,
+            request.max_output_bytes,
+            deadline,
+            stdout_file,
+        ));
+        let stderr_task = tokio::spawn(read_capped(
+            stderr,
+            request.max_output_bytes,
+            deadline,
+            stderr_file,
+        ));
 
+        let mut killer = ProcessGroupKiller {
+            child_id: child.id(),
+        };
         let wait_result = timeout(request.timeout, child.wait()).await;
         let (exit_code, timed_out) = if let Ok(status) = wait_result {
+            killer.child_id = None;
             (
                 Some(status.map_err(ToolError::ExecutionFailed)?.code()),
                 false,
             )
         } else {
+            #[cfg(unix)]
+            if let Some(pid) = child.id() {
+                unsafe {
+                    if let Ok(pid) = i32::try_from(pid) {
+                        libc::kill(-pid, libc::SIGKILL);
+                    }
+                }
+            }
             let _ = child.kill().await;
             let _ = child.wait().await;
+            killer.child_id = None;
             (None, true)
         };
 
-        let stdout = stdout_task
+        let stdout_res = stdout_task
             .await
             .map_err(|err| invalid_input(format!("stdout task failed: {err}")))??;
-        let stderr = stderr_task
+        let stderr_res = stderr_task
             .await
             .map_err(|err| invalid_input(format!("stderr task failed: {err}")))??;
-        let mut truncated = stdout.truncated || stderr.truncated;
-        let mut stdout = stdout.bytes;
-        let mut stderr = stderr.bytes;
+        let mut truncated = stdout_res.truncated || stderr_res.truncated;
+        let mut stdout = stdout_res.bytes;
+        let mut stderr = stderr_res.bytes;
 
         if stdout.len().saturating_add(stderr.len()) > request.max_output_bytes {
             truncate_combined(&mut stdout, &mut stderr, request.max_output_bytes);
             truncated = true;
+        }
+
+        if let Some(combined_path) = combined_path {
+            if truncated {
+                let stdout_bytes = if let Some(path) = stdout_path.as_ref() {
+                    tokio::fs::read(path)
+                        .await
+                        .map_err(ToolError::ExecutionFailed)?
+                } else {
+                    Vec::new()
+                };
+                let stderr_bytes = if let Some(path) = stderr_path.as_ref() {
+                    tokio::fs::read(path)
+                        .await
+                        .map_err(ToolError::ExecutionFailed)?
+                } else {
+                    Vec::new()
+                };
+                let full_stdout_str = String::from_utf8_lossy(&stdout_bytes);
+                let full_stderr_str = String::from_utf8_lossy(&stderr_bytes);
+                let combined_text = format!(
+                    "exit_code: {}\ntimed_out: {}\ntruncated: {}\nstdout:\n{}\nstderr:\n{}",
+                    exit_code
+                        .flatten()
+                        .map_or_else(|| "signal".to_string(), |code| code.to_string()),
+                    timed_out,
+                    truncated,
+                    full_stdout_str,
+                    full_stderr_str
+                );
+                tokio::fs::write(&combined_path, combined_text.as_bytes())
+                    .await
+                    .map_err(ToolError::ExecutionFailed)?;
+            } else {
+                if let Some(path) = stdout_path {
+                    let _ = tokio::fs::remove_file(path).await;
+                }
+                if let Some(path) = stderr_path {
+                    let _ = tokio::fs::remove_file(path).await;
+                }
+            }
         }
 
         Ok(ExecResult {
@@ -163,6 +297,7 @@ async fn read_capped<R>(
     mut reader: R,
     max_output_bytes: usize,
     deadline: TokioInstant,
+    mut artifact_file: Option<tokio::fs::File>,
 ) -> Result<CappedRead, HarnessError>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -180,13 +315,22 @@ where
             break;
         }
 
-        let remaining = max_output_bytes.saturating_sub(bytes.len());
-        if read > remaining {
-            bytes.extend_from_slice(&buffer[..remaining]);
-            truncated = true;
-            break;
+        if let Some(ref mut file) = artifact_file {
+            use tokio::io::AsyncWriteExt;
+            file.write_all(&buffer[..read])
+                .await
+                .map_err(ToolError::ExecutionFailed)?;
         }
-        bytes.extend_from_slice(&buffer[..read]);
+
+        if !truncated {
+            let remaining = max_output_bytes.saturating_sub(bytes.len());
+            if read > remaining {
+                bytes.extend_from_slice(&buffer[..remaining]);
+                truncated = true;
+            } else {
+                bytes.extend_from_slice(&buffer[..read]);
+            }
+        }
     }
 
     Ok(CappedRead { bytes, truncated })
@@ -249,6 +393,8 @@ mod tests {
             max_output_bytes: 1024,
             network_policy: NetworkPolicy::None,
             mounts: Vec::new(),
+            artifact_dir: None,
+            tool_call_id: None,
         }
     }
 
@@ -266,8 +412,10 @@ mod tests {
     #[tokio::test]
     async fn nosandbox_should_normalize_failed_command() {
         let root = temp_workspace("failure");
+        let mut request = request(&root, "printf nope >&2; exit 7");
+        request.network_policy = NetworkPolicy::Full;
         let result = NoSandbox
-            .run(request(&root, "printf nope >&2; exit 7"))
+            .run(request)
             .await
             .expect("command result returned");
 
@@ -297,10 +445,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn nosandbox_should_not_persist_artifacts_when_not_truncated() {
+        let root = temp_workspace("artifacts-clean");
+        let artifact_dir = root.join("artifacts");
+        let mut request = request(&root, "printf hello");
+        request.artifact_dir = Some(artifact_dir.clone());
+        request.tool_call_id = Some("call-1".to_string());
+
+        let result = NoSandbox.run(request).await.expect("command succeeds");
+
+        assert_eq!(result.stdout, b"hello");
+        assert!(
+            !artifact_dir.exists()
+                || std::fs::read_dir(&artifact_dir)
+                    .expect("read artifacts")
+                    .next()
+                    .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn nosandbox_should_sanitize_artifact_filenames() {
+        let root = temp_workspace("artifact-sanitize");
+        let artifact_dir = root.join("artifacts");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).expect("create outside dir");
+        std::fs::write(outside.join("keep.txt"), "safe").expect("write sentinel");
+
+        let mut request = request(&root, "printf 123456789");
+        request.max_output_bytes = 4;
+        request.artifact_dir = Some(artifact_dir.clone());
+        request.tool_call_id = Some("../../outside/pwn".to_string());
+
+        let result = NoSandbox.run(request).await.expect("command succeeds");
+
+        assert!(result.truncated);
+        assert_eq!(
+            std::fs::read_to_string(outside.join("keep.txt")).expect("read sentinel"),
+            "safe"
+        );
+        for entry in std::fs::read_dir(&artifact_dir).expect("read artifacts") {
+            let path = entry.expect("artifact entry").path();
+            assert!(path.starts_with(&artifact_dir));
+        }
+    }
+
+    #[tokio::test]
+    async fn nosandbox_should_reject_shell_tcp_escape_when_network_disabled() {
+        let root = temp_workspace("network-deny");
+        let result = NoSandbox
+            .run(request(&root, "cat /dev/tcp/127.0.0.1/80"))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(HarnessError::Tool(ToolError::NetworkDenied(_)))
+        ));
+    }
+
+    #[tokio::test]
     async fn nosandbox_should_pass_only_allowlisted_env() {
         let root = temp_workspace("env");
         let mut request = request(&root, "printf \"%s:%s\" \"$ALLOWED\" \"$SECRET\"");
         request.env.insert("ALLOWED".to_string(), "yes".to_string());
+        request.network_policy = NetworkPolicy::Full;
 
         let result = NoSandbox.run(request).await.expect("command succeeds");
 

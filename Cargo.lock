@@ -643,10 +643,13 @@ name = "gestalt-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "futures",
+ "gestalt-verify",
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -667,6 +670,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "gestalt-core",
+ "libc",
  "tokio",
 ]
 
@@ -678,6 +682,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dirs",
+ "futures",
  "gestalt-context",
  "gestalt-core",
  "gestalt-mcp",
@@ -685,6 +690,7 @@ dependencies = [
  "gestalt-policy",
  "gestalt-tools",
  "gestalt-trace",
+ "gestalt-verify",
  "ratatui",
  "serde",
  "serde_json",
@@ -692,6 +698,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -772,13 +779,33 @@ dependencies = [
 name = "gestalt-trace"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
+ "futures",
  "gestalt-core",
  "gestalt-models",
+ "gestalt-policy",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "gestalt-verify"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "gestalt-core",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
  "uuid",
 ]
 

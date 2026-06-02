@@ -1,5 +1,13 @@
 //! `gestalt-trace` — JSONL trace writer + `EventEnvelope`
 
+pub mod fixture;
+pub mod golden;
+pub mod evaluator;
+
+pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
+pub use golden::{GoldenTrace, GoldenTraceRunner};
+pub use evaluator::{TraceEvaluator, NoopTraceEvaluator, EvalStatus, EvalResult, EvaluatorHook};
+
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},
@@ -23,6 +31,10 @@ pub struct EventEnvelope {
     pub ts: DateTime<Utc>,
     pub event: AgentEvent,
     pub redacted: bool,
+    #[serde(default)]
+    pub workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,12 +79,14 @@ struct TraceState {
     writer: BufWriter<File>,
     seq: u64,
     turn_id: usize,
+    workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
 }
 
 impl JsonlTraceSink {
     pub fn new(
         session_id: impl Into<String>,
         trace_path: impl AsRef<Path>,
+        workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<Self, TraceError> {
         let trace_path = trace_path.as_ref();
         if let Some(parent) = trace_path.parent() {
@@ -86,6 +100,7 @@ impl JsonlTraceSink {
                 writer: BufWriter::new(file),
                 seq: 0,
                 turn_id: 0,
+                workspace_snapshot,
             }),
         })
     }
@@ -93,9 +108,10 @@ impl JsonlTraceSink {
     pub fn create_run(
         base_dir: impl AsRef<Path>,
         session_id: &str,
+        workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<(Self, RunPaths), TraceError> {
         let paths = create_run_paths(base_dir, session_id)?;
-        let sink = Self::new(session_id.to_string(), &paths.trace)?;
+        let sink = Self::new(session_id.to_string(), &paths.trace, workspace_snapshot)?;
         Ok((sink, paths))
     }
 }
@@ -107,12 +123,15 @@ impl TraceSink for JsonlTraceSink {
             .lock()
             .map_err(|_| TraceError::WriteFailed(std::io::Error::other("trace sink poisoned")))?;
 
-        if matches!(event, AgentEvent::ModelRequest { .. }) {
+        if matches!(event, AgentEvent::ContextBuilt { .. }) {
             state.turn_id = state.turn_id.saturating_add(1);
         }
 
         state.seq = state.seq.saturating_add(1);
         let (event, redacted) = redact_event(&event);
+        let snapshot_id = state.workspace_snapshot.as_ref().map(|s| {
+            s.content_hash.chars().take(12).collect::<String>()
+        });
         let envelope = EventEnvelope {
             v: 1,
             session_id: self.session_id.clone(),
@@ -121,6 +140,8 @@ impl TraceSink for JsonlTraceSink {
             ts: Utc::now(),
             event,
             redacted,
+            workspace_snapshot: state.workspace_snapshot.clone(),
+            snapshot_id,
         };
 
         serde_json::to_writer(&mut state.writer, &envelope)
@@ -139,6 +160,12 @@ impl TraceSink for JsonlTraceSink {
             .lock()
             .map_err(|_| TraceError::WriteFailed(std::io::Error::other("trace sink poisoned")))?;
         state.writer.flush().map_err(TraceError::WriteFailed)
+    }
+
+    fn update_snapshot(&self, snapshot: gestalt_core::snapshot::WorkspaceSnapshot) {
+        if let Ok(mut state) = self.state.lock() {
+            state.workspace_snapshot = Some(snapshot);
+        }
     }
 }
 
@@ -185,6 +212,7 @@ pub fn read_trace(path: impl AsRef<Path>) -> Result<Vec<EventEnvelope>, TraceErr
     Ok(events)
 }
 
+#[allow(clippy::format_push_string)]
 pub fn render_display(events: &[EventEnvelope]) -> String {
     let mut lines = Vec::new();
 
@@ -194,9 +222,40 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
             AgentEvent::ContextBuilt {
                 packet_id,
                 token_estimate,
-            } => lines.push(format!("context> {packet_id} ({token_estimate} tokens)")),
-            AgentEvent::ModelRequest { provider, model } => {
-                lines.push(format!("model> {provider}/{model}"));
+                packet_hash,
+                ..
+            } => {
+                let mut extra = String::new();
+                if let Some(h) = packet_hash {
+                    extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
+                }
+                lines.push(format!(
+                    "context> {packet_id} ({token_estimate} tokens){extra}"
+                ));
+            }
+            AgentEvent::ModelRequest {
+                provider,
+                model,
+                packet_hash,
+                temperature,
+                max_tokens,
+                provider_request_hash,
+                ..
+            } => {
+                let mut extra = String::new();
+                if let Some(h) = packet_hash {
+                    extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
+                }
+                if let Some(t) = temperature {
+                    extra.push_str(&format!(" temp={t}"));
+                }
+                if let Some(m) = max_tokens {
+                    extra.push_str(&format!(" max_tokens={m}"));
+                }
+                if let Some(h) = provider_request_hash {
+                    extra.push_str(&format!(" request_hash={}", &h[..8.min(h.len())]));
+                }
+                lines.push(format!("model> {provider}/{model}{extra}"));
             }
             AgentEvent::Text { delta } => lines.push(format!("assistant> {delta}")),
             AgentEvent::Thinking { delta } => lines.push(format!("thinking> {delta}")),
@@ -206,20 +265,116 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
             }
             AgentEvent::PolicyDecision {
                 tool_call_id,
+                tool_name,
+                input_hash,
+                risk,
+                mode,
+                matched_rule,
                 decision,
                 reason,
                 policy_source,
-            } => lines.push(format!(
-                "policy> {tool_call_id} {decision:?} source={policy_source} {}",
-                reason.clone().unwrap_or_default()
-            )),
+            } => {
+                let mut extra = String::new();
+                if let Some(name) = tool_name {
+                    extra.push_str(&format!(" tool={name}"));
+                }
+                if let Some(level) = risk {
+                    extra.push_str(&format!(" risk={level:?}"));
+                }
+                if let Some(m) = mode {
+                    extra.push_str(&format!(" mode={m:?}"));
+                }
+                if let Some(rule) = matched_rule {
+                    extra.push_str(&format!(" rule={rule}"));
+                }
+                if let Some(hash) = input_hash {
+                    extra.push_str(&format!(" input={}", &hash[..8.min(hash.len())]));
+                }
+                lines.push(format!(
+                    "policy> {tool_call_id} {decision:?} source={policy_source}{extra} {}",
+                    reason.clone().unwrap_or_default()
+                ));
+            }
+            AgentEvent::ApprovalDecision {
+                tool_call_id,
+                decision,
+                original_input_hash,
+                edited_input_hash,
+                grant_terms,
+            } => {
+                let grant = grant_terms
+                    .as_ref()
+                    .map(|g| {
+                        format!(
+                            " grant={}#{}",
+                            g.tool_name,
+                            &g.input_hash[..8.min(g.input_hash.len())]
+                        )
+                    })
+                    .unwrap_or_default();
+                let edited = edited_input_hash
+                    .as_ref()
+                    .map(|h| format!(" edited={}", &h[..8.min(h.len())]))
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "approval> {tool_call_id} {decision:?} orig={}{}{}",
+                    &original_input_hash[..8.min(original_input_hash.len())],
+                    edited,
+                    grant
+                ));
+            }
             AgentEvent::ToolResult {
                 id,
                 output,
                 is_error,
                 truncated,
+                tool_name,
+                working_dir,
+                duration_ms,
+                output_hash,
+                artifact_refs,
+                policy_source,
+            } => {
+                let mut extra = String::new();
+                if let Some(name) = tool_name {
+                    extra.push_str(&format!(" name={name}"));
+                }
+                if let Some(dir) = working_dir {
+                    extra.push_str(&format!(" dir={dir}"));
+                }
+                if let Some(ms) = duration_ms {
+                    extra.push_str(&format!(" duration={ms}ms"));
+                }
+                if let Some(h) = output_hash {
+                    extra.push_str(&format!(" hash={}", &h[..8.min(h.len())]));
+                }
+                if let Some(refs) = artifact_refs {
+                    if !refs.is_empty() {
+                        extra.push_str(&format!(" artifacts={}", refs.join(",")));
+                    }
+                }
+                if let Some(src) = policy_source {
+                    extra.push_str(&format!(" policy_source={src}"));
+                }
+                lines.push(format!(
+                    "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
+                ));
+            }
+            AgentEvent::ArtifactCreated {
+                path,
+                size_bytes,
+                mime_type,
+                hash,
             } => lines.push(format!(
-                "tool-result> {id} error={is_error} truncated={truncated} {output}"
+                "artifact-created> {path} size={size_bytes} mime={mime_type} hash={}",
+                &hash[..8.min(hash.len())]
+            )),
+            AgentEvent::PolicyViolation {
+                tool_call_id,
+                tool_name,
+                reason,
+            } => lines.push(format!(
+                "policy-violation> {tool_call_id} tool={tool_name} reason={reason}"
             )),
             AgentEvent::MemoryProposal { diff } => lines.push(format!("memory> {diff}")),
             AgentEvent::VerificationResult {
@@ -227,6 +382,7 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 checks,
                 failed,
                 report,
+                ..
             } => lines.push(format!(
                 "verification> {status:?} checks={checks} failed={failed} {}",
                 report.clone().unwrap_or_default()
@@ -240,6 +396,10 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 message,
                 recoverable,
             } => lines.push(format!("error> recoverable={recoverable} {message}")),
+            AgentEvent::WorkspaceSnapshotCaptured {
+                snapshot_id,
+                dirty,
+            } => lines.push(format!("snapshot> id={snapshot_id} dirty={dirty}")),
         }
     }
 
@@ -259,7 +419,9 @@ pub fn aggregate_costs(
         let mut current_model = None::<String>;
         for envelope in events {
             match envelope.event {
-                AgentEvent::ModelRequest { provider, model } => {
+                AgentEvent::ModelRequest {
+                    provider, model, ..
+                } => {
                     current_model = Some(format!("{provider}/{model}"));
                 }
                 AgentEvent::Usage {
@@ -301,9 +463,15 @@ pub fn aggregate_costs(
 }
 
 pub fn write_summary(path: impl AsRef<Path>, result: &RunResult) -> Result<(), TraceError> {
+    let snapshot_str = result
+        .workspace_snapshot_id
+        .as_ref()
+        .map(|id| format!("- Workspace snapshot: {}\n", id))
+        .unwrap_or_default();
     let summary = format!(
-        "# Run Summary\n\n- Session: {}\n- Turns: {}\n- Stop reason: {:?}\n- Input tokens: {}\n- Output tokens: {}\n- Artifacts: {}\n",
+        "# Run Summary\n\n- Session: {}\n{}- Turns: {}\n- Stop reason: {:?}\n- Input tokens: {}\n- Output tokens: {}\n- Artifacts: {}\n",
         result.session_id,
+        snapshot_str,
         result.turns,
         result.stop_reason,
         result.total_input_tokens,
@@ -383,6 +551,11 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
         }
         AgentEvent::PolicyDecision {
             tool_call_id,
+            tool_name,
+            input_hash,
+            risk,
+            mode,
+            matched_rule,
             decision,
             reason,
             policy_source,
@@ -394,6 +567,11 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             (
                 AgentEvent::PolicyDecision {
                     tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    input_hash: input_hash.clone(),
+                    risk: *risk,
+                    mode: *mode,
+                    matched_rule: matched_rule.clone(),
                     decision: *decision,
                     reason,
                     policy_source: policy_source.clone(),
@@ -406,6 +584,12 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             output,
             is_error,
             truncated,
+            tool_name,
+            working_dir,
+            duration_ms,
+            output_hash,
+            artifact_refs,
+            policy_source,
         } => {
             let (output, redacted) = redact_string(output);
             (
@@ -414,6 +598,41 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
                     output,
                     is_error: *is_error,
                     truncated: *truncated,
+                    tool_name: tool_name.clone(),
+                    working_dir: working_dir.clone(),
+                    duration_ms: *duration_ms,
+                    output_hash: output_hash.clone(),
+                    artifact_refs: artifact_refs.clone(),
+                    policy_source: policy_source.clone(),
+                },
+                redacted,
+            )
+        }
+        AgentEvent::ArtifactCreated {
+            path,
+            size_bytes,
+            mime_type,
+            hash,
+        } => (
+            AgentEvent::ArtifactCreated {
+                path: path.clone(),
+                size_bytes: *size_bytes,
+                mime_type: mime_type.clone(),
+                hash: hash.clone(),
+            },
+            false,
+        ),
+        AgentEvent::PolicyViolation {
+            tool_call_id,
+            tool_name,
+            reason,
+        } => {
+            let (reason, redacted) = redact_string(reason);
+            (
+                AgentEvent::PolicyViolation {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    reason,
                 },
                 redacted,
             )
@@ -427,6 +646,7 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             checks,
             failed,
             report,
+            findings,
         } => {
             let (report, redacted) = report.as_ref().map_or((None, false), |report| {
                 let (report, redacted) = redact_string(report);
@@ -438,6 +658,7 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
                     checks: *checks,
                     failed: *failed,
                     report,
+                    findings: findings.clone(),
                 },
                 redacted,
             )

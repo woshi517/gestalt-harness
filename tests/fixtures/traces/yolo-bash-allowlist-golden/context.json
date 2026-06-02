@@ -1,0 +1,44 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "run a safe bash command"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call-1",
+          "name": "bash",
+          "input": {
+            "command": "echo hello"
+          }
+        }
+      ]
+    },
+    {
+      "role": "toolresult",
+      "tool_use_id": "call-1",
+      "content": "hello world",
+      "is_error": false
+    }
+  ],
+  "packet_hash": "a22b9e9ae1278f45f6e1ae76df61fd75b2108831f6d26655bd7f45b20d9f1c89",
+  "pipeline_version": "fixture-pipeline",
+  "tokenizer_id": "default",
+  "token_estimate": 0,
+  "sources": [],
+  "omissions": [],
+  "message_hashes": [
+    "fe2becc6a8795e60008a065238b53bd82c26e1b05f1d8151a581dec11e8acf63",
+    "add169d79e581bf4c61a1a471bc6f4ff34e0062fdd99f97bccb65946dfa68548",
+    "e1caecdb84cce5268bd4a25db6d071906f482435f78ce7ee0fd4ffbd12ee63f8"
+  ],
+  "prompt_source": "default"
+}

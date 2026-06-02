@@ -10,3 +10,7 @@ always_deny  = ["dd", "mkfs", "fdisk"]
 
 [network]
 default = "confirm"
+
+[prompt]
+# override = "You are a minimal test agent."
+# override_file = ".gestalt/system_prompt.md"

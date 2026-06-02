@@ -51,6 +51,15 @@ The system is split into a small core and concrete adapters around it.
 
 ---
 
+## Security & Execution Boundary
+
+> [!WARNING]
+> `NoSandbox` (the default execution backend in v0.1) is **not a security sandbox**. It is a host subprocess runner with basic constraints (timeout enforcement, output capping, environment variable allowlisting, process-group termination, and working directory validation). It does not provide namespace isolation, chroot, or seccomp filtering. 
+> 
+> Because commands run directly on the host, **bash tool execution defaults to explicit human confirmation** unless the command is on a small, audited read-only allowlist. Always review command inputs before approving.
+
+---
+
 ## Supported Platforms
 
 | Platform | Supported |

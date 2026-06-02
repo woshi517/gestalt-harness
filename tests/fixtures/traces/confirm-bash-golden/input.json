@@ -1,0 +1,56 @@
+{
+  "user_prompt": "run a bash command",
+  "session_config": {
+    "model": "mock-model",
+    "provider": "fixture-provider",
+    "max_tokens": 4096,
+    "temperature": 0.0,
+    "max_turns": 3
+  },
+  "execution_mode": "confirm",
+  "tools": [
+    {
+      "name": "bash",
+      "description": "run bash",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "command": { "type": "string" }
+        }
+      },
+      "output": "hello world",
+      "is_error": false,
+      "parallel_safe": false
+    }
+  ],
+  "policy_toml": "[tools.bash]\ndefault = \"confirm\"",
+  "mock_turns": [
+    [
+      {
+        "type": "tool_call_streamed",
+        "id": "call-1",
+        "name": "bash",
+        "input_delta": "{\"command\": \"echo hello\"}"
+      },
+      {
+        "type": "stop",
+        "reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "usage",
+        "input_tokens": 10,
+        "output_tokens": 5
+      },
+      {
+        "type": "stop",
+        "reason": "end_turn"
+      }
+    ]
+  ],
+  "workspace_snapshot": null,
+  "approval_decisions": {
+    "call-1": "deny"
+  }
+}

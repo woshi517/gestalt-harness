@@ -22,32 +22,42 @@ pub mod approval;
 pub mod context;
 pub mod error;
 pub mod event;
+pub mod hook;
 pub mod message;
 pub mod model;
 pub mod policy;
 pub mod provider;
 pub mod session;
+pub mod snapshot;
 pub mod tool;
 pub mod trace;
 pub mod turn;
 
 pub use agent::AgentLoop;
 pub use approval::{
-    ApprovalDecision, ApprovalProvider, ApprovalRequest, AutoApprovalProvider, DenyApprovalProvider,
+    hash_input, hash_input_short, ApprovalDecision, ApprovalProvider, ApprovalRequest,
+    AutoApprovalProvider, DenyApprovalProvider, SessionGrant,
 };
 pub use context::{ContextPipeline, TokenBudget};
 pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,
     ToolError, TraceError,
 };
-pub use event::{AgentEvent, PolicyStatus, StopReason, VerificationStatus};
+pub use event::{
+    AgentEvent, ApprovalOutcome, FindingSeverity, PolicyStatus, StopReason, VerificationFinding,
+    VerificationStatus,
+};
+pub use hook::{
+    ContextHook, HookRegistry, ModelHook, SessionHook, ToolHook, TraceHook, VerificationHook,
+};
 pub use message::{ContentBlock, ContentTrust, DocumentSource, ImageSource, Message};
 pub use model::{ModelInfo, ModelInfoSource};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 pub use provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest};
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
+pub use snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter, GitWorkspaceSnapshotter};
 pub use tool::{
-    RiskLevel, Tool, ToolArtifact, ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput,
-    ToolSchema,
+    artifact_path, is_audited_local_command, sanitize_artifact_stem, RiskLevel, Tool, ToolArtifact,
+    ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolSchema,
 };
 pub use turn::{AssistantTurn, ProposedToolCall, TurnAccumulator};

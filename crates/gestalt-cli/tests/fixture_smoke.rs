@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use gestalt_core::{AgentEvent, ApprovalOutcome, RiskLevel, SessionGrant};
+
 #[test]
 fn fixture_directories_exist() {
     // Cargo runs integration tests with the current working directory set to the crate's directory
@@ -48,4 +50,47 @@ fn provider_and_trace_fixtures_are_populated() {
         .exists());
     assert!(fixtures.join("traces/minimal-run.jsonl").exists());
     assert!(fixtures.join("cli-golden/replay-display.txt").exists());
+}
+
+#[test]
+fn approval_decision_event_round_trips_through_serde() {
+    let grant = SessionGrant {
+        tool_name: "bash".to_string(),
+        input_hash: "deadbeefdeadbeef".to_string(),
+        risk_ceiling: RiskLevel::Medium,
+        matched_rule: "confirm-all".to_string(),
+        policy_source: "session_grant".to_string(),
+        granted_at_turn: 0,
+        expires_in_turns: 4,
+    };
+    let event = AgentEvent::ApprovalDecision {
+        tool_call_id: "call-1".to_string(),
+        decision: ApprovalOutcome::AlwaysAllow,
+        original_input_hash: "abcdabcdabcdabcd".to_string(),
+        edited_input_hash: None,
+        grant_terms: Some(grant),
+    };
+
+    let encoded = serde_json::to_string(&event).expect("event encodes");
+    let decoded: AgentEvent = serde_json::from_str(&encoded).expect("event decodes");
+    assert_eq!(event, decoded);
+
+    let value: serde_json::Value = serde_json::from_str(&encoded).expect("json value");
+    assert_eq!(value["type"], "approval_decision");
+    assert_eq!(value["decision"], "always_allow");
+    assert!(value["grant_terms"]["tool_name"].as_str() == Some("bash"));
+}
+
+#[test]
+fn approval_decision_event_without_grant_is_valid() {
+    let event = AgentEvent::ApprovalDecision {
+        tool_call_id: "call-2".to_string(),
+        decision: ApprovalOutcome::Deny,
+        original_input_hash: "0000000000000000".to_string(),
+        edited_input_hash: None,
+        grant_terms: None,
+    };
+    let encoded = serde_json::to_string(&event).expect("event encodes");
+    let decoded: AgentEvent = serde_json::from_str(&encoded).expect("event decodes");
+    assert_eq!(event, decoded);
 }

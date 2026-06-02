@@ -42,7 +42,11 @@ impl ToolRegistry {
             .get(name)
             .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
         let output = tool.execute(input, ctx).await?;
-        Ok(output.into_execution_result(false, ctx.max_output_bytes))
+        let tool_call_id = ctx
+            .current_tool_call_id
+            .as_deref()
+            .unwrap_or_else(|| tool.name());
+        output.into_execution_result(false, ctx.max_output_bytes, ctx, tool_call_id)
     }
 }
 
@@ -116,6 +120,8 @@ mod tests {
             allow_network: false,
             environment: std::collections::HashMap::new(),
             max_output_bytes: 1024,
+            artifact_dir: None,
+            current_tool_call_id: None,
         }
     }
 

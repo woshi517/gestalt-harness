@@ -1,0 +1,53 @@
+{
+  "user_prompt": "read a secret file",
+  "session_config": {
+    "model": "mock-model",
+    "provider": "fixture-provider",
+    "max_tokens": 4096,
+    "temperature": 0.0,
+    "max_turns": 3
+  },
+  "execution_mode": "yolo",
+  "tools": [
+    {
+      "name": "read",
+      "description": "read a file",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" }
+        }
+      },
+      "output": "secret content",
+      "is_error": false,
+      "parallel_safe": true
+    }
+  ],
+  "policy_toml": "[paths]\ndeny_read = [\"*.env\", \".env*\"]",
+  "mock_turns": [
+    [
+      {
+        "type": "tool_call_streamed",
+        "id": "call-1",
+        "name": "read",
+        "input_delta": "{\"path\": \".env\"}"
+      },
+      {
+        "type": "stop",
+        "reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "usage",
+        "input_tokens": 12,
+        "output_tokens": 6
+      },
+      {
+        "type": "stop",
+        "reason": "end_turn"
+      }
+    ]
+  ],
+  "workspace_snapshot": null
+}

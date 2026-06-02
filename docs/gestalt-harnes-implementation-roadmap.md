@@ -288,140 +288,327 @@ flowchart TD
 
 ---
 
-## Phase 2: Knowledge Ingestion & Policy Maturity (v0.2)
+### Phase 2 — Knowledge-Mode Foundation (v0.2)
 
-**Goal:** Add knowledge-work capabilities: document ingestion, MCP, memory, lexical indexing, citation verification, additional providers, deterministic replay, and skills.
+**Goal:** Transform gestalt-harness from a generic agent loop into a trustworthy knowledge-work runtime while preserving the harness boundary.
 
-**Exit criteria:** a knowledge-mode session can ingest text PDFs/HTML/Markdown, cite indexed chunks, use MCP tools under policy, propose memory updates, and deterministic replay local tool calls.
+Phase 2 focuses on four capabilities:
 
-### P2.1 Full Policy Grammar and Approval UX
+1. Knowledge ingestion and source management.
+2. Policy maturity and tool extensibility.
+3. Citation-grade provenance and verification.
+4. Deterministic replay and auditability.
 
-- [ ] Complete `policies.toml` grammar for paths, tools, bash, network, MCP, and skill permissions.
-- [ ] Add policy explain output for why a decision happened.
-- [ ] Support MCP namespace/server/tool-level policy matching.
-- [ ] Support skill permission enforcement through the same policy engine.
-- [ ] Improve approval UX for diffs, network calls, MCP calls, and skill-triggered calls.
+The objective is not to build smarter workflows, planners, or domain-specific agents.
 
-**Depends on:** P1.5, P1.9.  
-**Tests:** grammar parsing fixtures; policy precedence matrix; MCP policy matching; skill permission enforcement; approval edit flow.  
-**Done when:** policy decisions are deterministic, explainable, and broad enough for all v0.2 capabilities.
+The objective is to provide the runtime infrastructure that makes those systems possible while remaining lightweight, auditable, and embeddable.
 
-### P2.2 Document Extraction and Source Cache
+---
 
-- [ ] Implement `gestalt-docs` Markdown chunking.
-- [ ] Implement HTML readability extraction as reusable document extraction.
-- [ ] Implement text-based PDF extraction behind `pdf` feature using `pdfium-render`.
-- [ ] Implement source metadata capture: source hash, URI/path, title, page/byte ranges, extraction backend.
-- [ ] Implement `.gestalt/source-cache/<content-hash>/` structure with `meta.json`, `summary.md`, `chunks.jsonl`, `manifest.json`.
-- [ ] Implement `PdfTool` and `IngestDocTool`.
+## Phase 2 Scope Guard
 
-**Depends on:** P1.3, P1.4, P1.8.  
-**Tests:** markdown chunk fixture tests; HTML extraction snapshots; PDF fixture page extraction; cache manifest round trips; source hash stability; oversized file behavior.  
-**Done when:** ingested sources are reusable across sessions and preserve citation-grade metadata.
+A feature belongs in v0.2 only if it directly strengthens at least one of:
 
-### P2.3 Lexical Workspace Index
+1. Deterministic document and source ingestion.
+2. Citation-grade source provenance.
+3. Policy-gated tool execution.
+4. MCP interoperability.
+5. Human-approved memory persistence.
+6. Deterministic replay and auditability.
+7. Generic verification of generated artifacts.
 
-- [ ] Implement `gestalt-index` lexical index using BM25 and/or ripgrep-backed search.
-- [ ] Index workspace files, `/sources/`, `/docs/`, and source-cache chunks.
-- [ ] Add source summary lookup.
-- [ ] Integrate index results into context ranking.
-- [ ] Expose index/search behavior through existing `SearchTool` where appropriate.
+Features that primarily improve workflow intelligence, planning quality, autonomous strategy, benchmarking, multi-agent behavior, or domain-specific reasoning are deferred to v0.3 unless required by the criteria above.
 
-**Depends on:** P2.2, P1.3.  
-**Tests:** ranking fixture tests; deterministic ordering; ignored-path tests; source-cache search tests; no hidden vector DB requirement.  
-**Done when:** knowledge-mode context can locate relevant source chunks without loading entire documents.
+---
+
+### P2.1 Policy Engine Maturity
+
+The minimal policy gate from v0.1 evolves into a complete runtime control layer.
+
+#### Deliverables
+
+- [ ] Full `policies.toml` grammar.
+- [ ] Tool-level permissions.
+- [ ] Path-level permissions.
+- [ ] Network permissions.
+- [ ] MCP namespace permissions.
+- [ ] Skill permission enforcement.
+- [ ] Approval UX improvements.
+- [ ] Structured policy-decision events.
+- [ ] Policy validation command.
+
+#### Done When
+
+- Every tool execution passes through policy evaluation.
+- MCP tools obey namespace-scoped permissions.
+- Skills cannot bypass policy restrictions.
+- Policy decisions are replayable from traces.
+
+---
+
+### P2.2 Document Ingestion & Source Cache
+
+Introduce the knowledge substrate used by research and document-heavy workflows.
+
+#### Deliverables
+
+- [ ] PDF text extraction (`pdfium-render`).
+- [ ] HTML → Markdown extraction.
+- [ ] Markdown normalization.
+- [ ] Chunk generation.
+- [ ] Content-hash source cache.
+- [ ] Source metadata registry.
+- [ ] Source summary generation.
+- [ ] Source cache invalidation.
+
+#### Done When
+
+- A source is ingested exactly once per content hash.
+- Repeated sessions reuse cached source artifacts.
+- Every chunk can be traced back to a source file.
+
+---
+
+### P2.3 Workspace Search Index
+
+Provide deterministic retrieval without introducing vector infrastructure.
+
+#### Deliverables
+
+- [ ] Lexical search index.
+- [ ] BM25-style ranking.
+- [ ] Workspace file indexing.
+- [ ] Source chunk indexing.
+- [ ] Incremental reindexing.
+- [ ] Search result provenance metadata.
+
+#### Explicitly Not Included
+
+- Vector databases.
+- Embedding generation.
+- Semantic retrieval services.
+
+Those remain future optional enhancements.
+
+#### Done When
+
+- Workspace search returns chunk-level provenance.
+- Retrieval behavior is deterministic.
+- Results can be reproduced during replay.
+
+---
 
 ### P2.4 Memory System
 
-- [ ] Implement `memory.md` parser.
-- [ ] Inject approved memory facts as low-priority context.
-- [ ] Generate memory proposals at session end.
-- [ ] Deduplicate proposals against existing memory.
-- [ ] Require user approval before writing memory.
-- [ ] Log memory proposal diffs as trace events.
+Introduce durable, human-readable memory.
 
-**Depends on:** P1.3, P1.8, P2.1.  
-**Tests:** parser fixtures; deduplication tests; proposal diff snapshots; approval-required write test; trace event assertion.  
-**Done when:** memory remains human-readable and no memory write can happen silently.
+#### Deliverables
 
-### P2.5 MCP Client
+- [ ] `memory.md` parser.
+- [ ] Session memory loading.
+- [ ] Memory proposal generation.
+- [ ] Memory deduplication.
+- [ ] User approval flow.
+- [ ] Stable memory identifiers.
+- [ ] Trace linkage to memory origin.
 
-- [ ] Implement MCP stdio transport.
-- [ ] Implement MCP HTTP SSE transport.
-- [ ] Implement capability negotiation.
-- [ ] Register MCP tools into `ToolRegistry` using `mcp:<server_name>:<tool_name>` names.
-- [ ] Tag MCP tool results as untrusted.
-- [ ] Restrict MCP roots to workspace root.
-- [ ] Disable MCP sampling by default.
-- [ ] Add `gestalt mcp` inspection/config commands as needed.
+#### Explicitly Deferred
 
-**Depends on:** P1.4, P2.1, P1.3.  
-**Tests:** fake MCP server fixtures; stdio dispatch; SSE dispatch; namespace policy tests; roots restriction; sampling disabled by default; untrusted-result rendering.  
-**Done when:** MCP tools are operational but never trusted or permissionless by default.
+- Memory ranking systems.
+- Automatic memory mutation.
+- Memory graphs.
+- Vector memory.
 
-### P2.6 Additional Providers
+#### Done When
 
-- [ ] Add Mistral provider adapter.
-- [ ] Add Groq provider adapter.
-- [ ] Add Ollama provider adapter.
-- [ ] Extend provider catalog and capability metadata.
-- [ ] Add provider-specific config validation.
+- All persisted memory is user-approved.
+- Every memory entry records its originating trace.
 
-**Depends on:** P1.7.  
-**Tests:** recorded stream normalization for each provider; local Ollama mock or fixture mode; provider registry tests; no live keys in CI.  
-**Done when:** new providers satisfy the same event stream contract as Phase 1 providers.
+---
 
-### P2.7 Citation Contract and Verification
+### P2.5 MCP Integration
 
-- [ ] Implement citation metadata events in trace.
-- [ ] Render citations as `[^SourceID:PageRef-ChunkID]`.
-- [ ] Implement `CitationVerifier`.
-- [ ] Verify every research citation maps to an indexed source chunk and hash.
-- [ ] Report unverifiable citations as verification findings.
-- [ ] Integrate verification results into trace and CLI output.
+Introduce MCP as the primary external tool-extension mechanism. [mcp-best-practices](docs/mcp-client-best-practices.md)
 
-**Depends on:** P2.2, P2.3, P1.8.  
-**Tests:** valid citation fixture; missing source fixture; wrong chunk fixture; changed hash fixture; Markdown citation parsing; verification report serialization.  
-**Done when:** factual research outputs can be audited against source chunks.
+#### Deliverables
 
-### P2.8 Skill System
+- [ ] MCP stdio transport.
+- [ ] Tool discovery.
+- [ ] Tool schema registration.
+- [ ] Namespace mapping.
+- [ ] Trust-boundary enforcement.
+- [ ] MCP permissions integration.
+- [ ] MCP inspection commands.
 
-- [ ] Implement SKILL.md front matter parser.
-- [ ] Load only skill name and description at startup.
-- [ ] Activate full skill body on trigger or explicit `/skill`.
-- [ ] Support deep fetching of `references/` and `scripts/` through normal tools and policy.
-- [ ] Enforce skill permissions: tools, network, write paths, scripts, token budget.
-- [ ] Implement `gestalt skill list` and `gestalt skill validate`.
-- [ ] Track skill trust level; only workspace-local skills auto-activate.
-- [ ] Keep the harness responsible for skill loading, trust, and policy enforcement only; domain-specific workflow skills stay outside the core runtime.
+#### Optional
 
-**Depends on:** P2.1, P1.3, P1.9.  
-**Tests:** front matter fixtures; startup discovery token budget test; trigger matching; permission enforcement; validation diagnostics; untrusted skill activation behavior.  
-**Done when:** skills improve procedure reuse without bypassing policy or context trust boundaries.
+- HTTP/SSE transport may ship in v0.2.x.
 
-### P2.9 Deterministic Replay
+#### Done When
 
-- [ ] Implement `gestalt replay --mode deterministic`.
-- [ ] Re-run local tool calls from trace.
-- [ ] Compare outputs to recorded tool results.
-- [ ] Require matching context pipeline and tokenizer versions where relevant.
-- [ ] Report replay drift with useful diffs.
+- MCP tools appear as normal tools.
+- Policy can allow, confirm, or deny MCP tools.
+- All MCP outputs remain untrusted by default.
 
-**Depends on:** P1.8, P1.4, P2.2 for document tools.  
-**Tests:** replay success fixture; replay drift fixture; missing artifact fixture; version mismatch fixture; no provider calls.  
-**Done when:** local tool behavior can be regression-tested from recorded traces.
+---
 
-### P2.10 v0.2 Knowledge-Mode Release Hardening
+### P2.6 Skill System
 
-- [ ] Add end-to-end knowledge-mode scenario using mock provider and document fixtures.
-- [ ] Verify citation contract over generated fixture output.
-- [ ] Audit untrusted content rendering for web, PDF, MCP, and retrieved chunks.
-- [ ] Re-run dependency budget audit with feature flags.
-- [ ] Update README and release notes.
+Implement reusable procedural instruction sets. [skill-specification](docs/skill-specification.md)
 
-**Depends on:** P2.1-P2.9.  
-**Tests:** complete v0.2 suite with `--features pdf,mcp`; deterministic replay suite; citation verifier suite.  
-**Done when:** knowledge-work features are auditable and safe enough for regular local use.
+#### Deliverables
+
+- [ ] SKILL.md parser.
+- [ ] Front-matter validation.
+- [ ] Discovery phase.
+- [ ] Activation phase.
+- [ ] Permission enforcement.
+- [ ] Trust-level handling.
+- [ ] Skill validation command.
+
+#### Explicitly Not Included
+
+- Community registry.
+- Marketplace.
+- Hosted skill distribution.
+
+#### Done When
+
+- Skills activate through trigger matching.
+- Skills cannot expand permissions beyond policy.
+- Skill loading is traceable.
+
+---
+
+### P2.7 Citation Contract & Verification
+
+Establish source-backed research outputs as a first-class harness capability.
+
+#### Deliverables
+
+- [ ] Citation metadata model.
+- [ ] Citation emission contract.
+- [ ] Source-to-chunk mapping.
+- [ ] CitationVerifier.
+- [ ] Verification events.
+- [ ] Citation failure reporting.
+
+#### Done When
+
+- Every citation resolves to a real source chunk.
+- Invalid citations fail verification.
+- Verification results are replayable.
+
+---
+
+### P2.8 Deterministic Replay
+
+Extend replay beyond display mode.
+
+#### Deliverables
+
+- [ ] Local tool re-execution.
+- [ ] Output comparison.
+- [ ] Drift detection.
+- [ ] Replay reports.
+- [ ] Context version checks.
+- [ ] Tokenizer version checks.
+
+#### Done When
+
+- Replay can verify local tool behavior.
+- Trace integrity can be audited.
+- Tool drift is reported explicitly.
+
+---
+
+### P2.9 Context Plan Snapshots
+
+Improve context transparency without introducing a new planning architecture.
+
+#### Deliverables
+
+- [ ] Structured `ContextPlan`.
+- [ ] Included-item reporting.
+- [ ] Omitted-item reporting.
+- [ ] Token allocation reporting.
+- [ ] Trust-level reporting.
+- [ ] `gestalt context explain`.
+
+#### Explicitly Not Included
+
+- Utility-based planning.
+- Learned ranking.
+- Adaptive retrieval strategies.
+
+#### Done When
+
+- Users can inspect exactly how context was assembled.
+- Context omissions are explainable.
+- Context assembly becomes replayable.
+
+---
+
+### P2.10 Provider Expansion
+
+Broaden deployment flexibility without changing runtime architecture.
+
+#### Deliverables
+
+- [ ] Ollama & Openrouter provider.
+- [ ] Extended model catalog.
+- [ ] Capability validation.
+
+#### Deferred
+
+- Additional hosted providers may ship in v0.2.x.
+
+#### Done When
+
+- Local models participate in normal routing.
+- Capability checks remain provider-independent.
+
+---
+
+### P2.11 Release Hardening
+
+Prepare the knowledge-mode runtime for production use.
+
+#### Deliverables
+
+- [ ] Integration test matrix.
+- [ ] Replay regression fixtures.
+- [ ] Citation verification fixtures.
+- [ ] Policy regression tests.
+- [ ] Source-cache corruption tests.
+- [ ] MCP compatibility tests.
+- [ ] Benchmark suite.
+
+#### Done When
+
+- Phase 2 features are reproducible under CI.
+- Core runtime guarantees are covered by automated tests.
+
+---
+
+## Phase 2 Exit Criteria
+
+A knowledge-mode session can:
+
+1. Ingest PDFs, HTML, Markdown, and text files.
+2. Cache source artifacts by content hash.
+3. Search indexed source chunks deterministically.
+4. Assemble reproducible context packets.
+5. Use MCP tools under policy control.
+6. Activate trusted skills without bypassing policy.
+7. Generate source-backed citations.
+8. Verify citations against source provenance.
+9. Persist approved memory.
+10. Replay local tool execution deterministically.
+
+When these capabilities exist, gestalt-harness becomes a complete knowledge-work harness.
+
+More advanced planning, utility-aware context optimization, eval gates, failure learning, regression intelligence, autonomous workflows, and sub-agent execution belong to Phase 3.
 
 ---
 
@@ -633,3 +820,17 @@ Engineers starting from the current empty repo should work in this order:
 13. P1.8 Trace, Cost, and Display Replay
 14. P1.9 CLI Composition Root
 15. P1.10 v0.1 Release Hardening
+
+---
+
+## Harness Engineering Review & Hardening Note (June 2026)
+
+Following a comprehensive v0.1 harness-engineering review, we hardened the primitives around the six invariants:
+- **No Invisible/Unbounded Action:** Refined host execution boundaries. `NoSandbox` was explicitly documented as unconfined host subprocess execution. default-confirm was set for `bash` tool.
+- **Audited Permissions:** Bounded session approval grants (auto-approves matching input hash and risk ceiling).
+- **Observable/Auditable Context:** Expanded `ContextBuilt`, `PolicyDecision`, and `ToolResult` schemas. Full truncated tool output is saved to `artifacts/`.
+- **Workspace State Correlation:** Added `WorkspaceSnapshot` capturing git state + tracked files hash, linking every session and trace run to a specific workspace state.
+- **Regression Verification:** Shipped `TraceFixture` / `GoldenTrace` registry and `GoldenTraceRunner` (asserting event ordering, policy decisions, and tool executions against canonical trace files) with `TraceEvaluator` hook.
+- **Default Overridable System Prompt:** Added a default system prompt coverage in `MinimalContextPipeline` with overrides via `prompt.override` or `prompt.override_file` in `.gestalt/policies.toml`.
+
+For detailed analysis, refer to [Harness Engineering Review Learnings](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/docs/solutions/2026-06-01-001-v0-1-harness-engineering-review.md).

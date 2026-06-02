@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{context::TokenBudget, message::Message, tool::ToolContext};
 
+use crate::snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter};
+
 #[derive(Debug, Clone)]
 pub struct Session {
     pub id: String,
@@ -10,6 +12,7 @@ pub struct Session {
     pub token_budget: TokenBudget,
     pub tool_ctx: ToolContext,
     pub mode: ExecutionMode,
+    pub snapshot: WorkspaceSnapshot,
 }
 
 impl Session {
@@ -19,6 +22,7 @@ impl Session {
         token_budget: TokenBudget,
         tool_ctx: ToolContext,
         mode: ExecutionMode,
+        snapshot: WorkspaceSnapshot,
     ) -> Self {
         Self {
             id: id.into(),
@@ -27,7 +31,30 @@ impl Session {
             token_budget,
             tool_ctx,
             mode,
+            snapshot,
         }
+    }
+
+    pub async fn refresh_snapshot<S: WorkspaceSnapshotter + ?Sized>(
+        &mut self,
+        snapshotter: &S,
+        trace_sink: Option<&dyn crate::trace::TraceSink>,
+    ) -> crate::error::Result<()> {
+        let root = self.tool_ctx.workspace_root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let new_snapshot = snapshotter.capture(&root).await?;
+        self.snapshot = new_snapshot.clone();
+
+        if let Some(sink) = trace_sink {
+            sink.update_snapshot(new_snapshot.clone());
+            let snapshot_id: String = new_snapshot.content_hash.chars().take(12).collect();
+            let event = crate::event::AgentEvent::WorkspaceSnapshotCaptured {
+                snapshot_id,
+                dirty: new_snapshot.git_dirty.unwrap_or(false),
+            };
+            sink.emit(event)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -58,4 +85,6 @@ pub struct RunResult {
     pub total_input_tokens: usize,
     pub total_output_tokens: usize,
     pub artifacts: Vec<String>,
+    #[serde(default)]
+    pub workspace_snapshot_id: Option<String>,
 }
