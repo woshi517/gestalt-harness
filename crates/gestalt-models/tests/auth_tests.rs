@@ -72,3 +72,63 @@ fn resolved_credential_debug_and_display_are_redacted() {
     assert!(!format!("{credential:?}").contains("sk-test-secret"));
     assert_eq!(credential.to_string(), "[REDACTED]");
 }
+
+#[test]
+fn test_chain_credential_resolver() {
+    struct MissingResolver;
+    impl CredentialResolver for MissingResolver {
+        fn resolve(&self, auth: &ProviderAuthConfig) -> Result<ResolvedCredential, gestalt_core::HarnessError> {
+            Err(gestalt_core::HarnessError::Provider(gestalt_core::ProviderError::AuthFailed {
+                provider: auth.provider_id.clone(),
+            }))
+        }
+    }
+
+    struct SuccessResolver;
+    impl CredentialResolver for SuccessResolver {
+        fn resolve(&self, _auth: &ProviderAuthConfig) -> Result<ResolvedCredential, gestalt_core::HarnessError> {
+            Ok(ResolvedCredential::new(
+                "sk-success".to_string(),
+                CredentialSource::Session,
+            ))
+        }
+    }
+
+    let auth = ProviderAuthConfig {
+        provider_id: "test".to_string(),
+        api_key_env: "ENV_VAR".to_string(),
+        auth_ref: None,
+    };
+
+    let chain = gestalt_models::auth::ChainCredentialResolver::new(vec![
+        Arc::new(MissingResolver),
+        Arc::new(SuccessResolver),
+    ]);
+
+    let resolved = chain.resolve(&auth).expect("resolves successfully");
+    assert_eq!(resolved.secret(), "sk-success");
+    assert_eq!(resolved.source(), &CredentialSource::Session);
+}
+
+#[test]
+fn test_credential_ref_parsing() {
+    let auth_keychain = ProviderAuthConfig {
+        provider_id: "test".to_string(),
+        api_key_env: "ENV_VAR".to_string(),
+        auth_ref: Some("secret:provider/openrouter".to_string()),
+    };
+    assert_eq!(
+        auth_keychain.credential_ref(),
+        gestalt_models::auth::CredentialRef::Keychain("provider/openrouter".to_string())
+    );
+
+    let auth_env = ProviderAuthConfig {
+        provider_id: "test".to_string(),
+        api_key_env: "ENV_VAR".to_string(),
+        auth_ref: None,
+    };
+    assert_eq!(
+        auth_env.credential_ref(),
+        gestalt_models::auth::CredentialRef::Environment("ENV_VAR".to_string())
+    );
+}

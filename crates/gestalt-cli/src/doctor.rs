@@ -38,6 +38,9 @@ pub async fn diagnose_workspace(
                 context: crate::config::ContextConfig::default(),
                 observe: crate::config::ObserveConfig::default(),
                 providers: std::collections::HashMap::new(),
+                profiles: std::collections::HashMap::new(),
+                provider_override: None,
+                model_override: None,
             }
         }
     };

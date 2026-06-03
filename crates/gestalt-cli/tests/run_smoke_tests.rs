@@ -127,7 +127,7 @@ override = "Smoke test override prompt"
     })
     .unwrap();
 
-    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke")
+    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None)
         .await
         .unwrap();
 
@@ -175,7 +175,7 @@ default = "confirm"
     })
     .unwrap();
 
-    let log_dir2 = gestalt_cli::run::run_prompt(&config2, "run smoke")
+    let log_dir2 = gestalt_cli::run::run_prompt(&config2, "run smoke", None)
         .await
         .unwrap();
 
@@ -203,3 +203,68 @@ default = "confirm"
     // Clean up
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[tokio::test]
+async fn test_cli_smoke_custom_provider_via_profile() {
+    let _ = gestalt_models::registry::register(
+        "custom-mock-provider",
+        Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
+    );
+
+    let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-smoke-profile-{}", uuid::Uuid::new_v4()));
+    copy_minimal_workspace(&temp_dir);
+
+    let gestalt_dir = temp_dir.join(".gestalt");
+
+    // Configure a custom profile pointing to our custom mock provider connection
+    let config_toml = r#"
+[defaults]
+profile = "custom-profile"
+
+[profiles.custom-profile]
+provider = "custom-mock"
+
+[providers.custom-mock]
+kind = "custom-mock-provider"
+default_model = "mock-model"
+"#;
+    std::fs::write(gestalt_dir.join("config.toml"), config_toml).unwrap();
+
+    let policies_toml = r#"
+[paths]
+allow_read  = [".", "sources/", "docs/", "src/"]
+allow_write = ["docs/", ".gestalt/"]
+deny_write  = [".git/", "secrets/", ".env", "*.key"]
+
+[tools.bash]
+default      = "confirm"
+yolo_allow   = ["ls", "cat", "grep", "rg", "find"]
+always_deny  = ["dd", "mkfs", "fdisk"]
+
+[network]
+default = "confirm"
+"#;
+    std::fs::write(gestalt_dir.join("policies.toml"), policies_toml).unwrap();
+
+    let config = validate_workspace_config(&CliOverrides {
+        workspace: Some(temp_dir.clone()),
+        ..CliOverrides::default()
+    })
+    .unwrap();
+
+    // Verify it resolves kind to custom-mock-provider
+    let resolved = config.resolve_provider().unwrap();
+    assert_eq!(resolved.provider_name, "custom-mock");
+    assert_eq!(resolved.kind, "custom-mock-provider");
+    assert_eq!(resolved.model, "mock-model");
+
+    // Execute run_prompt to verify the loop runs
+    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None)
+        .await
+        .unwrap();
+
+    assert!(log_dir.join("trace.jsonl").exists());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+

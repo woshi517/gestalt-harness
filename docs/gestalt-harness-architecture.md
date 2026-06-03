@@ -2019,54 +2019,39 @@ Provider adapters receive non-secret behavioral configuration plus a credential-
 
 Secrets must not be stored in `workspace.md`, `models.toml`, or provider config files.
 
-Shipped in v0.1:
+Shipped in v0.2:
 
-1. Environment variables.
+1. **OS Keychain Integration** via `security-framework` (macOS) and `keyring-rs` (Linux with secret-service DBus). Credentials are key-value mapped inside the `gestalt-harness` service namespace.
+2. **Session-only Credentials** passed dynamically via CLI flags/overrides (`--api-key`).
+3. **Environment variables** backed by custom `api_key_env` fields.
+4. **Interactive Prompting** fallback on TTY devices.
 
-Planned but not yet implemented:
-
-1. OS keychain.
-2. Encrypted local credential vault.
-3. Session-only credentials.
-
-Provider config describes behavior:
+Provider config describes behavior and references credentials securely using the `auth_ref` schema:
 
 ```toml
-[providers.anthropic]
-type = "anthropic"
-api_key_env = "ANTHROPIC_API_KEY"
-base_url = "https://api.anthropic.com"
-default_model = "claude-sonnet-4-6"
+[providers.openrouter]
+kind = "openai-compatible"
+base_url = "https://openrouter.ai/api/v1"
+default_model = "openrouter/free"
+auth_ref = "secret:provider/openrouter"
 ```
 
-The provider config may also carry an optional logical auth reference for future multi-account backends without embedding the secret itself:
+The credential resolution chain checks sources in order:
+
+1. **Session** (CLI `--api-key` override)
+2. **Environment** (Provider's `api_key_env` environment variable lookup)
+3. **Keychain** (OS keyring credentials matching `auth_ref = "secret:<account>"`)
+4. **Prompt** (Interactive console password input on TTY fallback)
+
+Provider profiles defined under `[profiles.*]` map default profile names to provider connections and model overrides:
 
 ```toml
-[providers.openai-compatible]
-type = "openai-compatible"
-auth_ref = "gateway/company"
-api_key_env = "OPENAI_COMPATIBLE_API_KEY"
-base_url = "https://gateway.example.com/v1"
-default_model = "my-model"
+[profiles.default]
+provider = "openrouter"
+model = "openrouter/free"
 ```
 
-Future credential storage remains separate:
-
-```text
-anthropic/default
-openai/work
-openrouter/research
-mygateway/company
-```
-
-The v0.1 resolver is deterministic:
-
-1. CLI-selected provider and model.
-2. Workspace provider config.
-3. Global provider config.
-4. Provider-specific `api_key_env`.
-
-Future auth backends may extend resolution order with credential selection and interactive login, but they must preserve the same invariant: stored credentials may satisfy auth, but may not override explicit provider behavior.
+Selecting the active profile (`[defaults].profile = "default"`) directs the runtime loader to look up the profile, fetch its designated provider connection, and resolve credentials through the chain.
 
 The provider layer must never silently override an explicit base URL, model, or provider config with stored auth metadata.
 
@@ -2286,7 +2271,7 @@ Provider health checks should validate:
 * Selected model exists or is user-defined.
 * Model metadata is available.
 
-In v0.1, `providers doctor` is a local diagnostic: it validates configured provider presence and credential-source resolution without making a network request. Reachability checks, capability probes, and minimal live requests are future work.
+In v0.2, `providers doctor` is extended to support reachability checks and capability probes via the `--live` flag, and `providers test <provider>` performs a live probe to validate resolved base URLs, headers, and credentials.
 
 ---
 
@@ -2988,7 +2973,7 @@ This enables embedding in the Gestalt frontend for local context compilation and
 
 **Status:** Accepted  
 **Context:** The original provider/auth design anticipated keychain, vault, and session-backed credentials, but v0.1 needed safe shipping behavior immediately. Provider configs also needed to remain portable, reviewable, and secret-free.  
-**Decision:** Provider configuration stores only behavioral settings plus auth selectors such as `api_key_env` and optional `auth_ref`. Concrete adapters receive a `CredentialResolver` boundary and never accept inline secrets. v0.1 ships an environment-backed resolver; richer credential stores are deferred behind the same interface.  
+**Decision:** Provider configuration stores only behavioral settings plus auth selectors such as `api_key_env` and optional `auth_ref`. Concrete adapters receive a `CredentialResolver` boundary and never accept inline secrets. The resolver chain implements environment-backed, OS keychain (keyring), dynamic session, and interactive fallback credential resolution.  
 **Consequences:** Secrets stay out of config and traces. Provider behavior remains deterministic under config precedence. Future keychain/vault/session support can be added without changing provider constructors or the core loop.
 
 ---

@@ -279,3 +279,108 @@ fn test_cli_additional_json_contracts() {
 
     let _ = fs::remove_dir_all(&temp_root);
 }
+
+#[test]
+fn test_cli_provider_connection_and_profile_contracts() {
+    let temp_root = create_temp_workspace();
+    init_workspace(&temp_root, false).unwrap();
+
+    // 1. Test connect openrouter
+    let output = Command::new(get_bin())
+        .env("XDG_CONFIG_HOME", &temp_root)
+        .env("XDG_CACHE_HOME", &temp_root)
+        .env("GESTALT_USE_FAKE_KEYCHAIN", "1")
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("connect")
+        .arg("openrouter")
+        .arg("--api-key")
+        .arg("sk-or-test-key")
+        .arg("--set-default")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "connect");
+    assert_eq!(json["data"]["provider"], "openrouter");
+    assert_eq!(json["data"]["status"], "connected");
+    assert_eq!(json["data"]["profile_created"].as_str(), Some("default"));
+    assert_eq!(json["data"]["keychain_stored"].as_bool(), Some(true));
+
+    // 2. Test profiles list
+    let output = Command::new(get_bin())
+        .env("XDG_CONFIG_HOME", &temp_root)
+        .env("XDG_CACHE_HOME", &temp_root)
+        .env("GESTALT_USE_FAKE_KEYCHAIN", "1")
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("profiles")
+        .arg("list")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "profiles.list");
+    let profiles = json["data"]["profiles"].as_array().unwrap();
+    assert!(profiles.iter().any(|p| p["name"] == "default"));
+
+    // 3. Test providers doctor
+    let output = Command::new(get_bin())
+        .env("XDG_CONFIG_HOME", &temp_root)
+        .env("XDG_CACHE_HOME", &temp_root)
+        .env("GESTALT_USE_FAKE_KEYCHAIN", "1")
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("providers")
+        .arg("doctor")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "providers.doctor");
+    let results = json["data"]["results"].as_array().unwrap();
+    let openrouter_res = results.iter().find(|r| r["provider"] == "openrouter").unwrap();
+    assert_eq!(openrouter_res["auth_status"], "present");
+    assert!(openrouter_res["auth_source"].as_str().unwrap().contains("keychain"));
+
+    // 4. Test models search
+    let output = Command::new(get_bin())
+        .env("XDG_CONFIG_HOME", &temp_root)
+        .env("XDG_CACHE_HOME", &temp_root)
+        .env("GESTALT_USE_FAKE_KEYCHAIN", "1")
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("models")
+        .arg("search")
+        .arg("free")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "models.search");
+    let models = json["data"]["models"].as_array().unwrap();
+    assert!(models.iter().any(|m| m["qualified_id"] == "openrouter/free"));
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+

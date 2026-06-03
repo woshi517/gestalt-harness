@@ -1,0 +1,85 @@
+use std::collections::HashMap;
+use crate::config::ProviderConfig;
+
+pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
+    match name {
+        "openrouter" => Some(ProviderConfig {
+            id: Some("openrouter".to_string()),
+            display_name: Some("OpenRouter".to_string()),
+            protocol: Some("openai-compatible".to_string()),
+            kind: Some("openai-compatible".to_string()),
+            base_url: Some("https://openrouter.ai/api/v1".to_string()),
+            default_model: Some("openrouter/free".to_string()),
+            api_key_env: Some("OPENROUTER_API_KEY".to_string()),
+            models_endpoint: Some("https://openrouter.ai/api/v1/models".to_string()),
+            headers: Some({
+                let mut h = HashMap::new();
+                h.insert("HTTP-Referer".to_string(), "https://github.com/gestalt-harness".to_string());
+                h.insert("X-Title".to_string(), "Gestalt Harness".to_string());
+                h
+            }),
+            auth_ref: None,
+        }),
+        "anthropic" => Some(ProviderConfig {
+            id: Some("anthropic".to_string()),
+            display_name: Some("Anthropic".to_string()),
+            protocol: None,
+            kind: Some("anthropic".to_string()),
+            base_url: Some("https://api.anthropic.com".to_string()),
+            default_model: Some("claude-3-5-sonnet-20241022".to_string()),
+            api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
+            models_endpoint: None,
+            headers: None,
+            auth_ref: None,
+        }),
+        "openai" => Some(ProviderConfig {
+            id: Some("openai".to_string()),
+            display_name: Some("OpenAI".to_string()),
+            protocol: None,
+            kind: Some("openai".to_string()),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            default_model: Some("gpt-4o-mini".to_string()),
+            api_key_env: Some("OPENAI_API_KEY".to_string()),
+            models_endpoint: None,
+            headers: None,
+            auth_ref: None,
+        }),
+        "ollama" => Some(ProviderConfig {
+            id: Some("ollama".to_string()),
+            display_name: Some("Ollama".to_string()),
+            protocol: None,
+            kind: Some("openai-compatible".to_string()),
+            base_url: Some("http://localhost:11434/v1".to_string()),
+            default_model: Some("llama3".to_string()),
+            api_key_env: None,
+            models_endpoint: Some("http://localhost:11434/v1/models".to_string()),
+            headers: None,
+            auth_ref: None,
+        }),
+        "groq" => Some(ProviderConfig {
+            id: Some("groq".to_string()),
+            display_name: Some("Groq".to_string()),
+            protocol: None,
+            kind: Some("openai-compatible".to_string()),
+            base_url: Some("https://api.groq.com/openai/v1".to_string()),
+            default_model: Some("llama3-8b-8192".to_string()),
+            api_key_env: Some("GROQ_API_KEY".to_string()),
+            models_endpoint: Some("https://api.groq.com/openai/v1/models".to_string()),
+            headers: None,
+            auth_ref: None,
+        }),
+        "together" => Some(ProviderConfig {
+            id: Some("together".to_string()),
+            display_name: Some("Together AI".to_string()),
+            protocol: None,
+            kind: Some("openai-compatible".to_string()),
+            base_url: Some("https://api.together.xyz/v1".to_string()),
+            default_model: Some("mistralai/Mixtral-8x7B-Instruct-v0.1".to_string()),
+            api_key_env: Some("TOGETHER_API_KEY".to_string()),
+            models_endpoint: Some("https://api.together.xyz/v1/models".to_string()),
+            headers: None,
+            auth_ref: None,
+        }),
+        _ => None,
+    }
+}

@@ -18,5 +18,7 @@ pub mod policy;
 pub mod context;
 pub mod tools;
 pub mod doctor;
-
-
+pub mod provider_catalog;
+pub mod profiles;
+pub mod connect;
+pub mod model_cache;

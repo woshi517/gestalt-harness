@@ -5,11 +5,11 @@ use gestalt_cli::{
     auth::{resolve_auth, auth_doctor},
     config::{load_effective_config, validate_workspace_config, explain_config, CliOverrides},
     cost::calculate_cost,
-    models::{inspect_model, list_models, refresh_models},
+    models::{inspect_model, list_models, refresh_models, search_models},
     output::{
         AuthResolveReport, AuthDoctorReport, CliErrorPayload, CliReport, ConfigValidateReport, CostReportWrapper,
         ExportFormat, JsonEnvelope, ModelsInspectReport, ModelsListReport,
-        ModelsRefreshReport, ModelsSelectReport, OutputFormat, ProvidersDoctorReport,
+        ModelsRefreshReport, ModelsSelectReport, ModelsSearchReport, OutputFormat, ProvidersDoctorReport,
         ProvidersInspectReport, ProvidersListReport, ReplayReport, RunReport, WorkspaceDoctorReport,
         WorkspaceInfoReport, WorkspaceInitReport, WorkspaceSnapshotReport, WorkspaceStatusReport,
         ConfigShowReport, ConfigExplainReport,
@@ -39,6 +39,10 @@ struct Cli {
     max_turns: Option<usize>,
     #[arg(long, global = true)]
     provider: Option<String>,
+    #[arg(long, global = true)]
+    profile: Option<String>,
+    #[arg(long, global = true)]
+    api_key: Option<String>,
     #[arg(long, default_value = "text")]
     format: OutputFormat,
     #[arg(long, short, global = true)]
@@ -66,6 +70,29 @@ enum Command {
     Auth(AuthCommand),
     Providers(ProvidersCommand),
     Models(ModelsCommand),
+    Connect {
+        provider: String,
+        #[arg(long)]
+        api_key: Option<String>,
+        #[arg(long)]
+        no_keychain: bool,
+        #[arg(long)]
+        set_default: bool,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        base_url: Option<String>,
+        #[arg(long)]
+        default_model: Option<String>,
+        #[arg(long)]
+        api_key_env: Option<String>,
+    },
+    Disconnect {
+        provider: String,
+        #[arg(long)]
+        force: bool,
+    },
+    Profiles(ProfilesCommand),
     Init {
         #[arg(long)]
         force: bool,
@@ -86,6 +113,23 @@ enum Command {
     Doctor {
         #[arg(long)]
         live: bool,
+    },
+}
+
+#[derive(Args)]
+pub struct ProfilesCommand {
+    #[command(subcommand)]
+    pub command: ProfilesSubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum ProfilesSubcommand {
+    List,
+    Inspect {
+        name: String,
+    },
+    Use {
+        name: String,
     },
 }
 
@@ -307,6 +351,7 @@ enum ModelsSubcommand {
         live: bool,
     },
     Select { model: String },
+    Search { query: String },
 }
 
 fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload {
@@ -423,6 +468,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         mode: cli.mode.clone(),
         max_turns: cli.max_turns,
         workspace: cli.workspace.clone(),
+        profile: cli.profile.clone(),
     };
 
     let format = cli.format;
@@ -432,7 +478,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Run { prompt } => {
             let res: Result<RunReport, gestalt_core::HarnessError> = async {
                 let config = load_effective_config(&overrides)?;
-                let run_dir = run_prompt(&config, &prompt).await?;
+                let run_dir = run_prompt(&config, &prompt, cli.api_key.clone()).await?;
                 Ok(RunReport { run_dir })
             }
             .await;
@@ -572,7 +618,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ProvidersSubcommand::Test { provider } => {
                 let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = async {
                     let config = load_effective_config(&overrides)?;
-                    let result = doctor_provider(&config, &provider, false).await?;
+                    let result = doctor_provider(&config, &provider, true).await?;
                     Ok(ProvidersDoctorReport {
                         results: vec![result],
                     })
@@ -652,6 +698,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     })
                 })(
                 );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            ModelsSubcommand::Search { query } => {
+                let res: Result<ModelsSearchReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let models = search_models(&config, &query);
+                    Ok(ModelsSearchReport { models })
+                })();
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -823,6 +881,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let res = tools::classify_bash(&overrides, &command);
                     handle_result(res, format, quiet)?;
                 }
+            }
+        },
+        Command::Connect {
+            provider,
+            api_key,
+            no_keychain,
+            set_default,
+            name,
+            base_url,
+            default_model,
+            api_key_env,
+        } => {
+            let res = async {
+                let config = load_effective_config(&overrides)?;
+                gestalt_cli::connect::connect_provider(
+                    &config,
+                    &provider,
+                    api_key,
+                    no_keychain,
+                    set_default,
+                    name,
+                    base_url,
+                    default_model,
+                    api_key_env,
+                )
+            }
+            .await;
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
+        }
+        Command::Disconnect { provider, force } => {
+            let res = async {
+                let config = load_effective_config(&overrides)?;
+                gestalt_cli::connect::disconnect_provider(&config, &provider, force)
+            }
+            .await;
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
+        }
+        Command::Profiles(command) => match command.command {
+            ProfilesSubcommand::List => {
+                let res = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    gestalt_cli::profiles::list_profiles(&config)
+                })();
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            ProfilesSubcommand::Inspect { name } => {
+                let res = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    gestalt_cli::profiles::inspect_profile(&config, &name)
+                })();
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            ProfilesSubcommand::Use { name } => {
+                let res = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    gestalt_cli::profiles::use_profile(&config, &name)
+                })();
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
         },
         Command::Doctor { live } => {

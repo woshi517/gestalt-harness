@@ -337,6 +337,7 @@ pub struct ProviderDoctorResult {
     pub provider: String,
     pub auth_variable: String,
     pub auth_status: String,
+    pub auth_source: String,
 }
 
 #[derive(Serialize)]
@@ -353,8 +354,8 @@ impl CliReport for ProvidersDoctorReport {
             .iter()
             .map(|r| {
                 format!(
-                    "provider={}\nprovider={} source=env variable={} status={}",
-                    r.provider, r.provider, r.auth_variable, r.auth_status
+                    "provider={}\nprovider={} source={} variable={} status={}",
+                    r.provider, r.provider, r.auth_source, r.auth_variable, r.auth_status
                 )
             })
             .collect::<Vec<_>>()
@@ -1399,6 +1400,168 @@ impl CliReport for ToolsClassifyReport {
             format!("Command:  {}", self.command),
             format!("Risk:     {:?}", self.risk),
         ];
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ConnectReport {
+    pub provider: String,
+    pub status: String,
+    pub profile_created: Option<String>,
+    pub keychain_stored: bool,
+}
+
+impl CliReport for ConnectReport {
+    fn kind(&self) -> &'static str {
+        "connect"
+    }
+    fn render_text(&self) -> String {
+        format!(
+            "Connected to provider '{}'. status={}\nprofile_created={}\nkeychain_stored={}",
+            self.provider,
+            self.status,
+            self.profile_created.as_deref().unwrap_or("none"),
+            self.keychain_stored
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct ProfileInfoEntry {
+    pub name: String,
+    pub provider: String,
+    pub model: String,
+    pub active: bool,
+}
+
+#[derive(Serialize)]
+pub struct ProfilesListReport {
+    pub profiles: Vec<ProfileInfoEntry>,
+}
+
+impl CliReport for ProfilesListReport {
+    fn kind(&self) -> &'static str {
+        "profiles.list"
+    }
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("{:<15} | {:<20} | {:<30} | {:<8}", "Profile", "Provider", "Model", "Active"),
+            "-".repeat(81),
+        ];
+        for p in &self.profiles {
+            let active_str = if p.active { "yes" } else { "no" };
+            lines.push(format!("{:<15} | {:<20} | {:<30} | {:<8}", p.name, p.provider, p.model, active_str));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ProfilesInspectReport {
+    pub name: String,
+    pub provider: String,
+    pub model: String,
+    pub active: bool,
+    pub resolved_provider_kind: String,
+    pub resolved_base_url: Option<String>,
+    pub resolved_auth_ref: Option<String>,
+    pub resolved_api_key_env: Option<String>,
+}
+
+impl CliReport for ProfilesInspectReport {
+    fn kind(&self) -> &'static str {
+        "profiles.inspect"
+    }
+    fn render_text(&self) -> String {
+        let active_str = if self.active { "yes" } else { "no" };
+        let mut lines = vec![
+            format!("Profile:      {}", self.name),
+            format!("Provider:     {}", self.provider),
+            format!("Model:        {}", self.model),
+            format!("Active:       {}", active_str),
+            format!("Adapter Kind: {}", self.resolved_provider_kind),
+        ];
+        if let Some(ref url) = self.resolved_base_url {
+            lines.push(format!("Base URL:     {}", url));
+        }
+        if let Some(ref auth) = self.resolved_auth_ref {
+            lines.push(format!("Auth Ref:     {}", auth));
+        }
+        if let Some(ref env) = self.resolved_api_key_env {
+            lines.push(format!("API Key Env:  {}", env));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ProfilesUseReport {
+    pub name: String,
+    pub active: bool,
+    pub file_updated: PathBuf,
+}
+
+impl CliReport for ProfilesUseReport {
+    fn kind(&self) -> &'static str {
+        "profiles.use"
+    }
+    fn render_text(&self) -> String {
+        format!(
+            "Profile '{}' is now active. Updated config at {}",
+            self.name,
+            self.file_updated.display()
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct DisconnectReport {
+    pub provider: String,
+    pub profile_removed: Option<String>,
+    pub keychain_cleared: bool,
+}
+
+impl CliReport for DisconnectReport {
+    fn kind(&self) -> &'static str {
+        "disconnect"
+    }
+    fn render_text(&self) -> String {
+        format!(
+            "Disconnected provider '{}'. profile_removed={}\nkeychain_cleared={}",
+            self.provider,
+            self.profile_removed.as_deref().unwrap_or("none"),
+            self.keychain_cleared
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct ModelsSearchReport {
+    pub models: Vec<gestalt_core::model::ModelInfo>,
+}
+
+impl CliReport for ModelsSearchReport {
+    fn kind(&self) -> &'static str {
+        "models.search"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("{:<30} | {:<25} | {:<10} | {:<10} | {:<10} | {:<10}", "Model ID", "Display Name", "Context", "Max Out", "Tools", "Vision"),
+            "-".repeat(110),
+        ];
+        for m in &self.models {
+            lines.push(format!(
+                "{:<30} | {:<25} | {:<10} | {:<10} | {:<10} | {:<10}",
+                m.qualified_id,
+                m.display_name,
+                m.max_context_tokens,
+                m.max_output_tokens,
+                if m.supports_tools { "yes" } else { "no" },
+                if m.supports_vision { "yes" } else { "no" }
+            ));
+        }
         lines.join("\n")
     }
 }

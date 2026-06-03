@@ -121,3 +121,52 @@ max_context_window = 60000
     
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_profile_resolution() {
+    let config = validate_workspace_config(&CliOverrides {
+        workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/profiled")),
+        ..CliOverrides::default()
+    })
+    .expect("config validates");
+
+    let resolved = config.resolve_provider().expect("resolve provider");
+    assert_eq!(resolved.profile_name.as_deref(), Some("default"));
+    assert_eq!(resolved.provider_name, "openrouter");
+    assert_eq!(resolved.kind, "openai-compatible");
+    assert_eq!(resolved.model, "openrouter/free");
+}
+
+#[test]
+fn test_profile_cli_override() {
+    let config = validate_workspace_config(&CliOverrides {
+        workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/profiled")),
+        profile: Some("anthropic".to_string()),
+        ..CliOverrides::default()
+    })
+    .expect("config validates");
+
+    let resolved = config.resolve_provider().expect("resolve provider");
+    assert_eq!(resolved.profile_name.as_deref(), Some("anthropic"));
+    assert_eq!(resolved.provider_name, "anthropic");
+    assert_eq!(resolved.kind, "anthropic");
+    assert_eq!(resolved.model, "claude-3-5-sonnet-20241022");
+}
+
+#[test]
+fn test_provider_model_cli_overrides_beat_profile() {
+    let config = validate_workspace_config(&CliOverrides {
+        workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/profiled")),
+        provider: Some("openai".to_string()),
+        model: Some("gpt-4o-custom".to_string()),
+        ..CliOverrides::default()
+    })
+    .expect("config validates");
+
+    let resolved = config.resolve_provider().expect("resolve provider");
+    assert_eq!(resolved.profile_name.as_deref(), Some("default"));
+    assert_eq!(resolved.provider_name, "openai");
+    assert_eq!(resolved.kind, "openai");
+    assert_eq!(resolved.model, "gpt-4o-custom");
+}
+

@@ -21,8 +21,8 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
-repository = "https://github.com/noentic/gestalt-harness"
-authors = ["Noentic"]
+repository = "https://github.com/woshi517/gestalt-harness"
+authors = ["dansubkh"]
 
 [workspace.lints.rust]
 future-incompatible = "warn"

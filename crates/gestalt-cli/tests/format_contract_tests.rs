@@ -2,6 +2,8 @@ use gestalt_cli::output::{
     CliReport, ConfigValidateReport, JsonEnvelope, ModelsListReport, ProvidersListReport,
     ReplayReport, RunReport, ToolsListReport, ToolsInspectReport, ToolsClassifyReport,
     AuthDoctorReport, GlobalDoctorReport, AuthDoctorEntry, ToolInfoEntry,
+    ConnectReport, ProfilesListReport, ProvidersDoctorReport, ModelsSearchReport,
+    ProfileInfoEntry, ProviderDoctorResult,
 };
 use gestalt_core::model::{ModelInfo, ModelInfoSource};
 use std::path::PathBuf;
@@ -178,5 +180,116 @@ fn test_global_doctor_report_contract() {
     assert!(text.contains("Selected model 'openai/gpt-4': exists in catalog"));
     assert!(text.contains("openai"));
     assert!(text.contains("PASS:"));
+}
+
+#[test]
+fn test_connect_report_contract() {
+    let report = ConnectReport {
+        provider: "openrouter".to_string(),
+        status: "connected".to_string(),
+        profile_created: Some("default".to_string()),
+        keychain_stored: true,
+    };
+    assert_eq!(report.kind(), "connect");
+    let text = report.render_text();
+    assert!(text.contains("Connected to provider 'openrouter'"));
+    assert!(text.contains("status=connected"));
+    assert!(text.contains("profile_created=default"));
+    assert!(text.contains("keychain_stored=true"));
+
+    let envelope = JsonEnvelope {
+        schema_version: 1,
+        kind: report.kind().to_string(),
+        data: &report,
+    };
+    let serialized = serde_json::to_string(&envelope).unwrap();
+    assert!(serialized.contains(r#""kind":"connect""#));
+}
+
+#[test]
+fn test_profiles_list_report_contract() {
+    let entry = ProfileInfoEntry {
+        name: "test-profile".to_string(),
+        provider: "openrouter".to_string(),
+        model: "openrouter/free".to_string(),
+        active: true,
+    };
+    let report = ProfilesListReport {
+        profiles: vec![entry],
+    };
+    assert_eq!(report.kind(), "profiles.list");
+    let text = report.render_text();
+    assert!(text.contains("test-profile"));
+    assert!(text.contains("openrouter"));
+    assert!(text.contains("openrouter/free"));
+    assert!(text.contains("yes"));
+
+    let envelope = JsonEnvelope {
+        schema_version: 1,
+        kind: report.kind().to_string(),
+        data: &report,
+    };
+    let serialized = serde_json::to_string(&envelope).unwrap();
+    assert!(serialized.contains(r#""kind":"profiles.list""#));
+}
+
+#[test]
+fn test_providers_doctor_report_contract() {
+    let result = ProviderDoctorResult {
+        provider: "openrouter".to_string(),
+        auth_variable: "OPENROUTER_API_KEY".to_string(),
+        auth_status: "present".to_string(),
+        auth_source: "env".to_string(),
+    };
+    let report = ProvidersDoctorReport {
+        results: vec![result],
+    };
+    assert_eq!(report.kind(), "providers.doctor");
+    let text = report.render_text();
+    assert!(text.contains("provider=openrouter"));
+    assert!(text.contains("status=present"));
+
+    let envelope = JsonEnvelope {
+        schema_version: 1,
+        kind: report.kind().to_string(),
+        data: &report,
+    };
+    let serialized = serde_json::to_string(&envelope).unwrap();
+    assert!(serialized.contains(r#""kind":"providers.doctor""#));
+}
+
+#[test]
+fn test_models_search_report_contract() {
+    let m = ModelInfo {
+        qualified_id: "openrouter/free".to_string(),
+        model_id: "free".to_string(),
+        display_name: "Google: Gemini 2.5 Flash (free)".to_string(),
+        max_context_tokens: 1048576,
+        max_output_tokens: 8192,
+        supports_tools: true,
+        supports_vision: true,
+        supports_json_schema: true,
+        supports_thinking: false,
+        supports_prompt_caching: false,
+        input_cost_per_million: Some(0.0),
+        output_cost_per_million: Some(0.0),
+        source: ModelInfoSource::BuiltIn,
+        last_updated: None,
+    };
+    let report = ModelsSearchReport {
+        models: vec![m],
+    };
+    assert_eq!(report.kind(), "models.search");
+    let text = report.render_text();
+    assert!(text.contains("openrouter/free"));
+    assert!(text.contains("Gemini 2.5 Flash"));
+
+    let envelope = JsonEnvelope {
+        schema_version: 1,
+        kind: report.kind().to_string(),
+        data: &report,
+    };
+    let serialized = serde_json::to_string(&envelope).unwrap();
+    assert!(serialized.contains(r#""kind":"models.search""#));
 }
 

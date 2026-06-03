@@ -29,6 +29,7 @@ pub struct OpenAiProvider {
     auth: ProviderAuthConfig,
     resolver: Arc<dyn CredentialResolver>,
     capabilities: ProviderCapabilities,
+    headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -59,6 +60,7 @@ impl Default for OpenAiProvider {
                 supports_streaming: true,
                 ..ProviderCapabilities::default()
             },
+            headers: HashMap::new(),
         }
     }
 }
@@ -102,6 +104,10 @@ impl OpenAiProvider {
             "OPENAI_API_KEY"
         };
         let auth = provider_auth_config(config, &id, default_env)?;
+        let headers = config
+            .get("headers")
+            .and_then(|h| serde_json::from_value::<HashMap<String, String>>(h.clone()).ok())
+            .unwrap_or_default();
 
         Ok(Self {
             client: reqwest::Client::new(),
@@ -119,6 +125,7 @@ impl OpenAiProvider {
                 supports_streaming: true,
                 ..ProviderCapabilities::default()
             },
+            headers,
         })
     }
 
@@ -146,13 +153,21 @@ impl OpenAiProvider {
     }
 
     fn headers(&self) -> Result<HeaderMap, HarnessError> {
-        let credential = self.resolver.resolve(&self.auth)?;
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            HeaderValue::from_str(&format!("Bearer {}", credential.secret())).map_err(invalid)?,
-        );
+        let has_auth = self.auth.auth_ref.is_some() || (!self.auth.api_key_env.is_empty() && self.auth.api_key_env != "none");
+        if has_auth {
+            let credential = self.resolver.resolve(&self.auth)?;
+            headers.insert(
+                "authorization",
+                HeaderValue::from_str(&format!("Bearer {}", credential.secret())).map_err(invalid)?,
+            );
+        }
         headers.insert("content-type", HeaderValue::from_static("application/json"));
+        for (k, v) in &self.headers {
+            let name = reqwest::header::HeaderName::from_bytes(k.as_bytes()).map_err(invalid)?;
+            let value = HeaderValue::from_str(v).map_err(invalid)?;
+            headers.insert(name, value);
+        }
         Ok(headers)
     }
 

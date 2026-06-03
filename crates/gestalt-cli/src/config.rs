@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use gestalt_core::{ConfigError, ExecutionMode, HarnessError};
+use gestalt_core::{ConfigError, ExecutionMode, HarnessError, ProviderError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -21,6 +21,8 @@ pub struct WorkspaceConfig {
     pub observe: Option<ObserveConfig>,
     #[serde(default)]
     pub providers: HashMap<String, ProviderConfig>,
+    #[serde(default)]
+    pub profiles: HashMap<String, ProfileConfig>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -30,6 +32,14 @@ pub struct DefaultsConfig {
     pub model: Option<String>,
     pub mode: Option<String>,
     pub max_turns: Option<usize>,
+    pub profile: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileConfig {
+    pub provider: Option<String>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +102,9 @@ pub struct ProviderConfig {
     pub default_model: Option<String>,
     pub api_key_env: Option<String>,
     pub auth_ref: Option<String>,
+    pub kind: Option<String>,
+    pub models_endpoint: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -101,6 +114,7 @@ pub struct CliOverrides {
     pub mode: Option<String>,
     pub max_turns: Option<usize>,
     pub workspace: Option<PathBuf>,
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,6 +125,9 @@ pub struct EffectiveConfig {
     pub context: ContextConfig,
     pub observe: ObserveConfig,
     pub providers: HashMap<String, ProviderConfig>,
+    pub profiles: HashMap<String, ProfileConfig>,
+    pub provider_override: Option<String>,
+    pub model_override: Option<String>,
 }
 
 impl WorkspaceConfig {
@@ -136,6 +153,7 @@ impl WorkspaceConfig {
             self_defaults.model = other_defaults.model.or(self_defaults.model);
             self_defaults.mode = other_defaults.mode.or(self_defaults.mode);
             self_defaults.max_turns = other_defaults.max_turns.or(self_defaults.max_turns);
+            self_defaults.profile = other_defaults.profile.or(self_defaults.profile);
             self.defaults = Some(self_defaults);
         }
 
@@ -162,6 +180,7 @@ impl WorkspaceConfig {
         }
 
         self.providers.extend(other.providers);
+        self.profiles.extend(other.profiles);
         self
     }
 }
@@ -191,6 +210,9 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
 
     let mut defaults = config.defaults.unwrap_or_default();
 
+    if let Ok(profile) = std::env::var("GESTALT_PROFILE") {
+        defaults.profile = Some(profile);
+    }
     if let Ok(provider) = std::env::var("GESTALT_PROVIDER") {
         defaults.provider = Some(provider);
     }
@@ -206,6 +228,9 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         }
     }
 
+    if let Some(profile) = &overrides.profile {
+        defaults.profile = Some(profile.clone());
+    }
     if let Some(provider) = &overrides.provider {
         defaults.provider = Some(provider.clone());
     }
@@ -245,6 +270,9 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         o
     };
 
+    let provider_override = overrides.provider.clone().or_else(|| std::env::var("GESTALT_PROVIDER").ok());
+    let model_override = overrides.model.clone().or_else(|| std::env::var("GESTALT_MODEL").ok());
+
     Ok(EffectiveConfig {
         workspace_root,
         defaults: config.defaults.unwrap_or_default(),
@@ -252,20 +280,166 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         context,
         observe,
         providers: config.providers,
+        profiles: config.profiles,
+        provider_override,
+        model_override,
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ResolvedProvider {
+    pub profile_name: Option<String>,
+    pub provider_name: String,
+    pub kind: String,
+    pub model: String,
+    pub auth_ref: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+    pub models_endpoint: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+}
+
+impl ResolvedProvider {
+    pub fn provider_json(&self) -> Value {
+        json!({
+            "id": self.provider_name.clone(),
+            "display_name": Some(self.provider_name.clone()),
+            "kind": self.kind.clone(),
+            "base_url": self.base_url,
+            "default_model": Some(self.model.clone()),
+            "api_key_env": self.api_key_env,
+            "auth_ref": self.auth_ref,
+            "models_endpoint": self.models_endpoint,
+            "headers": self.headers,
+        })
+    }
+}
+
 impl EffectiveConfig {
+    pub fn resolve_provider(&self) -> Result<ResolvedProvider, HarnessError> {
+        let active_profile = self.defaults.profile.clone();
+        let active_provider = self.defaults.provider.clone();
+
+        let (profile_name, mut provider_name, mut model_override) = if let Some(p) = active_profile {
+            if let Some(prof_cfg) = self.profiles.get(&p) {
+                let prov = prof_cfg.provider.clone().unwrap_or_else(|| p.clone());
+                let model = prof_cfg.model.clone();
+                (Some(p), prov, model)
+            } else {
+                match p.as_str() {
+                    "default" => (Some(p), "openrouter".to_string(), Some("openrouter/free".to_string())),
+                    "openrouter" => (Some(p), "openrouter".to_string(), Some("openrouter/free".to_string())),
+                    "anthropic" => (Some(p), "anthropic".to_string(), Some("claude-3-5-sonnet-20241022".to_string())),
+                    "openai" => (Some(p), "openai".to_string(), Some("gpt-4o-mini".to_string())),
+                    "ollama" => (Some(p), "ollama".to_string(), Some("llama3".to_string())),
+                    "groq" => (Some(p), "groq".to_string(), Some("llama3-8b-8192".to_string())),
+                    "together" => (Some(p), "together".to_string(), Some("mistralai/Mixtral-8x7B-Instruct-v0.1".to_string())),
+                    _ => {
+                        return Err(HarnessError::Config(ConfigError::InvalidValue {
+                            field: "defaults.profile".to_string(),
+                            reason: format!("profile '{p}' not found in configuration or built-ins"),
+                        }));
+                    }
+                }
+            }
+        } else if let Some(prov) = active_provider {
+            let model = self.defaults.model.clone();
+            (None, prov, model)
+        } else {
+            let p = "default".to_string();
+            (Some(p), "openrouter".to_string(), Some("openrouter/free".to_string()))
+        };
+
+        // Apply explicit CLI / Env overrides (which beat profiles and defaults)
+        if let Some(ref prov_ovr) = self.provider_override {
+            provider_name = prov_ovr.clone();
+        }
+        if let Some(ref model_ovr) = self.model_override {
+            model_override = Some(model_ovr.clone());
+        }
+
+        let (kind, base_url, default_model, api_key_env, auth_ref, models_endpoint, headers) = 
+            if let Some(prov_cfg) = self.providers.get(&provider_name) {
+                let kind = prov_cfg.kind.clone().or_else(|| {
+                    if provider_name == "anthropic" {
+                        Some("anthropic".to_string())
+                    } else if provider_name == "openai" {
+                        Some("openai".to_string())
+                    } else if gestalt_models::registry::registered().contains(&provider_name) {
+                        Some(provider_name.clone())
+                    } else {
+                        Some("openai-compatible".to_string())
+                    }
+                }).unwrap();
+                let base = prov_cfg.base_url.clone();
+                let model = prov_cfg.default_model.clone();
+                let env = prov_cfg.api_key_env.clone();
+                let auth = prov_cfg.auth_ref.clone();
+                let endpoint = prov_cfg.models_endpoint.clone();
+                let hdrs = prov_cfg.headers.clone();
+                (kind, base, model, env, auth, endpoint, hdrs)
+            } else if let Some(builtin) = crate::provider_catalog::get_builtin_provider(&provider_name) {
+                (
+                    builtin.kind.clone().unwrap_or_else(|| "openai-compatible".to_string()),
+                    builtin.base_url,
+                    builtin.default_model,
+                    builtin.api_key_env,
+                    builtin.auth_ref,
+                    builtin.models_endpoint,
+                    builtin.headers,
+                )
+            } else if gestalt_models::registry::registered().contains(&provider_name) {
+                (
+                    provider_name.clone(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            } else {
+                return Err(HarnessError::Provider(ProviderError::UnknownProvider(
+                    provider_name.clone(),
+                )));
+            };
+
+        let model = model_override
+            .or(default_model)
+            .unwrap_or_else(|| {
+                if kind == "anthropic" {
+                    "claude-3-5-sonnet-20241022".to_string()
+                } else if kind == "openai" {
+                    "gpt-4o-mini".to_string()
+                } else {
+                    "openrouter/free".to_string()
+                }
+            });
+
+        Ok(ResolvedProvider {
+            profile_name,
+            provider_name,
+            kind,
+            model,
+            auth_ref,
+            base_url,
+            api_key_env,
+            models_endpoint,
+            headers,
+        })
+    }
+
     pub fn selected_provider(&self) -> Result<String, HarnessError> {
-        Ok(self
-            .defaults
-            .provider
-            .clone()
-            .unwrap_or_else(|| "anthropic".to_string()))
+        let resolved = self.resolve_provider()?;
+        Ok(resolved.provider_name)
     }
 
     pub fn selected_model(&self) -> Option<String> {
-        self.defaults.model.clone()
+        if let Ok(resolved) = self.resolve_provider() {
+            Some(resolved.model)
+        } else {
+            self.defaults.model.clone()
+        }
     }
 
     pub fn selected_mode(&self) -> Result<ExecutionMode, HarnessError> {
@@ -287,14 +461,34 @@ impl EffectiveConfig {
 
     pub fn provider_json(&self, provider: &str) -> Value {
         let configured = self.providers.get(provider).cloned().unwrap_or_default();
+        let mut base = if let Some(builtin) = crate::provider_catalog::get_builtin_provider(provider) {
+            builtin
+        } else {
+            ProviderConfig::default()
+        };
+
+        if let Some(id) = configured.id { base.id = Some(id); }
+        if let Some(display) = configured.display_name { base.display_name = Some(display); }
+        if let Some(protocol) = configured.protocol { base.protocol = Some(protocol); }
+        if let Some(base_url) = configured.base_url { base.base_url = Some(base_url); }
+        if let Some(def_model) = configured.default_model { base.default_model = Some(def_model); }
+        if let Some(api_key_env) = configured.api_key_env { base.api_key_env = Some(api_key_env); }
+        if let Some(auth_ref) = configured.auth_ref { base.auth_ref = Some(auth_ref); }
+        if let Some(kind) = configured.kind { base.kind = Some(kind); }
+        if let Some(models_endpoint) = configured.models_endpoint { base.models_endpoint = Some(models_endpoint); }
+        if let Some(headers) = configured.headers { base.headers = Some(headers); }
+
         json!({
-            "id": configured.id.unwrap_or_else(|| provider.to_string()),
-            "display_name": configured.display_name,
-            "protocol": configured.protocol,
-            "base_url": configured.base_url,
-            "default_model": configured.default_model.or_else(|| self.selected_model()),
-            "api_key_env": configured.api_key_env,
-            "auth_ref": configured.auth_ref,
+            "id": base.id.unwrap_or_else(|| provider.to_string()),
+            "display_name": base.display_name,
+            "protocol": base.protocol,
+            "base_url": base.base_url,
+            "default_model": base.default_model.or_else(|| self.selected_model()),
+            "api_key_env": base.api_key_env,
+            "auth_ref": base.auth_ref,
+            "kind": base.kind,
+            "models_endpoint": base.models_endpoint,
+            "headers": base.headers,
         })
     }
 
@@ -393,6 +587,15 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
             });
         };
     }
+
+    resolve!(
+        "defaults.profile",
+        overrides.profile,
+        Some("GESTALT_PROFILE"),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.profile.clone())),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.profile.clone())),
+        Value::Null
+    );
 
     resolve!(
         "defaults.provider",

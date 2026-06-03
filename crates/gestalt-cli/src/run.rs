@@ -15,9 +15,13 @@ use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::rend
 pub async fn run_prompt(
     config: &EffectiveConfig,
     prompt: &str,
+    api_key: Option<String>,
 ) -> Result<PathBuf, gestalt_core::HarnessError> {
-    let provider_name = config.selected_provider()?;
-    let provider = registry::get(&provider_name, config.provider_json(&provider_name))?;
+    let resolved = config.resolve_provider()?;
+    let provider_name = resolved.provider_name.clone();
+    let provider_config = resolved.provider_json();
+    let resolver = crate::auth::build_credential_resolver(api_key, true);
+    let provider = registry::get_with_resolver(&resolved.kind, provider_config, resolver)?;
     let provider_default_model = provider.default_model().to_string();
 
     let tools = Arc::new(default_registry()?);
@@ -32,7 +36,7 @@ pub async fn run_prompt(
     let policy = Arc::new(build_policy(config)?);
     let approval = approval_provider(config.selected_mode()?);
 
-    let model = config.selected_model().unwrap_or(provider_default_model);
+    let model = if resolved.model.is_empty() { provider_default_model } else { resolved.model };
     let session_id = format!("session-{}", std::process::id());
 
     let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
@@ -363,6 +367,7 @@ mod tests {
                 model: None,
                 mode: None,
                 max_turns: None,
+                profile: None,
             },
             tools: ToolsConfig {
                 bash_timeout_secs: None,
@@ -378,6 +383,9 @@ mod tests {
                 log_format: None,
             },
             providers: HashMap::new(),
+            profiles: HashMap::new(),
+            provider_override: None,
+            model_override: None,
         };
 
         // Scenario 1: No policies.toml => uses default prompt

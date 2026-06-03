@@ -12,10 +12,13 @@ use crate::output::{
 
 // Templates
 const DEFAULT_CONFIG: &str = r#"[defaults]
-provider = "anthropic"
-model = "claude-3-5-sonnet-20241022"
+profile = "default"
 mode = "confirm"
 max_turns = 50
+
+[profiles.default]
+provider = "openrouter"
+model = "openrouter/free"
 
 [tools]
 bash_timeout_secs = 60
@@ -277,6 +280,9 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
                 context: crate::config::ContextConfig::default(),
                 observe: crate::config::ObserveConfig::default(),
                 providers: std::collections::HashMap::new(),
+                profiles: std::collections::HashMap::new(),
+                provider_override: None,
+                model_override: None,
             }
         }
     };

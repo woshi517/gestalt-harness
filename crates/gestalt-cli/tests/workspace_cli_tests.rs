@@ -52,10 +52,10 @@ fn test_status_workspace() {
 
     let report = status_workspace(&overrides).unwrap();
     assert!(report.config_valid);
-    assert_eq!(report.active_provider.as_deref(), Some("anthropic"));
+    assert_eq!(report.active_provider.as_deref(), Some("openrouter"));
     assert_eq!(
         report.active_model.as_deref(),
-        Some("claude-3-5-sonnet-20241022")
+        Some("openrouter/free")
     );
     assert_eq!(report.active_mode.as_deref(), Some("confirm"));
     assert_eq!(report.recent_runs_count, 0);
