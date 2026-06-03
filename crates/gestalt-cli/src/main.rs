@@ -23,7 +23,7 @@ use gestalt_cli::{
     workspace::{
         doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
     },
-    trace, export, verify, policy, context, tools, doctor,
+    trace, export, verify, policy, context, tools, doctor, sessions,
 };
 
 #[derive(Parser)]
@@ -101,6 +101,7 @@ enum Command {
     Workspace(WorkspaceCommand),
     Runs(RunsCommand),
     Trace(TraceCommand),
+    Sessions(SessionsCommand),
     Export {
         run_id_or_path: String,
         #[arg(long, default_value = "markdown")]
@@ -264,6 +265,8 @@ pub enum RunsSubcommand {
         yes: bool,
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        cascade: bool,
     },
     Delete {
         run_id_or_path: String,
@@ -271,6 +274,38 @@ pub enum RunsSubcommand {
         yes: bool,
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        cascade: bool,
+    },
+}
+
+#[derive(Args)]
+pub struct SessionsCommand {
+    #[command(subcommand)]
+    pub command: SessionsSubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum SessionsSubcommand {
+    List,
+    Inspect {
+        session_id: String,
+    },
+    History {
+        session_id: String,
+    },
+    Continue {
+        session_id: String,
+        prompt: String,
+    },
+    Resume {
+        run_id_or_path: String,
+    },
+    Branch {
+        run_id_or_path: String,
+        #[arg(long)]
+        at: u64,
+        prompt: String,
     },
 }
 
@@ -392,6 +427,11 @@ fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload 
                 message: app_err.to_string(),
                 details: None,
             },
+            gestalt_core::HarnessError::Cancelled => CliErrorPayload {
+                code: "CANCELLED".to_string(),
+                message: "Execution was cancelled".to_string(),
+                details: None,
+            },
         }
     } else if let Some(trace_err) = err.downcast_ref::<gestalt_core::TraceError>() {
         CliErrorPayload {
@@ -476,9 +516,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Command::Run { prompt } => {
+            let cancel_token = gestalt_core::CancelToken::new();
+            let cancel_token_clone = cancel_token.clone();
+            tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    eprintln!("\n[Interrupt] Cancellation requested. Cleaning up...");
+                    cancel_token_clone.cancel();
+                    
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        eprintln!("\n[Interrupt] Force exiting immediately.");
+                        std::process::exit(130);
+                    }
+                }
+            });
+            #[cfg(unix)]
+            {
+                let cancel_token_clone = cancel_token.clone();
+                tokio::spawn(async move {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                        sigterm.recv().await;
+                        eprintln!("\n[Interrupt] SIGTERM received. Cleaning up...");
+                        cancel_token_clone.cancel();
+                    }
+                });
+            }
+
             let res: Result<RunReport, gestalt_core::HarnessError> = async {
                 let config = load_effective_config(&overrides)?;
-                let run_dir = run_prompt(&config, &prompt, cli.api_key.clone()).await?;
+                let run_dir = run_prompt(&config, &prompt, cli.api_key.clone(), cancel_token).await?;
                 Ok(RunReport { run_dir })
             }
             .await;
@@ -793,20 +859,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     print_error_and_exit(&e, format);
                 }
             }
-            RunsSubcommand::Prune { older_than, dry_run, yes, json } => {
+            RunsSubcommand::Prune { older_than, dry_run, yes, json, cascade } => {
                 let config = load_effective_config(&overrides)?;
                 let fmt = if json { OutputFormat::Json } else { format };
-                let res = runs::prune_runs(&config, older_than, dry_run, yes);
+                let res = runs::prune_runs(&config, older_than, dry_run, yes, cascade);
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     fmt,
                     quiet,
                 )?;
             }
-            RunsSubcommand::Delete { run_id_or_path, yes, json } => {
+            RunsSubcommand::Delete { run_id_or_path, yes, json, cascade } => {
                 let config = load_effective_config(&overrides)?;
                 let fmt = if json { OutputFormat::Json } else { format };
-                let res = runs::delete_run(&config, &run_id_or_path, yes);
+                let res = runs::delete_run(&config, &run_id_or_path, yes, cascade);
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     fmt,
@@ -829,6 +895,152 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let config = load_effective_config(&overrides)?;
                 let res = trace::validate_trace(&config, &run_id_or_path);
                 handle_result(res, format, quiet)?;
+            }
+        },
+        Command::Sessions(command) => match command.command {
+            SessionsSubcommand::List => {
+                let res = sessions::list_sessions(&load_effective_config(&overrides)?);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            SessionsSubcommand::Inspect { session_id } => {
+                let res = sessions::inspect_session(&load_effective_config(&overrides)?, &session_id);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            SessionsSubcommand::History { session_id } => {
+                let res = sessions::history_session(&load_effective_config(&overrides)?, &session_id);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            SessionsSubcommand::Continue { session_id, prompt } => {
+                let cancel_token = gestalt_core::CancelToken::new();
+                let cancel_token_clone = cancel_token.clone();
+                tokio::spawn(async move {
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        eprintln!("\n[Interrupt] Cancellation requested. Cleaning up...");
+                        cancel_token_clone.cancel();
+                        if tokio::signal::ctrl_c().await.is_ok() {
+                            eprintln!("\n[Interrupt] Force exiting immediately.");
+                            std::process::exit(130);
+                        }
+                    }
+                });
+                #[cfg(unix)]
+                {
+                    let cancel_token_clone = cancel_token.clone();
+                    tokio::spawn(async move {
+                        use tokio::signal::unix::{signal, SignalKind};
+                        if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                            sigterm.recv().await;
+                            eprintln!("\n[Interrupt] SIGTERM received. Cleaning up...");
+                            cancel_token_clone.cancel();
+                        }
+                    });
+                }
+                let res = sessions::run_session_action(
+                    &load_effective_config(&overrides)?,
+                    "continue",
+                    &session_id,
+                    Some(prompt),
+                    None,
+                    cli.api_key.clone(),
+                    cancel_token,
+                ).await;
+                handle_result(
+                    res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            SessionsSubcommand::Resume { run_id_or_path } => {
+                let cancel_token = gestalt_core::CancelToken::new();
+                let cancel_token_clone = cancel_token.clone();
+                tokio::spawn(async move {
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        eprintln!("\n[Interrupt] Cancellation requested. Cleaning up...");
+                        cancel_token_clone.cancel();
+                        if tokio::signal::ctrl_c().await.is_ok() {
+                            eprintln!("\n[Interrupt] Force exiting immediately.");
+                            std::process::exit(130);
+                        }
+                    }
+                });
+                #[cfg(unix)]
+                {
+                    let cancel_token_clone = cancel_token.clone();
+                    tokio::spawn(async move {
+                        use tokio::signal::unix::{signal, SignalKind};
+                        if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                            sigterm.recv().await;
+                            eprintln!("\n[Interrupt] SIGTERM received. Cleaning up...");
+                            cancel_token_clone.cancel();
+                        }
+                    });
+                }
+                let res = sessions::run_session_action(
+                    &load_effective_config(&overrides)?,
+                    "resume",
+                    &run_id_or_path,
+                    None,
+                    None,
+                    cli.api_key.clone(),
+                    cancel_token,
+                ).await;
+                handle_result(
+                    res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            SessionsSubcommand::Branch { run_id_or_path, at, prompt } => {
+                let cancel_token = gestalt_core::CancelToken::new();
+                let cancel_token_clone = cancel_token.clone();
+                tokio::spawn(async move {
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        eprintln!("\n[Interrupt] Cancellation requested. Cleaning up...");
+                        cancel_token_clone.cancel();
+                        if tokio::signal::ctrl_c().await.is_ok() {
+                            eprintln!("\n[Interrupt] Force exiting immediately.");
+                            std::process::exit(130);
+                        }
+                    }
+                });
+                #[cfg(unix)]
+                {
+                    let cancel_token_clone = cancel_token.clone();
+                    tokio::spawn(async move {
+                        use tokio::signal::unix::{signal, SignalKind};
+                        if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                            sigterm.recv().await;
+                            eprintln!("\n[Interrupt] SIGTERM received. Cleaning up...");
+                            cancel_token_clone.cancel();
+                        }
+                    });
+                }
+                let res = sessions::run_session_action(
+                    &load_effective_config(&overrides)?,
+                    "branch",
+                    &run_id_or_path,
+                    Some(prompt),
+                    Some(at),
+                    cli.api_key.clone(),
+                    cancel_token,
+                ).await;
+                handle_result(
+                    res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
         },
         Command::Export { run_id_or_path, format: export_format } => {

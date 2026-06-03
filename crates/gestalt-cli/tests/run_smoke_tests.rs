@@ -127,7 +127,7 @@ override = "Smoke test override prompt"
     })
     .unwrap();
 
-    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None)
+    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None, gestalt_core::CancelToken::new())
         .await
         .unwrap();
 
@@ -175,7 +175,7 @@ default = "confirm"
     })
     .unwrap();
 
-    let log_dir2 = gestalt_cli::run::run_prompt(&config2, "run smoke", None)
+    let log_dir2 = gestalt_cli::run::run_prompt(&config2, "run smoke", None, gestalt_core::CancelToken::new())
         .await
         .unwrap();
 
@@ -259,7 +259,7 @@ default = "confirm"
     assert_eq!(resolved.model, "mock-model");
 
     // Execute run_prompt to verify the loop runs
-    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None)
+    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None, gestalt_core::CancelToken::new())
         .await
         .unwrap();
 

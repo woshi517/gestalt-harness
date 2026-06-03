@@ -151,7 +151,31 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
                 HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
             })?;
             let name = entry.file_name().to_string_lossy().into_owned();
+            
+            let mut is_match = false;
             if name == input || name.starts_with(input) {
+                is_match = true;
+            }
+            if !is_match {
+                if let Some(pos) = name.find('-') {
+                    let suffix = &name[pos + 1..];
+                    if suffix == input || suffix.starts_with(input) {
+                        is_match = true;
+                    }
+                }
+            }
+            if !is_match {
+                let manifest_path = entry.path().join("run.json");
+                if manifest_path.exists() {
+                    if let Ok(manifest) = gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path) {
+                        if manifest.run_id == input || manifest.run_id.starts_with(input) {
+                            is_match = true;
+                        }
+                    }
+                }
+            }
+            
+            if is_match {
                 matches.push(entry.path());
             }
         }
@@ -286,12 +310,31 @@ pub struct RunSummary {
     pub estimated_cost_usd: Option<f64>,
     pub workspace_snapshot_id: Option<String>,
     pub artifacts: Vec<String>,
+    pub parent_run_id: Option<String>,
+    pub run_kind: Option<String>,
+    pub lifecycle_state: Option<String>,
 }
 
 pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
-    let run_id = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    let start_time = parse_run_timestamp(&run_id);
-    let session_id = run_id.split('-').skip(1).collect::<Vec<_>>().join("-");
+    let run_manifest_path = path.join("run.json");
+    let manifest = if run_manifest_path.exists() {
+        gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path).ok()
+    } else {
+        None
+    };
+
+    let folder_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let start_time = parse_run_timestamp(&folder_name);
+    let run_id = if let Some(ref m) = manifest {
+        m.run_id.clone()
+    } else {
+        folder_name.clone()
+    };
+    let session_id = if let Some(ref m) = manifest {
+        m.session_id.clone()
+    } else {
+        folder_name.split('-').skip(1).collect::<Vec<_>>().join("-")
+    };
 
     let trace_path = path.join("trace.jsonl");
     let summary_path = path.join("summary.md");
@@ -303,7 +346,11 @@ pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
 
     let mut provider = None;
     let mut model = None;
-    let mut apparent_status = "interrupted".to_string();
+    let mut apparent_status = if let Some(ref m) = manifest {
+        format!("{:?}", m.lifecycle_state).to_lowercase()
+    } else {
+        "interrupted".to_string()
+    };
     let mut turns = None;
     let mut stop_reason = None;
     let mut total_input_tokens = Some(0);
@@ -323,7 +370,9 @@ pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
         if let Ok(meta) = scan_trace_file(&trace_path) {
             provider = meta.provider;
             model = meta.model;
-            apparent_status = meta.apparent_status;
+            if manifest.is_none() {
+                apparent_status = meta.apparent_status;
+            }
             turns = Some(meta.turns);
             stop_reason = meta.stop_reason;
             if total_input_tokens == Some(0) || total_input_tokens.is_none() {
@@ -345,6 +394,10 @@ pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
     }
     artifacts.sort();
 
+    let parent_run_id = manifest.as_ref().and_then(|m| m.parent_run_id.clone());
+    let run_kind = manifest.as_ref().map(|m| format!("{:?}", m.run_kind).to_lowercase());
+    let lifecycle_state = manifest.as_ref().map(|m| format!("{:?}", m.lifecycle_state).to_lowercase());
+
     Ok(RunSummary {
         run_id,
         path: path.to_path_buf(),
@@ -363,6 +416,9 @@ pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
         estimated_cost_usd,
         workspace_snapshot_id,
         artifacts,
+        parent_run_id,
+        run_kind,
+        lifecycle_state,
     })
 }
 
@@ -430,6 +486,9 @@ pub fn inspect_run(config: &EffectiveConfig, run_id_or_path: &str) -> Result<cra
         path: summary.path,
         start_time: summary.start_time,
         session_id: summary.session_id,
+        parent_run_id: summary.parent_run_id,
+        run_kind: summary.run_kind,
+        lifecycle_state: summary.lifecycle_state,
         provider: summary.provider,
         model: summary.model,
         trace_exists: summary.trace_exists,
@@ -563,12 +622,68 @@ fn print_tailed_line(line: &str, format: crate::output::OutputFormat) -> Result<
     Ok(())
 }
 
+fn has_descendants(config: &EffectiveConfig, run_id: &str) -> bool {
+    let run_log_dir = config.run_log_dir();
+    if !run_log_dir.exists() {
+        return false;
+    }
+    if let Ok(entries) = fs::read_dir(&run_log_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("run.json");
+            if manifest_path.exists() {
+                if let Ok(manifest) = gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path) {
+                    if let Some(ref parent_id) = manifest.parent_run_id {
+                        if parent_id == run_id {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn gather_descendants(config: &EffectiveConfig, run_id: &str, out: &mut Vec<(String, PathBuf, u64)>) {
+    let run_log_dir = config.run_log_dir();
+    if !run_log_dir.exists() {
+        return;
+    }
+    if let Ok(entries) = fs::read_dir(&run_log_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("run.json");
+            if manifest_path.exists() {
+                if let Ok(manifest) = gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path) {
+                    if let Some(ref parent_id) = manifest.parent_run_id {
+                        if parent_id == run_id {
+                            let child_run_id = manifest.run_id.clone();
+                            let child_path = entry.path();
+                            let child_size = get_dir_size(&child_path).unwrap_or(0);
+                            let folder_name = child_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                            let actual_child_id = if !child_run_id.is_empty() {
+                                child_run_id.clone()
+                            } else {
+                                folder_name.clone()
+                            };
+                            if !out.iter().any(|(id, _, _)| id == &actual_child_id) {
+                                out.push((actual_child_id.clone(), child_path, child_size));
+                                gather_descendants(config, &child_run_id, out);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Prunes old runs matching the specified age duration criteria.
 pub fn prune_runs(
     config: &EffectiveConfig,
     older_than: Option<String>,
     dry_run: bool,
     skip_confirm: bool,
+    cascade: bool,
 ) -> Result<crate::output::RunsPruneReport, HarnessError> {
     let duration_str = older_than.unwrap_or_else(|| "7d".to_string());
     let duration = parse_duration(&duration_str).map_err(|reason| {
@@ -610,8 +725,44 @@ pub fn prune_runs(
                 });
 
                 if start_time < threshold {
+                    let run_manifest_path = path.join("run.json");
+                    let mut r_id = None;
+                    if run_manifest_path.exists() {
+                        if let Ok(m) = gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path) {
+                            r_id = Some(m.run_id);
+                        }
+                    }
+
+                    let folder_name = entry.file_name().to_string_lossy().into_owned();
+                    let actual_run_id = r_id.clone().unwrap_or_else(|| {
+                        folder_name.clone()
+                    });
+
+                    if let Some(ref rid) = r_id {
+                        if !cascade && has_descendants(config, rid) {
+                            return Err(HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
+                                field: "older-than".to_string(),
+                                reason: format!("Cannot prune run '{}' because it has descendant runs. Use --cascade to prune it and all descendants.", actual_run_id),
+                            }));
+                        }
+                    }
+
                     let size = get_dir_size(&path).unwrap_or(0);
-                    runs_to_prune.push((run_id, path, size));
+                    if !runs_to_prune.iter().any(|(_, p, _)| p == &path) {
+                        runs_to_prune.push((actual_run_id.clone(), path.clone(), size));
+                    }
+
+                    if cascade {
+                        if let Some(ref rid) = r_id {
+                            let mut descendants = Vec::new();
+                            gather_descendants(config, rid, &mut descendants);
+                            for (desc_id, desc_path, desc_size) in descendants {
+                                if !runs_to_prune.iter().any(|(_, p, _)| p == &desc_path) {
+                                    runs_to_prune.push((desc_id, desc_path, desc_size));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -683,9 +834,9 @@ pub fn delete_run(
     config: &EffectiveConfig,
     run_id_or_path: &str,
     skip_confirm: bool,
+    cascade: bool,
 ) -> Result<crate::output::RunsDeleteReport, HarnessError> {
     let resolved_path = resolve_run_path(config, run_id_or_path)?;
-    let run_id = resolved_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let run_log_dir = config.run_log_dir();
 
     if !is_descendant(&run_log_dir, &resolved_path) {
@@ -699,12 +850,51 @@ pub fn delete_run(
         }));
     }
 
-    let size = get_dir_size(&resolved_path).unwrap_or(0);
+    let run_manifest_path = resolved_path.join("run.json");
+    let mut target_run_id = None;
+    if run_manifest_path.exists() {
+        if let Ok(m) = gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path) {
+            target_run_id = Some(m.run_id);
+        }
+    }
+
+    let folder_name = resolved_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let actual_run_id = target_run_id.clone().unwrap_or_else(|| {
+        folder_name.clone()
+    });
+
+    if let Some(ref r_id) = target_run_id {
+        if !cascade && has_descendants(config, r_id) {
+            return Err(HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
+                field: "run-id".to_string(),
+                reason: format!("Cannot delete run '{}' because it has descendant runs. Use --cascade to delete it and all descendants.", actual_run_id),
+            }));
+        }
+    }
+
+    let mut runs_to_delete = vec![(actual_run_id.clone(), resolved_path.clone(), get_dir_size(&resolved_path).unwrap_or(0))];
+    if cascade {
+        if let Some(ref r_id) = target_run_id {
+            let mut descendants = Vec::new();
+            gather_descendants(config, r_id, &mut descendants);
+            for (desc_id, desc_path, desc_size) in descendants {
+                if !runs_to_delete.iter().any(|(_, p, _)| p == &desc_path) {
+                    runs_to_delete.push((desc_id, desc_path, desc_size));
+                }
+            }
+        }
+    }
+
+    let total_size: u64 = runs_to_delete.iter().map(|(_, _, s)| s).sum();
 
     if !skip_confirm {
         if std::io::stdin().is_terminal() {
-            let size_mb = size as f64 / 1_048_576.0;
-            println!("Are you sure you want to delete run {} (reclaiming {:.2} MB)? [y/N]", run_id, size_mb);
+            let size_mb = total_size as f64 / 1_048_576.0;
+            if runs_to_delete.len() > 1 {
+                println!("Are you sure you want to delete run {} and its {} descendants (reclaiming {:.2} MB)? [y/N]", actual_run_id, runs_to_delete.len() - 1, size_mb);
+            } else {
+                println!("Are you sure you want to delete run {} (reclaiming {:.2} MB)? [y/N]", actual_run_id, size_mb);
+            }
             let mut input = String::new();
             if std::io::stdin().read_line(&mut input).is_ok() {
                 let trimmed = input.trim().to_lowercase();
@@ -722,12 +912,24 @@ pub fn delete_run(
         }
     }
 
-    fs::remove_dir_all(&resolved_path).map_err(|e| {
-        HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-    })?;
+    for (_, path, _) in &runs_to_delete {
+        if !is_descendant(&run_log_dir, path) {
+            return Err(HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
+                field: "run-id".to_string(),
+                reason: format!(
+                    "run path '{}' is not within the run log directory '{}'",
+                    path.display(),
+                    run_log_dir.display()
+                ),
+            }));
+        }
+        fs::remove_dir_all(path).map_err(|e| {
+            HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
+        })?;
+    }
 
     Ok(crate::output::RunsDeleteReport {
-        deleted_run: run_id,
-        reclaimed_bytes: size,
+        deleted_run: actual_run_id,
+        reclaimed_bytes: total_size,
     })
 }

@@ -7,45 +7,72 @@ pub struct CliApprovalProvider;
 
 #[async_trait::async_trait]
 impl ApprovalProvider for CliApprovalProvider {
-    async fn approve(&self, request: ApprovalRequest) -> ApprovalDecision {
+    async fn approve(&self, request: ApprovalRequest) -> Result<ApprovalDecision, gestalt_core::HarnessError> {
+        let cancel = gestalt_core::cancel::CancelToken::new();
+        self.approve_cancellable(request, &cancel).await
+    }
+
+    async fn approve_cancellable(
+        &self,
+        request: ApprovalRequest,
+        cancel_token: &gestalt_core::cancel::CancelToken,
+    ) -> Result<ApprovalDecision, gestalt_core::HarnessError> {
         print_request(&request);
-        loop {
-            print!("Approve? [y]es/[n]o/[e]dit/[a]lways: ");
-            if io::stdout().flush().is_err() {
-                return ApprovalDecision::Deny;
-            }
+        let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
 
-            let mut input = String::new();
-            if io::stdin().read_line(&mut input).is_err() {
-                return ApprovalDecision::Deny;
-            }
-
-            match input.trim() {
-                "y" | "yes" => return ApprovalDecision::Approve,
-                "n" | "no" => return ApprovalDecision::Deny,
-                "a" | "always" => {
-                    print_session_grant_notice(&request);
-                    return ApprovalDecision::AlwaysAllowForSession;
+        let fut = async {
+            use tokio::io::AsyncBufReadExt;
+            loop {
+                print!("Approve? [y]es/[n]o/[e]dit/[a]lways: ");
+                if io::stdout().flush().is_err() {
+                    return ApprovalDecision::Deny;
                 }
-                "e" | "edit" => {
-                    println!("Enter replacement JSON input on one line:");
-                    let mut edited = String::new();
-                    if io::stdin().read_line(&mut edited).is_err() {
+
+                let mut input = String::new();
+                match reader.read_line(&mut input).await {
+                    Ok(0) => return ApprovalDecision::Deny,
+                    Ok(_) => {}
+                    Err(_) => return ApprovalDecision::Deny,
+                }
+
+                match input.trim() {
+                    "y" | "yes" => {
+                        return ApprovalDecision::Approve;
+                    }
+                    "n" | "no" => {
                         return ApprovalDecision::Deny;
                     }
-                    match serde_json::from_str(edited.trim()) {
-                        Ok(value) => {
-                            println!(
-                                "Note: the edited input is re-evaluated by policy. \
-                                 'always' is only honoured if the edited input is auto-allowed."
-                            );
-                            return ApprovalDecision::Edit(value);
-                        }
-                        Err(err) => eprintln!("Invalid JSON: {err}"),
+                    "a" | "always" => {
+                        print_session_grant_notice(&request);
+                        return ApprovalDecision::AlwaysAllowForSession;
                     }
+                    "e" | "edit" => {
+                        println!("Enter replacement JSON input on one line:");
+                        let mut edited = String::new();
+                        match reader.read_line(&mut edited).await {
+                            Ok(0) => return ApprovalDecision::Deny,
+                            Ok(_) => {}
+                            Err(_) => return ApprovalDecision::Deny,
+                        }
+                        match serde_json::from_str(edited.trim()) {
+                            Ok(value) => {
+                                println!(
+                                    "Note: the edited input is re-evaluated by policy. \
+                                     'always' is only honoured if the edited input is auto-allowed."
+                                );
+                                return ApprovalDecision::Edit(value);
+                            }
+                            Err(err) => eprintln!("Invalid JSON: {err}"),
+                        }
+                    }
+                    _ => eprintln!("Unknown response"),
                 }
-                _ => eprintln!("Unknown response"),
             }
+        };
+
+        tokio::select! {
+            res = fut => Ok(res),
+            _ = cancel_token.cancelled() => Err(gestalt_core::HarnessError::Cancelled),
         }
     }
 }

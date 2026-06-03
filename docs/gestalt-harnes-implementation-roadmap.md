@@ -634,10 +634,10 @@ More advanced planning, utility-aware context optimization, eval gates, failure 
 
 ### P3.2 Session Resumability
 
-- [ ] Resume partial sessions from `.gestalt/runs/.../trace.jsonl`.
-- [ ] Reconstruct session history, tool context, token budget, and active sources.
-- [ ] Support continuing interrupted runs without re-executing completed side effects.
-- [ ] Validate trace compatibility before resumption.
+- [x] Resume partial sessions from `.gestalt/runs/.../trace.jsonl`.
+- [x] Reconstruct session history, tool context, token budget, and active sources.
+- [x] Support continuing interrupted runs without re-executing completed side effects.
+- [x] Validate trace compatibility before resumption.
 
 **Depends on:** P1.8, P2.9.  
 **Tests:** interrupted trace fixture; resume after tool call; resume after model stop; incompatible version diagnostics; duplicate side-effect prevention.  

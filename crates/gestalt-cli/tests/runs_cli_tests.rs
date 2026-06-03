@@ -88,13 +88,13 @@ fn test_runs_prune_and_delete() {
     };
     let config = load_effective_config(&overrides).unwrap();
 
-    let prune_dry = prune_runs(&config, Some("1s".to_string()), true, true).unwrap();
+    let prune_dry = prune_runs(&config, Some("1s".to_string()), true, true, false).unwrap();
     assert!(prune_dry.dry_run);
     assert_eq!(prune_dry.pruned_runs.len(), 2);
     assert!(run1.exists());
     assert!(run2.exists());
 
-    let prune_real = prune_runs(&config, Some("1s".to_string()), false, true).unwrap();
+    let prune_real = prune_runs(&config, Some("1s".to_string()), false, true, false).unwrap();
     assert!(!prune_real.dry_run);
     assert_eq!(prune_real.pruned_runs.len(), 2);
     assert!(!run1.exists());
@@ -105,7 +105,7 @@ fn test_runs_prune_and_delete() {
     fs::write(run3.join("trace.jsonl"), "{}").unwrap();
     assert!(run3.exists());
 
-    let delete_rep = delete_run(&config, "20260602T150000Z-session-3", true).unwrap();
+    let delete_rep = delete_run(&config, "20260602T150000Z-session-3", true, false).unwrap();
     assert_eq!(delete_rep.deleted_run, "20260602T150000Z-session-3");
     assert!(!run3.exists());
 
@@ -225,7 +225,7 @@ fn test_runs_new_features() {
     fs::create_dir_all(&outside_run).unwrap();
     fs::write(outside_run.join("trace.jsonl"), "{}").unwrap();
 
-    let delete_outside = delete_run(&config, outside_run.to_str().unwrap(), true);
+    let delete_outside = delete_run(&config, outside_run.to_str().unwrap(), true, false);
     assert!(delete_outside.is_err());
     let err_msg = match delete_outside {
         Err(e) => format!("{}", e),
@@ -235,7 +235,7 @@ fn test_runs_new_features() {
 
     // 4. Test non-interactive prune / delete rejecting execution (only if stdin is indeed non-interactive in this test environment)
     if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        let delete_noninteractive = delete_run(&config, "20260602T100000Z-session-1", false);
+        let delete_noninteractive = delete_run(&config, "20260602T100000Z-session-1", false, false);
         assert!(delete_noninteractive.is_err());
         let err_msg_noninteractive = match delete_noninteractive {
             Err(e) => format!("{}", e),
@@ -243,7 +243,7 @@ fn test_runs_new_features() {
         };
         assert!(err_msg_noninteractive.contains("non-interactive execution requires"));
 
-        let prune_noninteractive = prune_runs(&config, Some("1s".to_string()), false, false);
+        let prune_noninteractive = prune_runs(&config, Some("1s".to_string()), false, false, false);
         assert!(prune_noninteractive.is_err());
         let err_msg_prune = match prune_noninteractive {
             Err(e) => format!("{}", e),
@@ -300,6 +300,93 @@ fn test_runs_additional_patch_requirements() {
     let inspect = inspect_run(&config, "20260602T160000Z-session-4").unwrap();
     assert!(inspect.summary_exists);
     assert_eq!(inspect.artifacts, vec!["output.txt".to_string()]);
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn test_runs_descendant_aware_prune_and_delete() {
+    use gestalt_trace::run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
+
+    let temp_root = create_temp_workspace();
+    let runs_dir = temp_root.join(".gestalt/runs");
+    fs::create_dir_all(&runs_dir).unwrap();
+
+    let overrides = CliOverrides {
+        workspace: Some(temp_root.clone()),
+        ..CliOverrides::default()
+    };
+    let config = load_effective_config(&overrides).unwrap();
+
+    // Create a lineage: parent (old) -> child (new)
+    let parent_id = "parent-id".to_string();
+    let child_id = "child-id".to_string();
+
+    let parent_dir = runs_dir.join(format!("20260602T100000Z-{}", parent_id));
+    fs::create_dir_all(&parent_dir).unwrap();
+    fs::write(parent_dir.join("trace.jsonl"), "{}").unwrap();
+
+    let child_dir = runs_dir.join(format!("20260602T120000Z-{}", child_id));
+    fs::create_dir_all(&child_dir).unwrap();
+    fs::write(child_dir.join("trace.jsonl"), "{}").unwrap();
+
+    let fingerprint = CompatibilityFingerprint {
+        context_pipeline_version: "pipeline-v1".to_string(),
+        tool_schema_hash: "hash".to_string(),
+        policy_fingerprint: "policy".to_string(),
+        hook_contract_hash: "hook".to_string(),
+        execution_mode: "Yolo".to_string(),
+    };
+
+    let parent_manifest = RunManifest {
+        v: 1,
+        session_id: "session-1".to_string(),
+        run_id: parent_id.clone(),
+        parent_run_id: None,
+        base_checkpoint: None,
+        run_kind: RunKind::New,
+        created_at: chrono::Utc::now() - chrono::Duration::hours(2),
+        lifecycle_state: LifecycleState::Completed,
+        finalized_at: Some(chrono::Utc::now() - chrono::Duration::hours(2)),
+        failure_kind: None,
+        interrupted_phase: None,
+        compatibility_fingerprint: fingerprint.clone(),
+    };
+    parent_manifest.save_to(&parent_dir.join("run.json")).unwrap();
+
+    let child_manifest = RunManifest {
+        v: 1,
+        session_id: "session-1".to_string(),
+        run_id: child_id.clone(),
+        parent_run_id: Some(parent_id.clone()),
+        base_checkpoint: Some(1),
+        run_kind: RunKind::Continue,
+        created_at: chrono::Utc::now(),
+        lifecycle_state: LifecycleState::Completed,
+        finalized_at: Some(chrono::Utc::now()),
+        failure_kind: None,
+        interrupted_phase: None,
+        compatibility_fingerprint: fingerprint.clone(),
+    };
+    child_manifest.save_to(&child_dir.join("run.json")).unwrap();
+
+    // 1. Delete parent without cascade should fail because child is a descendant
+    let delete_err = delete_run(&config, &parent_id, true, false);
+    assert!(delete_err.is_err());
+    let err_msg = format!("{:?}", delete_err.err().unwrap());
+    assert!(err_msg.contains("has descendant runs") || err_msg.contains("cascade"));
+
+    // 2. Prune parent without cascade should fail
+    let prune_err = prune_runs(&config, Some("1h".to_string()), false, true, false);
+    assert!(prune_err.is_err());
+    let prune_err_msg = format!("{:?}", prune_err.err().unwrap());
+    assert!(prune_err_msg.contains("has descendant runs") || prune_err_msg.contains("cascade"));
+
+    // 3. Delete parent WITH cascade should succeed and delete both parent and child
+    let delete_ok = delete_run(&config, &parent_id, true, true).unwrap();
+    assert_eq!(delete_ok.deleted_run, parent_id);
+    assert!(!parent_dir.exists());
+    assert!(!child_dir.exists());
 
     let _ = fs::remove_dir_all(&temp_root);
 }

@@ -19,6 +19,7 @@
 
 pub mod agent;
 pub mod approval;
+pub mod cancel;
 pub mod context;
 pub mod error;
 pub mod event;
@@ -38,6 +39,7 @@ pub use approval::{
     hash_input, hash_input_short, ApprovalDecision, ApprovalProvider, ApprovalRequest,
     AutoApprovalProvider, DenyApprovalProvider, SessionGrant,
 };
+pub use cancel::CancelToken;
 pub use context::{ContextPipeline, TokenBudget};
 pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,

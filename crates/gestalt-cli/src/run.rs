@@ -16,6 +16,7 @@ pub async fn run_prompt(
     config: &EffectiveConfig,
     prompt: &str,
     api_key: Option<String>,
+    cancel_token: gestalt_core::cancel::CancelToken,
 ) -> Result<PathBuf, gestalt_core::HarnessError> {
     let resolved = config.resolve_provider()?;
     let provider_name = resolved.provider_name.clone();
@@ -37,13 +38,16 @@ pub async fn run_prompt(
     let approval = approval_provider(config.selected_mode()?);
 
     let model = if resolved.model.is_empty() { provider_default_model } else { resolved.model };
-    let session_id = format!("session-{}", std::process::id());
+    
+    // Durable unique session and run IDs
+    let session_id = format!("session-{}", uuid::Uuid::new_v4());
+    let run_id = format!("run-{}", uuid::Uuid::new_v4());
 
     let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
     let snapshot = snapshotter.capture(&config.workspace_root).await?;
 
     let (sink_inner, run_paths) =
-        JsonlTraceSink::create_run(config.run_log_dir(), &session_id, Some(snapshot.clone()))?;
+        JsonlTraceSink::create_run(config.run_log_dir(), &session_id, &run_id, Some(snapshot.clone()))?;
     let sink = Arc::new(sink_inner);
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -70,7 +74,7 @@ pub async fn run_prompt(
     hooks.register_session_hook(evaluator_hook);
 
     let loop_ =
-        AgentLoop::new(provider, tools, pipeline, policy, approval, max_turns).with_hooks(hooks);
+        AgentLoop::new(provider, tools.clone(), pipeline, policy, approval, max_turns).with_hooks(hooks);
 
     let mut session = Session::new(
         session_id.clone(),
@@ -105,6 +109,42 @@ pub async fn run_prompt(
         snapshot.clone(),
     );
 
+    // Initial manifest setup and save
+    let run_manifest_path = run_paths.root.join("run.json");
+    let initial_manifest = gestalt_trace::run_manifest::RunManifest {
+        v: 1,
+        session_id: session_id.clone(),
+        run_id: run_id.clone(),
+        parent_run_id: None,
+        base_checkpoint: None,
+        run_kind: gestalt_trace::run_manifest::RunKind::New,
+        created_at: chrono::Utc::now(),
+        lifecycle_state: gestalt_trace::run_manifest::LifecycleState::Running,
+        finalized_at: None,
+        failure_kind: None,
+        interrupted_phase: None,
+        compatibility_fingerprint: gestalt_trace::run_manifest::CompatibilityFingerprint {
+            context_pipeline_version: "pipeline-v1".to_string(),
+            tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&tools.schemas()),
+            policy_fingerprint: {
+                let policies_path = config.workspace_file("policies.toml");
+                let content = std::fs::read_to_string(&policies_path).unwrap_or_default();
+                gestalt_trace::run_manifest::compute_policy_fingerprint(&content)
+            },
+            hook_contract_hash: {
+                let hook_names = vec![
+                    "VerificationToolHook".to_string(),
+                    "EvaluatorHook".to_string(),
+                ];
+                gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
+            },
+            execution_mode: format!("{:?}", config.selected_mode()?),
+        },
+    };
+    initial_manifest
+        .save_to(&run_manifest_path)
+        .map_err(|e| gestalt_core::HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
+
     let snapshot_id: String = snapshot.content_hash.chars().take(12).collect();
     sink.emit(AgentEvent::WorkspaceSnapshotCaptured {
         snapshot_id,
@@ -122,8 +162,8 @@ pub async fn run_prompt(
     let mut trace_error_count = 0;
     let max_trace_errors = 3;
 
-    let result = loop_
-        .run(&mut session, |event| {
+    let loop_result = loop_
+        .run(&mut session, &cancel_token, Some(sink.as_ref()), |event| {
             emit_trace_event(
                 &*sink,
                 event.clone(),
@@ -135,15 +175,70 @@ pub async fn run_prompt(
             }
             Ok(())
         })
-        .await?;
-    sink.flush()?;
+        .await;
 
-    write_summary(&run_paths.summary, &result)?;
-    let report = aggregate_costs(&run_paths.trace, |model| {
+    let mut manifest = initial_manifest;
+    manifest.finalized_at = Some(chrono::Utc::now());
+
+    let final_status = match loop_result {
+        Ok(result) => {
+            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Completed;
+            let _ = write_summary(&run_paths.summary, &result);
+            let _ = sink.flush();
+            let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
+            Ok(run_paths.root.clone())
+        }
+        Err(gestalt_core::HarnessError::Cancelled) => {
+            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Interrupted;
+            manifest.interrupted_phase = Some("agent_loop".to_string());
+            let _ = sink.emit(AgentEvent::Interrupted {
+                reason: "signal".to_string(),
+            });
+            let _ = sink.flush();
+
+            let mock_run_result = gestalt_core::session::RunResult {
+                session_id: session.id.clone(),
+                turns: session.history.len() / 2,
+                stop_reason: gestalt_core::StopReason::EndTurn,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                artifacts: Vec::new(),
+                workspace_snapshot_id: None,
+            };
+            let _ = write_summary(&run_paths.summary, &mock_run_result);
+            let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
+            Err(gestalt_core::HarnessError::Cancelled)
+        }
+        Err(err) => {
+            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Failed;
+            manifest.failure_kind = Some(format!("{:?}", err));
+            let _ = sink.flush();
+
+            let mock_run_result = gestalt_core::session::RunResult {
+                session_id: session.id.clone(),
+                turns: session.history.len() / 2,
+                stop_reason: gestalt_core::StopReason::EndTurn,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                artifacts: Vec::new(),
+                workspace_snapshot_id: None,
+            };
+            let _ = write_summary(&run_paths.summary, &mock_run_result);
+            let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
+            Err(err)
+        }
+    };
+
+    let _ = manifest.save_to(&run_manifest_path);
+    final_status
+}
+
+fn write_cost_report_helper(trace_path: &std::path::Path, cost_path: &std::path::Path) -> Result<(), gestalt_core::HarnessError> {
+    let report = aggregate_costs(trace_path, |model| {
         gestalt_models::ModelCatalog::new().get(model)
     })?;
-    write_cost_report(&run_paths.cost, &report)?;
-    Ok(run_paths.root)
+    write_cost_report(cost_path, &report)?;
+    Ok(())
 }
 
 pub fn build_pipeline(
@@ -251,7 +346,7 @@ pub fn build_pipeline(
     Ok(pipeline)
 }
 
-fn build_policy(
+pub(crate) fn build_policy(
     config: &EffectiveConfig,
 ) -> Result<MinimalPolicyEngine, gestalt_core::HarnessError> {
     let policies = config.workspace_file("policies.toml");
@@ -263,14 +358,14 @@ fn build_policy(
     Ok(MinimalPolicyEngine::new(policy))
 }
 
-fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {
+pub(crate) fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {
     match mode {
         ExecutionMode::Yolo => Arc::new(CliApprovalProvider),
         _ => Arc::new(CliApprovalProvider),
     }
 }
 
-fn emit_trace_event<S: TraceSink>(
+pub(crate) fn emit_trace_event<S: TraceSink>(
     sink: &S,
     event: gestalt_core::AgentEvent,
     trace_error_count: &mut usize,

@@ -171,6 +171,7 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
         AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
             Some(format!("snapshot> id={snapshot_id} dirty={dirty}"))
         }
+        _ => None,
     }
 }
 
@@ -814,6 +815,9 @@ pub struct RunsInspectReport {
     pub start_time: Option<chrono::DateTime<chrono::Utc>>,
     /// Associated session identifier.
     pub session_id: String,
+    pub parent_run_id: Option<String>,
+    pub run_kind: Option<String>,
+    pub lifecycle_state: Option<String>,
     /// LLM provider (e.g. "openai").
     pub provider: Option<String>,
     /// LLM model name.
@@ -868,6 +872,10 @@ impl CliReport for RunsInspectReport {
             format!("Run ID: {}", self.run_id),
             format!("Path: {}", self.path.display()),
             format!("Start Time: {start_time_str}"),
+            format!("Session ID: {}", self.session_id),
+            format!("Parent Run ID: {}", self.parent_run_id.as_deref().unwrap_or("none")),
+            format!("Run Kind: {}", self.run_kind.as_deref().unwrap_or("none")),
+            format!("Lifecycle State: {}", self.lifecycle_state.as_deref().unwrap_or("none")),
             format!("Status: {}", self.apparent_status),
             format!("Provider/Model: {prov_mod}"),
             format!("Turns: {}", self.turns.map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string())),

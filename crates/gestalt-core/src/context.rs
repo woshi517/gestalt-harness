@@ -74,7 +74,7 @@ pub trait ContextPipeline: Send + Sync {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub struct TokenBudget {
     pub model_limit: usize,
     pub reserved_output: usize,

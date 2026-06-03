@@ -26,4 +26,5 @@ The detailed descriptions and rationale are documented in the [architecture docu
 | [ADR-019](../gestalt-harness-architecture.md#adr-019-workspace-state-snapshotting-in-session-metadata) | Workspace State Snapshotting in Session Metadata | Accepted |
 | [ADR-020](../gestalt-harness-architecture.md#adr-020-trace-driven-regression-testing-via-golden-traces) | Trace-Driven Regression Testing via Golden Traces | Accepted |
 | [ADR-021](../gestalt-harness-architecture.md#adr-021-default-system-prompt-with-local-policy-overrides) | Default System Prompt with Local Policy Overrides | Accepted |
+| [ADR-022](../gestalt-harness-architecture.md#adr-022-persistent-session-lineage-resumability-and-graceful-cancel-safety) | Persistent Session Lineage, Resumability, and Graceful Cancel-Safety | Accepted |
 

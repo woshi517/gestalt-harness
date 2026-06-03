@@ -231,12 +231,12 @@ struct FixtureApprovalProvider {
 
 #[async_trait]
 impl ApprovalProvider for FixtureApprovalProvider {
-    async fn approve(&self, request: ApprovalRequest) -> ApprovalDecision {
+    async fn approve(&self, request: ApprovalRequest) -> Result<ApprovalDecision, HarnessError> {
         let guard = self.decisions.lock().unwrap();
-        guard
+        Ok(guard
             .get(&request.tool_call_id)
             .cloned()
-            .unwrap_or(ApprovalDecision::Approve)
+            .unwrap_or(ApprovalDecision::Approve))
     }
 }
 
@@ -255,6 +255,7 @@ impl GoldenTraceRunner {
         let trace_path = temp_dir.join("trace.jsonl");
         let sink = JsonlTraceSink::new(
             "session-1",
+            "run-1",
             &trace_path,
             golden.input.workspace_snapshot.clone(),
         )
@@ -376,8 +377,9 @@ impl GoldenTraceRunner {
         });
 
         let sink_run = sink.clone();
+        let cancel = gestalt_core::cancel::CancelToken::new();
         loop_
-            .run(&mut session, |event| {
+            .run(&mut session, &cancel, Some(sink.as_ref()), |event| {
                 sink_run.emit(event).map_err(HarnessError::Trace)?;
                 Ok(())
             })

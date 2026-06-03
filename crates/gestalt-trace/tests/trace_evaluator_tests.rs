@@ -69,7 +69,7 @@ async fn test_evaluator_hook_on_session_end() {
 
     // Write a trace.jsonl file
     let trace_path = temp_dir.join("trace.jsonl");
-    let sink = JsonlTraceSink::new("session-1", &trace_path, None).expect("create sink");
+    let sink = JsonlTraceSink::new("session-1", "run-1", &trace_path, None).expect("create sink");
 
     sink.emit(AgentEvent::UserMessage {
         content: "hello yolo".to_string(),

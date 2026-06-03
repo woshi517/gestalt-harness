@@ -22,3 +22,4 @@ pub mod provider_catalog;
 pub mod profiles;
 pub mod connect;
 pub mod model_cache;
+pub mod sessions;

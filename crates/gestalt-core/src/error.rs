@@ -20,6 +20,8 @@ pub enum HarnessError {
     Trace(#[from] TraceError),
     #[error("approval error: {0}")]
     Approval(#[from] ApprovalError),
+    #[error("cancelled: execution was cancelled")]
+    Cancelled,
 }
 
 impl HarnessError {
