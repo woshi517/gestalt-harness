@@ -5,10 +5,10 @@ use std::{
 };
 
 use gestalt_core::{ConfigError, ExecutionMode, HarnessError};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceConfig {
     #[serde(default)]
@@ -23,7 +23,7 @@ pub struct WorkspaceConfig {
     pub providers: HashMap<String, ProviderConfig>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DefaultsConfig {
     pub provider: Option<String>,
@@ -32,7 +32,7 @@ pub struct DefaultsConfig {
     pub max_turns: Option<usize>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolsConfig {
     pub bash_timeout_secs: Option<u64>,
@@ -50,7 +50,7 @@ impl Default for ToolsConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContextConfig {
     pub max_context_window: Option<usize>,
@@ -66,7 +66,7 @@ impl Default for ContextConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObserveConfig {
     pub run_log_dir: Option<String>,
@@ -82,7 +82,7 @@ impl Default for ObserveConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderConfig {
     pub id: Option<String>,
@@ -94,7 +94,7 @@ pub struct ProviderConfig {
     pub auth_ref: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct CliOverrides {
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -103,7 +103,7 @@ pub struct CliOverrides {
     pub workspace: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EffectiveConfig {
     pub workspace_root: PathBuf,
     pub defaults: DefaultsConfig,
@@ -289,4 +289,177 @@ pub fn validate_workspace_config(
     overrides: &CliOverrides,
 ) -> Result<EffectiveConfig, HarnessError> {
     load_effective_config(overrides)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigSourceInfo {
+    pub value: Value,
+    pub source: String,
+}
+
+pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, ConfigSourceInfo>, HarnessError> {
+    let workspace_root = overrides
+        .workspace
+        .clone()
+        .unwrap_or(std::env::current_dir().map_err(|err| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: "workspace".to_string(),
+                reason: err.to_string(),
+            })
+        })?);
+    let global_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("gestalt/config.toml");
+    let workspace_path = workspace_root.join(".gestalt/config.toml");
+
+    let mut global_cfg = None;
+    if global_path.exists() {
+        global_cfg = Some(WorkspaceConfig::from_file(&global_path)?);
+    }
+    let mut ws_cfg = None;
+    if workspace_path.exists() {
+        ws_cfg = Some(WorkspaceConfig::from_file(&workspace_path)?);
+    }
+
+    let mut map = HashMap::new();
+
+    // Helper macro to resolve a key with precedence: CLI > Env Var > Workspace > Global > Default
+    macro_rules! resolve {
+        ($key:expr, $cli_val:expr, $env_name:expr, $ws_field:expr, $global_field:expr, $default_val:expr) => {
+            let mut active_source = "Default".to_string();
+            let mut active_value = json!($default_val);
+
+            if let Some(ref g) = global_cfg {
+                if let Some(val) = $global_field(g) {
+                    active_source = "Global Config File".to_string();
+                    active_value = json!(val);
+                }
+            }
+
+            if let Some(ref w) = ws_cfg {
+                if let Some(val) = $ws_field(w) {
+                    active_source = "Workspace Config File".to_string();
+                    active_value = json!(val);
+                }
+            }
+
+            if let Some(ref env_name) = $env_name {
+                if let Ok(val) = std::env::var(env_name) {
+                    active_source = format!("Env Var ({})", env_name);
+                    active_value = json!(val);
+                }
+            }
+
+            if let Some(ref val) = $cli_val {
+                active_source = "CLI Override".to_string();
+                active_value = json!(val);
+            }
+
+            map.insert($key.to_string(), ConfigSourceInfo {
+                value: active_value,
+                source: active_source,
+            });
+        };
+    }
+
+    resolve!(
+        "defaults.provider",
+        overrides.provider,
+        Some("GESTALT_PROVIDER"),
+        (|c: &WorkspaceConfig| c.defaults.provider.clone()),
+        (|c: &WorkspaceConfig| c.defaults.provider.clone()),
+        "anthropic"
+    );
+
+    resolve!(
+        "defaults.model",
+        overrides.model,
+        Some("GESTALT_MODEL"),
+        (|c: &WorkspaceConfig| c.defaults.model.clone()),
+        (|c: &WorkspaceConfig| c.defaults.model.clone()),
+        Value::Null
+    );
+
+    resolve!(
+        "defaults.mode",
+        overrides.mode,
+        Some("GESTALT_MODE"),
+        (|c: &WorkspaceConfig| c.defaults.mode.clone()),
+        (|c: &WorkspaceConfig| c.defaults.mode.clone()),
+        "confirm"
+    );
+
+    resolve!(
+        "defaults.max_turns",
+        overrides.max_turns,
+        Some("GESTALT_MAX_TURNS"),
+        (|c: &WorkspaceConfig| c.defaults.max_turns),
+        (|c: &WorkspaceConfig| c.defaults.max_turns),
+        50
+    );
+
+    resolve!(
+        "tools.bash_timeout_secs",
+        None::<u64>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.tools.bash_timeout_secs),
+        (|c: &WorkspaceConfig| c.tools.bash_timeout_secs),
+        60
+    );
+
+    resolve!(
+        "tools.max_output_tokens",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.tools.max_output_tokens),
+        (|c: &WorkspaceConfig| c.tools.max_output_tokens),
+        4000
+    );
+
+    resolve!(
+        "tools.sandbox_type",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.tools.sandbox_type.clone()),
+        (|c: &WorkspaceConfig| c.tools.sandbox_type.clone()),
+        "none"
+    );
+
+    resolve!(
+        "context.max_context_window",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.max_context_window),
+        (|c: &WorkspaceConfig| c.context.max_context_window),
+        120000
+    );
+
+    resolve!(
+        "context.reserved_output_tokens",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.reserved_output_tokens),
+        (|c: &WorkspaceConfig| c.context.reserved_output_tokens),
+        8000
+    );
+
+    resolve!(
+        "observe.run_log_dir",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.observe.run_log_dir.clone()),
+        (|c: &WorkspaceConfig| c.observe.run_log_dir.clone()),
+        ".gestalt/runs"
+    );
+
+    resolve!(
+        "observe.log_format",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.observe.log_format.clone()),
+        (|c: &WorkspaceConfig| c.observe.log_format.clone()),
+        "jsonl"
+    );
+
+    Ok(map)
 }

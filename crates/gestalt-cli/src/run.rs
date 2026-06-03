@@ -142,7 +142,7 @@ pub async fn run_prompt(
     Ok(run_paths.root)
 }
 
-fn build_pipeline(
+pub fn build_pipeline(
     config: &EffectiveConfig,
     mode: ExecutionMode,
     max_turns: usize,
