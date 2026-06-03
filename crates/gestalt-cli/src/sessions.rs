@@ -420,6 +420,8 @@ pub async fn run_session_action(
     branch_checkpoint: Option<u64>,
     api_key: Option<String>,
     cancel_token: gestalt_core::cancel::CancelToken,
+    approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
+    event_tx: Option<tokio::sync::mpsc::UnboundedSender<gestalt_core::AgentEvent>>,
 ) -> Result<PathBuf, gestalt_core::HarnessError> {
     // 1. Resolve parent run path
     let parent_run_path = match action {
@@ -529,7 +531,7 @@ pub async fn run_session_action(
         .collect();
     let pipeline = Arc::new(build_pipeline(config, mode, max_turns, &tool_names)?);
     let policy = Arc::new(build_policy(config)?);
-    let approval = approval_provider(config.selected_mode()?);
+    let approval = approval_override.unwrap_or_else(|| approval_provider(mode));
 
     let model = if resolved.model.is_empty() { provider_default_model } else { resolved.model };
     let run_id = format!("run-{}", uuid::Uuid::new_v4());
@@ -618,18 +620,26 @@ pub async fn run_session_action(
         .map_err(|e| gestalt_core::HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
 
     let snapshot_id: String = current_snapshot.content_hash.chars().take(12).collect();
-    sink.emit(AgentEvent::WorkspaceSnapshotCaptured {
+    let snapshot_event = AgentEvent::WorkspaceSnapshotCaptured {
         snapshot_id,
         dirty: current_snapshot.git_dirty.unwrap_or(false),
-    })?;
+    };
+    sink.emit(snapshot_event.clone())?;
+    if let Some(ref tx) = event_tx {
+        let _ = tx.send(snapshot_event);
+    }
 
     // Seed history checkpoint
-    sink.emit(AgentEvent::Checkpoint {
+    let checkpoint_event = AgentEvent::Checkpoint {
         history: session.history.clone(),
         token_budget: session.token_budget.clone(),
         packet_hash: None,
         prompt_source: None,
-    })?;
+    };
+    sink.emit(checkpoint_event.clone())?;
+    if let Some(ref tx) = event_tx {
+        let _ = tx.send(checkpoint_event);
+    }
 
     // If continue or branch, we append the user's prompt as the next turn
     if let Some(ref p) = prompt {
@@ -638,9 +648,13 @@ pub async fn run_session_action(
                 text: p.clone(),
             }],
         });
-        sink.emit(AgentEvent::UserMessage {
+        let user_msg_event = AgentEvent::UserMessage {
             content: p.clone(),
-        })?;
+        };
+        sink.emit(user_msg_event.clone())?;
+        if let Some(ref tx) = event_tx {
+            let _ = tx.send(user_msg_event);
+        }
     }
 
     let mut trace_error_count = 0;
@@ -654,7 +668,9 @@ pub async fn run_session_action(
                 &mut trace_error_count,
                 max_trace_errors,
             )?;
-            if let Some(line) = render_event(&event) {
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(event.clone());
+            } else if let Some(line) = render_event(&event) {
                 println!("{line}");
             }
             Ok(())
@@ -675,9 +691,13 @@ pub async fn run_session_action(
         Err(gestalt_core::HarnessError::Cancelled) => {
             manifest.lifecycle_state = LifecycleState::Interrupted;
             manifest.interrupted_phase = Some("agent_loop".to_string());
-            let _ = sink.emit(AgentEvent::Interrupted {
+            let interrupted_event = AgentEvent::Interrupted {
                 reason: "signal".to_string(),
-            });
+            };
+            let _ = sink.emit(interrupted_event.clone());
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(interrupted_event);
+            }
             let _ = sink.flush();
 
             let mock_run_result = gestalt_core::session::RunResult {

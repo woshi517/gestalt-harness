@@ -23,6 +23,21 @@ pub struct WorkspaceConfig {
     pub providers: HashMap<String, ProviderConfig>,
     #[serde(default)]
     pub profiles: HashMap<String, ProfileConfig>,
+    #[serde(default)]
+    pub tui: Option<TuiConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TuiConfig {
+    #[serde(default)]
+    pub diagnostics: Option<TuiDiagnosticsConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TuiDiagnosticsConfig {
+    pub max_log_lines: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -128,6 +143,7 @@ pub struct EffectiveConfig {
     pub profiles: HashMap<String, ProfileConfig>,
     pub provider_override: Option<String>,
     pub model_override: Option<String>,
+    pub tui: TuiConfig,
 }
 
 impl WorkspaceConfig {
@@ -177,6 +193,16 @@ impl WorkspaceConfig {
             self_observe.run_log_dir = other_observe.run_log_dir.or(self_observe.run_log_dir);
             self_observe.log_format = other_observe.log_format.or(self_observe.log_format);
             self.observe = Some(self_observe);
+        }
+
+        if let Some(other_tui) = other.tui {
+            let mut self_tui = self.tui.unwrap_or_default();
+            if let Some(other_diag) = other_tui.diagnostics {
+                let mut self_diag = self_tui.diagnostics.unwrap_or_default();
+                self_diag.max_log_lines = other_diag.max_log_lines.or(self_diag.max_log_lines);
+                self_tui.diagnostics = Some(self_diag);
+            }
+            self.tui = Some(self_tui);
         }
 
         self.providers.extend(other.providers);
@@ -273,6 +299,30 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
     let provider_override = overrides.provider.clone().or_else(|| std::env::var("GESTALT_PROVIDER").ok());
     let model_override = overrides.model.clone().or_else(|| std::env::var("GESTALT_MODEL").ok());
 
+    let mut tui = config.tui.unwrap_or_default();
+    let mut diagnostics = tui.diagnostics.unwrap_or_default();
+
+    if let Ok(env_max) = std::env::var("GESTALT_TUI_MAX_LOG_LINES") {
+        if let Ok(val) = env_max.parse::<usize>() {
+            diagnostics.max_log_lines = Some(val);
+        } else {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: "GESTALT_TUI_MAX_LOG_LINES".to_string(),
+                reason: format!("Invalid integer: {env_max}"),
+            }));
+        }
+    }
+
+    let max_lines = diagnostics.max_log_lines.unwrap_or(1000);
+    if max_lines < 100 || max_lines > 50000 {
+        return Err(HarnessError::Config(ConfigError::InvalidValue {
+            field: "tui.diagnostics.max_log_lines".to_string(),
+            reason: format!("Value {max_lines} must be between 100 and 50,000"),
+        }));
+    }
+    diagnostics.max_log_lines = Some(max_lines);
+    tui.diagnostics = Some(diagnostics);
+
     Ok(EffectiveConfig {
         workspace_root,
         defaults: config.defaults.unwrap_or_default(),
@@ -283,6 +333,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         profiles: config.profiles,
         provider_override,
         model_override,
+        tui,
     })
 }
 
@@ -694,6 +745,15 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format.clone())),
         (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format.clone())),
         "jsonl"
+    );
+
+    resolve!(
+        "tui.diagnostics.max_log_lines",
+        None::<usize>,
+        Some("GESTALT_TUI_MAX_LOG_LINES"),
+        (|c: &WorkspaceConfig| c.tui.as_ref().and_then(|t| t.diagnostics.as_ref()).and_then(|d| d.max_log_lines)),
+        (|c: &WorkspaceConfig| c.tui.as_ref().and_then(|t| t.diagnostics.as_ref()).and_then(|d| d.max_log_lines)),
+        1000
     );
 
     Ok(map)

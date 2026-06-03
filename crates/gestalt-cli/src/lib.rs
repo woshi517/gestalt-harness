@@ -23,3 +23,9 @@ pub mod profiles;
 pub mod connect;
 pub mod model_cache;
 pub mod sessions;
+pub mod chat;
+pub mod slash;
+
+#[cfg(feature = "tui")]
+pub mod tui;
+

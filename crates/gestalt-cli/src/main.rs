@@ -23,7 +23,7 @@ use gestalt_cli::{
     workspace::{
         doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
     },
-    trace, export, verify, policy, context, tools, doctor, sessions,
+    trace, export, verify, policy, context, tools, doctor, sessions, chat,
 };
 
 #[derive(Parser)]
@@ -59,6 +59,26 @@ struct Cli {
 enum Command {
     Run {
         prompt: String,
+        #[arg(long)]
+        resume: Option<String>,
+        #[arg(long, short)]
+        yes: bool,
+        #[arg(long)]
+        tui: bool,
+    },
+    Chat {
+        #[arg(long)]
+        resume: Option<String>,
+        #[arg(long, short)]
+        yes: bool,
+        #[arg(long)]
+        tui: bool,
+    },
+    Tui {
+        #[arg(long)]
+        run: Option<String>,
+        #[arg(long)]
+        prompt: Option<String>,
     },
     Replay {
         path: PathBuf,
@@ -502,7 +522,7 @@ fn handle_result<T: CliReport>(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let overrides = CliOverrides {
+    let mut overrides = CliOverrides {
         provider: cli.provider.clone(),
         model: cli.model.clone(),
         mode: cli.mode.clone(),
@@ -515,44 +535,126 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let quiet = cli.quiet;
 
     match cli.command {
-        Command::Run { prompt } => {
-            let cancel_token = gestalt_core::CancelToken::new();
-            let cancel_token_clone = cancel_token.clone();
-            tokio::spawn(async move {
-                if tokio::signal::ctrl_c().await.is_ok() {
-                    eprintln!("\n[Interrupt] Cancellation requested. Cleaning up...");
-                    cancel_token_clone.cancel();
-                    
-                    if tokio::signal::ctrl_c().await.is_ok() {
-                        eprintln!("\n[Interrupt] Force exiting immediately.");
-                        std::process::exit(130);
-                    }
+        Command::Run { prompt, resume, yes, tui } => {
+            if yes {
+                overrides.mode = Some("yolo".to_string());
+            }
+            if tui {
+                #[cfg(feature = "tui")]
+                {
+                    let cancel_token = gestalt_core::CancelToken::new();
+                    let config = load_effective_config(&overrides)?;
+                    gestalt_cli::tui::run_tui(&config, resume, Some(prompt), cli.api_key.clone(), cancel_token).await
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
                 }
-            });
-            #[cfg(unix)]
-            {
+                #[cfg(not(feature = "tui"))]
+                {
+                    return Err(Box::new(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
+                        field: "tui".to_string(),
+                        reason: "TUI support is not enabled in this build. Please compile with --features tui.".to_string(),
+                    })) as Box<dyn std::error::Error>);
+                }
+            } else {
+                let cancel_token = gestalt_core::CancelToken::new();
                 let cancel_token_clone = cancel_token.clone();
                 tokio::spawn(async move {
-                    use tokio::signal::unix::{signal, SignalKind};
-                    if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
-                        sigterm.recv().await;
-                        eprintln!("\n[Interrupt] SIGTERM received. Cleaning up...");
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        eprintln!("\n[Interrupt] Cancellation requested. Cleaning up...");
                         cancel_token_clone.cancel();
+                        
+                        if tokio::signal::ctrl_c().await.is_ok() {
+                            eprintln!("\n[Interrupt] Force exiting immediately.");
+                            std::process::exit(130);
+                        }
                     }
                 });
-            }
+                #[cfg(unix)]
+                {
+                    let cancel_token_clone = cancel_token.clone();
+                    tokio::spawn(async move {
+                        use tokio::signal::unix::{signal, SignalKind};
+                        if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                            sigterm.recv().await;
+                            eprintln!("\n[Interrupt] SIGTERM received. Cleaning up...");
+                            cancel_token_clone.cancel();
+                        }
+                    });
+                }
 
-            let res: Result<RunReport, gestalt_core::HarnessError> = async {
-                let config = load_effective_config(&overrides)?;
-                let run_dir = run_prompt(&config, &prompt, cli.api_key.clone(), cancel_token).await?;
-                Ok(RunReport { run_dir })
+                let res: Result<RunReport, gestalt_core::HarnessError> = async {
+                    let config = load_effective_config(&overrides)?;
+                    let run_dir = if let Some(ref target) = resume {
+                        sessions::run_session_action(&config, "branch", target, Some(prompt), None, cli.api_key.clone(), cancel_token, None, None).await?
+                    } else {
+                        run_prompt(&config, &prompt, cli.api_key.clone(), cancel_token, None, None, None).await?
+                    };
+                    Ok(RunReport { run_dir })
+                }
+                .await;
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
             }
-            .await;
-            handle_result(
-                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
-                format,
-                quiet,
-            )?;
+        }
+        Command::Chat { resume, yes, tui } => {
+            if yes {
+                overrides.mode = Some("yolo".to_string());
+            }
+            if tui {
+                #[cfg(feature = "tui")]
+                {
+                    let cancel_token = gestalt_core::CancelToken::new();
+                    let config = load_effective_config(&overrides)?;
+                    gestalt_cli::tui::run_tui(&config, resume, None, cli.api_key.clone(), cancel_token).await
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                }
+                #[cfg(not(feature = "tui"))]
+                {
+                    return Err(Box::new(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
+                        field: "tui".to_string(),
+                        reason: "TUI support is not enabled in this build. Please compile with --features tui.".to_string(),
+                    })) as Box<dyn std::error::Error>);
+                }
+            } else {
+                let cancel_token = gestalt_core::CancelToken::new();
+                #[cfg(unix)]
+                {
+                    let cancel_token_clone = cancel_token.clone();
+                    tokio::spawn(async move {
+                        use tokio::signal::unix::{signal, SignalKind};
+                        if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                            sigterm.recv().await;
+                            eprintln!("\n[Interrupt] SIGTERM received. Cleaning up...");
+                            cancel_token_clone.cancel();
+                        }
+                    });
+                }
+
+                let res = chat::run_chat(&overrides, resume, cli.api_key.clone(), cancel_token).await;
+                if let Err(err) = res {
+                    print_error_and_exit(&err, format);
+                }
+            }
+        }
+        Command::Tui { run, prompt } => {
+            #[cfg(feature = "tui")]
+            {
+                let cancel_token = gestalt_core::CancelToken::new();
+                let config = load_effective_config(&overrides)?;
+                gestalt_cli::tui::run_tui(&config, run, prompt, cli.api_key.clone(), cancel_token).await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                let _ = run;
+                let _ = prompt;
+                return Err(Box::new(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
+                    field: "tui".to_string(),
+                    reason: "TUI support is not enabled in this build. Please compile with --features tui.".to_string(),
+                })) as Box<dyn std::error::Error>);
+            }
         }
         Command::Replay { path } => {
             let res: Result<ReplayReport, Box<dyn std::error::Error>> = (|| {
@@ -955,6 +1057,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     None,
                     cli.api_key.clone(),
                     cancel_token,
+                    None,
+                    None,
                 ).await;
                 handle_result(
                     res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
@@ -995,6 +1099,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     None,
                     cli.api_key.clone(),
                     cancel_token,
+                    None,
+                    None,
                 ).await;
                 handle_result(
                     res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
@@ -1035,6 +1141,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Some(at),
                     cli.api_key.clone(),
                     cancel_token,
+                    None,
+                    None,
                 ).await;
                 handle_result(
                     res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),

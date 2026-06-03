@@ -283,6 +283,7 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
                 profiles: std::collections::HashMap::new(),
                 provider_override: None,
                 model_override: None,
+                tui: crate::config::TuiConfig::default(),
             }
         }
     };

@@ -120,6 +120,8 @@ async fn test_sessions_list_inspect_history() {
         None,
         None,
         cancel.clone(),
+        None,
+        None,
     ).await;
     
     assert!(continue_err.is_err());
@@ -281,6 +283,8 @@ max_turns = 1
         None,
         None,
         cancel.clone(),
+        None,
+        None,
     ).await.unwrap();
 
     // Verify it created a new run directory with CONTINUE kind and correct lineage
@@ -320,6 +324,8 @@ max_turns = 1
         Some(1),
         None,
         cancel_branch,
+        None,
+        None,
     ).await.unwrap();
 
     let manifest_branch = RunManifest::load_from(&branch_run_path.join("run.json")).unwrap();

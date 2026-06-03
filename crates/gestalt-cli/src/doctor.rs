@@ -41,6 +41,7 @@ pub async fn diagnose_workspace(
                 profiles: std::collections::HashMap::new(),
                 provider_override: None,
                 model_override: None,
+                tui: crate::config::TuiConfig::default(),
             }
         }
     };
