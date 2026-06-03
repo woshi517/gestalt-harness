@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
 
 use gestalt_core::event::PolicyStatus;
 use gestalt_core::AgentEvent;
@@ -17,19 +16,32 @@ pub fn replay_trace(
     config: &EffectiveConfig,
     run_id_or_path: &str,
 ) -> Result<ReplayReport, Box<dyn std::error::Error>> {
-    let path = Path::new(run_id_or_path);
-    let resolved = if path.exists() {
+    let (_run_id, _run_dir, trace_path) = resolve_trace_target(config, run_id_or_path)?;
+    let rendered = replay_display(&trace_path)?;
+    Ok(ReplayReport { rendered })
+}
+
+pub fn resolve_trace_target(
+    config: &EffectiveConfig,
+    run_id_or_path: &str,
+) -> Result<(String, std::path::PathBuf, std::path::PathBuf), Box<dyn std::error::Error>> {
+    let path = std::path::Path::new(run_id_or_path);
+    if path.exists() {
         if path.is_dir() {
-            path.join("trace.jsonl")
+            let run_id = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let trace_path = path.join("trace.jsonl");
+            Ok((run_id, path.to_path_buf(), trace_path))
         } else {
-            path.to_path_buf()
+            let run_dir = path.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+            let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            Ok((run_id, run_dir, path.to_path_buf()))
         }
     } else {
         let run_dir = runs::resolve_run_path(config, run_id_or_path)?;
-        run_dir.join("trace.jsonl")
-    };
-    let rendered = replay_display(&resolved)?;
-    Ok(ReplayReport { rendered })
+        let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let trace_path = run_dir.join("trace.jsonl");
+        Ok((run_id, run_dir, trace_path))
+    }
 }
 
 /// Inspects trace events and aggregates execution statistics.
@@ -37,9 +49,7 @@ pub fn inspect_trace(
     config: &EffectiveConfig,
     run_id_or_path: &str,
 ) -> Result<TraceInspectReport, Box<dyn std::error::Error>> {
-    let run_dir = runs::resolve_run_path(config, run_id_or_path)?;
-    let trace_path = run_dir.join("trace.jsonl");
-    let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let (run_id, _run_dir, trace_path) = resolve_trace_target(config, run_id_or_path)?;
 
     if !trace_path.exists() {
         return Err(Box::new(std::io::Error::new(
@@ -158,9 +168,7 @@ pub fn validate_trace(
     config: &EffectiveConfig,
     run_id_or_path: &str,
 ) -> Result<TraceValidateReport, Box<dyn std::error::Error>> {
-    let run_dir = runs::resolve_run_path(config, run_id_or_path)?;
-    let trace_path = run_dir.join("trace.jsonl");
-    let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let (run_id, run_dir, trace_path) = resolve_trace_target(config, run_id_or_path)?;
 
     let mut errors = Vec::new();
     let mut warnings = Vec::new();

@@ -1,5 +1,4 @@
 use gestalt_core::error::HarnessError;
-use gestalt_models::registry;
 use std::{fs, path::PathBuf};
 
 use crate::config::{load_effective_config, CliOverrides};
@@ -66,22 +65,28 @@ pub async fn diagnose_workspace(
     }
 
     // 4. Provider auth/live checks
-    let providers = registry::registered();
+    let providers = crate::providers::list_providers(&config);
     for provider in &providers {
-        if let Ok(auth_report) = resolve_auth(&config, provider) {
-            let mut status = auth_report.status;
-            if live && status == "present" {
-                match probe_provider(&config, provider).await {
-                    Ok(_) => {
-                        status = "ready".to_string();
-                    }
-                    Err(err) => {
-                        status = format!("error: {}", err);
+        let status = match resolve_auth(&config, provider) {
+            Ok(auth_report) => {
+                let mut status = auth_report.status;
+                if live && status == "present" {
+                    match probe_provider(&config, provider).await {
+                        Ok(_) => {
+                            status = "ready".to_string();
+                        }
+                        Err(err) => {
+                            status = format!("error: {}", err);
+                        }
                     }
                 }
+                status
             }
-            auth_summary.insert(provider.clone(), status);
-        }
+            Err(err) => {
+                format!("error: {}", err)
+            }
+        };
+        auth_summary.insert(provider.clone(), status);
     }
 
     // 5. Writability test
@@ -97,6 +102,17 @@ pub async fn diagnose_workspace(
         None
     };
 
+    // 6. Selected model check
+    let selected_model = config.selected_model();
+    let mut model_valid = true;
+    let mut model_error = None;
+    if let Some(ref model_id) = selected_model {
+        if gestalt_models::ModelCatalog::new().get(model_id).is_none() {
+            model_valid = false;
+            model_error = Some(format!("selected model '{model_id}' is not in the catalog"));
+        }
+    }
+
     let ws_report = WorkspaceDoctorReport {
         workspace_root,
         config_valid,
@@ -107,6 +123,9 @@ pub async fn diagnose_workspace(
         auth_summary,
         run_dir_exists,
         run_dir_writable,
+        selected_model,
+        model_valid,
+        model_error,
     };
 
     Ok(GlobalDoctorReport {

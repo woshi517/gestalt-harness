@@ -12,13 +12,13 @@ use serde_json::{json, Value};
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceConfig {
     #[serde(default)]
-    pub defaults: DefaultsConfig,
+    pub defaults: Option<DefaultsConfig>,
     #[serde(default)]
-    pub tools: ToolsConfig,
+    pub tools: Option<ToolsConfig>,
     #[serde(default)]
-    pub context: ContextConfig,
+    pub context: Option<ContextConfig>,
     #[serde(default)]
-    pub observe: ObserveConfig,
+    pub observe: Option<ObserveConfig>,
     #[serde(default)]
     pub providers: HashMap<String, ProviderConfig>,
 }
@@ -130,32 +130,36 @@ impl WorkspaceConfig {
     }
 
     fn merge(mut self, other: Self) -> Self {
-        self.defaults.provider = other.defaults.provider.or(self.defaults.provider);
-        self.defaults.model = other.defaults.model.or(self.defaults.model);
-        self.defaults.mode = other.defaults.mode.or(self.defaults.mode);
-        self.defaults.max_turns = other.defaults.max_turns.or(self.defaults.max_turns);
+        if let Some(other_defaults) = other.defaults {
+            let mut self_defaults = self.defaults.unwrap_or_default();
+            self_defaults.provider = other_defaults.provider.or(self_defaults.provider);
+            self_defaults.model = other_defaults.model.or(self_defaults.model);
+            self_defaults.mode = other_defaults.mode.or(self_defaults.mode);
+            self_defaults.max_turns = other_defaults.max_turns.or(self_defaults.max_turns);
+            self.defaults = Some(self_defaults);
+        }
 
-        self.tools.bash_timeout_secs = other
-            .tools
-            .bash_timeout_secs
-            .or(self.tools.bash_timeout_secs);
-        self.tools.max_output_tokens = other
-            .tools
-            .max_output_tokens
-            .or(self.tools.max_output_tokens);
-        self.tools.sandbox_type = other.tools.sandbox_type.or(self.tools.sandbox_type);
+        if let Some(other_tools) = other.tools {
+            let mut self_tools = self.tools.unwrap_or_default();
+            self_tools.bash_timeout_secs = other_tools.bash_timeout_secs.or(self_tools.bash_timeout_secs);
+            self_tools.max_output_tokens = other_tools.max_output_tokens.or(self_tools.max_output_tokens);
+            self_tools.sandbox_type = other_tools.sandbox_type.or(self_tools.sandbox_type);
+            self.tools = Some(self_tools);
+        }
 
-        self.context.max_context_window = other
-            .context
-            .max_context_window
-            .or(self.context.max_context_window);
-        self.context.reserved_output_tokens = other
-            .context
-            .reserved_output_tokens
-            .or(self.context.reserved_output_tokens);
+        if let Some(other_context) = other.context {
+            let mut self_context = self.context.unwrap_or_default();
+            self_context.max_context_window = other_context.max_context_window.or(self_context.max_context_window);
+            self_context.reserved_output_tokens = other_context.reserved_output_tokens.or(self_context.reserved_output_tokens);
+            self.context = Some(self_context);
+        }
 
-        self.observe.run_log_dir = other.observe.run_log_dir.or(self.observe.run_log_dir);
-        self.observe.log_format = other.observe.log_format.or(self.observe.log_format);
+        if let Some(other_observe) = other.observe {
+            let mut self_observe = self.observe.unwrap_or_default();
+            self_observe.run_log_dir = other_observe.run_log_dir.or(self_observe.run_log_dir);
+            self_observe.log_format = other_observe.log_format.or(self_observe.log_format);
+            self.observe = Some(self_observe);
+        }
 
         self.providers.extend(other.providers);
         self
@@ -185,40 +189,68 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         config = config.merge(WorkspaceConfig::from_file(&workspace_path)?);
     }
 
+    let mut defaults = config.defaults.unwrap_or_default();
+
     if let Ok(provider) = std::env::var("GESTALT_PROVIDER") {
-        config.defaults.provider = Some(provider);
+        defaults.provider = Some(provider);
     }
     if let Ok(model) = std::env::var("GESTALT_MODEL") {
-        config.defaults.model = Some(model);
+        defaults.model = Some(model);
     }
     if let Ok(mode) = std::env::var("GESTALT_MODE") {
-        config.defaults.mode = Some(mode);
+        defaults.mode = Some(mode);
     }
     if let Ok(max_turns) = std::env::var("GESTALT_MAX_TURNS") {
         if let Ok(max_turns) = max_turns.parse::<usize>() {
-            config.defaults.max_turns = Some(max_turns);
+            defaults.max_turns = Some(max_turns);
         }
     }
 
     if let Some(provider) = &overrides.provider {
-        config.defaults.provider = Some(provider.clone());
+        defaults.provider = Some(provider.clone());
     }
     if let Some(model) = &overrides.model {
-        config.defaults.model = Some(model.clone());
+        defaults.model = Some(model.clone());
     }
     if let Some(mode) = &overrides.mode {
-        config.defaults.mode = Some(mode.clone());
+        defaults.mode = Some(mode.clone());
     }
     if let Some(max_turns) = overrides.max_turns {
-        config.defaults.max_turns = Some(max_turns);
+        defaults.max_turns = Some(max_turns);
     }
+    config.defaults = Some(defaults);
+
+    let tools = {
+        let mut t = config.tools.unwrap_or_default();
+        let d = ToolsConfig::default();
+        t.bash_timeout_secs = t.bash_timeout_secs.or(d.bash_timeout_secs);
+        t.max_output_tokens = t.max_output_tokens.or(d.max_output_tokens);
+        t.sandbox_type = t.sandbox_type.or(d.sandbox_type);
+        t
+    };
+
+    let context = {
+        let mut c = config.context.unwrap_or_default();
+        let d = ContextConfig::default();
+        c.max_context_window = c.max_context_window.or(d.max_context_window);
+        c.reserved_output_tokens = c.reserved_output_tokens.or(d.reserved_output_tokens);
+        c
+    };
+
+    let observe = {
+        let mut o = config.observe.unwrap_or_default();
+        let d = ObserveConfig::default();
+        o.run_log_dir = o.run_log_dir.or(d.run_log_dir);
+        o.log_format = o.log_format.or(d.log_format);
+        o
+    };
 
     Ok(EffectiveConfig {
         workspace_root,
-        defaults: config.defaults,
-        tools: config.tools,
-        context: config.context,
-        observe: config.observe,
+        defaults: config.defaults.unwrap_or_default(),
+        tools,
+        context,
+        observe,
         providers: config.providers,
     })
 }
@@ -366,8 +398,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "defaults.provider",
         overrides.provider,
         Some("GESTALT_PROVIDER"),
-        (|c: &WorkspaceConfig| c.defaults.provider.clone()),
-        (|c: &WorkspaceConfig| c.defaults.provider.clone()),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.provider.clone())),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.provider.clone())),
         "anthropic"
     );
 
@@ -375,8 +407,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "defaults.model",
         overrides.model,
         Some("GESTALT_MODEL"),
-        (|c: &WorkspaceConfig| c.defaults.model.clone()),
-        (|c: &WorkspaceConfig| c.defaults.model.clone()),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.model.clone())),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.model.clone())),
         Value::Null
     );
 
@@ -384,8 +416,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "defaults.mode",
         overrides.mode,
         Some("GESTALT_MODE"),
-        (|c: &WorkspaceConfig| c.defaults.mode.clone()),
-        (|c: &WorkspaceConfig| c.defaults.mode.clone()),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.mode.clone())),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.mode.clone())),
         "confirm"
     );
 
@@ -393,8 +425,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "defaults.max_turns",
         overrides.max_turns,
         Some("GESTALT_MAX_TURNS"),
-        (|c: &WorkspaceConfig| c.defaults.max_turns),
-        (|c: &WorkspaceConfig| c.defaults.max_turns),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.max_turns)),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.max_turns)),
         50
     );
 
@@ -402,8 +434,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "tools.bash_timeout_secs",
         None::<u64>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.tools.bash_timeout_secs),
-        (|c: &WorkspaceConfig| c.tools.bash_timeout_secs),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.bash_timeout_secs)),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.bash_timeout_secs)),
         60
     );
 
@@ -411,8 +443,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "tools.max_output_tokens",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.tools.max_output_tokens),
-        (|c: &WorkspaceConfig| c.tools.max_output_tokens),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.max_output_tokens)),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.max_output_tokens)),
         4000
     );
 
@@ -420,8 +452,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "tools.sandbox_type",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.tools.sandbox_type.clone()),
-        (|c: &WorkspaceConfig| c.tools.sandbox_type.clone()),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type.clone())),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type.clone())),
         "none"
     );
 
@@ -429,8 +461,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "context.max_context_window",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.max_context_window),
-        (|c: &WorkspaceConfig| c.context.max_context_window),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.max_context_window)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.max_context_window)),
         120000
     );
 
@@ -438,8 +470,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "context.reserved_output_tokens",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.reserved_output_tokens),
-        (|c: &WorkspaceConfig| c.context.reserved_output_tokens),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
         8000
     );
 
@@ -447,8 +479,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "observe.run_log_dir",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.observe.run_log_dir.clone()),
-        (|c: &WorkspaceConfig| c.observe.run_log_dir.clone()),
+        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.run_log_dir.clone())),
+        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.run_log_dir.clone())),
         ".gestalt/runs"
     );
 
@@ -456,8 +488,8 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "observe.log_format",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.observe.log_format.clone()),
-        (|c: &WorkspaceConfig| c.observe.log_format.clone()),
+        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format.clone())),
+        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format.clone())),
         "jsonl"
     );
 

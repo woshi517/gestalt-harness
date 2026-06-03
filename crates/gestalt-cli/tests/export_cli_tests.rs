@@ -50,5 +50,10 @@ fn test_export_formats() {
     assert!(err_rep.is_err());
     assert!(err_rep.unwrap_err().to_string().contains("ShareGPT export format is not supported yet"));
 
+    // 4. Export ShareGPT (Unsupported) for a missing run
+    let err_missing_run = export_run(&config, "non-existent-run-id", ExportFormat::Sharegpt);
+    assert!(err_missing_run.is_err());
+    assert!(err_missing_run.unwrap_err().to_string().contains("ShareGPT export format is not supported yet"));
+
     let _ = fs::remove_dir_all(&temp_root);
 }

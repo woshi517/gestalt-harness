@@ -46,6 +46,28 @@ fn get_tool_risk(tool_name: &str, input: &Value) -> RiskLevel {
     }
 }
 
+fn validate_tool_input(tool_name: &str, input: &Value) -> Result<(), Box<dyn std::error::Error>> {
+    if tool_name == "bash" {
+        if !input.is_object() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Bash tool input must be a JSON object",
+            )));
+        }
+        let command = input.get("command").and_then(Value::as_str);
+        match command {
+            Some(cmd) if !cmd.trim().is_empty() => {}
+            _ => {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Bash tool input must contain a non-empty 'command' string",
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn explain_policy(
     overrides: &CliOverrides,
     tool_name: &str,
@@ -53,6 +75,7 @@ pub async fn explain_policy(
 ) -> Result<PolicyExplainReport, Box<dyn std::error::Error>> {
     let config = load_effective_config(overrides)?;
     let input: Value = serde_json::from_str(input_str)?;
+    validate_tool_input(tool_name, &input)?;
     let mode = config.selected_mode()?;
     let risk = get_tool_risk(tool_name, &input);
 
@@ -94,6 +117,7 @@ pub async fn test_policy(
 ) -> Result<PolicyTestReport, Box<dyn std::error::Error>> {
     let config = load_effective_config(overrides)?;
     let input: Value = serde_json::from_str(input_str)?;
+    validate_tool_input(tool_name, &input)?;
     let mode = if let Some(m) = override_mode {
         crate::config::mode_from_str(m)?
     } else {

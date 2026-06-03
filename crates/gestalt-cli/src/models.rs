@@ -3,6 +3,8 @@ use gestalt_models::ModelCatalog;
 
 use crate::config::EffectiveConfig;
 
+use crate::output::ModelsRefreshReport;
+
 fn catalog(_config: &EffectiveConfig) -> ModelCatalog {
     ModelCatalog::new()
 }
@@ -27,13 +29,33 @@ pub fn inspect_model(config: &EffectiveConfig, model: &str) -> Result<ModelInfo,
     })
 }
 
-pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<String, HarnessError> {
+pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<ModelsRefreshReport, HarnessError> {
     let count = list_models(config, None).len();
-    if live {
-        Ok(format!("refreshed live catalog: {count} models available"))
-    } else {
-        Ok(format!("built-in catalog available: {count} models (offline)"))
+    if !live {
+        return Ok(ModelsRefreshReport {
+            count,
+            status: "offline".to_string(),
+        });
     }
+
+    let status = if let Ok(provider) = config.selected_provider() {
+        match crate::providers::probe_provider(config, &provider).await {
+            Ok(_) => "live performed".to_string(),
+            Err(HarnessError::Provider(gestalt_core::ProviderError::AuthFailed { .. })) => {
+                "offline".to_string()
+            }
+            Err(HarnessError::Provider(gestalt_core::ProviderError::UnexpectedResponse { .. })) => {
+                "unsupported".to_string()
+            }
+            Err(_) => {
+                "offline".to_string()
+            }
+        }
+    } else {
+        "unsupported".to_string()
+    };
+
+    Ok(ModelsRefreshReport { count, status })
 }
 
 pub fn select_model(config: &EffectiveConfig, model: &str) -> Result<String, HarnessError> {

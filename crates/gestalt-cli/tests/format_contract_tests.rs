@@ -163,6 +163,9 @@ fn test_global_doctor_report_contract() {
         auth_summary: auths,
         run_dir_exists: true,
         run_dir_writable: Some(true),
+        selected_model: Some("openai/gpt-4".to_string()),
+        model_valid: true,
+        model_error: None,
     };
     let global_doc = GlobalDoctorReport {
         workspace_doctor: ws_doctor,
@@ -172,6 +175,7 @@ fn test_global_doctor_report_contract() {
     let text = global_doc.render_text();
     assert!(text.contains("Configuration: valid"));
     assert!(text.contains("Policies: syntax valid"));
+    assert!(text.contains("Selected model 'openai/gpt-4': exists in catalog"));
     assert!(text.contains("openai"));
     assert!(text.contains("PASS:"));
 }

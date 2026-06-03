@@ -118,3 +118,164 @@ fn test_cli_runs_delete_without_yes_exits_non_zero() {
 
     let _ = fs::remove_dir_all(&temp_root);
 }
+
+#[test]
+fn test_cli_additional_json_contracts() {
+    let temp_root = create_temp_workspace();
+    init_workspace(&temp_root, false).unwrap();
+    let gestalt_dir = temp_root.join(".gestalt");
+    let runs_dir = gestalt_dir.join("runs");
+    fs::create_dir_all(&runs_dir).unwrap();
+
+    let run_dir = runs_dir.join("20260603T140000Z-session-contract");
+    fs::create_dir_all(&run_dir).unwrap();
+
+    let trace_content = r#"{"v":1,"session_id":"session-contract","turn_id":1,"seq":1,"ts":"2026-06-03T14:00:00Z","event":{"type":"user_message","content":"hello"},"redacted":false}"#;
+    fs::write(run_dir.join("trace.jsonl"), trace_content).unwrap();
+
+    // 1. trace inspect format JSON
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("trace")
+        .arg("inspect")
+        .arg("20260603T140000Z-session-contract")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "trace.inspect");
+
+    // 2. trace validate format JSON
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("trace")
+        .arg("validate")
+        .arg("20260603T140000Z-session-contract")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "trace.validate");
+
+    // 3. policy explain format JSON
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("policy")
+        .arg("explain")
+        .arg("--tool")
+        .arg("bash")
+        .arg("--input")
+        .arg(r#"{"command":"echo hello"}"#)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "policy.explain");
+
+    // 4. policy explain malformed JSON input
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("policy")
+        .arg("explain")
+        .arg("--tool")
+        .arg("bash")
+        .arg("--input")
+        .arg("{invalid")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stderr).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "error");
+
+    // 5. policy explain missing command bash input (shape-invalid)
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("policy")
+        .arg("explain")
+        .arg("--tool")
+        .arg("bash")
+        .arg("--input")
+        .arg("{}")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stderr).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "error");
+
+    // 6. providers inspect unknown provider (failure check)
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("providers")
+        .arg("inspect")
+        .arg("non-existent-provider")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stderr).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "error");
+
+    // 7. export unsupported sharegpt (failure check)
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("export")
+        .arg("--format")
+        .arg("sharegpt")
+        .arg("20260603T140000Z-session-contract")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stderr).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "error");
+
+    // 8. doctor command format JSON
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("doctor")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["kind"], "doctor");
+
+    let _ = fs::remove_dir_all(&temp_root);
+}

@@ -1,6 +1,5 @@
 use gestalt_core::snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter};
 use gestalt_core::{ConfigError, HarnessError};
-use gestalt_models::registry;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -177,7 +176,7 @@ pub fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusRepor
             }
 
             // Auth summary
-            let providers = registry::registered();
+            let providers = crate::providers::list_providers(&config);
             for provider in &providers {
                 if let Ok(auth_report) = resolve_auth(&config, provider) {
                     auth_summary.insert(provider.clone(), auth_report.status.clone());
@@ -305,11 +304,13 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
     }
 
     // 4. Provider auth checks
-    let providers = registry::registered();
+    let providers = crate::providers::list_providers(&config);
     for provider in &providers {
-        if let Ok(auth_report) = resolve_auth(&config, provider) {
-            auth_summary.insert(provider.clone(), auth_report.status);
-        }
+        let status = match resolve_auth(&config, provider) {
+            Ok(auth_report) => auth_report.status,
+            Err(err) => format!("error: {}", err),
+        };
+        auth_summary.insert(provider.clone(), status);
     }
 
     // 5. Writability test (non-mutating/read-only)
@@ -325,6 +326,17 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
         None
     };
 
+    // 6. Selected model check
+    let selected_model = config.selected_model();
+    let mut model_valid = true;
+    let mut model_error = None;
+    if let Some(ref model_id) = selected_model {
+        if gestalt_models::ModelCatalog::new().get(model_id).is_none() {
+            model_valid = false;
+            model_error = Some(format!("selected model '{model_id}' is not in the catalog"));
+        }
+    }
+
     Ok(WorkspaceDoctorReport {
         workspace_root,
         config_valid,
@@ -335,5 +347,8 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
         auth_summary,
         run_dir_exists,
         run_dir_writable,
+        selected_model,
+        model_valid,
+        model_error,
     })
 }

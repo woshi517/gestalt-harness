@@ -18,6 +18,11 @@ pub fn inspect_provider(
     config: &EffectiveConfig,
     provider: &str,
 ) -> Result<serde_json::Value, HarnessError> {
+    if !list_providers(config).contains(&provider.to_string()) {
+        return Err(HarnessError::Provider(gestalt_core::ProviderError::UnknownProvider(
+            provider.to_string(),
+        )));
+    }
     Ok(config.provider_json(provider))
 }
 
@@ -35,7 +40,10 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
     })?;
 
     let provider_config = config.provider_json(provider);
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| HarnessError::Provider(gestalt_core::ProviderError::Transport(std::io::Error::other(e))))?;
 
     if provider == "anthropic" {
         let base_url = provider_config
@@ -50,7 +58,7 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
             .header("anthropic-version", "2023-06-01")
             .send()
             .await
-            .map_err(|e| gestalt_core::ProviderError::Transport(std::io::Error::other(e)))?;
+            .map_err(|e| HarnessError::Provider(gestalt_core::ProviderError::Transport(std::io::Error::other(e))))?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -71,7 +79,7 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
             .bearer_auth(&api_key)
             .send()
             .await
-            .map_err(|e| gestalt_core::ProviderError::Transport(std::io::Error::other(e)))?;
+            .map_err(|e| HarnessError::Provider(gestalt_core::ProviderError::Transport(std::io::Error::other(e))))?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();

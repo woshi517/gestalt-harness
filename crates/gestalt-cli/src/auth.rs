@@ -24,6 +24,17 @@ pub fn resolve_auth(
                 .api_key_env
                 .clone()
         }
+        other if config.providers.contains_key(other) => {
+            let provider_config = config.provider_json(other);
+            if let Some(env_var) = provider_config.get("api_key_env").and_then(serde_json::Value::as_str) {
+                env_var.to_string()
+            } else {
+                match OpenAiProvider::new(provider_config) {
+                    Ok(p) => p.auth_config().api_key_env.clone(),
+                    Err(_) => format!("{}_API_KEY", other.to_uppercase().replace("-", "_")),
+                }
+            }
+        }
         _ => {
             return Err(HarnessError::Config(ConfigError::InvalidValue {
                 field: "provider".to_string(),

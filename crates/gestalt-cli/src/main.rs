@@ -39,7 +39,7 @@ struct Cli {
     max_turns: Option<usize>,
     #[arg(long, global = true)]
     provider: Option<String>,
-    #[arg(long, default_value = "text", global = true)]
+    #[arg(long, default_value = "text")]
     format: OutputFormat,
     #[arg(long, short, global = true)]
     quiet: bool,
@@ -633,9 +633,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ModelsSubcommand::Refresh { live } => {
                 let res: Result<ModelsRefreshReport, gestalt_core::HarnessError> = async {
                     let config = load_effective_config(&overrides)?;
-                    let _msg = refresh_models(&config, live).await?;
-                    let count = list_models(&config, None).len();
-                    Ok(ModelsRefreshReport { count })
+                    refresh_models(&config, live).await
                 }
                 .await;
                 handle_result(

@@ -3,6 +3,7 @@ use std::fs;
 use crate::config::EffectiveConfig;
 use crate::output::{ExportFormat, ExportReport};
 use crate::runs;
+use crate::trace::resolve_trace_target;
 
 /// Exports a run trace into the specified format (Markdown, JSONL).
 pub fn export_run(
@@ -10,8 +11,14 @@ pub fn export_run(
     run_id_or_path: &str,
     format: ExportFormat,
 ) -> Result<ExportReport, Box<dyn std::error::Error>> {
-    let run_dir = runs::resolve_run_path(config, run_id_or_path)?;
-    let trace_path = run_dir.join("trace.jsonl");
+    if matches!(format, ExportFormat::Sharegpt) {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "ShareGPT export format is not supported yet.",
+        )));
+    }
+
+    let (_run_id, run_dir, trace_path) = resolve_trace_target(config, run_id_or_path)?;
 
     if !trace_path.exists() {
         return Err(Box::new(std::io::Error::new(

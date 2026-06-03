@@ -48,6 +48,23 @@ fn test_trace_replay_and_inspect() {
     assert!(inspect_rep.redacted);
     assert_eq!(inspect_rep.artifacts, vec!["artifacts/output.txt".to_string()]);
 
+    // 3. Test with Run Dir path
+    let inspect_by_dir = inspect_trace(&config, &run_dir.to_string_lossy()).unwrap();
+    assert_eq!(inspect_by_dir.run_id, "20260603T100000Z-session-123");
+
+    // 4. Test with trace.jsonl file path
+    let trace_file_path = run_dir.join("trace.jsonl");
+    let inspect_by_file = inspect_trace(&config, &trace_file_path.to_string_lossy()).unwrap();
+    assert_eq!(inspect_by_file.run_id, "20260603T100000Z-session-123");
+
+    // 5. Test Validate with Run Dir path
+    let validate_by_dir = validate_trace(&config, &run_dir.to_string_lossy()).unwrap();
+    assert!(validate_by_dir.valid);
+
+    // 6. Test Validate with trace.jsonl file path
+    let validate_by_file = validate_trace(&config, &trace_file_path.to_string_lossy()).unwrap();
+    assert!(validate_by_file.valid);
+
     let _ = fs::remove_dir_all(&temp_root);
 }
 

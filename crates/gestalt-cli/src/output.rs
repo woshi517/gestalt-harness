@@ -411,6 +411,7 @@ impl CliReport for ModelsInspectReport {
 #[derive(Serialize)]
 pub struct ModelsRefreshReport {
     pub count: usize,
+    pub status: String,
 }
 
 impl CliReport for ModelsRefreshReport {
@@ -418,7 +419,13 @@ impl CliReport for ModelsRefreshReport {
         "models.refresh"
     }
     fn render_text(&self) -> String {
-        format!("built-in catalog available: {} models", self.count)
+        match self.status.as_str() {
+            "offline" => format!("built-in catalog available: {} models (offline)", self.count),
+            "live requested" => format!("live refresh requested: {} models (offline)", self.count),
+            "live performed" => format!("refreshed live catalog: {} models", self.count),
+            "unsupported" => format!("live refresh unsupported: {} models (offline)", self.count),
+            _ => format!("built-in catalog available: {} models", self.count),
+        }
     }
 }
 
@@ -566,6 +573,9 @@ pub struct WorkspaceDoctorReport {
     pub auth_summary: std::collections::HashMap<String, String>,
     pub run_dir_exists: bool,
     pub run_dir_writable: Option<bool>,
+    pub selected_model: Option<String>,
+    pub model_valid: bool,
+    pub model_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -596,6 +606,15 @@ impl CliReport for GlobalDoctorReport {
             passes.push("Policies: syntax valid".to_string());
         } else {
             failures.push(format!("Policies: invalid syntax. Details: {}", self.workspace_doctor.policies_error.as_deref().unwrap_or("unknown error")));
+        }
+
+        // 2b. Selected Model Check
+        if let Some(ref model) = self.workspace_doctor.selected_model {
+            if self.workspace_doctor.model_valid {
+                passes.push(format!("Selected model '{model}': exists in catalog"));
+            } else {
+                failures.push(format!("Selected model '{model}': {}", self.workspace_doctor.model_error.as_deref().unwrap_or("not found in catalog")));
+            }
         }
 
         // 3. Workspace Files Check
@@ -678,6 +697,13 @@ impl CliReport for WorkspaceDoctorReport {
         }
         if !self.missing_files.is_empty() {
             lines.push(format!("missing_files={}", self.missing_files.join(", ")));
+        }
+        if let Some(ref model) = self.selected_model {
+            lines.push(format!("selected_model={model}"));
+        }
+        lines.push(format!("model_valid={}", self.model_valid));
+        if let Some(ref err) = self.model_error {
+            lines.push(format!("model_error={err}"));
         }
 
         let mut auths: Vec<_> = self.auth_summary.iter().collect();

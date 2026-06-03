@@ -120,6 +120,9 @@ fn test_workspace_doctor_report_contract() {
         auth_summary: auths,
         run_dir_exists: true,
         run_dir_writable: Some(true),
+        selected_model: Some("openai/gpt-4".to_string()),
+        model_valid: true,
+        model_error: None,
     };
     assert_eq!(report.kind(), "workspace.doctor");
     assert!(report.render_text().contains("policies_valid=false"));

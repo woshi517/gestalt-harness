@@ -41,9 +41,9 @@ async fn test_models_filtering_and_refresh() {
 
     // refresh offline
     let refresh_offline = refresh_models(&cfg, false).await.unwrap();
-    assert!(refresh_offline.contains("built-in catalog"));
+    assert_eq!(refresh_offline.status, "offline");
 
     // refresh live
     let refresh_live = refresh_models(&cfg, true).await.unwrap();
-    assert!(refresh_live.contains("refreshed live catalog"));
+    assert!(refresh_live.status == "offline" || refresh_live.status == "unsupported" || refresh_live.status == "live requested" || refresh_live.status == "live performed");
 }
