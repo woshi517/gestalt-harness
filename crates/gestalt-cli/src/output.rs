@@ -275,6 +275,35 @@ impl CliReport for AuthResolveReport {
 }
 
 #[derive(Serialize)]
+pub struct AuthDoctorEntry {
+    pub variable: String,
+    pub status: String,
+    pub value: String,
+}
+
+#[derive(Serialize)]
+pub struct AuthDoctorReport {
+    pub entries: Vec<AuthDoctorEntry>,
+}
+
+impl CliReport for AuthDoctorReport {
+    fn kind(&self) -> &'static str {
+        "auth.doctor"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("{:<30} | {:<10} | {:<15}", "Environment Variable", "Status", "Value"),
+            "-".repeat(61),
+        ];
+        for entry in &self.entries {
+            lines.push(format!("{:<30} | {:<10} | {:<15}", entry.variable, entry.status, entry.value));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
 pub struct ProvidersListReport {
     pub providers: Vec<String>,
 }
@@ -343,11 +372,25 @@ impl CliReport for ModelsListReport {
         "models.list"
     }
     fn render_text(&self) -> String {
-        self.models
-            .iter()
-            .map(|m| m.qualified_id.clone())
-            .collect::<Vec<_>>()
-            .join("\n")
+        let mut lines = vec![
+            format!("{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
+                "Qualified ID", "Input $/M", "Output $/M", "Vision", "Tools", "Thinking", "Cache"),
+            "-".repeat(110),
+        ];
+        for m in &self.models {
+            let input_cost = m.input_cost_per_million.map_or("N/A".to_string(), |c| format!("${:.2}", c));
+            let output_cost = m.output_cost_per_million.map_or("N/A".to_string(), |c| format!("${:.2}", c));
+            lines.push(format!("{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
+                m.qualified_id,
+                input_cost,
+                output_cost,
+                if m.supports_vision { "yes" } else { "no" },
+                if m.supports_tools { "yes" } else { "no" },
+                if m.supports_thinking { "yes" } else { "no" },
+                if m.supports_prompt_caching { "yes" } else { "no" }
+            ));
+        }
+        lines.join("\n")
     }
 }
 
@@ -523,6 +566,98 @@ pub struct WorkspaceDoctorReport {
     pub auth_summary: std::collections::HashMap<String, String>,
     pub run_dir_exists: bool,
     pub run_dir_writable: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct GlobalDoctorReport {
+    pub workspace_doctor: WorkspaceDoctorReport,
+    pub live: bool,
+}
+
+impl CliReport for GlobalDoctorReport {
+    fn kind(&self) -> &'static str {
+        "doctor"
+    }
+
+    fn render_text(&self) -> String {
+        let mut passes = Vec::new();
+        let mut warnings = Vec::new();
+        let mut failures = Vec::new();
+
+        // 1. Config Check
+        if self.workspace_doctor.config_valid {
+            passes.push(format!("Configuration: valid (root: {})", self.workspace_doctor.workspace_root.display()));
+        } else {
+            failures.push(format!("Configuration: invalid. Details: {}", self.workspace_doctor.config_error.as_deref().unwrap_or("unknown error")));
+        }
+
+        // 2. Policies Check
+        if self.workspace_doctor.policies_valid {
+            passes.push("Policies: syntax valid".to_string());
+        } else {
+            failures.push(format!("Policies: invalid syntax. Details: {}", self.workspace_doctor.policies_error.as_deref().unwrap_or("unknown error")));
+        }
+
+        // 3. Workspace Files Check
+        if self.workspace_doctor.missing_files.is_empty() {
+            passes.push("Workspace files: all required files (.gestalt/config.toml, workspace.md, memory.md, policies.toml) present".to_string());
+        } else {
+            warnings.push(format!("Workspace files: missing files: {}", self.workspace_doctor.missing_files.join(", ")));
+        }
+
+        // 4. Writability Check
+        if self.workspace_doctor.run_dir_exists {
+            match self.workspace_doctor.run_dir_writable {
+                Some(true) => passes.push("Runs directory: exists and writable".to_string()),
+                Some(false) => failures.push("Runs directory: exists but NOT writable".to_string()),
+                None => warnings.push("Runs directory: exists but writability status is unknown".to_string()),
+            }
+        } else {
+            warnings.push("Runs directory: does not exist yet (will be created on first run)".to_string());
+        }
+
+        // 5. Auth / Providers Check
+        let mut auths: Vec<_> = self.workspace_doctor.auth_summary.iter().collect();
+        auths.sort_by_key(|(k, _)| *k);
+        for (provider, status) in auths {
+            if status == "present" || status == "ready" {
+                passes.push(format!("Provider '{provider}': credentials status is {status}"));
+            } else if status == "missing" {
+                warnings.push(format!("Provider '{provider}': credentials missing"));
+            } else {
+                failures.push(format!("Provider '{provider}': probe failed with {status}"));
+            }
+        }
+
+        let mut output = Vec::new();
+        output.push("=== GESTALT DIAGNOSTICS ===".to_string());
+
+        if !failures.is_empty() {
+            output.push(String::new());
+            output.push("FAILURES:".to_string());
+            for f in failures {
+                output.push(format!("  [FAIL] {f}"));
+            }
+        }
+
+        if !warnings.is_empty() {
+            output.push(String::new());
+            output.push("WARNINGS:".to_string());
+            for w in warnings {
+                output.push(format!("  [WARN] {w}"));
+            }
+        }
+
+        if !passes.is_empty() {
+            output.push(String::new());
+            output.push("PASS:".to_string());
+            for p in passes {
+                output.push(format!("  [PASS] {p}"));
+            }
+        }
+
+        output.join("\n")
+    }
 }
 
 impl CliReport for WorkspaceDoctorReport {
@@ -957,6 +1092,287 @@ impl CliReport for VerifyRunReport {
                 }
             }
         }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ConfigShowReport {
+    pub config: crate::config::EffectiveConfig,
+    pub source: bool,
+    pub explain_map: Option<std::collections::HashMap<String, crate::config::ConfigSourceInfo>>,
+}
+
+impl CliReport for ConfigShowReport {
+    fn kind(&self) -> &'static str {
+        "config.show"
+    }
+
+    fn render_text(&self) -> String {
+        if self.source {
+            if let Some(ref map) = self.explain_map {
+                let mut lines = vec![
+                    format!("{:<35} | {:<25} | {:<25}", "Configuration Key", "Value", "Source"),
+                    "-".repeat(91),
+                ];
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                for k in keys {
+                    if let Some(info) = map.get(k) {
+                        let val_str = match &info.value {
+                            Value::Null => "null".to_string(),
+                            Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        lines.push(format!("{:<35} | {:<25} | {:<25}", k, val_str, info.source));
+                    }
+                }
+                lines.join("\n")
+            } else {
+                "No source information available".to_string()
+            }
+        } else {
+            toml::to_string(&self.config).unwrap_or_else(|_| "Serialization error".to_string())
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct ConfigExplainReport {
+    pub explain_map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>,
+}
+
+impl CliReport for ConfigExplainReport {
+    fn kind(&self) -> &'static str {
+        "config.explain"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            "Precedence Order: CLI Override > Env Var > Workspace Config File > Global Config File > Default".to_string(),
+            String::new(),
+        ];
+        let mut keys: Vec<&String> = self.explain_map.keys().collect();
+        keys.sort();
+        for k in keys {
+            if let Some(info) = self.explain_map.get(k) {
+                let val_str = match &info.value {
+                    Value::Null => "null".to_string(),
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                lines.push(format!("{} = {} (Active: {})", k, val_str, info.source));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct PolicyValidateReport {
+    pub path: PathBuf,
+    pub valid: bool,
+    pub error: Option<String>,
+}
+
+impl CliReport for PolicyValidateReport {
+    fn kind(&self) -> &'static str {
+        "policy.validate"
+    }
+
+    fn render_text(&self) -> String {
+        if self.valid {
+            format!("valid policy path={}", self.path.display())
+        } else {
+            format!(
+                "invalid policy path={} error={}",
+                self.path.display(),
+                self.error.as_deref().unwrap_or("unknown error")
+            )
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct PolicyExplainReport {
+    pub tool: String,
+    pub input: Value,
+    pub mode: String,
+    pub risk: gestalt_core::tool::RiskLevel,
+    pub decision: gestalt_core::policy::PolicyDecision,
+}
+
+impl CliReport for PolicyExplainReport {
+    fn kind(&self) -> &'static str {
+        "policy.explain"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("Policy Explain for tool '{}' with input {}", self.tool, self.input),
+            format!("Execution Mode: {}", self.mode),
+            format!("Classified Risk: {:?}", self.risk),
+            format!("Outcome: {:?}", self.decision.status),
+        ];
+        if !self.decision.policy_source.is_empty() {
+            lines.push(format!("Policy Source: {}", self.decision.policy_source));
+        }
+        if let Some(ref reason) = self.decision.reason {
+            lines.push(format!("Reason: {}", reason));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct PolicyTestReport {
+    pub tool: String,
+    pub input: Value,
+    pub mode: String,
+    pub risk: gestalt_core::tool::RiskLevel,
+    pub decision: gestalt_core::policy::PolicyDecision,
+}
+
+impl CliReport for PolicyTestReport {
+    fn kind(&self) -> &'static str {
+        "policy.test"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("Policy Test for tool '{}' with input {}", self.tool, self.input),
+            format!("Execution Mode: {}", self.mode),
+            format!("Classified Risk: {:?}", self.risk),
+            format!("Outcome: {:?}", self.decision.status),
+        ];
+        if !self.decision.policy_source.is_empty() {
+            lines.push(format!("Policy Source: {}", self.decision.policy_source));
+        }
+        if let Some(ref reason) = self.decision.reason {
+            lines.push(format!("Reason: {}", reason));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ContextExplainReport {
+    pub prompt: Option<String>,
+    pub run_id: Option<String>,
+    pub token_estimate: usize,
+    pub packet_hash: String,
+    pub pipeline_version: String,
+    pub prompt_source: Option<String>,
+    pub sources: Vec<gestalt_core::context::ContextSourceRef>,
+    pub omissions: Vec<gestalt_core::context::ContextOmission>,
+}
+
+impl CliReport for ContextExplainReport {
+    fn kind(&self) -> &'static str {
+        "context.explain"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("Pipeline Version: {}", self.pipeline_version),
+            format!("Token Estimate:   {}", self.token_estimate),
+            format!("Packet Hash:      {}", self.packet_hash),
+        ];
+        if self.prompt.is_some() {
+            lines.push(format!("Prompt Source:    {}", self.prompt_source.as_deref().unwrap_or("none")));
+        } else if let Some(ref run_id) = self.run_id {
+            lines.push(format!("Run ID:           {}", run_id));
+        }
+
+        lines.push(String::new());
+        lines.push("Context Sources:".to_string());
+        lines.push(format!("{:<15} | {:<30} | {:<10} | {:<15} | {:<8}", "Kind", "Path/Label", "Trust", "Token Est.", "Included"));
+        lines.push("-".repeat(91));
+        for s in &self.sources {
+            lines.push(format!(
+                "{:<15} | {:<30} | {:<10} | {:<15} | {:<8}",
+                s.kind, s.path_or_label, s.trust, s.token_estimate, s.included
+            ));
+        }
+
+        if !self.omissions.is_empty() {
+            lines.push(String::new());
+            lines.push("Context Omissions (Budget Exhausted):".to_string());
+            lines.push(format!("{:<15} | {:<30} | {:<10} | {:<15} | {:<20}", "Kind", "Path/Label", "Trust", "Token Est.", "Reason"));
+            lines.push("-".repeat(98));
+            for o in &self.omissions {
+                lines.push(format!(
+                    "{:<15} | {:<30} | {:<10} | {:<15} | {:<20}",
+                    o.kind, o.path_or_label, o.trust, o.token_estimate, o.reason
+                ));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ToolInfoEntry {
+    pub name: String,
+    pub description: String,
+    pub risk_type: String,
+}
+
+#[derive(Serialize)]
+pub struct ToolsListReport {
+    pub tools: Vec<ToolInfoEntry>,
+}
+
+impl CliReport for ToolsListReport {
+    fn kind(&self) -> &'static str {
+        "tools.list"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("{:<15} | {:<20} | {:<50}", "Tool Name", "Risk Classification", "Description"),
+            "-".repeat(91),
+        ];
+        for t in &self.tools {
+            lines.push(format!("{:<15} | {:<20} | {:<50}", t.name, t.risk_type, t.description));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ToolsInspectReport {
+    pub name: String,
+    pub schema: Value,
+}
+
+impl CliReport for ToolsInspectReport {
+    fn kind(&self) -> &'static str {
+        "tools.inspect"
+    }
+
+    fn render_text(&self) -> String {
+        serde_json::to_string_pretty(&self.schema).unwrap_or_else(|_| "Serialization error".to_string())
+    }
+}
+
+#[derive(Serialize)]
+pub struct ToolsClassifyReport {
+    pub command: String,
+    pub risk: gestalt_core::tool::RiskLevel,
+}
+
+impl CliReport for ToolsClassifyReport {
+    fn kind(&self) -> &'static str {
+        "tools.classify"
+    }
+
+    fn render_text(&self) -> String {
+        let lines = vec![
+            format!("Command:  {}", self.command),
+            format!("Risk:     {:?}", self.risk),
+        ];
         lines.join("\n")
     }
 }

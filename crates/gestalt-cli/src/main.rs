@@ -2,16 +2,19 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 use gestalt_cli::{
-    auth::resolve_auth,
-    config::{load_effective_config, validate_workspace_config, CliOverrides},
+    auth::{resolve_auth, auth_doctor},
+    config::{load_effective_config, validate_workspace_config, explain_config, CliOverrides},
     cost::calculate_cost,
-    models::{inspect_model, list_models},
+    models::{inspect_model, list_models, refresh_models},
     output::{
-        AuthResolveReport, CliErrorPayload, CliReport, ConfigValidateReport, CostReportWrapper,
+        AuthResolveReport, AuthDoctorReport, CliErrorPayload, CliReport, ConfigValidateReport, CostReportWrapper,
         ExportFormat, JsonEnvelope, ModelsInspectReport, ModelsListReport,
         ModelsRefreshReport, ModelsSelectReport, OutputFormat, ProvidersDoctorReport,
         ProvidersInspectReport, ProvidersListReport, ReplayReport, RunReport, WorkspaceDoctorReport,
         WorkspaceInfoReport, WorkspaceInitReport, WorkspaceSnapshotReport, WorkspaceStatusReport,
+        ConfigShowReport, ConfigExplainReport,
+        PolicyValidateReport, PolicyExplainReport, PolicyTestReport,
+        ContextExplainReport,
     },
     providers::{doctor_provider, inspect_provider, list_providers},
     replay::replay_display,
@@ -20,7 +23,7 @@ use gestalt_cli::{
     workspace::{
         doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
     },
-    trace, export, verify,
+    trace, export, verify, policy, context, tools, doctor,
 };
 
 #[derive(Parser)]
@@ -77,6 +80,80 @@ enum Command {
         format: ExportFormat,
     },
     Verify(VerifyCommand),
+    Policy(PolicyCommand),
+    Context(ContextCommand),
+    Tools(ToolsCommand),
+    Doctor {
+        #[arg(long)]
+        live: bool,
+    },
+}
+
+#[derive(Args)]
+pub struct ToolsCommand {
+    #[command(subcommand)]
+    pub command: ToolsSubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum ToolsSubcommand {
+    List,
+    Inspect {
+        tool: String,
+    },
+    Classify {
+        #[command(subcommand)]
+        sub: ClassifySubcommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ClassifySubcommand {
+    Bash {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
+}
+
+#[derive(Args)]
+pub struct ContextCommand {
+    #[command(subcommand)]
+    pub command: ContextSubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum ContextSubcommand {
+    Explain {
+        #[arg(long)]
+        prompt: Option<String>,
+        #[arg(long)]
+        run: Option<String>,
+    },
+}
+
+#[derive(Args)]
+pub struct PolicyCommand {
+    #[command(subcommand)]
+    pub command: PolicySubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum PolicySubcommand {
+    Validate,
+    Explain {
+        #[arg(long)]
+        tool: String,
+        #[arg(long)]
+        input: String,
+    },
+    Test {
+        #[arg(long)]
+        tool: String,
+        #[arg(long)]
+        input: String,
+        #[arg(long)]
+        mode: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -175,6 +252,11 @@ struct ConfigCommand {
 #[derive(Subcommand)]
 enum ConfigSubcommand {
     Validate,
+    Show {
+        #[arg(long)]
+        source: bool,
+    },
+    Explain,
 }
 
 #[derive(Args)]
@@ -186,6 +268,7 @@ struct AuthCommand {
 #[derive(Subcommand)]
 enum AuthSubcommand {
     Resolve { provider: String },
+    Doctor,
 }
 
 #[derive(Args)]
@@ -199,7 +282,11 @@ enum ProvidersSubcommand {
     List,
     Inspect { provider: String },
     Test { provider: String },
-    Doctor { provider: Option<String> },
+    Doctor {
+        provider: Option<String>,
+        #[arg(long)]
+        live: bool,
+    },
 }
 
 #[derive(Args)]
@@ -210,9 +297,15 @@ struct ModelsCommand {
 
 #[derive(Subcommand)]
 enum ModelsSubcommand {
-    List,
+    List {
+        #[arg(long)]
+        provider: Option<String>,
+    },
     Inspect { model: String },
-    Refresh,
+    Refresh {
+        #[arg(long)]
+        live: bool,
+    },
     Select { model: String },
 }
 
@@ -395,6 +488,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     quiet,
                 )?;
             }
+            ConfigSubcommand::Show { source } => {
+                let res: Result<ConfigShowReport, Box<dyn std::error::Error>> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let explain_map = if source {
+                        Some(explain_config(&overrides)?)
+                    } else {
+                        None
+                    };
+                    Ok(ConfigShowReport {
+                        config,
+                        source,
+                        explain_map,
+                    })
+                })();
+                handle_result(res, format, quiet)?;
+            }
+            ConfigSubcommand::Explain => {
+                let res: Result<ConfigExplainReport, Box<dyn std::error::Error>> = (|| {
+                    let explain_map = explain_config(&overrides)?;
+                    Ok(ConfigExplainReport { explain_map })
+                })();
+                handle_result(res, format, quiet)?;
+            }
         },
         Command::Auth(command) => match command.command {
             AuthSubcommand::Resolve { provider } => {
@@ -404,6 +520,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(report)
                 })(
                 );
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            AuthSubcommand::Doctor => {
+                let res: Result<AuthDoctorReport, gestalt_core::HarnessError> = (|| {
+                    let config = load_effective_config(&overrides)?;
+                    let report = auth_doctor(&config)?;
+                    Ok(report)
+                })();
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -442,34 +570,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             }
             ProvidersSubcommand::Test { provider } => {
-                let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = (|| {
+                let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = async {
                     let config = load_effective_config(&overrides)?;
-                    let result = doctor_provider(&config, &provider)?;
+                    let result = doctor_provider(&config, &provider, false).await?;
                     Ok(ProvidersDoctorReport {
                         results: vec![result],
                     })
-                })(
-                );
+                }
+                .await;
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
                     quiet,
                 )?;
             }
-            ProvidersSubcommand::Doctor { provider } => {
-                let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = (|| {
+            ProvidersSubcommand::Doctor { provider, live } => {
+                let res: Result<ProvidersDoctorReport, gestalt_core::HarnessError> = async {
                     let config = load_effective_config(&overrides)?;
                     let mut results = Vec::new();
                     if let Some(provider) = provider {
-                        results.push(doctor_provider(&config, &provider)?);
+                        results.push(doctor_provider(&config, &provider, live).await?);
                     } else {
                         for p in list_providers(&config) {
-                            results.push(doctor_provider(&config, &p)?);
+                            results.push(doctor_provider(&config, &p, live).await?);
                         }
                     }
                     Ok(ProvidersDoctorReport { results })
-                })(
-                );
+                }
+                .await;
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -478,13 +606,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         Command::Models(command) => match command.command {
-            ModelsSubcommand::List => {
+            ModelsSubcommand::List { provider } => {
                 let res: Result<ModelsListReport, gestalt_core::HarnessError> = (|| {
                     let config = load_effective_config(&overrides)?;
-                    let models = list_models(&config);
+                    let models = list_models(&config, provider.as_deref());
                     Ok(ModelsListReport { models })
-                })(
-                );
+                })();
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -496,21 +623,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let model_info = inspect_model(&config, &model)?;
                     Ok(ModelsInspectReport { model: model_info })
-                })(
-                );
+                })();
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
                     quiet,
                 )?;
             }
-            ModelsSubcommand::Refresh => {
-                let res: Result<ModelsRefreshReport, gestalt_core::HarnessError> = (|| {
+            ModelsSubcommand::Refresh { live } => {
+                let res: Result<ModelsRefreshReport, gestalt_core::HarnessError> = async {
                     let config = load_effective_config(&overrides)?;
-                    let count = list_models(&config).len();
+                    let _msg = refresh_models(&config, live).await?;
+                    let count = list_models(&config, None).len();
                     Ok(ModelsRefreshReport { count })
-                })(
-                );
+                }
+                .await;
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -660,6 +787,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle_result(res, format, quiet)?;
             }
         },
+        Command::Policy(command) => match command.command {
+            PolicySubcommand::Validate => {
+                let res: Result<PolicyValidateReport, gestalt_core::HarnessError> = policy::validate_policy(&overrides);
+                handle_result(
+                    res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    format,
+                    quiet,
+                )?;
+            }
+            PolicySubcommand::Explain { tool, input } => {
+                let res: Result<PolicyExplainReport, Box<dyn std::error::Error>> = policy::explain_policy(&overrides, &tool, &input).await;
+                handle_result(res, format, quiet)?;
+            }
+            PolicySubcommand::Test { tool, input, mode } => {
+                let res: Result<PolicyTestReport, Box<dyn std::error::Error>> = policy::test_policy(&overrides, &tool, &input, mode.as_deref()).await;
+                handle_result(res, format, quiet)?;
+            }
+        },
+        Command::Context(command) => match command.command {
+            ContextSubcommand::Explain { prompt, run } => {
+                let res: Result<ContextExplainReport, Box<dyn std::error::Error>> = context::explain_context(&overrides, prompt.as_deref(), run.as_deref()).await;
+                handle_result(res, format, quiet)?;
+            }
+        },
+        Command::Tools(command) => match command.command {
+            ToolsSubcommand::List => {
+                let res = tools::list_tools(&overrides);
+                handle_result(res, format, quiet)?;
+            }
+            ToolsSubcommand::Inspect { tool } => {
+                let res = tools::inspect_tool(&overrides, &tool);
+                handle_result(res, format, quiet)?;
+            }
+            ToolsSubcommand::Classify { sub } => match sub {
+                ClassifySubcommand::Bash { command } => {
+                    let res = tools::classify_bash(&overrides, &command);
+                    handle_result(res, format, quiet)?;
+                }
+            }
+        },
+        Command::Doctor { live } => {
+            let res = doctor::diagnose_workspace(&overrides, live).await;
+            handle_result(
+                res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                format,
+                quiet,
+            )?;
+        }
     }
 
     Ok(())

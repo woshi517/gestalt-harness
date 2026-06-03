@@ -14,5 +14,9 @@ pub mod workspace;
 pub mod trace;
 pub mod export;
 pub mod verify;
+pub mod policy;
+pub mod context;
+pub mod tools;
+pub mod doctor;
 
 

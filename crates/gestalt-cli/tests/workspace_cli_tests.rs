@@ -164,3 +164,44 @@ fn test_doctor_workspace() {
 
     let _ = fs::remove_dir_all(&temp_root);
 }
+
+#[tokio::test]
+async fn test_enhanced_cli_operations() {
+    let temp_root = create_temp_workspace();
+    init_workspace(&temp_root, false).unwrap();
+
+    let overrides = CliOverrides {
+        workspace: Some(temp_root.clone()),
+        ..CliOverrides::default()
+    };
+
+    let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
+
+    // U5.4.1 tools list
+    let list_report = gestalt_cli::tools::list_tools(&overrides).unwrap();
+    assert!(!list_report.tools.is_empty());
+    assert!(list_report.tools.iter().any(|t| t.name == "read"));
+
+    // U5.4.2 tools inspect
+    let inspect_report = gestalt_cli::tools::inspect_tool(&overrides, "read").unwrap();
+    assert_eq!(inspect_report.name, "read");
+    assert!(inspect_report.schema.get("name").is_some());
+
+    // U5.4.3 tools classify bash
+    let classify_report = gestalt_cli::tools::classify_bash(&overrides, &["rm".to_string(), "-rf".to_string(), "/".to_string()]).unwrap();
+    assert_eq!(classify_report.command, "rm -rf /");
+    assert_eq!(classify_report.risk, gestalt_core::tool::RiskLevel::Critical);
+
+    // U6.1 auth doctor
+    let auth_report = gestalt_cli::auth::auth_doctor(&config).unwrap();
+    assert!(auth_report.entries.iter().any(|e| e.variable == "ANTHROPIC_API_KEY"));
+
+    // U6.4 Global Doctor (diagnose_workspace)
+    let diag = gestalt_cli::doctor::diagnose_workspace(&overrides, false).await.unwrap();
+    assert!(diag.workspace_doctor.config_valid);
+    assert!(diag.workspace_doctor.policies_valid);
+    assert!(!diag.live);
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+

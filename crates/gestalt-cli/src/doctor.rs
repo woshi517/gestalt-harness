@@ -1,0 +1,116 @@
+use gestalt_core::error::HarnessError;
+use gestalt_models::registry;
+use std::{fs, path::PathBuf};
+
+use crate::config::{load_effective_config, CliOverrides};
+use crate::auth::resolve_auth;
+use crate::output::{GlobalDoctorReport, WorkspaceDoctorReport};
+use crate::providers::probe_provider;
+
+pub async fn diagnose_workspace(
+    overrides: &CliOverrides,
+    live: bool,
+) -> Result<GlobalDoctorReport, HarnessError> {
+    let config_res = load_effective_config(overrides);
+    let mut config_valid = true;
+    let mut config_error = None;
+    let mut policies_valid = true;
+    let mut policies_error = None;
+    let mut missing_files = Vec::new();
+    let mut auth_summary = std::collections::HashMap::new();
+
+    let workspace_root = overrides
+        .workspace
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    let gestalt_dir = workspace_root.join(".gestalt");
+
+    // 1. Config syntax check
+    let config = match config_res {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            config_valid = false;
+            config_error = Some(err.to_string());
+            crate::config::EffectiveConfig {
+                workspace_root: workspace_root.clone(),
+                defaults: crate::config::DefaultsConfig::default(),
+                tools: crate::config::ToolsConfig::default(),
+                context: crate::config::ContextConfig::default(),
+                observe: crate::config::ObserveConfig::default(),
+                providers: std::collections::HashMap::new(),
+            }
+        }
+    };
+
+    // 2. Policies syntax check
+    let policies_path = gestalt_dir.join("policies.toml");
+    if policies_path.exists() {
+        if let Err(err) = gestalt_policy::PolicyConfig::from_file(&policies_path) {
+            policies_valid = false;
+            policies_error = Some(err.to_string());
+        }
+    } else {
+        missing_files.push("policies.toml".to_string());
+    }
+
+    // 3. Required files check
+    if !gestalt_dir.join("config.toml").exists() {
+        missing_files.push("config.toml".to_string());
+    }
+    if !gestalt_dir.join("workspace.md").exists() {
+        missing_files.push("workspace.md".to_string());
+    }
+    if !gestalt_dir.join("memory.md").exists() {
+        missing_files.push("memory.md".to_string());
+    }
+
+    // 4. Provider auth/live checks
+    let providers = registry::registered();
+    for provider in &providers {
+        if let Ok(auth_report) = resolve_auth(&config, provider) {
+            let mut status = auth_report.status;
+            if live && status == "present" {
+                match probe_provider(&config, provider).await {
+                    Ok(_) => {
+                        status = "ready".to_string();
+                    }
+                    Err(err) => {
+                        status = format!("error: {}", err);
+                    }
+                }
+            }
+            auth_summary.insert(provider.clone(), status);
+        }
+    }
+
+    // 5. Writability test
+    let run_log_dir = config.run_log_dir();
+    let run_dir_exists = run_log_dir.exists();
+    let run_dir_writable = if run_dir_exists {
+        if let Ok(metadata) = fs::metadata(&run_log_dir) {
+            Some(!metadata.permissions().readonly())
+        } else {
+            Some(false)
+        }
+    } else {
+        None
+    };
+
+    let ws_report = WorkspaceDoctorReport {
+        workspace_root,
+        config_valid,
+        config_error,
+        policies_valid,
+        policies_error,
+        missing_files,
+        auth_summary,
+        run_dir_exists,
+        run_dir_writable,
+    };
+
+    Ok(GlobalDoctorReport {
+        workspace_doctor: ws_report,
+        live,
+    })
+}
