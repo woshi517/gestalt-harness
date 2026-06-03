@@ -36,7 +36,7 @@ struct Cli {
     #[arg(long, global = true)]
     provider: Option<String>,
     #[arg(long, default_value = "text", global = true)]
-    format: String,
+    format: OutputFormat,
     #[arg(long, short, global = true)]
     quiet: bool,
     #[arg(long, short, global = true)]
@@ -229,10 +229,30 @@ fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload 
     }
 }
 
+fn print_error_and_exit(err: &(dyn std::error::Error + 'static), format: OutputFormat) -> ! {
+    let payload = map_to_cli_error(err);
+    match format {
+        OutputFormat::Json => {
+            let envelope = JsonEnvelope {
+                schema_version: 1,
+                kind: "error".to_string(),
+                data: payload,
+            };
+            if let Ok(json) = serde_json::to_string(&envelope) {
+                eprintln!("{}", json);
+            }
+        }
+        OutputFormat::Text => {
+            eprintln!("error: {}", payload.message);
+        }
+    }
+    std::process::exit(1);
+}
+
 fn handle_result<T: CliReport>(
     res: Result<T, Box<dyn std::error::Error>>,
     format: OutputFormat,
-    quiet: bool,
+    _quiet: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match res {
         Ok(report) => {
@@ -246,32 +266,16 @@ fn handle_result<T: CliReport>(
                     println!("{}", serde_json::to_string(&envelope)?);
                 }
                 OutputFormat::Text => {
-                    if !quiet {
-                        let text = report.render_text();
-                        if !text.is_empty() {
-                            println!("{}", text);
-                        }
+                    let text = report.render_text();
+                    if !text.is_empty() {
+                        println!("{}", text);
                     }
                 }
             }
             Ok(())
         }
         Err(err) => {
-            let payload = map_to_cli_error(err.as_ref());
-            match format {
-                OutputFormat::Json => {
-                    let envelope = JsonEnvelope {
-                        schema_version: 1,
-                        kind: "error".to_string(),
-                        data: payload,
-                    };
-                    eprintln!("{}", serde_json::to_string(&envelope)?);
-                }
-                OutputFormat::Text => {
-                    eprintln!("error: {}", payload.message);
-                }
-            }
-            std::process::exit(1);
+            print_error_and_exit(err.as_ref(), format);
         }
     }
 }
@@ -287,10 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workspace: cli.workspace.clone(),
     };
 
-    let format = match cli.format.to_lowercase().as_str() {
-        "json" => OutputFormat::Json,
-        _ => OutputFormat::Text,
-    };
+    let format = cli.format;
     let quiet = cli.quiet;
 
     match cli.command {
@@ -565,21 +566,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             RunsSubcommand::Tail { run_id_or_path } => {
                 let config = load_effective_config(&overrides)?;
                 if let Err(e) = runs::tail_run(&config, &run_id_or_path, format) {
-                    let payload = map_to_cli_error(&e);
-                    match format {
-                        OutputFormat::Json => {
-                            let envelope = JsonEnvelope {
-                                schema_version: 1,
-                                kind: "error".to_string(),
-                                data: payload,
-                            };
-                            eprintln!("{}", serde_json::to_string(&envelope)?);
-                        }
-                        OutputFormat::Text => {
-                            eprintln!("error: {}", payload.message);
-                        }
-                    }
-                    std::process::exit(1);
+                    print_error_and_exit(&e, format);
                 }
             }
             RunsSubcommand::Prune { older_than, dry_run, yes, json } => {

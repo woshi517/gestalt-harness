@@ -118,12 +118,15 @@ fn test_workspace_doctor_report_contract() {
         policies_error: Some("Syntax error".to_string()),
         missing_files: vec!["memory.md".to_string()],
         auth_summary: auths,
-        run_dir_writable: true,
+        run_dir_exists: true,
+        run_dir_writable: Some(true),
     };
     assert_eq!(report.kind(), "workspace.doctor");
     assert!(report.render_text().contains("policies_valid=false"));
     assert!(report.render_text().contains("policies_error=Syntax error"));
     assert!(report.render_text().contains("missing_files=memory.md"));
+    assert!(report.render_text().contains("run_dir_exists=true"));
+    assert!(report.render_text().contains("run_dir_writable=true"));
 
     let envelope = JsonEnvelope {
         schema_version: 1,

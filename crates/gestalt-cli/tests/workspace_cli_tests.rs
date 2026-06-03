@@ -125,11 +125,21 @@ fn test_doctor_workspace() {
         ..CliOverrides::default()
     };
 
+    // Prove doctor_workspace does not create .gestalt/runs/ when absent
     let report = doctor_workspace(&overrides).unwrap();
     assert!(report.config_valid);
     assert!(report.policies_valid);
     assert!(report.missing_files.is_empty());
-    assert!(report.run_dir_writable);
+    assert!(!report.run_dir_exists);
+    assert_eq!(report.run_dir_writable, None);
+    assert!(!temp_root.join(".gestalt/runs").exists());
+
+    // Creating .gestalt/runs should update status to exists/writable
+    let runs_dir = temp_root.join(".gestalt/runs");
+    fs::create_dir_all(&runs_dir).unwrap();
+    let report_with_runs = doctor_workspace(&overrides).unwrap();
+    assert!(report_with_runs.run_dir_exists);
+    assert_eq!(report_with_runs.run_dir_writable, Some(true));
 
     // Test with missing memory.md
     fs::remove_file(temp_root.join(".gestalt/memory.md")).unwrap();
@@ -141,6 +151,16 @@ fn test_doctor_workspace() {
     let report_malformed = doctor_workspace(&overrides).unwrap();
     assert!(!report_malformed.policies_valid);
     assert!(report_malformed.policies_error.is_some());
+
+    // Test with malformed config.toml (invalid-config branch in status and doctor)
+    fs::write(temp_root.join(".gestalt/config.toml"), "invalid = [toml").unwrap();
+    let report_invalid_config = doctor_workspace(&overrides).unwrap();
+    assert!(!report_invalid_config.config_valid);
+    assert!(report_invalid_config.config_error.is_some());
+
+    let status_invalid_config = status_workspace(&overrides).unwrap();
+    assert!(!status_invalid_config.config_valid);
+    assert!(!status_invalid_config.warnings.is_empty());
 
     let _ = fs::remove_dir_all(&temp_root);
 }

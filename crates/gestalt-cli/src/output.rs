@@ -174,7 +174,7 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputFormat {
     Text,
@@ -521,7 +521,8 @@ pub struct WorkspaceDoctorReport {
     pub policies_error: Option<String>,
     pub missing_files: Vec<String>,
     pub auth_summary: std::collections::HashMap<String, String>,
-    pub run_dir_writable: bool,
+    pub run_dir_exists: bool,
+    pub run_dir_writable: Option<bool>,
 }
 
 impl CliReport for WorkspaceDoctorReport {
@@ -549,7 +550,13 @@ impl CliReport for WorkspaceDoctorReport {
         for (provider, status) in auths {
             lines.push(format!("auth.{provider}={status}"));
         }
-        lines.push(format!("run_dir_writable={}", self.run_dir_writable));
+        lines.push(format!("run_dir_exists={}", self.run_dir_exists));
+        let writable_str = match self.run_dir_writable {
+            Some(true) => "true",
+            Some(false) => "false",
+            None => "unknown",
+        };
+        lines.push(format!("run_dir_writable={}", writable_str));
         lines.join("\n")
     }
 }

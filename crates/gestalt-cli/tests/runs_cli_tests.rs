@@ -255,4 +255,54 @@ fn test_runs_new_features() {
     let _ = fs::remove_dir_all(&temp_root);
 }
 
+#[test]
+fn test_runs_additional_patch_requirements() {
+    // 1. negative/zero duration rejection
+    assert!(gestalt_cli::runs::parse_duration("-1d").is_err());
+    assert!(gestalt_cli::runs::parse_duration("0s").is_err());
+
+    let temp_root = create_temp_workspace();
+    let runs_dir = temp_root.join(".gestalt/runs");
+    fs::create_dir_all(&runs_dir).unwrap();
+
+    let run_dir = runs_dir.join("20260602T160000Z-session-4");
+    fs::create_dir_all(&run_dir).unwrap();
+
+    // 2. tool-use-only trace ends as interrupted, not completed
+    let trace_tool_use = r#"{"v":1,"session_id":"session-4","turn_id":1,"seq":1,"ts":"2026-06-02T16:00:00Z","event":{"type":"model_request","provider":"openai","model":"gpt-4"},"redacted":false}
+{"v":1,"session_id":"session-4","turn_id":1,"seq":2,"ts":"2026-06-02T16:01:00Z","event":{"type":"stop","reason":"tool_use"},"redacted":false}"#;
+    fs::write(run_dir.join("trace.jsonl"), trace_tool_use).unwrap();
+
+    let overrides = CliOverrides {
+        workspace: Some(temp_root.clone()),
+        ..CliOverrides::default()
+    };
+    let config = load_effective_config(&overrides).unwrap();
+
+    let scan = gestalt_cli::runs::scan_trace_file(&run_dir.join("trace.jsonl")).unwrap();
+    assert_eq!(scan.apparent_status, "interrupted");
+
+    // 3. recoverable error followed by success stays non-failed
+    let trace_recoverable = r#"{"v":1,"session_id":"session-4","turn_id":1,"seq":1,"ts":"2026-06-02T16:00:00Z","event":{"type":"model_request","provider":"openai","model":"gpt-4"},"redacted":false}
+{"v":1,"session_id":"session-4","turn_id":1,"seq":2,"ts":"2026-06-02T16:01:00Z","event":{"type":"error","message":"recoverable error","recoverable":true},"redacted":false}
+{"v":1,"session_id":"session-4","turn_id":1,"seq":3,"ts":"2026-06-02T16:02:00Z","event":{"type":"stop","reason":"end_turn"},"redacted":false}"#;
+    fs::write(run_dir.join("trace.jsonl"), trace_recoverable).unwrap();
+
+    let scan2 = gestalt_cli::runs::scan_trace_file(&run_dir.join("trace.jsonl")).unwrap();
+    assert_eq!(scan2.apparent_status, "completed");
+
+    // 4. runs inspect includes summary/artifacts/snapshot metadata
+    fs::write(run_dir.join("summary.md"), "Summary Content").unwrap();
+    let artifacts_dir = run_dir.join("artifacts");
+    fs::create_dir_all(&artifacts_dir).unwrap();
+    fs::write(artifacts_dir.join("output.txt"), "some output").unwrap();
+
+    let inspect = inspect_run(&config, "20260602T160000Z-session-4").unwrap();
+    assert!(inspect.summary_exists);
+    assert_eq!(inspect.artifacts, vec!["output.txt".to_string()]);
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+
 

@@ -89,6 +89,10 @@ pub fn parse_duration(s: &str) -> Result<chrono::Duration, String> {
     let val_str = chars.as_str();
     let val: i64 = val_str.parse().map_err(|_| format!("invalid duration number: {}", val_str))?;
 
+    if val <= 0 {
+        return Err(format!("duration must be positive, got: {}", val));
+    }
+
     match suffix {
         'd' => Ok(chrono::Duration::days(val)),
         'h' => Ok(chrono::Duration::hours(val)),
@@ -218,18 +222,27 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
             }
             gestalt_core::AgentEvent::Stop { reason } => {
                 stop_reason = Some(format!("{:?}", reason));
-                apparent_status = match reason {
-                    gestalt_core::StopReason::EndTurn | gestalt_core::StopReason::ToolUse => "completed".to_string(),
-                    gestalt_core::StopReason::PolicyViolation | gestalt_core::StopReason::ProviderError => "failed".to_string(),
-                    _ => "interrupted".to_string(),
-                };
-                if reason != gestalt_core::StopReason::ToolUse {
-                    break;
+                match reason {
+                    gestalt_core::StopReason::EndTurn => {
+                        apparent_status = "completed".to_string();
+                        break;
+                    }
+                    gestalt_core::StopReason::PolicyViolation | gestalt_core::StopReason::ProviderError => {
+                        apparent_status = "failed".to_string();
+                        break;
+                    }
+                    _ => {
+                        if reason != gestalt_core::StopReason::ToolUse {
+                            break;
+                        }
+                    }
                 }
             }
-            gestalt_core::AgentEvent::Error { .. } => {
-                apparent_status = "failed".to_string();
-                break;
+            gestalt_core::AgentEvent::Error { recoverable, .. } => {
+                if !recoverable {
+                    apparent_status = "failed".to_string();
+                    break;
+                }
             }
             gestalt_core::AgentEvent::Usage { input_tokens, output_tokens } => {
                 if let Some(i) = total_input_tokens {
@@ -255,123 +268,34 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
     })
 }
 
-/// Lists run indices under the run log directory.
-pub fn list_runs(config: &EffectiveConfig, limit: Option<usize>) -> Result<crate::output::RunsListReport, HarnessError> {
-    let run_log_dir = config.run_log_dir();
-    let mut runs = Vec::new();
-
-    if run_log_dir.exists() {
-        let entries = fs::read_dir(&run_log_dir).map_err(|e| {
-            HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-        })?;
-
-        for entry in entries {
-            let entry = entry.map_err(|e| {
-                HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-            })?;
-            let path = entry.path();
-            if path.is_dir() {
-                let run_id = entry.file_name().to_string_lossy().into_owned();
-                let start_time = parse_run_timestamp(&run_id);
-                let session_id = run_id.split('-').skip(1).collect::<Vec<_>>().join("-");
-
-                let trace_path = path.join("trace.jsonl");
-                let summary_path = path.join("summary.md");
-                let cost_path = path.join("cost.json");
-
-                let trace_exists = trace_path.exists();
-                let summary_exists = summary_path.exists();
-                let cost_exists = cost_path.exists();
-
-                let artifacts_dir = path.join("artifacts");
-                let mut artifact_count = 0;
-                if let Ok(entries) = fs::read_dir(artifacts_dir) {
-                    for ent in entries {
-                        if ent.is_ok() {
-                            artifact_count += 1;
-                        }
-                    }
-                }
-
-                let mut provider = None;
-                let mut model = None;
-                let mut apparent_status = "interrupted".to_string();
-                let mut total_input_tokens = Some(0);
-                let mut total_output_tokens = Some(0);
-                let mut estimated_cost_usd = None;
-
-                if let Ok(content) = fs::read_to_string(&cost_path) {
-                    if let Ok(cost_rep) = serde_json::from_str::<CostReport>(&content) {
-                        total_input_tokens = Some(cost_rep.input_tokens);
-                        total_output_tokens = Some(cost_rep.output_tokens);
-                        estimated_cost_usd = cost_rep.estimated_cost_usd;
-                    }
-                }
-
-                if trace_exists {
-                    if let Ok(meta) = scan_trace_file(&trace_path) {
-                        if provider.is_none() {
-                            provider = meta.provider;
-                        }
-                        if model.is_none() {
-                            model = meta.model;
-                        }
-                        apparent_status = meta.apparent_status;
-                        if total_input_tokens == Some(0) || total_input_tokens.is_none() {
-                            total_input_tokens = meta.total_input_tokens;
-                        }
-                        if total_output_tokens == Some(0) || total_output_tokens.is_none() {
-                            total_output_tokens = meta.total_output_tokens;
-                        }
-                    }
-                }
-
-                runs.push(crate::output::RunIndexEntry {
-                    run_id,
-                    path,
-                    start_time,
-                    session_id,
-                    provider,
-                    model,
-                    trace_exists,
-                    summary_exists,
-                    cost_exists,
-                    artifact_count,
-                    apparent_status,
-                    total_input_tokens,
-                    total_output_tokens,
-                    estimated_cost_usd,
-                });
-            }
-        }
-    }
-
-    runs.sort_by(|a, b| {
-        match (a.start_time, b.start_time) {
-            (Some(ta), Some(tb)) => tb.cmp(&ta).then_with(|| b.run_id.cmp(&a.run_id)),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => b.run_id.cmp(&a.run_id),
-        }
-    });
-
-    if let Some(l) = limit {
-        runs.truncate(l);
-    }
-
-    Ok(crate::output::RunsListReport { runs })
+pub struct RunSummary {
+    pub run_id: String,
+    pub path: PathBuf,
+    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub session_id: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub trace_exists: bool,
+    pub summary_exists: bool,
+    pub cost_exists: bool,
+    pub apparent_status: String,
+    pub turns: Option<usize>,
+    pub stop_reason: Option<String>,
+    pub total_input_tokens: Option<usize>,
+    pub total_output_tokens: Option<usize>,
+    pub estimated_cost_usd: Option<f64>,
+    pub workspace_snapshot_id: Option<String>,
+    pub artifacts: Vec<String>,
 }
 
-/// Inspects a specific run and returns a structured report.
-pub fn inspect_run(config: &EffectiveConfig, run_id_or_path: &str) -> Result<crate::output::RunsInspectReport, HarnessError> {
-    let resolved_path = resolve_run_path(config, run_id_or_path)?;
-    let run_id = resolved_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
+    let run_id = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let start_time = parse_run_timestamp(&run_id);
     let session_id = run_id.split('-').skip(1).collect::<Vec<_>>().join("-");
 
-    let trace_path = resolved_path.join("trace.jsonl");
-    let summary_path = resolved_path.join("summary.md");
-    let cost_path = resolved_path.join("cost.json");
+    let trace_path = path.join("trace.jsonl");
+    let summary_path = path.join("summary.md");
+    let cost_path = path.join("cost.json");
 
     let trace_exists = trace_path.exists();
     let summary_exists = summary_path.exists();
@@ -412,7 +336,7 @@ pub fn inspect_run(config: &EffectiveConfig, run_id_or_path: &str) -> Result<cra
         }
     }
 
-    let artifacts_dir = resolved_path.join("artifacts");
+    let artifacts_dir = path.join("artifacts");
     let mut artifacts = Vec::new();
     if let Ok(entries) = fs::read_dir(artifacts_dir) {
         for entry in entries.flatten() {
@@ -421,9 +345,9 @@ pub fn inspect_run(config: &EffectiveConfig, run_id_or_path: &str) -> Result<cra
     }
     artifacts.sort();
 
-    Ok(crate::output::RunsInspectReport {
+    Ok(RunSummary {
         run_id,
-        path: resolved_path,
+        path: path.to_path_buf(),
         start_time,
         session_id,
         provider,
@@ -439,6 +363,86 @@ pub fn inspect_run(config: &EffectiveConfig, run_id_or_path: &str) -> Result<cra
         estimated_cost_usd,
         workspace_snapshot_id,
         artifacts,
+    })
+}
+
+/// Lists run indices under the run log directory.
+pub fn list_runs(config: &EffectiveConfig, limit: Option<usize>) -> Result<crate::output::RunsListReport, HarnessError> {
+    let run_log_dir = config.run_log_dir();
+    let mut runs = Vec::new();
+
+    if run_log_dir.exists() {
+        let entries = fs::read_dir(&run_log_dir).map_err(|e| {
+            HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
+            })?;
+            let path = entry.path();
+            if path.is_dir() {
+                if let Ok(summary) = summarize_run_dir(&path) {
+                    runs.push(crate::output::RunIndexEntry {
+                        run_id: summary.run_id,
+                        path: summary.path,
+                        start_time: summary.start_time,
+                        session_id: summary.session_id,
+                        provider: summary.provider,
+                        model: summary.model,
+                        trace_exists: summary.trace_exists,
+                        summary_exists: summary.summary_exists,
+                        cost_exists: summary.cost_exists,
+                        artifact_count: summary.artifacts.len(),
+                        apparent_status: summary.apparent_status,
+                        total_input_tokens: summary.total_input_tokens,
+                        total_output_tokens: summary.total_output_tokens,
+                        estimated_cost_usd: summary.estimated_cost_usd,
+                    });
+                }
+            }
+        }
+    }
+
+    runs.sort_by(|a, b| {
+        match (a.start_time, b.start_time) {
+            (Some(ta), Some(tb)) => tb.cmp(&ta).then_with(|| b.run_id.cmp(&a.run_id)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => b.run_id.cmp(&a.run_id),
+        }
+    });
+
+    if let Some(l) = limit {
+        runs.truncate(l);
+    }
+
+    Ok(crate::output::RunsListReport { runs })
+}
+
+/// Inspects a specific run and returns a structured report.
+pub fn inspect_run(config: &EffectiveConfig, run_id_or_path: &str) -> Result<crate::output::RunsInspectReport, HarnessError> {
+    let resolved_path = resolve_run_path(config, run_id_or_path)?;
+    let summary = summarize_run_dir(&resolved_path)?;
+
+    Ok(crate::output::RunsInspectReport {
+        run_id: summary.run_id,
+        path: summary.path,
+        start_time: summary.start_time,
+        session_id: summary.session_id,
+        provider: summary.provider,
+        model: summary.model,
+        trace_exists: summary.trace_exists,
+        summary_exists: summary.summary_exists,
+        cost_exists: summary.cost_exists,
+        apparent_status: summary.apparent_status,
+        turns: summary.turns,
+        stop_reason: summary.stop_reason,
+        total_input_tokens: summary.total_input_tokens,
+        total_output_tokens: summary.total_output_tokens,
+        estimated_cost_usd: summary.estimated_cost_usd,
+        workspace_snapshot_id: summary.workspace_snapshot_id,
+        artifacts: summary.artifacts,
     })
 }
 

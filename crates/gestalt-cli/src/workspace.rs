@@ -255,7 +255,6 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
     let mut policies_error = None;
     let mut missing_files = Vec::new();
     let mut auth_summary = std::collections::HashMap::new();
-    let mut run_dir_writable = false;
 
     // Use derived or fallback root
     let workspace_root = overrides
@@ -313,16 +312,18 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
         }
     }
 
-    // 5. Writability test
+    // 5. Writability test (non-mutating/read-only)
     let run_log_dir = config.run_log_dir();
-    let pid = std::process::id();
-    let temp_file = run_log_dir.join(format!(".doctor-write-test-{}", pid));
-    if fs::create_dir_all(&run_log_dir).is_ok() {
-        if fs::write(&temp_file, "write test").is_ok() {
-            run_dir_writable = true;
-            let _ = fs::remove_file(temp_file);
+    let run_dir_exists = run_log_dir.exists();
+    let run_dir_writable = if run_dir_exists {
+        if let Ok(metadata) = fs::metadata(&run_log_dir) {
+            Some(!metadata.permissions().readonly())
+        } else {
+            Some(false)
         }
-    }
+    } else {
+        None
+    };
 
     Ok(WorkspaceDoctorReport {
         workspace_root,
@@ -332,6 +333,7 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
         policies_error,
         missing_files,
         auth_summary,
+        run_dir_exists,
         run_dir_writable,
     })
 }
