@@ -8,10 +8,10 @@ use gestalt_cli::{
     models::{inspect_model, list_models},
     output::{
         AuthResolveReport, CliErrorPayload, CliReport, ConfigValidateReport, CostReportWrapper,
-        JsonEnvelope, ModelsInspectReport, ModelsListReport, ModelsRefreshReport,
-        ModelsSelectReport, OutputFormat, ProvidersDoctorReport, ProvidersInspectReport,
-        ProvidersListReport, ReplayReport, RunReport, WorkspaceDoctorReport, WorkspaceInfoReport,
-        WorkspaceInitReport, WorkspaceSnapshotReport, WorkspaceStatusReport,
+        ExportFormat, JsonEnvelope, ModelsInspectReport, ModelsListReport,
+        ModelsRefreshReport, ModelsSelectReport, OutputFormat, ProvidersDoctorReport,
+        ProvidersInspectReport, ProvidersListReport, ReplayReport, RunReport, WorkspaceDoctorReport,
+        WorkspaceInfoReport, WorkspaceInitReport, WorkspaceSnapshotReport, WorkspaceStatusReport,
     },
     providers::{doctor_provider, inspect_provider, list_providers},
     replay::replay_display,
@@ -20,6 +20,7 @@ use gestalt_cli::{
     workspace::{
         doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
     },
+    trace, export, verify,
 };
 
 #[derive(Parser)]
@@ -69,7 +70,47 @@ enum Command {
     Status,
     Workspace(WorkspaceCommand),
     Runs(RunsCommand),
+    Trace(TraceCommand),
+    Export {
+        run_id_or_path: String,
+        #[arg(long, default_value = "markdown")]
+        format: ExportFormat,
+    },
+    Verify(VerifyCommand),
 }
+
+#[derive(Args)]
+pub struct TraceCommand {
+    #[command(subcommand)]
+    pub command: TraceSubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum TraceSubcommand {
+    Replay {
+        run_id_or_path: String,
+    },
+    Inspect {
+        run_id_or_path: String,
+    },
+    Validate {
+        run_id_or_path: String,
+    },
+}
+
+#[derive(Args)]
+pub struct VerifyCommand {
+    #[command(subcommand)]
+    pub command: VerifySubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum VerifySubcommand {
+    Run {
+        run_id_or_path: String,
+    },
+}
+
 
 #[derive(Args)]
 pub struct RunsCommand {
@@ -588,6 +629,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     fmt,
                     quiet,
                 )?;
+            }
+        },
+        Command::Trace(command) => match command.command {
+            TraceSubcommand::Replay { run_id_or_path } => {
+                let config = load_effective_config(&overrides)?;
+                let res = trace::replay_trace(&config, &run_id_or_path);
+                handle_result(res, format, quiet)?;
+            }
+            TraceSubcommand::Inspect { run_id_or_path } => {
+                let config = load_effective_config(&overrides)?;
+                let res = trace::inspect_trace(&config, &run_id_or_path);
+                handle_result(res, format, quiet)?;
+            }
+            TraceSubcommand::Validate { run_id_or_path } => {
+                let config = load_effective_config(&overrides)?;
+                let res = trace::validate_trace(&config, &run_id_or_path);
+                handle_result(res, format, quiet)?;
+            }
+        },
+        Command::Export { run_id_or_path, format: export_format } => {
+            let config = load_effective_config(&overrides)?;
+            let res = export::export_run(&config, &run_id_or_path, export_format);
+            handle_result(res, format, quiet)?;
+        }
+        Command::Verify(command) => match command.command {
+            VerifySubcommand::Run { run_id_or_path } => {
+                let config = load_effective_config(&overrides)?;
+                let res = verify::verify_run(&config, &run_id_or_path).await;
+                handle_result(res, format, quiet)?;
             }
         },
     }

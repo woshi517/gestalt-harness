@@ -11,4 +11,8 @@ pub mod replay;
 pub mod run;
 pub mod runs;
 pub mod workspace;
+pub mod trace;
+pub mod export;
+pub mod verify;
+
 

@@ -775,3 +775,190 @@ impl CliReport for RunsDeleteReport {
     }
 }
 
+/// Export format for run trace files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportFormat {
+    Markdown,
+    Jsonl,
+    Sharegpt,
+}
+
+/// Detailed trace inspection report.
+#[derive(Debug, Clone, Serialize)]
+pub struct TraceInspectReport {
+    pub run_id: String,
+    pub path: PathBuf,
+    pub total_events: usize,
+    pub event_types: std::collections::HashMap<String, usize>,
+    pub turns: usize,
+    pub tool_calls: usize,
+    pub policy_decisions: usize,
+    pub policy_outcomes: PolicyOutcomesSummary,
+    pub verification_results: usize,
+    pub verification_status: Option<gestalt_core::event::VerificationStatus>,
+    pub artifacts: Vec<String>,
+    pub total_input_tokens: usize,
+    pub total_output_tokens: usize,
+    pub estimated_cost_usd: Option<f64>,
+    pub redacted: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct PolicyOutcomesSummary {
+    pub allowed: usize,
+    pub confirmed: usize,
+    pub denied: usize,
+}
+
+impl CliReport for TraceInspectReport {
+    fn kind(&self) -> &'static str {
+        "trace.inspect"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("Run ID: {}", self.run_id),
+            format!("Path: {}", self.path.display()),
+            format!("Total Events: {}", self.total_events),
+            format!("Turns: {}", self.turns),
+            format!("Tool Calls: {}", self.tool_calls),
+            format!("Policy Decisions: {}", self.policy_decisions),
+            format!("  Allowed: {}", self.policy_outcomes.allowed),
+            format!("  Confirmed: {}", self.policy_outcomes.confirmed),
+            format!("  Denied: {}", self.policy_outcomes.denied),
+            format!("Verification Results: {}", self.verification_results),
+            format!("  Status: {}", self.verification_status.map(|s| format!("{s:?}")).unwrap_or_else(|| "none".to_string())),
+            format!("Tokens: {} in / {} out", self.total_input_tokens, self.total_output_tokens),
+            format!("Cost: {}", self.estimated_cost_usd.map(|c| format!("${c:.6}")).unwrap_or_else(|| "unknown".to_string())),
+            format!("Redacted: {}", self.redacted),
+            format!("Artifacts: {} artifacts", self.artifacts.len()),
+        ];
+        for a in &self.artifacts {
+            lines.push(format!("  - {a}"));
+        }
+        if !self.warnings.is_empty() {
+            lines.push("Warnings:".to_string());
+            for w in &self.warnings {
+                lines.push(format!("  - {w}"));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+/// Trace file validation report.
+#[derive(Debug, Clone, Serialize)]
+pub struct TraceValidateReport {
+    pub run_id: String,
+    pub path: PathBuf,
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+impl CliReport for TraceValidateReport {
+    fn kind(&self) -> &'static str {
+        "trace.validate"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("Run ID: {}", self.run_id),
+            format!("Path: {}", self.path.display()),
+            format!("Valid: {}", self.valid),
+        ];
+        if !self.errors.is_empty() {
+            lines.push("Errors:".to_string());
+            for e in &self.errors {
+                lines.push(format!("  - {e}"));
+            }
+        }
+        if !self.warnings.is_empty() {
+            lines.push("Warnings:".to_string());
+            for w in &self.warnings {
+                lines.push(format!("  - {w}"));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+/// Export format wrapper for printing export outputs.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportReport {
+    pub format: String,
+    pub content: String,
+}
+
+impl CliReport for ExportReport {
+    fn kind(&self) -> &'static str {
+        "export"
+    }
+
+    fn render_text(&self) -> String {
+        self.content.clone()
+    }
+}
+
+/// Post-run verification execution result entry.
+#[derive(Debug, Clone, Serialize)]
+pub struct VerifierResultEntry {
+    pub name: String,
+    pub status: gestalt_core::event::VerificationStatus,
+    pub findings: Vec<gestalt_core::event::VerificationFinding>,
+    pub report: Option<String>,
+}
+
+/// Artifact verification summary.
+#[derive(Debug, Clone, Serialize)]
+pub struct ArtifactVerificationResult {
+    pub artifact_path: String,
+    pub verifiers: Vec<VerifierResultEntry>,
+}
+
+/// Aggregated verify run report.
+#[derive(Debug, Clone, Serialize)]
+pub struct VerifyRunReport {
+    pub run_id: String,
+    pub status: gestalt_core::event::VerificationStatus,
+    pub total_checks: usize,
+    pub total_failed: usize,
+    pub artifacts: Vec<ArtifactVerificationResult>,
+}
+
+impl CliReport for VerifyRunReport {
+    fn kind(&self) -> &'static str {
+        "verify.run"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("Run ID: {}", self.run_id),
+            format!("Overall Status: {:?}", self.status),
+            format!("Total Checks: {}", self.total_checks),
+            format!("Total Failed: {}", self.total_failed),
+            "Artifacts:".to_string(),
+        ];
+        for a in &self.artifacts {
+            lines.push(format!("  - Artifact: {}", a.artifact_path));
+            for v in &a.verifiers {
+                lines.push(format!("    * Verifier: {} [{:?}]", v.name, v.status));
+                for f in &v.findings {
+                    lines.push(format!("      - [{:?}] {}{}", 
+                        f.severity, 
+                        f.message,
+                        f.location.as_ref().map(|loc| format!(" at {loc}")).unwrap_or_default()
+                    ));
+                }
+                if let Some(r) = &v.report {
+                    lines.push(format!("      Report: {r}"));
+                }
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+
