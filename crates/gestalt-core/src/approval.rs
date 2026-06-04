@@ -9,7 +9,18 @@ use crate::tool::RiskLevel;
 
 #[async_trait]
 pub trait ApprovalProvider: Send + Sync {
-    async fn approve(&self, request: ApprovalRequest) -> ApprovalDecision;
+    async fn approve(&self, request: ApprovalRequest) -> Result<ApprovalDecision, crate::error::HarnessError>;
+
+    async fn approve_cancellable(
+        &self,
+        request: ApprovalRequest,
+        cancel_token: &crate::cancel::CancelToken,
+    ) -> Result<ApprovalDecision, crate::error::HarnessError> {
+        tokio::select! {
+            res = self.approve(request) => res,
+            _ = cancel_token.cancelled() => Err(crate::error::HarnessError::Cancelled),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,8 +44,8 @@ pub struct AutoApprovalProvider;
 
 #[async_trait]
 impl ApprovalProvider for AutoApprovalProvider {
-    async fn approve(&self, _request: ApprovalRequest) -> ApprovalDecision {
-        ApprovalDecision::Approve
+    async fn approve(&self, _request: ApprovalRequest) -> Result<ApprovalDecision, crate::error::HarnessError> {
+        Ok(ApprovalDecision::Approve)
     }
 }
 
@@ -42,8 +53,8 @@ pub struct DenyApprovalProvider;
 
 #[async_trait]
 impl ApprovalProvider for DenyApprovalProvider {
-    async fn approve(&self, _request: ApprovalRequest) -> ApprovalDecision {
-        ApprovalDecision::Deny
+    async fn approve(&self, _request: ApprovalRequest) -> Result<ApprovalDecision, crate::error::HarnessError> {
+        Ok(ApprovalDecision::Deny)
     }
 }
 

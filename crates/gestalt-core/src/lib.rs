@@ -19,6 +19,7 @@
 
 pub mod agent;
 pub mod approval;
+pub mod cancel;
 pub mod context;
 pub mod error;
 pub mod event;
@@ -38,6 +39,7 @@ pub use approval::{
     hash_input, hash_input_short, ApprovalDecision, ApprovalProvider, ApprovalRequest,
     AutoApprovalProvider, DenyApprovalProvider, SessionGrant,
 };
+pub use cancel::CancelToken;
 pub use context::{ContextPipeline, TokenBudget};
 pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,
@@ -55,7 +57,7 @@ pub use model::{ModelInfo, ModelInfoSource};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 pub use provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest};
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
-pub use snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter, GitWorkspaceSnapshotter};
+pub use snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshot, WorkspaceSnapshotter};
 pub use tool::{
     artifact_path, is_audited_local_command, sanitize_artifact_stem, RiskLevel, Tool, ToolArtifact,
     ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolSchema,

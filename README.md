@@ -86,11 +86,87 @@ gestalt --help
 
 ## Quick Start
 
-Validate the included minimal fixture workspace without any provider credentials:
+Onboard using the default OpenRouter flow:
+
+```bash
+gestalt connect openrouter
+```
+
+This interactive command prompts for your OpenRouter API key, stores it securely in your OS keychain, and sets up a default profile for the workspace.
+
+Alternatively, you can validate the included minimal fixture workspace without any provider credentials:
 
 ```bash
 gestalt --workspace tests/fixtures/workspaces/minimal config validate
 ```
+
+---
+
+## Provider Connections and Profiles
+
+`gestalt-harness` features a provider connection and credential-backed profile system to securely manage API keys and switch between model environments without storing raw secrets in config files.
+
+- **Connect to a Provider:**
+  ```bash
+  gestalt connect openrouter
+  # Or connect non-interactively:
+  gestalt connect openrouter --api-key <key> --set-default
+  ```
+  This creates a provider connection entry under `~/.config/gestalt/config.toml` referencing the OS keychain without persisting raw secrets.
+
+- **List Profiles:**
+  ```bash
+  gestalt profiles list
+  ```
+  Lists all available profiles and highlights the currently active one.
+
+- **Switch Profiles:**
+  ```bash
+  gestalt profiles use <profile-name>
+  ```
+  Switches the active profile for the workspace (stored in `.gestalt/config.toml`).
+
+- **Search Discovered Models:**
+  ```bash
+  gestalt models search <query>
+  ```
+  Searches across built-in and provider-discovered models.
+
+---
+
+## Workspace Management
+
+Manage and inspect your agent workspace with the following CLI commands:
+
+- **Initialize a Workspace:**
+  ```bash
+  gestalt init
+  # Or force overwrite existing files:
+  gestalt init --force
+  ```
+  Scaffolds a new workspace containing default `.gestalt/config.toml`, `policies.toml`, `workspace.md`, and `memory.md` templates.
+
+- **Check Workspace Status:**
+  ```bash
+  gestalt status
+  ```
+  Provides a top-level summary of active options, configuration health, recent runs count, and provider credential warnings.
+
+- **Workspace Diagnostics (`workspace` subcommands):**
+  - **Info**: List paths to configuration and data files.
+    ```bash
+    gestalt workspace info
+    ```
+  - **Snapshot**: Capture git metadata and workspace state.
+    ```bash
+    gestalt workspace snapshot
+    ```
+  - **Doctor**: Run syntactical, file-presence, credential, and permission diagnostics.
+    ```bash
+    gestalt workspace doctor
+    ```
+
+You can use `--format json` to get machine-readable output envelopes for any of these commands.
 
 ---
 

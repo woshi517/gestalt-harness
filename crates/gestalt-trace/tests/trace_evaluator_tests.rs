@@ -1,20 +1,20 @@
+use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
-use async_trait::async_trait;
 
 use gestalt_core::{
-    event::{AgentEvent, VerificationStatus},
-    session::{Session, SessionConfig, ExecutionMode},
     context::TokenBudget,
-    tool::ToolContext,
-    snapshot::WorkspaceSnapshot,
-    hook::SessionHook,
     error::HarnessError,
+    event::{AgentEvent, VerificationStatus},
+    hook::SessionHook,
+    session::{ExecutionMode, Session, SessionConfig},
+    snapshot::WorkspaceSnapshot,
+    tool::ToolContext,
     trace::TraceSink,
 };
 use gestalt_trace::{
-    GoldenTrace, NoopTraceEvaluator, TraceEvaluator, EvalStatus, EvalResult, EventEnvelope,
-    evaluator::EvaluatorHook, JsonlTraceSink,
+    evaluator::EvaluatorHook, EvalResult, EvalStatus, EventEnvelope, GoldenTrace, JsonlTraceSink,
+    NoopTraceEvaluator, TraceEvaluator,
 };
 
 fn get_trace_fixtures_dir() -> PathBuf {
@@ -30,7 +30,10 @@ async fn test_noop_trace_evaluator() {
     let golden = GoldenTrace::load(&dir).expect("Failed to load yolo-bash-allowlist-golden");
 
     let evaluator = NoopTraceEvaluator;
-    let res = evaluator.evaluate(&golden.expected, &golden).await.expect("Noop evaluator fails");
+    let res = evaluator
+        .evaluate(&golden.expected, &golden)
+        .await
+        .expect("Noop evaluator fails");
 
     assert_eq!(res.status, EvalStatus::Skipped);
     assert!(res.score.is_none());
@@ -66,15 +69,12 @@ async fn test_evaluator_hook_on_session_end() {
 
     // Write a trace.jsonl file
     let trace_path = temp_dir.join("trace.jsonl");
-    let sink = JsonlTraceSink::new(
-        "session-1",
-        &trace_path,
-        None,
-    ).expect("create sink");
+    let sink = JsonlTraceSink::new("session-1", "run-1", &trace_path, None).expect("create sink");
 
     sink.emit(AgentEvent::UserMessage {
         content: "hello yolo".to_string(),
-    }).unwrap();
+    })
+    .unwrap();
     sink.flush().unwrap();
 
     let session = Session::new(
@@ -117,14 +117,25 @@ async fn test_evaluator_hook_on_session_end() {
         },
     );
 
-    let evaluator = Arc::new(MockTraceEvaluator { status: EvalStatus::Passed });
-    let hook = EvaluatorHook::new(evaluator, Some(golden))
-        .with_flush_trigger(Arc::new(move || {}));
+    let evaluator = Arc::new(MockTraceEvaluator {
+        status: EvalStatus::Passed,
+    });
+    let hook = EvaluatorHook::new(evaluator, Some(golden)).with_flush_trigger(Arc::new(move || {}));
 
-    let events = hook.on_session_end(&session).await.expect("on_session_end fails");
+    let events = hook
+        .on_session_end(&session)
+        .await
+        .expect("on_session_end fails");
     assert_eq!(events.len(), 1);
 
-    if let AgentEvent::VerificationResult { status, checks, failed, report, .. } = &events[0] {
+    if let AgentEvent::VerificationResult {
+        status,
+        checks,
+        failed,
+        report,
+        ..
+    } = &events[0]
+    {
         assert_eq!(*status, VerificationStatus::Passed);
         assert_eq!(*checks, 1);
         assert_eq!(*failed, 0);

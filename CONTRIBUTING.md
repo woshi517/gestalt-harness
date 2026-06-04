@@ -70,6 +70,7 @@ bash scripts/check-binary-size.sh
 - **Tools:** Every tool must include tests for the happy path, schema validation, input risk classification, and path traversal vulnerabilities.
 - **Providers:** Network calls must be mocked. Provider tests must consume recorded JSONL HTTP cassettes located in `tests/fixtures/provider-streams/`. No live API keys are permitted in CI.
 - **Sacred Loop:** If you modify `AgentLoop`, you must update the mock-provider integration tests to verify correct state transitions.
+- **TUI Snapshot Testing:** The TUI layout uses `insta` for golden snapshot assertions. If you modify rendering layouts and expect changes to the golden screen captures, run `cargo insta test --features tui` and use `cargo insta accept` to review and promote the new golden snapshots.
 - **Release hardening:** Changes that affect packaging, install behavior, or default features must keep `scripts/install-smoke.sh` and `scripts/check-binary-size.sh` green.
 
 ## Security & Permissions

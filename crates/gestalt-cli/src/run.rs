@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, AgentLoop, ExecutionMode, Message, Session, SessionConfig,
-    TokenBudget, ToolContext, WorkspaceSnapshotter, ToolCatalog,
+    TokenBudget, ToolCatalog, ToolContext, WorkspaceSnapshotter,
 };
 use gestalt_models::registry;
 use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
@@ -15,9 +15,17 @@ use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::rend
 pub async fn run_prompt(
     config: &EffectiveConfig,
     prompt: &str,
+    api_key: Option<String>,
+    cancel_token: gestalt_core::cancel::CancelToken,
+    approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
+    event_tx: Option<tokio::sync::mpsc::UnboundedSender<gestalt_core::AgentEvent>>,
+    session_id_override: Option<String>,
 ) -> Result<PathBuf, gestalt_core::HarnessError> {
-    let provider_name = config.selected_provider()?;
-    let provider = registry::get(&provider_name, config.provider_json(&provider_name))?;
+    let resolved = config.resolve_provider()?;
+    let provider_name = resolved.provider_name.clone();
+    let provider_config = resolved.provider_json();
+    let resolver = crate::auth::build_credential_resolver(api_key, event_tx.is_none());
+    let provider = registry::get_with_resolver(&resolved.kind, provider_config, resolver)?;
     let provider_default_model = provider.default_model().to_string();
 
     let tools = Arc::new(default_registry()?);
@@ -30,15 +38,28 @@ pub async fn run_prompt(
         .collect();
     let pipeline = Arc::new(build_pipeline(config, mode, max_turns, &tool_names)?);
     let policy = Arc::new(build_policy(config)?);
-    let approval = approval_provider(config.selected_mode()?);
+    let approval = approval_override.unwrap_or_else(|| approval_provider(mode));
 
-    let model = config.selected_model().unwrap_or(provider_default_model);
-    let session_id = format!("session-{}", std::process::id());
+    let model = if resolved.model.is_empty() {
+        provider_default_model
+    } else {
+        resolved.model
+    };
+
+    // Durable unique session and run IDs
+    let session_id =
+        session_id_override.unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
+    let run_id = format!("run-{}", uuid::Uuid::new_v4());
 
     let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
     let snapshot = snapshotter.capture(&config.workspace_root).await?;
 
-    let (sink_inner, run_paths) = JsonlTraceSink::create_run(config.run_log_dir(), &session_id, Some(snapshot.clone()))?;
+    let (sink_inner, run_paths) = JsonlTraceSink::create_run(
+        config.run_log_dir(),
+        &session_id,
+        &run_id,
+        Some(snapshot.clone()),
+    )?;
     let sink = Arc::new(sink_inner);
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -53,16 +74,26 @@ pub async fn run_prompt(
     let verification_hook = Arc::new(gestalt_verify::VerificationToolHook::new(verifier_registry));
     let evaluator = Arc::new(gestalt_trace::evaluator::NoopTraceEvaluator);
     let sink_clone = sink.clone();
-    let evaluator_hook = Arc::new(gestalt_trace::evaluator::EvaluatorHook::new(evaluator, None)
-        .with_flush_trigger(Arc::new(move || {
-            let _ = sink_clone.flush();
-        })));
+    let evaluator_hook = Arc::new(
+        gestalt_trace::evaluator::EvaluatorHook::new(evaluator, None).with_flush_trigger(Arc::new(
+            move || {
+                let _ = sink_clone.flush();
+            },
+        )),
+    );
     let mut hooks = gestalt_core::HookRegistry::new();
     hooks.register_tool_hook(verification_hook);
     hooks.register_session_hook(evaluator_hook);
 
-    let loop_ =
-        AgentLoop::new(provider, tools, pipeline, policy, approval, max_turns).with_hooks(hooks);
+    let loop_ = AgentLoop::new(
+        provider,
+        tools.clone(),
+        pipeline,
+        policy,
+        approval,
+        max_turns,
+    )
+    .with_hooks(hooks);
 
     let mut session = Session::new(
         session_id.clone(),
@@ -97,48 +128,158 @@ pub async fn run_prompt(
         snapshot.clone(),
     );
 
+    // Initial manifest setup and save
+    let run_manifest_path = run_paths.root.join("run.json");
+    let initial_manifest = gestalt_trace::run_manifest::RunManifest {
+        v: 1,
+        session_id: session_id.clone(),
+        run_id: run_id.clone(),
+        parent_run_id: None,
+        base_checkpoint: None,
+        run_kind: gestalt_trace::run_manifest::RunKind::New,
+        created_at: chrono::Utc::now(),
+        lifecycle_state: gestalt_trace::run_manifest::LifecycleState::Running,
+        finalized_at: None,
+        failure_kind: None,
+        interrupted_phase: None,
+        compatibility_fingerprint: gestalt_trace::run_manifest::CompatibilityFingerprint {
+            context_pipeline_version: "pipeline-v1".to_string(),
+            tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
+                &tools.schemas(),
+            ),
+            policy_fingerprint: {
+                let policies_path = config.workspace_file("policies.toml");
+                let content = std::fs::read_to_string(&policies_path).unwrap_or_default();
+                gestalt_trace::run_manifest::compute_policy_fingerprint(&content)
+            },
+            hook_contract_hash: {
+                let hook_names = vec![
+                    "VerificationToolHook".to_string(),
+                    "EvaluatorHook".to_string(),
+                ];
+                gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
+            },
+            execution_mode: format!("{:?}", config.selected_mode()?),
+        },
+    };
+    initial_manifest
+        .save_to(&run_manifest_path)
+        .map_err(|e| gestalt_core::HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
+
     let snapshot_id: String = snapshot.content_hash.chars().take(12).collect();
-    sink.emit(AgentEvent::WorkspaceSnapshotCaptured {
+    let snapshot_event = AgentEvent::WorkspaceSnapshotCaptured {
         snapshot_id,
         dirty: snapshot.git_dirty.unwrap_or(false),
-    })?;
+    };
+    sink.emit(snapshot_event.clone())?;
+    if let Some(ref tx) = event_tx {
+        let _ = tx.send(snapshot_event);
+    }
     session.history.push(Message::User {
         content: vec![gestalt_core::ContentBlock::Text {
             text: prompt.to_string(),
         }],
     });
-    sink.emit(AgentEvent::UserMessage {
+    let user_msg_event = AgentEvent::UserMessage {
         content: prompt.to_string(),
-    })?;
+    };
+    sink.emit(user_msg_event.clone())?;
+    if let Some(ref tx) = event_tx {
+        let _ = tx.send(user_msg_event);
+    }
 
     let mut trace_error_count = 0;
     let max_trace_errors = 3;
 
-    let result = loop_
-        .run(&mut session, |event| {
+    let loop_result = loop_
+        .run(&mut session, &cancel_token, Some(sink.as_ref()), |event| {
             emit_trace_event(
                 &*sink,
                 event.clone(),
                 &mut trace_error_count,
                 max_trace_errors,
             )?;
-            if let Some(line) = render_event(&event) {
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(event.clone());
+            } else if let Some(line) = render_event(&event) {
                 println!("{line}");
             }
             Ok(())
         })
-        .await?;
-    sink.flush()?;
+        .await;
 
-    write_summary(&run_paths.summary, &result)?;
-    let report = aggregate_costs(&run_paths.trace, |model| {
-        gestalt_models::ModelCatalog::new().get(model)
-    })?;
-    write_cost_report(&run_paths.cost, &report)?;
-    Ok(run_paths.root)
+    let mut manifest = initial_manifest;
+    manifest.finalized_at = Some(chrono::Utc::now());
+
+    let final_status = match loop_result {
+        Ok(result) => {
+            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Completed;
+            let _ = write_summary(&run_paths.summary, &result);
+            let _ = sink.flush();
+            let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
+            Ok(run_paths.root.clone())
+        }
+        Err(gestalt_core::HarnessError::Cancelled) => {
+            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Interrupted;
+            manifest.interrupted_phase = Some("agent_loop".to_string());
+            let interrupted_event = AgentEvent::Interrupted {
+                reason: "signal".to_string(),
+            };
+            let _ = sink.emit(interrupted_event.clone());
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(interrupted_event);
+            }
+            let _ = sink.flush();
+
+            let mock_run_result = gestalt_core::session::RunResult {
+                session_id: session.id.clone(),
+                turns: session.history.len() / 2,
+                stop_reason: gestalt_core::StopReason::EndTurn,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                artifacts: Vec::new(),
+                workspace_snapshot_id: None,
+            };
+            let _ = write_summary(&run_paths.summary, &mock_run_result);
+            let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
+            Err(gestalt_core::HarnessError::Cancelled)
+        }
+        Err(err) => {
+            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Failed;
+            manifest.failure_kind = Some(format!("{:?}", err));
+            let _ = sink.flush();
+
+            let mock_run_result = gestalt_core::session::RunResult {
+                session_id: session.id.clone(),
+                turns: session.history.len() / 2,
+                stop_reason: gestalt_core::StopReason::EndTurn,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                artifacts: Vec::new(),
+                workspace_snapshot_id: None,
+            };
+            let _ = write_summary(&run_paths.summary, &mock_run_result);
+            let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
+            Err(err)
+        }
+    };
+
+    let _ = manifest.save_to(&run_manifest_path);
+    final_status
 }
 
-fn build_pipeline(
+fn write_cost_report_helper(
+    trace_path: &std::path::Path,
+    cost_path: &std::path::Path,
+) -> Result<(), gestalt_core::HarnessError> {
+    let report = aggregate_costs(trace_path, |model| {
+        gestalt_models::ModelCatalog::new().get(model)
+    })?;
+    write_cost_report(cost_path, &report)?;
+    Ok(())
+}
+
+pub fn build_pipeline(
     config: &EffectiveConfig,
     mode: ExecutionMode,
     max_turns: usize,
@@ -152,60 +293,81 @@ fn build_pipeline(
 
     let policies_path = config.workspace_file("policies.toml");
     if policies_path.exists() {
-        let toml_content = fs::read_to_string(&policies_path)
-            .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+        let toml_content = fs::read_to_string(&policies_path).map_err(|e| {
+            gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
                 field: "policies.toml".to_string(),
                 reason: format!("Failed to read policies.toml: {e}"),
-            }))?;
-        let value = toml::from_str::<toml::Value>(&toml_content)
-            .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+            })
+        })?;
+        let value = toml::from_str::<toml::Value>(&toml_content).map_err(|e| {
+            gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
                 field: "policies.toml".to_string(),
                 reason: format!("Failed to parse policies.toml: {e}"),
-            }))?;
+            })
+        })?;
         if let Some(prompt) = value.get("prompt") {
             if let Some(over_val) = prompt.get("override") {
                 let over = over_val.as_str().ok_or_else(|| {
-                    gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override".to_string(),
-                        reason: "Expected prompt.override to be a string".to_string(),
-                    })
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override".to_string(),
+                            reason: "Expected prompt.override to be a string".to_string(),
+                        },
+                    )
                 })?;
                 pipeline = pipeline.with_prompt_override(over);
             } else if let Some(file_path_val) = prompt.get("override_file") {
                 let file_path = file_path_val.as_str().ok_or_else(|| {
-                    gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: "Expected prompt.override_file to be a string".to_string(),
-                    })
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: "Expected prompt.override_file to be a string".to_string(),
+                        },
+                    )
                 })?;
                 let target_path = config.workspace_root.join(file_path);
                 if !target_path.exists() {
-                    return Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Override file '{file_path}' does not exist"),
-                    }));
+                    return Err(gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!("Override file '{file_path}' does not exist"),
+                        },
+                    ));
                 }
-                let canonical_root = fs::canonicalize(&config.workspace_root)
-                    .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "workspace_root".to_string(),
-                        reason: format!("Failed to canonicalize workspace root: {e}"),
-                    }))?;
-                let canonical_target = fs::canonicalize(&target_path)
-                    .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Failed to canonicalize override file: {e}"),
-                    }))?;
+                let canonical_root = fs::canonicalize(&config.workspace_root).map_err(|e| {
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "workspace_root".to_string(),
+                            reason: format!("Failed to canonicalize workspace root: {e}"),
+                        },
+                    )
+                })?;
+                let canonical_target = fs::canonicalize(&target_path).map_err(|e| {
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!("Failed to canonicalize override file: {e}"),
+                        },
+                    )
+                })?;
                 if !canonical_target.starts_with(&canonical_root) {
-                    return Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Override file path '{file_path}' escapes the workspace root"),
-                    }));
+                    return Err(gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!(
+                                "Override file path '{file_path}' escapes the workspace root"
+                            ),
+                        },
+                    ));
                 }
-                let content = fs::read_to_string(&canonical_target)
-                    .map_err(|e| gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                        field: "prompt.override_file".to_string(),
-                        reason: format!("Failed to read override file '{file_path}': {e}"),
-                    }))?;
+                let content = fs::read_to_string(&canonical_target).map_err(|e| {
+                    gestalt_core::HarnessError::Config(
+                        gestalt_core::error::ConfigError::InvalidValue {
+                            field: "prompt.override_file".to_string(),
+                            reason: format!("Failed to read override file '{file_path}': {e}"),
+                        },
+                    )
+                })?;
                 pipeline = pipeline.with_prompt_override_file(file_path, content);
             }
         }
@@ -222,7 +384,7 @@ fn build_pipeline(
     Ok(pipeline)
 }
 
-fn build_policy(
+pub(crate) fn build_policy(
     config: &EffectiveConfig,
 ) -> Result<MinimalPolicyEngine, gestalt_core::HarnessError> {
     let policies = config.workspace_file("policies.toml");
@@ -234,14 +396,14 @@ fn build_policy(
     Ok(MinimalPolicyEngine::new(policy))
 }
 
-fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {
+pub(crate) fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {
     match mode {
         ExecutionMode::Yolo => Arc::new(CliApprovalProvider),
         _ => Arc::new(CliApprovalProvider),
     }
 }
 
-fn emit_trace_event<S: TraceSink>(
+pub(crate) fn emit_trace_event<S: TraceSink>(
     sink: &S,
     event: gestalt_core::AgentEvent,
     trace_error_count: &mut usize,
@@ -315,11 +477,19 @@ mod tests {
 
     #[test]
     fn test_build_pipeline_override_scenarios() {
-        use std::fs;
-        use crate::config::{EffectiveConfig, DefaultsConfig, ToolsConfig, ContextConfig, ObserveConfig};
+        use crate::config::{
+            ContextConfig, DefaultsConfig, EffectiveConfig, ObserveConfig, ToolsConfig,
+        };
         use std::collections::HashMap;
+        use std::fs;
 
-        let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-test-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "gestalt-cli-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let gestalt_dir = temp_dir.join(".gestalt");
         fs::create_dir_all(&gestalt_dir).unwrap();
 
@@ -330,6 +500,7 @@ mod tests {
                 model: None,
                 mode: None,
                 max_turns: None,
+                profile: None,
             },
             tools: ToolsConfig {
                 bash_timeout_secs: None,
@@ -345,10 +516,20 @@ mod tests {
                 log_format: None,
             },
             providers: HashMap::new(),
+            profiles: HashMap::new(),
+            provider_override: None,
+            model_override: None,
+            tui: crate::config::TuiConfig::default(),
         };
 
         // Scenario 1: No policies.toml => uses default prompt
-        let pipeline = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]).unwrap();
+        let pipeline = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        )
+        .unwrap();
         let budget = gestalt_core::context::TokenBudget {
             model_limit: 1000,
             reserved_output: 16,
@@ -369,20 +550,39 @@ mod tests {
 override = "Manual override text"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml).unwrap();
-        let pipeline = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]).unwrap();
+        let pipeline = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        )
+        .unwrap();
         let packet = pipeline.build_packet(&[], &budget);
         assert_eq!(packet.prompt_source.as_deref(), Some("override"));
-        
+
         // Scenario 3: policies.toml with prompt.override_file (valid)
         let policies_toml_file = r#"
 [prompt]
 override_file = ".gestalt/custom_prompt.md"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_file).unwrap();
-        fs::write(temp_dir.join(".gestalt/custom_prompt.md"), "File custom text").unwrap();
-        let pipeline = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]).unwrap();
+        fs::write(
+            temp_dir.join(".gestalt/custom_prompt.md"),
+            "File custom text",
+        )
+        .unwrap();
+        let pipeline = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        )
+        .unwrap();
         let packet = pipeline.build_packet(&[], &budget);
-        assert_eq!(packet.prompt_source.as_deref(), Some(".gestalt/custom_prompt.md"));
+        assert_eq!(
+            packet.prompt_source.as_deref(),
+            Some(".gestalt/custom_prompt.md")
+        );
 
         // Scenario 4: policies.toml with prompt.override_file (missing)
         let policies_toml_missing = r#"
@@ -390,9 +590,17 @@ override_file = ".gestalt/custom_prompt.md"
 override_file = ".gestalt/nonexistent_prompt.md"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_missing).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "prompt.override_file");
             assert!(reason.contains("does not exist"));
         } else {
@@ -405,11 +613,21 @@ override_file = ".gestalt/nonexistent_prompt.md"
 override_file = "../../../etc/passwd"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_escape).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "prompt.override_file");
-            assert!(reason.contains("escapes the workspace root") || reason.contains("does not exist"));
+            assert!(
+                reason.contains("escapes the workspace root") || reason.contains("does not exist")
+            );
         } else {
             panic!("expected path escape or does not exist config error");
         }
@@ -420,9 +638,17 @@ override_file = "../../../etc/passwd"
 override = "Manual override text"
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_invalid).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "policies.toml");
             assert!(reason.contains("Failed to parse policies.toml"));
         } else {
@@ -435,9 +661,17 @@ override = "Manual override text"
 override = 12345
 "#;
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_bad_shape).unwrap();
-        let result = super::build_pipeline(&config, gestalt_core::session::ExecutionMode::Confirm, 3, &[]);
+        let result = super::build_pipeline(
+            &config,
+            gestalt_core::session::ExecutionMode::Confirm,
+            3,
+            &[],
+        );
         assert!(result.is_err());
-        if let Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue { field, reason })) = result {
+        if let Err(gestalt_core::HarnessError::Config(
+            gestalt_core::error::ConfigError::InvalidValue { field, reason },
+        )) = result
+        {
             assert_eq!(field, "prompt.override");
             assert!(reason.contains("Expected prompt.override to be a string"));
         } else {

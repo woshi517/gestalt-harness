@@ -1,12 +1,16 @@
 //! `gestalt-trace` — JSONL trace writer + `EventEnvelope`
 
+pub mod evaluator;
 pub mod fixture;
 pub mod golden;
-pub mod evaluator;
+pub mod run_manifest;
+pub mod resume;
 
+pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
 pub use golden::{GoldenTrace, GoldenTraceRunner};
-pub use evaluator::{TraceEvaluator, NoopTraceEvaluator, EvalStatus, EvalResult, EvaluatorHook};
+pub use run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
+pub use resume::{ResumeAnalyzer, ResumeAnalysis, RecoveryStatus};
 
 use std::{
     fs::{self, File},
@@ -26,6 +30,8 @@ use serde_json::Value;
 pub struct EventEnvelope {
     pub v: u32,
     pub session_id: String,
+    #[serde(default)]
+    pub run_id: String,
     pub turn_id: usize,
     pub seq: u64,
     pub ts: DateTime<Utc>,
@@ -71,6 +77,7 @@ impl CostReport {
 #[derive(Debug)]
 pub struct JsonlTraceSink {
     session_id: String,
+    run_id: String,
     state: Mutex<TraceState>,
 }
 
@@ -85,6 +92,7 @@ struct TraceState {
 impl JsonlTraceSink {
     pub fn new(
         session_id: impl Into<String>,
+        run_id: impl Into<String>,
         trace_path: impl AsRef<Path>,
         workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<Self, TraceError> {
@@ -96,6 +104,7 @@ impl JsonlTraceSink {
         let file = File::create(trace_path).map_err(TraceError::WriteFailed)?;
         Ok(Self {
             session_id: session_id.into(),
+            run_id: run_id.into(),
             state: Mutex::new(TraceState {
                 writer: BufWriter::new(file),
                 seq: 0,
@@ -108,10 +117,11 @@ impl JsonlTraceSink {
     pub fn create_run(
         base_dir: impl AsRef<Path>,
         session_id: &str,
+        run_id: &str,
         workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<(Self, RunPaths), TraceError> {
-        let paths = create_run_paths(base_dir, session_id)?;
-        let sink = Self::new(session_id.to_string(), &paths.trace, workspace_snapshot)?;
+        let paths = create_run_paths(base_dir, run_id)?;
+        let sink = Self::new(session_id.to_string(), run_id.to_string(), &paths.trace, workspace_snapshot)?;
         Ok((sink, paths))
     }
 }
@@ -129,12 +139,14 @@ impl TraceSink for JsonlTraceSink {
 
         state.seq = state.seq.saturating_add(1);
         let (event, redacted) = redact_event(&event);
-        let snapshot_id = state.workspace_snapshot.as_ref().map(|s| {
-            s.content_hash.chars().take(12).collect::<String>()
-        });
+        let snapshot_id = state
+            .workspace_snapshot
+            .as_ref()
+            .map(|s| s.content_hash.chars().take(12).collect::<String>());
         let envelope = EventEnvelope {
             v: 1,
             session_id: self.session_id.clone(),
+            run_id: self.run_id.clone(),
             turn_id: state.turn_id,
             seq: state.seq,
             ts: Utc::now(),
@@ -169,12 +181,20 @@ impl TraceSink for JsonlTraceSink {
     }
 }
 
+impl Drop for JsonlTraceSink {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            let _ = state.writer.flush();
+        }
+    }
+}
+
 pub fn create_run_paths(
     base_dir: impl AsRef<Path>,
-    session_id: &str,
+    run_id: &str,
 ) -> Result<RunPaths, TraceError> {
     let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
-    let root = base_dir.as_ref().join(format!("{stamp}-{session_id}"));
+    let root = base_dir.as_ref().join(format!("{stamp}-{run_id}"));
     let artifacts = root.join("artifacts");
     fs::create_dir_all(&artifacts).map_err(TraceError::WriteFailed)?;
 
@@ -396,10 +416,10 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 message,
                 recoverable,
             } => lines.push(format!("error> recoverable={recoverable} {message}")),
-            AgentEvent::WorkspaceSnapshotCaptured {
-                snapshot_id,
-                dirty,
-            } => lines.push(format!("snapshot> id={snapshot_id} dirty={dirty}")),
+            AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
+                lines.push(format!("snapshot> id={snapshot_id} dirty={dirty}"));
+            }
+            _ => {}
         }
     }
 
@@ -466,7 +486,7 @@ pub fn write_summary(path: impl AsRef<Path>, result: &RunResult) -> Result<(), T
     let snapshot_str = result
         .workspace_snapshot_id
         .as_ref()
-        .map(|id| format!("- Workspace snapshot: {}\n", id))
+        .map(|id| format!("- Workspace snapshot: {id}\n"))
         .unwrap_or_default();
     let summary = format!(
         "# Run Summary\n\n- Session: {}\n{}- Turns: {}\n- Stop reason: {:?}\n- Input tokens: {}\n- Output tokens: {}\n- Artifacts: {}\n",

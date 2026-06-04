@@ -85,7 +85,11 @@ impl MinimalContextPipeline {
         self
     }
 
-    pub fn with_prompt_override_file(mut self, source: impl Into<String>, content: impl Into<String>) -> Self {
+    pub fn with_prompt_override_file(
+        mut self,
+        source: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
         self.prompt_override = Some(content.into());
         self.prompt_override_source = Some(source.into());
         self
@@ -94,32 +98,21 @@ impl MinimalContextPipeline {
     pub fn build(&self, history: &[Message], budget: &TokenBudget) -> ContextBuild {
         let mut messages = Vec::new();
 
-        let prompt_content = if let Some(over) = &self.prompt_override {
-            if over.trim().is_empty() {
-                let tools_slice = self.available_tools.as_ref().map(|t| t.as_slice());
-                Some(default_prompt::get_default_prompt(
-                    self.workspace_root.as_deref(),
-                    self.mode.as_deref(),
-                    self.max_turns,
-                    tools_slice,
-                ))
-            } else {
-                Some(over.to_string())
-            }
-        } else {
-            let tools_slice = self.available_tools.as_ref().map(|t| t.as_slice());
+        let is_override_empty = self.prompt_override.as_ref().map_or(true, |over| over.trim().is_empty());
+        let prompt_content = if is_override_empty {
+            let tools_slice = self.available_tools.as_deref();
             Some(default_prompt::get_default_prompt(
                 self.workspace_root.as_deref(),
                 self.mode.as_deref(),
                 self.max_turns,
                 tools_slice,
             ))
+        } else {
+            self.prompt_override.clone()
         };
 
         if let Some(content) = prompt_content {
-            messages.push(Message::System {
-                content,
-            });
+            messages.push(Message::System { content });
         }
 
         if let Some(workspace_md) = &self.workspace_md {
@@ -364,15 +357,15 @@ impl ContextPipeline for MinimalContextPipeline {
             })
             .collect();
 
-        let is_default = if let Some(over) = &self.prompt_override {
-            over.trim().is_empty()
-        } else {
-            true
-        };
+        let is_default = self.prompt_override.as_ref().map_or(true, |over| over.trim().is_empty());
         let prompt_source = if is_default {
             Some("default".to_string())
         } else {
-            Some(self.prompt_override_source.clone().unwrap_or_else(|| "default".to_string()))
+            Some(
+                self.prompt_override_source
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
+            )
         };
 
         ContextPacket {
@@ -526,7 +519,8 @@ mod tests {
 
     #[test]
     fn build_wraps_untrusted_documents() {
-        let pipeline = MinimalContextPipeline::new("pipeline-v1").with_prompt_override("Test prompt");
+        let pipeline =
+            MinimalContextPipeline::new("pipeline-v1").with_prompt_override("Test prompt");
         let history = vec![Message::User {
             content: vec![ContentBlock::Document {
                 source: DocumentSource {
@@ -733,7 +727,7 @@ mod tests {
         };
         let packet = pipeline.build_packet(&[], &budget);
         assert_eq!(packet.prompt_source.as_deref(), Some("default"));
-        
+
         let first_msg = &packet.messages[0];
         if let Message::System { content } = first_msg {
             assert!(content.contains("You are the gestalt-harness local agent"));
@@ -758,7 +752,7 @@ mod tests {
         };
         let packet = pipeline.build_packet(&[], &budget);
         assert_eq!(packet.prompt_source.as_deref(), Some("override"));
-        
+
         let first_msg = &packet.messages[0];
         if let Message::System { content } = first_msg {
             assert!(content.contains("Custom instruction overrides."));
@@ -782,8 +776,11 @@ mod tests {
             minimum_turn_budget: 8,
         };
         let packet = pipeline.build_packet(&[], &budget);
-        assert_eq!(packet.prompt_source.as_deref(), Some(".gestalt/system_prompt.md"));
-        
+        assert_eq!(
+            packet.prompt_source.as_deref(),
+            Some(".gestalt/system_prompt.md")
+        );
+
         let first_msg = &packet.messages[0];
         if let Message::System { content } = first_msg {
             assert!(content.contains("File custom prompt"));
@@ -811,7 +808,7 @@ mod tests {
         };
         let packet = pipeline.build_packet(&[], &budget);
         assert_eq!(packet.prompt_source.as_deref(), Some("default"));
-        
+
         let first_msg = &packet.messages[0];
         if let Message::System { content } = first_msg {
             assert!(content.contains("gestalt-harness local agent"));
@@ -823,4 +820,3 @@ mod tests {
         }
     }
 }
-

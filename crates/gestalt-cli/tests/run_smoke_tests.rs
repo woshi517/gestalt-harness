@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use async_trait::async_trait;
 use gestalt_cli::config::{validate_workspace_config, CliOverrides};
 use gestalt_core::{
     event::AgentEvent,
     message::Message,
-    provider::{Provider, ProviderCapabilities, EventStream, ProviderRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     HarnessError,
 };
-use async_trait::async_trait;
+use std::sync::Arc;
 
 struct MockProvider {
     capabilities: ProviderCapabilities,
@@ -70,7 +70,7 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
     let src_gestalt = src.join(".gestalt");
     let dest_gestalt = dest.join(".gestalt");
     std::fs::create_dir_all(&dest_gestalt).unwrap();
-    
+
     for entry in std::fs::read_dir(&src_gestalt).unwrap() {
         let entry = entry.unwrap();
         let name = entry.file_name();
@@ -80,14 +80,15 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
 
 #[tokio::test]
 async fn test_cli_smoke_prompt_source() {
-    let _ = gestalt_models::registry::register("mock-provider", Box::new(|_| {
-        Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)
-    }));
+    let _ = gestalt_models::registry::register(
+        "mock-provider",
+        Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
+    );
 
     // Create a temporary workspace based on tests/fixtures/workspaces/minimal
     let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-smoke-{}", uuid::Uuid::new_v4()));
     copy_minimal_workspace(&temp_dir);
-    
+
     let gestalt_dir = temp_dir.join(".gestalt");
 
     // Overwrite config.toml in the copied workspace to use our mock provider
@@ -123,9 +124,10 @@ override = "Smoke test override prompt"
     let config = validate_workspace_config(&CliOverrides {
         workspace: Some(temp_dir.clone()),
         ..CliOverrides::default()
-    }).unwrap();
+    })
+    .unwrap();
 
-    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke")
+    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None, gestalt_core::CancelToken::new(), None, None, None)
         .await
         .unwrap();
 
@@ -145,7 +147,10 @@ override = "Smoke test override prompt"
             }
         }
     }
-    assert!(found_override, "Should record prompt_source as override in trace");
+    assert!(
+        found_override,
+        "Should record prompt_source as override in trace"
+    );
 
     // 2. Remove override from policies.toml -> prompt_source should be "default"
     let policies_toml_no_override = r#"
@@ -167,9 +172,10 @@ default = "confirm"
     let config2 = validate_workspace_config(&CliOverrides {
         workspace: Some(temp_dir.clone()),
         ..CliOverrides::default()
-    }).unwrap();
+    })
+    .unwrap();
 
-    let log_dir2 = gestalt_cli::run::run_prompt(&config2, "run smoke")
+    let log_dir2 = gestalt_cli::run::run_prompt(&config2, "run smoke", None, gestalt_core::CancelToken::new(), None, None, None)
         .await
         .unwrap();
 
@@ -189,8 +195,76 @@ default = "confirm"
             }
         }
     }
-    assert!(found_default, "Should record prompt_source as default in trace when no override");
+    assert!(
+        found_default,
+        "Should record prompt_source as default in trace when no override"
+    );
 
     // Clean up
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[tokio::test]
+async fn test_cli_smoke_custom_provider_via_profile() {
+    let _ = gestalt_models::registry::register(
+        "custom-mock-provider",
+        Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
+    );
+
+    let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-smoke-profile-{}", uuid::Uuid::new_v4()));
+    copy_minimal_workspace(&temp_dir);
+
+    let gestalt_dir = temp_dir.join(".gestalt");
+
+    // Configure a custom profile pointing to our custom mock provider connection
+    let config_toml = r#"
+[defaults]
+profile = "custom-profile"
+
+[profiles.custom-profile]
+provider = "custom-mock"
+
+[providers.custom-mock]
+kind = "custom-mock-provider"
+default_model = "mock-model"
+"#;
+    std::fs::write(gestalt_dir.join("config.toml"), config_toml).unwrap();
+
+    let policies_toml = r#"
+[paths]
+allow_read  = [".", "sources/", "docs/", "src/"]
+allow_write = ["docs/", ".gestalt/"]
+deny_write  = [".git/", "secrets/", ".env", "*.key"]
+
+[tools.bash]
+default      = "confirm"
+yolo_allow   = ["ls", "cat", "grep", "rg", "find"]
+always_deny  = ["dd", "mkfs", "fdisk"]
+
+[network]
+default = "confirm"
+"#;
+    std::fs::write(gestalt_dir.join("policies.toml"), policies_toml).unwrap();
+
+    let config = validate_workspace_config(&CliOverrides {
+        workspace: Some(temp_dir.clone()),
+        ..CliOverrides::default()
+    })
+    .unwrap();
+
+    // Verify it resolves kind to custom-mock-provider
+    let resolved = config.resolve_provider().unwrap();
+    assert_eq!(resolved.provider_name, "custom-mock");
+    assert_eq!(resolved.kind, "custom-mock-provider");
+    assert_eq!(resolved.model, "mock-model");
+
+    // Execute run_prompt to verify the loop runs
+    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None, gestalt_core::CancelToken::new(), None, None, None)
+        .await
+        .unwrap();
+
+    assert!(log_dir.join("trace.jsonl").exists());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+

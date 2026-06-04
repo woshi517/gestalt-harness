@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use crate::golden::GoldenTrace;
+use crate::EventEnvelope;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use gestalt_core::error::HarnessError;
 use gestalt_core::event::AgentEvent;
-use gestalt_core::session::Session;
 use gestalt_core::hook::SessionHook;
-use crate::EventEnvelope;
-use crate::golden::GoldenTrace;
+use gestalt_core::session::Session;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -72,11 +72,17 @@ impl EvaluatorHook {
 
 #[async_trait]
 impl SessionHook for EvaluatorHook {
-    async fn on_session_start(&self, _session: &Session) -> gestalt_core::error::Result<Vec<AgentEvent>> {
+    async fn on_session_start(
+        &self,
+        _session: &Session,
+    ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
         Ok(vec![])
     }
 
-    async fn on_session_end(&self, session: &Session) -> gestalt_core::error::Result<Vec<AgentEvent>> {
+    async fn on_session_end(
+        &self,
+        session: &Session,
+    ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
         if let Some(ref trigger) = self.flush_trigger {
             trigger();
         }
@@ -103,8 +109,14 @@ impl SessionHook for EvaluatorHook {
                         return Ok(vec![AgentEvent::VerificationResult {
                             status,
                             checks: 1,
-                            failed: if eval_res.status == EvalStatus::Failed { 1 } else { 0 },
-                            report: eval_res.feedback.or(Some(format!("Score: {:?}", eval_res.score))),
+                            failed: if eval_res.status == EvalStatus::Failed {
+                                1
+                            } else {
+                                0
+                            },
+                            report: eval_res
+                                .feedback
+                                .or_else(|| Some(format!("Score: {:?}", eval_res.score))),
                             findings: None,
                         }]);
                     }

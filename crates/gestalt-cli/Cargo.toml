@@ -31,11 +31,19 @@ clap = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+keyring = "2"
+rpassword = "7"
+uuid = { workspace = true }
+
+
 
 [features]
 default = []
@@ -58,5 +66,7 @@ optional = true
 [dev-dependencies]
 uuid = { workspace = true }
 futures = { workspace = true }
+chrono = { workspace = true }
+insta = { version = "1", features = ["filters"] }
 
 

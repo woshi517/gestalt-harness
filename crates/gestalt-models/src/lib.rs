@@ -10,7 +10,7 @@ mod sse;
 pub use anthropic::AnthropicProvider;
 pub use auth::{
     CredentialResolver, CredentialSource, EnvironmentCredentialResolver, ProviderAuthConfig,
-    ResolvedCredential,
+    ResolvedCredential, ChainCredentialResolver, CredentialRef,
 };
 pub use catalog::ModelCatalog;
 pub use openai::OpenAiProvider;

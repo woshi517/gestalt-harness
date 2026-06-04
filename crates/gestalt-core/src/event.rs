@@ -124,6 +124,77 @@ pub enum AgentEvent {
         snapshot_id: String,
         dirty: bool,
     },
+    // --- Session Lineage & Resumability boundaries ---
+    Checkpoint {
+        history: Vec<crate::message::Message>,
+        token_budget: crate::context::TokenBudget,
+        packet_hash: Option<String>,
+        prompt_source: Option<String>,
+    },
+    AssistantMessageCommitted {
+        message: crate::message::Message,
+    },
+    Interrupted {
+        reason: String,
+    },
+    ContextBuildStarted,
+    ContextBuildFailed {
+        reason: String,
+    },
+    ModelResponseStarted {
+        provider_request_hash: String,
+    },
+    ModelResponseStreamCompleted {
+        provider_request_hash: String,
+    },
+    ModelResponseStreamFailed {
+        provider_request_hash: String,
+        error: String,
+    },
+    ModelResponseStreamInterrupted {
+        provider_request_hash: String,
+    },
+    PolicyEvaluationStarted {
+        tool_call_id: String,
+    },
+    PolicyEvaluationFailed {
+        tool_call_id: String,
+        error: String,
+    },
+    PolicyEvaluationCancelled {
+        tool_call_id: String,
+    },
+    ApprovalRequested {
+        tool_call_id: String,
+        tool_name: String,
+        input: Value,
+        risk: RiskLevel,
+    },
+    ApprovalCancelled {
+        tool_call_id: String,
+    },
+    ToolExecutionStarted {
+        id: String,
+        tool_name: String,
+        input_hash: String,
+        policy_source: String,
+        working_dir: String,
+        parallel_group_id: Option<String>,
+        parallel_safe: bool,
+    },
+    HookStarted {
+        hook_type: String,
+        name: String,
+    },
+    HookCompleted {
+        hook_type: String,
+        name: String,
+    },
+    HookFailed {
+        hook_type: String,
+        name: String,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

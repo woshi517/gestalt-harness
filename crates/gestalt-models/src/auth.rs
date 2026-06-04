@@ -53,7 +53,27 @@ impl fmt::Display for ResolvedCredential {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CredentialSource {
+    Session,
     Environment { variable: String },
+    Keychain { account: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CredentialRef {
+    Session,
+    Environment(String),
+    Keychain(String),
+}
+
+impl ProviderAuthConfig {
+    pub fn credential_ref(&self) -> CredentialRef {
+        if let Some(ref auth) = self.auth_ref {
+            if let Some(account) = auth.strip_prefix("secret:") {
+                return CredentialRef::Keychain(account.to_string());
+            }
+        }
+        CredentialRef::Environment(self.api_key_env.clone())
+    }
 }
 
 pub trait CredentialResolver: Send + Sync {
@@ -77,6 +97,34 @@ impl CredentialResolver for EnvironmentCredentialResolver {
                 variable: auth.api_key_env.clone(),
             },
         ))
+    }
+}
+
+#[derive(Clone)]
+pub struct ChainCredentialResolver {
+    resolvers: Vec<Arc<dyn CredentialResolver>>,
+}
+
+impl ChainCredentialResolver {
+    pub fn new(resolvers: Vec<Arc<dyn CredentialResolver>>) -> Self {
+        Self { resolvers }
+    }
+}
+
+impl CredentialResolver for ChainCredentialResolver {
+    fn resolve(&self, auth: &ProviderAuthConfig) -> Result<ResolvedCredential, HarnessError> {
+        let mut last_err = None;
+        for resolver in &self.resolvers {
+            match resolver.resolve(auth) {
+                Ok(cred) => return Ok(cred),
+                Err(err) => last_err = Some(err),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            HarnessError::Provider(ProviderError::AuthFailed {
+                provider: auth.provider_id.clone(),
+            })
+        }))
     }
 }
 

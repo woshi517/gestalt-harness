@@ -13,7 +13,7 @@ fn temp_dir(name: &str) -> PathBuf {
 #[test]
 fn jsonl_trace_sink_writes_monotonic_redacted_envelopes() {
     let dir = temp_dir("sink");
-    let (sink, paths) = JsonlTraceSink::create_run(&dir, "session-1", None).expect("run paths");
+    let (sink, paths) = JsonlTraceSink::create_run(&dir, "session-1", "run-1", None).expect("run paths");
 
     sink.emit(AgentEvent::ContextBuilt {
         packet_id: "session-1".to_string(),
@@ -67,8 +67,8 @@ fn jsonl_trace_sink_writes_monotonic_redacted_envelopes() {
 
 #[test]
 fn test_trace_sink_propagates_snapshot() {
-    use gestalt_core::snapshot::WorkspaceSnapshot;
     use chrono::Utc;
+    use gestalt_core::snapshot::WorkspaceSnapshot;
 
     let dir = temp_dir("snapshot-prop");
     let snapshot1 = WorkspaceSnapshot {
@@ -76,11 +76,13 @@ fn test_trace_sink_propagates_snapshot() {
         git_sha: Some("abcdef123456".to_string()),
         git_dirty: Some(false),
         untracked_count: Some(0),
-        content_hash: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+        content_hash: "1111111111111111111111111111111111111111111111111111111111111111"
+            .to_string(),
         captured_at: Utc::now(),
     };
 
-    let (sink, paths) = JsonlTraceSink::create_run(&dir, "session-1", Some(snapshot1.clone())).expect("run paths");
+    let (sink, paths) =
+        JsonlTraceSink::create_run(&dir, "session-1", "run-1", Some(snapshot1.clone())).expect("run paths");
 
     sink.emit(AgentEvent::UserMessage {
         content: "hello".to_string(),
@@ -92,7 +94,8 @@ fn test_trace_sink_propagates_snapshot() {
         git_sha: Some("abcdef123456".to_string()),
         git_dirty: Some(true),
         untracked_count: Some(2),
-        content_hash: "2222222222222222222222222222222222222222222222222222222222222222".to_string(),
+        content_hash: "2222222222222222222222222222222222222222222222222222222222222222"
+            .to_string(),
         captured_at: Utc::now(),
     };
     sink.update_snapshot(snapshot2.clone());
@@ -116,8 +119,8 @@ fn test_trace_sink_propagates_snapshot() {
 
 #[test]
 fn test_summary_includes_snapshot_id() {
-    use gestalt_core::session::RunResult;
     use gestalt_core::event::StopReason;
+    use gestalt_core::session::RunResult;
     use gestalt_trace::write_summary;
 
     let dir = temp_dir("summary-test");
@@ -137,4 +140,3 @@ fn test_summary_includes_snapshot_id() {
     let content = fs::read_to_string(summary_path).expect("read summary");
     assert!(content.contains("- Workspace snapshot: 123456789012"));
 }
-

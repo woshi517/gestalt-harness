@@ -9,6 +9,17 @@ use crate::{event::PolicyStatus, session::ExecutionMode, tool::RiskLevel};
 #[async_trait]
 pub trait PolicyEngine: Send + Sync {
     async fn evaluate(&self, request: PolicyRequest) -> PolicyDecision;
+
+    async fn evaluate_cancellable(
+        &self,
+        request: PolicyRequest,
+        cancel_token: &crate::cancel::CancelToken,
+    ) -> Result<PolicyDecision, crate::error::HarnessError> {
+        tokio::select! {
+            res = self.evaluate(request) => Ok(res),
+            _ = cancel_token.cancelled() => Err(crate::error::HarnessError::Cancelled),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

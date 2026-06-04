@@ -95,7 +95,8 @@ fn error_display_and_source_are_preserved() {
 async fn test_workspace_snapshotter_captures_correctly() {
     use gestalt_core::snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter};
     use std::fs;
-    let temp_dir = std::env::temp_dir().join(format!("gestalt-snapshot-test-{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("gestalt-snapshot-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
 
@@ -107,14 +108,20 @@ async fn test_workspace_snapshotter_captures_correctly() {
     let snapshotter = GitWorkspaceSnapshotter;
     let snapshot = snapshotter.capture(&temp_dir).await.unwrap();
 
-    assert_eq!(snapshot.workspace_root.canonicalize().unwrap(), temp_dir.canonicalize().unwrap());
+    assert_eq!(
+        snapshot.workspace_root.canonicalize().unwrap(),
+        temp_dir.canonicalize().unwrap()
+    );
     assert!(!snapshot.content_hash.is_empty());
     assert!(snapshot.git_sha.is_none());
 
     let mut session = make_session(ExecutionMode::Yolo);
     session.tool_ctx.workspace_root = Some(temp_dir.clone());
     session.refresh_snapshot(&snapshotter, None).await.unwrap();
-    assert_eq!(session.snapshot.workspace_root.canonicalize().unwrap(), temp_dir.canonicalize().unwrap());
+    assert_eq!(
+        session.snapshot.workspace_root.canonicalize().unwrap(),
+        temp_dir.canonicalize().unwrap()
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -125,7 +132,8 @@ async fn test_workspace_snapshotter_git_path() {
     use std::fs;
     use std::process::Command;
 
-    let temp_dir = std::env::temp_dir().join(format!("gestalt-snapshot-git-test-{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("gestalt-snapshot-git-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
 
@@ -202,7 +210,10 @@ async fn test_workspace_snapshotter_git_path() {
         snapshot: Mutex::new(None),
     };
 
-    session.refresh_snapshot(&snapshotter, Some(&sink)).await.unwrap();
+    session
+        .refresh_snapshot(&snapshotter, Some(&sink))
+        .await
+        .unwrap();
 
     let updated_snapshot = sink.snapshot.lock().unwrap().clone().unwrap();
     assert_eq!(updated_snapshot.content_hash, hash_clean2);
@@ -279,7 +290,7 @@ async fn agent_loop_handles_text_only_turn() {
         }],
     });
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
 
     assert_eq!(result.stop_reason, StopReason::EndTurn);
     assert_eq!(result.turns, 1);
@@ -311,7 +322,7 @@ async fn agent_loop_executes_single_tool_call() {
     let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
     let mut session = make_session(ExecutionMode::Yolo);
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
 
     assert_eq!(result.turns, 2);
     assert_eq!(tool.executed_inputs.lock().expect("lock").len(), 1);
@@ -345,7 +356,7 @@ async fn agent_loop_emits_rich_context_model_and_tool_metadata() {
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -438,7 +449,7 @@ async fn agent_loop_preserves_original_tool_result_order() {
     let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
     let mut session = make_session(ExecutionMode::Yolo);
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
 
     assert_eq!(result.turns, 2);
     let tool_results = session
@@ -482,7 +493,7 @@ async fn agent_loop_denies_tool_call_as_error_result() {
     let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
     let mut session = make_session(ExecutionMode::Yolo);
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
 
     assert_eq!(result.turns, 2);
     assert!(tool.executed_inputs.lock().expect("lock").is_empty());
@@ -517,7 +528,7 @@ async fn agent_loop_routes_confirm_calls_through_approval() {
     let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3);
     let mut session = make_session(ExecutionMode::Confirm);
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
 
     assert_eq!(result.turns, 2);
     assert_eq!(tool.executed_inputs.lock().expect("lock").len(), 1);
@@ -540,7 +551,7 @@ async fn agent_loop_stops_on_max_turns() {
     let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 1);
     let mut session = make_session(ExecutionMode::Yolo);
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
 
     assert_eq!(result.stop_reason, StopReason::MaxTurns);
 }
@@ -567,7 +578,7 @@ async fn agent_loop_stops_on_budget_exhaustion() {
         minimum_turn_budget: 16,
     };
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
 
     assert_eq!(result.stop_reason, StopReason::BudgetExhausted);
 }
@@ -624,7 +635,7 @@ async fn session_grant_auto_approves_same_input_with_session_grant_source() {
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -694,7 +705,7 @@ async fn session_grant_does_not_apply_to_different_input() {
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -775,7 +786,7 @@ async fn session_grant_blocks_riskier_call_after_low_risk_approval() {
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -827,7 +838,7 @@ async fn unknown_tool_still_logs_a_policy_decision() {
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -896,7 +907,7 @@ async fn approval_decision_events_cover_approve_and_deny() {
         let events = capture_events();
 
         let _ = loop_
-            .run(&mut session, {
+            .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
                 let events = events.clone();
                 move |event| events.lock().expect("lock").push(event)
             })
@@ -954,7 +965,7 @@ async fn session_grant_emits_approval_decision_event_with_grant_terms() {
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -1022,7 +1033,7 @@ async fn session_grant_edit_re_evaluates_policy_and_emits_edited_hash() {
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -1099,7 +1110,7 @@ async fn session_grant_records_distinct_grants_for_different_inputs_under_repeat
     let events = capture_events();
 
     let _ = loop_
-        .run(&mut session, {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, {
             let events = events.clone();
             move |event| events.lock().expect("lock").push(event)
         })
@@ -1253,7 +1264,7 @@ async fn agent_loop_runs_real_verification_hook_and_emits_verification_result() 
 
     let mut events = Vec::new();
     let result = loop_
-        .run(&mut session, |event| {
+        .run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |event| {
             events.push(event);
             Ok(())
         })
@@ -1402,7 +1413,7 @@ async fn agent_loop_runs_tool_hook_immediately_before_each_tool_execution() {
     let loop_ = AgentLoop::new(provider, tools, pipeline, policy, approval, 3).with_hooks(hooks);
     let mut session = make_session(ExecutionMode::Yolo);
 
-    let result = loop_.run(&mut session, |_| {}).await.expect("run succeeds");
+    let result = loop_.run(&mut session, &gestalt_core::cancel::CancelToken::new(), None, |_| {}).await.expect("run succeeds");
     assert_eq!(result.turns, 2);
 
     let recorded = log.lock().expect("lock").clone();
@@ -1432,7 +1443,8 @@ fn make_session(mode: ExecutionMode) -> Session {
         git_sha: None,
         git_dirty: None,
         untracked_count: None,
-        content_hash: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+            .to_string(),
         captured_at: chrono::Utc::now(),
     };
     Session::new(
@@ -1797,7 +1809,7 @@ impl PolicyEngine for DenyOnCriticalPolicy {
 
 #[async_trait::async_trait]
 impl ApprovalProvider for MockApproval {
-    async fn approve(&self, request: ApprovalRequest) -> ApprovalDecision {
-        (self.decision_for)(&request)
+    async fn approve(&self, request: ApprovalRequest) -> Result<ApprovalDecision, gestalt_core::HarnessError> {
+        Ok((self.decision_for)(&request))
     }
 }
