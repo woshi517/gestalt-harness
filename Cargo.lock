@@ -1062,6 +1062,7 @@ dependencies = [
  "gestalt-mcp",
  "gestalt-models",
  "gestalt-policy",
+ "gestalt-runtime",
  "gestalt-tools",
  "gestalt-trace",
  "gestalt-verify",
@@ -1135,6 +1136,22 @@ dependencies = [
  "tokio",
  "toml",
  "url",
+]
+
+[[package]]
+name = "gestalt-runtime"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "gestalt-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

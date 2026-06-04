@@ -157,7 +157,7 @@ graph TD
     Exec --> Core
 ```
 
-The `gestalt-harness` package in `crates/gestalt-cli` is the composition root. It wires together the concrete implementations and passes them into `AgentLoop` as trait objects. Core knows nothing about any of them.
+The `gestalt-runtime` crate in `crates/gestalt-runtime` is the composition layer. It wires together concrete implementations and provides a reusable runtime boundary (`AgentRuntime`). The CLI, TUI, and tests use this runtime. Core remains pure and knows nothing of runtime components.
 
 ### 4.2 What Lives in `gestalt-core`
 
@@ -2883,8 +2883,8 @@ This enables embedding in the Gestalt frontend for local context compilation and
 
 **Status:** Accepted  
 **Context:** The PRD showed `gestalt-core` depending on `gestalt-models`, `gestalt-tools`, and `gestalt-trace`. This would make core non-pure and force downstream library users to inherit the full stack.  
-**Decision:** All concrete crates depend on core. Core defines only traits and types. The `gestalt-harness` package in `crates/gestalt-cli` is the composition root.  
-**Consequences:** Library consumers can use only `gestalt-core` + the specific crates they need. Core stays under 7 direct dependencies. The loop is fully testable with mock implementations.
+**Decision:** All concrete crates depend on core. Core defines only traits and types. `gestalt-runtime` acts as the composition layer, and concrete applications like `gestalt-cli` orchestrate it.  
+**Consequences:** Library consumers can use `gestalt-runtime` to embed a fully composed agent loop. Core stays pure and under 7 direct dependencies.
 
 ---
 
@@ -3077,5 +3077,14 @@ This enables embedding in the Gestalt frontend for local context compilation and
 
 ---
 
-_gestalt-harness-architecture v1.2 — Maintained alongside gestalt-harness-prd_
+### ADR-023: Runtime Composition Layer
+
+**Status:** Accepted  
+**Context:** CLI execution paths duplicated the setup of provider, tools, context pipeline, policy, approval, and tracing. Downstream developers wanting to embed the harness were forced to copy CLI wiring.  
+**Decision:** Introduce the `gestalt-runtime` crate. Construct `AgentRuntime` via `AgentRuntimeBuilder`, registry, and composition hooks without changing the core purity constraint or single-agent `AgentLoop`. Migrate CLI, TUI, chat, and sessions to run turns using `AgentRuntime::run_session` or `AgentRuntime::run_prompt`.  
+**Consequences:** Complete separation of CLI rendering/UX from loop execution. Clear boundary for in-process extensions, and reusable APIs for SDK embedding.
+
+---
+
+_gestalt-harness-architecture v1.3 — Maintained alongside gestalt-harness-prd_
 

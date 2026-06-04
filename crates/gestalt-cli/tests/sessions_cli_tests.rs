@@ -193,10 +193,15 @@ mode = "yolo"
 
     let config_toml = r#"
 [defaults]
+profile = "mock-profile"
 provider = "mock-provider"
 model = "mock-model"
 mode = "yolo"
 max_turns = 1
+
+[profiles.mock-profile]
+provider = "mock-provider"
+model = "mock-model"
 "#;
     fs::write(temp_root.join(".gestalt/config.toml"), config_toml).unwrap();
 
@@ -333,16 +338,28 @@ max_turns = 1
     assert_eq!(manifest_branch.parent_run_id.as_ref(), Some(&run_root_id));
     assert_eq!(manifest_branch.base_checkpoint, Some(1));
 
-    // Branch from sequence 1 should have empty history
+    // Branch from sequence 1 should have only the branch prompt in history
     let branch_trace_content = fs::read_to_string(branch_run_path.join("trace.jsonl")).unwrap();
+    let mut found_checkpoint = false;
     for line in branch_trace_content.lines() {
         if let Ok(env) = serde_json::from_str::<gestalt_trace::EventEnvelope>(line) {
             if let AgentEvent::Checkpoint { history, .. } = env.event {
-                assert!(history.is_empty(), "Branched run from checkpoint 1 should have empty history!");
+                found_checkpoint = true;
+                assert_eq!(history.len(), 1, "Branched run should only contain the branch prompt");
+                if let Message::User { content } = &history[0] {
+                    if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
+                        assert_eq!(text, "branched prompt");
+                    } else {
+                        panic!("Expected text block");
+                    }
+                } else {
+                    panic!("Expected user message");
+                }
                 break;
             }
         }
     }
+    assert!(found_checkpoint);
 
     let _ = fs::remove_dir_all(&temp_root);
 }

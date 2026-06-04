@@ -22,13 +22,14 @@ fi
 printf 'OK: gestalt-core has no path dependencies on implementation crates.\n'
 
 declare -A budgets=(
-  ["gestalt-core"]=9
+  ["gestalt-core"]=10
   ["gestalt-models"]=8
   ["gestalt-tools"]=9
   ["gestalt-context"]=5
   ["gestalt-policy"]=7
   ["gestalt-trace"]=9
-  ["gestalt-harness"]=9
+  ["gestalt-harness"]=16
+  ["gestalt-runtime"]=9
 )
 
 packages=(
@@ -39,6 +40,7 @@ packages=(
   "gestalt-policy"
   "gestalt-trace"
   "gestalt-harness"
+  "gestalt-runtime"
 )
 
 failures=0

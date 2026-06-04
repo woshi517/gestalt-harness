@@ -3,7 +3,7 @@ use gestalt_cli::output::{
     ReplayReport, RunReport, ToolsListReport, ToolsInspectReport, ToolsClassifyReport,
     AuthDoctorReport, GlobalDoctorReport, AuthDoctorEntry, ToolInfoEntry,
     ConnectReport, ProfilesListReport, ProvidersDoctorReport, ModelsSearchReport,
-    ProfileInfoEntry, ProviderDoctorResult,
+    ProfileInfoEntry, ProviderDoctorResult, RuntimeInspectReport,
 };
 use gestalt_core::model::{ModelInfo, ModelInfoSource};
 use std::path::PathBuf;
@@ -291,5 +291,55 @@ fn test_models_search_report_contract() {
     };
     let serialized = serde_json::to_string(&envelope).unwrap();
     assert!(serialized.contains(r#""kind":"models.search""#));
+}
+
+#[test]
+fn test_runtime_inspect_report_contract() {
+    let inspect = gestalt_runtime::RuntimeInspect {
+        provider_name: "anthropic".to_string(),
+        provider_model: "claude-3-5-sonnet".to_string(),
+        execution_mode: "Confirm".to_string(),
+        max_turns: 15,
+        context_pipeline_version: "pipeline-v1".to_string(),
+        tools: vec![gestalt_runtime::ToolInspectInfo {
+            name: "bash".to_string(),
+            schema_hash: "abc123hash".to_string(),
+        }],
+        tool_schema_hash: "def456hash".to_string(),
+        policy_fingerprint: Some("policy789hash".to_string()),
+        policy_source_path: Some("/policies.toml".to_string()),
+        hooks: vec!["VerificationToolHook".to_string()],
+        hook_contract_hash: "hookhash123".to_string(),
+        verifiers: vec!["FileExistsVerifier".to_string()],
+        extensions: vec!["MockExtension".to_string()],
+        trace_sink_kind: Some("JsonlTraceSink".to_string()),
+        trace_run_dir: None,
+        workspace_root: "/workspace".to_string(),
+        enabled_cli_features: vec!["tui".to_string()],
+    };
+
+    let report = RuntimeInspectReport { inspect };
+    assert_eq!(report.kind(), "runtime.inspect");
+    let text = report.render_text();
+    assert!(text.contains("Provider Connection: anthropic"));
+    assert!(text.contains("Provider Model:      claude-3-5-sonnet"));
+    assert!(text.contains("Execution Mode:      Confirm"));
+    assert!(text.contains("Max Turns Limit:     15"));
+    assert!(text.contains("Workspace Root:      /workspace"));
+    assert!(text.contains("Policy Source:       /policies.toml"));
+    assert!(text.contains("MockExtension"));
+    assert!(text.contains("FileExistsVerifier"));
+    assert!(text.contains("VerificationToolHook"));
+    assert!(text.contains("bash"));
+
+    let envelope = JsonEnvelope {
+        schema_version: 1,
+        kind: report.kind().to_string(),
+        data: &report,
+    };
+    let serialized = serde_json::to_string(&envelope).unwrap();
+    assert!(serialized.contains(r#""kind":"runtime.inspect""#));
+    assert!(serialized.contains(r#""provider_name":"anthropic""#));
+    assert!(serialized.contains(r#""provider_model":"claude-3-5-sonnet""#));
 }
 

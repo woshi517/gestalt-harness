@@ -1,0 +1,23 @@
+[package]
+name = "gestalt-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+gestalt-core = { path = "../gestalt-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+# We might add some test mocks later

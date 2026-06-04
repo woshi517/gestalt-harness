@@ -47,7 +47,7 @@ The system is split into a small core and concrete adapters around it.
 
 `gestalt-core` defines the agent loop, traits, events, and session contracts. The surrounding crates — `gestalt-models`, `gestalt-tools`, `gestalt-context`, `gestalt-policy`, and `gestalt-trace` — provide real implementations around that core.
 
-`gestalt-cli` is the composition root. It is packaged as `gestalt-harness` and installs the `gestalt` binary. This layout keeps the execution loop isolated from file I/O, provider wiring, and CLI concerns while still producing a single practical binary for local use.
+`gestalt-runtime` is the reusable composition layer, and `gestalt-cli` packages the CLI binary `gestalt` around it. This layout keeps the execution loop isolated from file I/O, provider wiring, and CLI concerns while still producing a single practical binary for local use.
 
 ---
 
