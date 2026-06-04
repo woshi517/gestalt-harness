@@ -25,6 +25,7 @@ pub mod model_cache;
 pub mod sessions;
 pub mod chat;
 pub mod slash;
+pub mod runtime;
 
 #[cfg(feature = "tui")]
 pub mod tui;

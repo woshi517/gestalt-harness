@@ -14,7 +14,7 @@ use gestalt_cli::{
         WorkspaceInfoReport, WorkspaceInitReport, WorkspaceSnapshotReport, WorkspaceStatusReport,
         ConfigShowReport, ConfigExplainReport,
         PolicyValidateReport, PolicyExplainReport, PolicyTestReport,
-        ContextExplainReport,
+        ContextExplainReport, RuntimeInspectReport,
     },
     providers::{doctor_provider, inspect_provider, list_providers},
     replay::replay_display,
@@ -131,6 +131,7 @@ enum Command {
     Policy(PolicyCommand),
     Context(ContextCommand),
     Tools(ToolsCommand),
+    Runtime(RuntimeCommand),
     Doctor {
         #[arg(long)]
         live: bool,
@@ -158,6 +159,17 @@ pub enum ProfilesSubcommand {
 pub struct ToolsCommand {
     #[command(subcommand)]
     pub command: ToolsSubcommand,
+}
+
+#[derive(Args)]
+pub struct RuntimeCommand {
+    #[command(subcommand)]
+    pub command: RuntimeSubcommand,
+}
+
+#[derive(Subcommand)]
+pub enum RuntimeSubcommand {
+    Inspect,
 }
 
 #[derive(Subcommand)]
@@ -1201,6 +1213,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let res = tools::classify_bash(&overrides, &command);
                     handle_result(res, format, quiet)?;
                 }
+            }
+        },
+        Command::Runtime(command) => match command.command {
+            RuntimeSubcommand::Inspect => {
+                let res = gestalt_cli::runtime::inspect_runtime(&overrides, cli.api_key.clone())
+                    .map(|inspect| RuntimeInspectReport { inspect });
+                handle_result(res, format, quiet)?;
             }
         },
         Command::Connect {

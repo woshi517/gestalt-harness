@@ -1,13 +1,10 @@
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
-    trace::TraceSink, AgentEvent, AgentLoop, ExecutionMode, Message, Session, SessionConfig,
-    TokenBudget, ToolCatalog, ToolContext, WorkspaceSnapshotter,
+    trace::TraceSink, ExecutionMode, WorkspaceSnapshotter,
 };
-use gestalt_models::registry;
 use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
-use gestalt_tools::default_registry;
 use gestalt_trace::{aggregate_costs, write_cost_report, write_summary, JsonlTraceSink};
 
 use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::render_event};
@@ -21,32 +18,6 @@ pub async fn run_prompt(
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<gestalt_core::AgentEvent>>,
     session_id_override: Option<String>,
 ) -> Result<PathBuf, gestalt_core::HarnessError> {
-    let resolved = config.resolve_provider()?;
-    let provider_name = resolved.provider_name.clone();
-    let provider_config = resolved.provider_json();
-    let resolver = crate::auth::build_credential_resolver(api_key, event_tx.is_none());
-    let provider = registry::get_with_resolver(&resolved.kind, provider_config, resolver)?;
-    let provider_default_model = provider.default_model().to_string();
-
-    let tools = Arc::new(default_registry()?);
-    let mode = config.selected_mode()?;
-    let max_turns = config.max_turns();
-    let tool_names: Vec<String> = tools
-        .schemas()
-        .iter()
-        .filter_map(|s| s.get("name").and_then(|v| v.as_str()).map(String::from))
-        .collect();
-    let pipeline = Arc::new(build_pipeline(config, mode, max_turns, &tool_names)?);
-    let policy = Arc::new(build_policy(config)?);
-    let approval = approval_override.unwrap_or_else(|| approval_provider(mode));
-
-    let model = if resolved.model.is_empty() {
-        provider_default_model
-    } else {
-        resolved.model
-    };
-
-    // Durable unique session and run IDs
     let session_id =
         session_id_override.unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
     let run_id = format!("run-{}", uuid::Uuid::new_v4());
@@ -62,71 +33,13 @@ pub async fn run_prompt(
     )?;
     let sink = Arc::new(sink_inner);
 
-    let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
-    verifier_registry.register(Box::new(gestalt_verify::FileExistsVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::NoSecretsVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::PatchAppliesVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::MarkdownStructureVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::CommandVerifier::new(
-        "echo 'Command verified'",
-    )));
-
-    let verification_hook = Arc::new(gestalt_verify::VerificationToolHook::new(verifier_registry));
-    let evaluator = Arc::new(gestalt_trace::evaluator::NoopTraceEvaluator);
-    let sink_clone = sink.clone();
-    let evaluator_hook = Arc::new(
-        gestalt_trace::evaluator::EvaluatorHook::new(evaluator, None).with_flush_trigger(Arc::new(
-            move || {
-                let _ = sink_clone.flush();
-            },
-        )),
-    );
-    let mut hooks = gestalt_core::HookRegistry::new();
-    hooks.register_tool_hook(verification_hook);
-    hooks.register_session_hook(evaluator_hook);
-
-    let loop_ = AgentLoop::new(
-        provider,
-        tools.clone(),
-        pipeline,
-        policy,
-        approval,
-        max_turns,
-    )
-    .with_hooks(hooks);
-
-    let mut session = Session::new(
-        session_id.clone(),
-        SessionConfig {
-            model,
-            provider: provider_name.clone(),
-            max_tokens: 4096,
-            temperature: Some(0.0),
-            max_turns,
-        },
-        TokenBudget {
-            model_limit: config.context.max_context_window.unwrap_or(120_000),
-            reserved_output: config.context.reserved_output_tokens.unwrap_or(8_000),
-            used_system: 0,
-            used_history: 0,
-            used_sources: 0,
-            used_tools: 0,
-            used_memory: 0,
-            minimum_turn_budget: 16,
-        },
-        ToolContext {
-            working_dir: config.workspace_root.clone(),
-            workspace_root: Some(config.workspace_root.clone()),
-            timeout: Duration::from_secs(config.tools.bash_timeout_secs.unwrap_or(60)),
-            allow_network: false,
-            environment: HashMap::new(),
-            max_output_bytes: config.tools.max_output_tokens.unwrap_or(4_000),
-            artifact_dir: Some(run_paths.artifacts.clone()),
-            current_tool_call_id: None,
-        },
-        config.selected_mode()?,
-        snapshot.clone(),
-    );
+    let runtime = crate::runtime::build_cli_runtime(
+        config,
+        api_key,
+        event_tx.clone(),
+        approval_override,
+        Some(sink.clone() as Arc<dyn gestalt_core::trace::TraceSink>),
+    )?;
 
     // Initial manifest setup and save
     let run_manifest_path = run_paths.root.join("run.json");
@@ -145,7 +58,7 @@ pub async fn run_prompt(
         compatibility_fingerprint: gestalt_trace::run_manifest::CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
             tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
-                &tools.schemas(),
+                &runtime.tools.schemas(),
             ),
             policy_fingerprint: {
                 let policies_path = config.workspace_file("policies.toml");
@@ -166,47 +79,30 @@ pub async fn run_prompt(
         .save_to(&run_manifest_path)
         .map_err(|e| gestalt_core::HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
 
-    let snapshot_id: String = snapshot.content_hash.chars().take(12).collect();
-    let snapshot_event = AgentEvent::WorkspaceSnapshotCaptured {
-        snapshot_id,
-        dirty: snapshot.git_dirty.unwrap_or(false),
-    };
-    sink.emit(snapshot_event.clone())?;
-    if let Some(ref tx) = event_tx {
-        let _ = tx.send(snapshot_event);
-    }
-    session.history.push(Message::User {
-        content: vec![gestalt_core::ContentBlock::Text {
-            text: prompt.to_string(),
-        }],
-    });
-    let user_msg_event = AgentEvent::UserMessage {
-        content: prompt.to_string(),
-    };
-    sink.emit(user_msg_event.clone())?;
-    if let Some(ref tx) = event_tx {
-        let _ = tx.send(user_msg_event);
-    }
-
-    let mut trace_error_count = 0;
-    let max_trace_errors = 3;
-
-    let loop_result = loop_
-        .run(&mut session, &cancel_token, Some(sink.as_ref()), |event| {
-            emit_trace_event(
-                &*sink,
-                event.clone(),
-                &mut trace_error_count,
-                max_trace_errors,
-            )?;
-            if let Some(ref tx) = event_tx {
-                let _ = tx.send(event.clone());
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<gestalt_core::AgentEvent>();
+    let event_tx_clone = event_tx.clone();
+    let render_task = tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            if let Some(ref user_tx) = event_tx_clone {
+                let _ = user_tx.send(event.clone());
             } else if let Some(line) = render_event(&event) {
                 println!("{line}");
             }
-            Ok(())
-        })
-        .await;
+        }
+    });
+
+    let input = gestalt_runtime::UserInput {
+        prompt: prompt.to_string(),
+        session_id: Some(session_id.clone()),
+        cancel_token: cancel_token.clone(),
+        event_tx: Some(tx),
+        artifact_dir: Some(run_paths.artifacts.clone()),
+    };
+
+    let loop_result = runtime.run_prompt(input).await;
+
+    // Await rendering task to finish processing all events before completing
+    let _ = render_task.await;
 
     let mut manifest = initial_manifest;
     manifest.finalized_at = Some(chrono::Utc::now());
@@ -219,22 +115,15 @@ pub async fn run_prompt(
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             Ok(run_paths.root.clone())
         }
-        Err(gestalt_core::HarnessError::Cancelled) => {
+        Err(gestalt_runtime::RuntimeError::Harness(gestalt_core::error::HarnessError::Cancelled)) => {
             manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Interrupted;
             manifest.interrupted_phase = Some("agent_loop".to_string());
-            let interrupted_event = AgentEvent::Interrupted {
-                reason: "signal".to_string(),
-            };
-            let _ = sink.emit(interrupted_event.clone());
-            if let Some(ref tx) = event_tx {
-                let _ = tx.send(interrupted_event);
-            }
             let _ = sink.flush();
 
             let mock_run_result = gestalt_core::session::RunResult {
-                session_id: session.id.clone(),
-                turns: session.history.len() / 2,
-                stop_reason: gestalt_core::StopReason::EndTurn,
+                session_id,
+                turns: 0,
+                stop_reason: gestalt_core::event::StopReason::EndTurn,
                 total_input_tokens: 0,
                 total_output_tokens: 0,
                 artifacts: Vec::new(),
@@ -250,9 +139,9 @@ pub async fn run_prompt(
             let _ = sink.flush();
 
             let mock_run_result = gestalt_core::session::RunResult {
-                session_id: session.id.clone(),
-                turns: session.history.len() / 2,
-                stop_reason: gestalt_core::StopReason::EndTurn,
+                session_id,
+                turns: 0,
+                stop_reason: gestalt_core::event::StopReason::EndTurn,
                 total_input_tokens: 0,
                 total_output_tokens: 0,
                 artifacts: Vec::new(),
@@ -260,7 +149,13 @@ pub async fn run_prompt(
             };
             let _ = write_summary(&run_paths.summary, &mock_run_result);
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
-            Err(err)
+            match err {
+                gestalt_runtime::RuntimeError::Harness(he) => Err(he),
+                other => Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+                    field: "runtime".to_string(),
+                    reason: other.to_string(),
+                })),
+            }
         }
     };
 
@@ -403,6 +298,9 @@ pub(crate) fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::Ap
     }
 }
 
+
+
+#[allow(dead_code)]
 pub(crate) fn emit_trace_event<S: TraceSink>(
     sink: &S,
     event: gestalt_core::AgentEvent,

@@ -94,10 +94,15 @@ async fn test_cli_smoke_prompt_source() {
     // Overwrite config.toml in the copied workspace to use our mock provider
     let config_toml = r#"
 [defaults]
+profile = "mock-profile"
 provider = "mock-provider"
 model = "mock-model"
 mode = "confirm"
 max_turns = 1
+
+[profiles.mock-profile]
+provider = "mock-provider"
+model = "mock-model"
 "#;
     std::fs::write(gestalt_dir.join("config.toml"), config_toml).unwrap();
 

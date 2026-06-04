@@ -1574,4 +1574,86 @@ impl CliReport for ModelsSearchReport {
     }
 }
 
+#[derive(Serialize)]
+pub struct RuntimeInspectReport {
+    pub inspect: gestalt_runtime::RuntimeInspect,
+}
+
+impl CliReport for RuntimeInspectReport {
+    fn kind(&self) -> &'static str {
+        "runtime.inspect"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push("Resolved Gestalt Agent Runtime Shape".to_string());
+        lines.push("====================================".to_string());
+        lines.push(format!("Provider Connection: {}", self.inspect.provider_name));
+        lines.push(format!("Provider Model:      {}", self.inspect.provider_model));
+        lines.push(format!("Execution Mode:      {}", self.inspect.execution_mode));
+        lines.push(format!("Max Turns Limit:     {}", self.inspect.max_turns));
+        lines.push(format!("Context Version:     {}", self.inspect.context_pipeline_version));
+        lines.push(format!("Workspace Root:      {}", self.inspect.workspace_root));
+        
+        if let Some(ref source) = self.inspect.policy_source_path {
+            lines.push(format!("Policy Source:       {}", source));
+        }
+        if let Some(ref fp) = self.inspect.policy_fingerprint {
+            lines.push(format!("Policy Fingerprint:  {}", fp));
+        }
+        
+        if let Some(ref sink) = self.inspect.trace_sink_kind {
+            lines.push(format!("Trace Sink Kind:     {}", sink));
+        }
+
+        lines.push(String::new());
+        lines.push(format!("Enabled CLI Features: {:?}", self.inspect.enabled_cli_features));
+
+        lines.push(String::new());
+        lines.push(format!("Extensions Installed ({}):", self.inspect.extensions.len()));
+        if self.inspect.extensions.is_empty() {
+            lines.push("  (none)".to_string());
+        } else {
+            for ext in &self.inspect.extensions {
+                lines.push(format!("  - {}", ext));
+            }
+        }
+
+        lines.push(String::new());
+        lines.push(format!("Active Verification Rules ({}):", self.inspect.verifiers.len()));
+        if self.inspect.verifiers.is_empty() {
+            lines.push("  (none)".to_string());
+        } else {
+            for v in &self.inspect.verifiers {
+                lines.push(format!("  - {}", v));
+            }
+        }
+
+        lines.push(String::new());
+        lines.push(format!("Registered Composition Hooks ({}):", self.inspect.hooks.len()));
+        lines.push(format!("Hook Contract Hash:  {}", self.inspect.hook_contract_hash));
+        if self.inspect.hooks.is_empty() {
+            lines.push("  (none)".to_string());
+        } else {
+            for h in &self.inspect.hooks {
+                lines.push(format!("  - {}", h));
+            }
+        }
+
+        lines.push(String::new());
+        lines.push(format!("Available Tools ({}) - Schema Hash {}:", self.inspect.tools.len(), self.inspect.tool_schema_hash));
+        if self.inspect.tools.is_empty() {
+            lines.push("  (none)".to_string());
+        } else {
+            let mut sorted_tools = self.inspect.tools.clone();
+            sorted_tools.sort_by(|a, b| a.name.cmp(&b.name));
+            for t in &sorted_tools {
+                lines.push(format!("  - {:<25} (hash: {})", t.name, t.schema_hash));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
 
