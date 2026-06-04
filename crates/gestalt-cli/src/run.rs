@@ -24,7 +24,7 @@ pub async fn run_prompt(
     let resolved = config.resolve_provider()?;
     let provider_name = resolved.provider_name.clone();
     let provider_config = resolved.provider_json();
-    let resolver = crate::auth::build_credential_resolver(api_key, true);
+    let resolver = crate::auth::build_credential_resolver(api_key, event_tx.is_none());
     let provider = registry::get_with_resolver(&resolved.kind, provider_config, resolver)?;
     let provider_default_model = provider.default_model().to_string();
 
@@ -40,17 +40,26 @@ pub async fn run_prompt(
     let policy = Arc::new(build_policy(config)?);
     let approval = approval_override.unwrap_or_else(|| approval_provider(mode));
 
-    let model = if resolved.model.is_empty() { provider_default_model } else { resolved.model };
-    
+    let model = if resolved.model.is_empty() {
+        provider_default_model
+    } else {
+        resolved.model
+    };
+
     // Durable unique session and run IDs
-    let session_id = session_id_override.unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
+    let session_id =
+        session_id_override.unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
     let run_id = format!("run-{}", uuid::Uuid::new_v4());
 
     let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
     let snapshot = snapshotter.capture(&config.workspace_root).await?;
 
-    let (sink_inner, run_paths) =
-        JsonlTraceSink::create_run(config.run_log_dir(), &session_id, &run_id, Some(snapshot.clone()))?;
+    let (sink_inner, run_paths) = JsonlTraceSink::create_run(
+        config.run_log_dir(),
+        &session_id,
+        &run_id,
+        Some(snapshot.clone()),
+    )?;
     let sink = Arc::new(sink_inner);
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -76,8 +85,15 @@ pub async fn run_prompt(
     hooks.register_tool_hook(verification_hook);
     hooks.register_session_hook(evaluator_hook);
 
-    let loop_ =
-        AgentLoop::new(provider, tools.clone(), pipeline, policy, approval, max_turns).with_hooks(hooks);
+    let loop_ = AgentLoop::new(
+        provider,
+        tools.clone(),
+        pipeline,
+        policy,
+        approval,
+        max_turns,
+    )
+    .with_hooks(hooks);
 
     let mut session = Session::new(
         session_id.clone(),
@@ -128,7 +144,9 @@ pub async fn run_prompt(
         interrupted_phase: None,
         compatibility_fingerprint: gestalt_trace::run_manifest::CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
-            tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&tools.schemas()),
+            tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
+                &tools.schemas(),
+            ),
             policy_fingerprint: {
                 let policies_path = config.workspace_file("policies.toml");
                 let content = std::fs::read_to_string(&policies_path).unwrap_or_default();
@@ -250,7 +268,10 @@ pub async fn run_prompt(
     final_status
 }
 
-fn write_cost_report_helper(trace_path: &std::path::Path, cost_path: &std::path::Path) -> Result<(), gestalt_core::HarnessError> {
+fn write_cost_report_helper(
+    trace_path: &std::path::Path,
+    cost_path: &std::path::Path,
+) -> Result<(), gestalt_core::HarnessError> {
     let report = aggregate_costs(trace_path, |model| {
         gestalt_models::ModelCatalog::new().get(model)
     })?;

@@ -1,0 +1,11 @@
+pub mod approval_popup;
+pub mod details_drawer;
+pub mod diagnostics_drawer;
+pub mod event_log;
+pub mod help_modal;
+pub mod lineage_tree;
+pub mod notification_popup;
+pub mod onboarding_popup;
+pub mod session_switcher;
+pub mod slash_commands;
+pub mod status_bar;

@@ -2,30 +2,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gestalt_core::{
-    approval::{ApprovalDecision, ApprovalRequest},
-    cancel::CancelToken,
-    error::HarnessError,
-    event::AgentEvent,
+    approval::ApprovalDecision, cancel::CancelToken, error::HarnessError, event::AgentEvent,
 };
 use gestalt_trace::run_manifest::RunManifest;
 
 use crate::config::EffectiveConfig;
+use crate::output::CliReport;
 use crate::run::run_prompt;
 use crate::sessions;
 use crate::tui::approval::TuiApprovalProvider;
-use crate::tui::bridge::{
-    get_diagnostics_logs, init_diagnostics_buffer, TuiBridgeMessage, TuiLogLayer,
-};
+use crate::tui::bridge::{init_diagnostics_buffer, TuiBridgeMessage, TuiLogLayer};
+use crate::tui::screens::chat::draw_chat_screen;
+use crate::tui::services;
+use crate::tui::state::{push_event, TuiAppState, TuiModal};
+use crate::tui::update::{self, TuiUiAction};
 
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
-    Terminal,
-};
+use crossterm::event::{self, Event};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::{mpsc, oneshot};
 
 /// RAII Guard to ensure the terminal is restored to its original state
@@ -36,12 +29,8 @@ impl TerminalGuard {
     fn create() -> Result<Self, HarnessError> {
         crossterm::terminal::enable_raw_mode()
             .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
-        crossterm::execute!(
-            std::io::stdout(),
-            crossterm::terminal::EnterAlternateScreen,
-            crossterm::event::EnableMouseCapture
-        )
-        .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
+        crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen)
+            .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
         Ok(TerminalGuard)
     }
 }
@@ -52,7 +41,6 @@ impl Drop for TerminalGuard {
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::terminal::LeaveAlternateScreen,
-            crossterm::event::DisableMouseCapture,
             crossterm::cursor::Show
         );
     }
@@ -72,7 +60,9 @@ fn find_latest_run_id(config: &EffectiveConfig, session_id: &str) -> Option<Stri
                             if manifest.session_id == session_id {
                                 if let Ok(metadata) = entry.metadata() {
                                     if let Ok(modified) = metadata.modified() {
-                                        if latest_run.is_none() || modified > latest_run.as_ref().unwrap().0 {
+                                        if latest_run.is_none()
+                                            || modified > latest_run.as_ref().unwrap().0
+                                        {
                                             latest_run = Some((modified, manifest.run_id));
                                         }
                                     }
@@ -85,6 +75,19 @@ fn find_latest_run_id(config: &EffectiveConfig, session_id: &str) -> Option<Stri
         }
     }
     latest_run.map(|(_, id)| id)
+}
+
+fn check_onboarding_needed(config: &EffectiveConfig) -> bool {
+    if let Ok(resolved) = config.resolve_provider() {
+        let provider_name = resolved.provider_name;
+        if provider_name == "ollama" {
+            return false;
+        }
+        if let Ok(report) = crate::auth::resolve_auth(config, &provider_name) {
+            return report.status == "missing";
+        }
+    }
+    true
 }
 
 /// Spawns the background run task and executes the main TUI event loop.
@@ -123,13 +126,12 @@ pub async fn run_tui(
         let _ = crossterm::execute!(
             stdout,
             crossterm::terminal::LeaveAlternateScreen,
-            crossterm::event::DisableMouseCapture,
             crossterm::cursor::Show
         );
         original_hook(panic_info);
     }));
 
-    // 3. Setup Session Lineage Tracking (Finding 1 recovery and attach)
+    // 3. Setup Session Lineage Tracking
     let mut session_id = format!("session-{}", uuid::Uuid::new_v4());
     let mut parent_run_id: Option<String> = None;
 
@@ -137,14 +139,19 @@ pub async fn run_tui(
         let parent_run_path = crate::runs::resolve_run_path(config, target)?;
         let manifest_path = parent_run_path.join("run.json");
         if !manifest_path.exists() {
-            return Err(HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-                field: "resume".to_string(),
-                reason: format!("run.json missing from {}", parent_run_path.display()),
-            }));
+            return Err(HarnessError::Config(
+                gestalt_core::ConfigError::InvalidValue {
+                    field: "resume".to_string(),
+                    reason: format!("run.json missing from {}", parent_run_path.display()),
+                },
+            ));
         }
 
-        let manifest = RunManifest::load_from(&manifest_path)
-            .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::ReadFailed { reason: e.to_string() }))?;
+        let manifest = RunManifest::load_from(&manifest_path).map_err(|e| {
+            HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
+                reason: e.to_string(),
+            })
+        })?;
 
         session_id = manifest.session_id;
         parent_run_id = Some(manifest.run_id);
@@ -164,23 +171,27 @@ pub async fn run_tui(
 
     // Spawn Run Helper
     let spawn_run = {
-        let config = config.clone();
         let api_key = api_key.clone();
         let approval_provider = approval_provider.clone();
         let event_tx = event_tx.clone();
         let bridge_tx = bridge_tx.clone();
-        move |run_prompt_val: Option<String>, run_resume_val: Option<String>, current_session: String, current_parent: Option<String>, cancel_token: CancelToken| {
-            let config = config.clone();
+        move |run_config: EffectiveConfig,
+              run_prompt_val: Option<String>,
+              run_resume_val: Option<String>,
+              current_session: String,
+              current_parent: Option<String>,
+              action_type: &'static str,
+              cancel_token: CancelToken| {
             let api_key = api_key.clone();
             let approval_provider = approval_provider.clone();
             let event_tx = event_tx.clone();
             let bridge_tx = bridge_tx.clone();
             tokio::spawn(async move {
                 let res = async {
-                    if let Some(p) = run_prompt_val {
-                        if let Some(ref target) = current_parent {
+                    if action_type == "branch" {
+                        if let (Some(p), Some(ref target)) = (run_prompt_val, current_parent) {
                             sessions::run_session_action(
-                                &config,
+                                &run_config,
                                 "branch",
                                 target,
                                 Some(p),
@@ -192,35 +203,72 @@ pub async fn run_tui(
                             )
                             .await
                         } else {
-                            run_prompt(
-                                &config,
-                                &p,
+                            Err(HarnessError::Config(
+                                gestalt_core::ConfigError::MissingField(
+                                    "prompt or branch target".to_string(),
+                                ),
+                            ))
+                        }
+                    } else if action_type == "continue" {
+                        if let Some(p) = run_prompt_val {
+                            if current_parent.is_some() {
+                                sessions::run_session_action(
+                                    &run_config,
+                                    "continue",
+                                    &current_session,
+                                    Some(p),
+                                    None,
+                                    api_key,
+                                    cancel_token,
+                                    Some(approval_provider),
+                                    Some(event_tx),
+                                )
+                                .await
+                            } else {
+                                run_prompt(
+                                    &run_config,
+                                    &p,
+                                    api_key,
+                                    cancel_token,
+                                    Some(approval_provider),
+                                    Some(event_tx),
+                                    Some(current_session),
+                                )
+                                .await
+                            }
+                        } else {
+                            Err(HarnessError::Config(
+                                gestalt_core::ConfigError::MissingField("prompt".to_string()),
+                            ))
+                        }
+                    } else if action_type == "resume" {
+                        if let Some(target) = run_resume_val {
+                            sessions::run_session_action(
+                                &run_config,
+                                "resume",
+                                &target,
+                                None,
+                                None,
                                 api_key,
                                 cancel_token,
                                 Some(approval_provider),
                                 Some(event_tx),
-                                Some(current_session),
                             )
                             .await
+                        } else {
+                            Err(HarnessError::Config(
+                                gestalt_core::ConfigError::MissingField(
+                                    "resume target".to_string(),
+                                ),
+                            ))
                         }
-                    } else if let Some(target) = run_resume_val {
-                        // Finding 3: Wire to "resume", not "continue"
-                        sessions::run_session_action(
-                            &config,
-                            "resume",
-                            &target,
-                            None,
-                            None,
-                            api_key,
-                            cancel_token,
-                            Some(approval_provider),
-                            Some(event_tx),
-                        )
-                        .await
                     } else {
-                        Err(HarnessError::Config(gestalt_core::ConfigError::MissingField(
-                            "prompt or resume target".to_string(),
-                        )))
+                        Err(HarnessError::Config(
+                            gestalt_core::ConfigError::InvalidValue {
+                                field: "action_type".to_string(),
+                                reason: format!("Unknown action type: {}", action_type),
+                            },
+                        ))
                     }
                 }
                 .await;
@@ -244,154 +292,58 @@ pub async fn run_tui(
         }
     });
 
-    // 6. Main TUI Event/Render Loop State
-    let mut agent_events = Vec::new();
-    let mut status = "Idle".to_string();
-    let mut active_approval: Option<(ApprovalRequest, oneshot::Sender<ApprovalDecision>)> = None;
-    let mut is_running = false;
-    let mut run_error: Option<String> = None;
-    let mut input_buffer = String::new();
+    // 6. Initialize State
+    let mut state = TuiAppState::new(config.clone(), session_id, parent_run_id);
     let mut active_cancel_token = cancel_token.clone();
+    let mut active_approval_tx: Option<oneshot::Sender<ApprovalDecision>> = None;
+    let (conn_tx, mut conn_rx) = mpsc::unbounded_channel();
 
-    // Trigger initial run if requested
-    if prompt.is_some() || resume.is_some() {
-        is_running = true;
-        status = "Running".to_string();
-        spawn_run(prompt.clone(), resume.clone(), session_id.clone(), parent_run_id.clone(), active_cancel_token.clone());
+    // Check if onboarding connection wizard is needed
+    if check_onboarding_needed(&state.config) {
+        state.chrome.active_modal = TuiModal::Onboarding;
+    }
+
+    // Load initial lineage tree
+    if let Ok(tree) = services::load_lineage_tree(&state.config, &state.session_id) {
+        state.lineage.model = Some(tree);
+    }
+
+    // Load initial transcript (for resumed sessions)
+    if let Ok(transcript) = services::load_session_transcript(
+        &state.config,
+        &state.session_id,
+        state.parent_run_id.as_deref(),
+    ) {
+        state.chat.events = transcript;
+    }
+
+    // Trigger initial run if requested (only if onboarding is not active)
+    if (prompt.is_some() || resume.is_some()) && state.chrome.active_modal != TuiModal::Onboarding {
+        state.is_running = true;
+        state.status = "Running".to_string();
+        let init_action = if resume.is_some() {
+            "resume"
+        } else {
+            "continue"
+        };
+        spawn_run(
+            state.config.clone(),
+            prompt.clone(),
+            resume.clone(),
+            state.session_id.clone(),
+            state.parent_run_id.clone(),
+            init_action,
+            active_cancel_token.clone(),
+        );
     }
 
     loop {
-        // Draw the terminal
-        let current_status = status.clone();
-        let events_ref = &agent_events;
-        let approval_ref = &active_approval;
-        let _error_ref = &run_error;
-        let input_ref = &input_buffer;
-
+        // Draw the terminal, updating size state automatically
         terminal
             .draw(|f| {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Min(3),      // Main panels
-                        Constraint::Length(3),   // Status Bar
-                        Constraint::Length(3),   // Prompt Input
-                    ])
-                    .split(f.area());
-
-                let main_chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(chunks[0]);
-
-                // Left Panel: Agent Events
-                let event_items: Vec<ListItem> = events_ref
-                    .iter()
-                    .map(|ev| {
-                        let line = format_agent_event(ev);
-                        ListItem::new(line)
-                    })
-                    .collect();
-                let events_list = List::new(event_items)
-                    .block(Block::default().borders(Borders::ALL).title("Agent Events"));
-                f.render_widget(events_list, main_chunks[0]);
-
-                // Right Panel: Diagnostics Logs
-                let logs = get_diagnostics_logs();
-                let log_items: Vec<ListItem> = logs
-                    .iter()
-                    .map(|line| ListItem::new(line.clone()))
-                    .collect();
-                let logs_list = List::new(log_items).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Diagnostics Logs"),
-                );
-                f.render_widget(logs_list, main_chunks[1]);
-
-                // Bottom Status Bar
-                let status_style = if current_status.contains("Awaiting") {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else if current_status.contains("Completed") {
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-                } else if current_status.contains("Failed") {
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-                };
-
-                let help_text = if approval_ref.is_some() {
-                    "Press 'a' to Approve, 'd' to Deny, 'c' to Cancel"
-                } else if is_running {
-                    "Press Esc or Ctrl+C to Cancel/Interrupt"
-                } else {
-                    "Type prompt and press Enter to run | 'q' or Ctrl+C to Quit"
-                };
-
-                let status_line = Line::from(vec![
-                    Span::raw("Status: "),
-                    Span::styled(&current_status, status_style),
-                    Span::raw("  |  "),
-                    Span::raw(help_text),
-                ]);
-                let status_para = Paragraph::new(status_line)
-                    .block(Block::default().borders(Borders::ALL).title("Status Bar"));
-                f.render_widget(status_para, chunks[1]);
-
-                // Input block
-                let input_style = if is_running {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default().fg(Color::LightCyan)
-                };
-                let input_title = if is_running {
-                    "Prompt Input (Locked during run)"
-                } else {
-                    "Prompt Input (Press Enter to submit)"
-                };
-                let input_para = Paragraph::new(input_ref.as_str())
-                    .block(Block::default().borders(Borders::ALL).border_style(input_style).title(input_title));
-                f.render_widget(input_para, chunks[2]);
-
-                if !is_running {
-                    let cursor_x = (chunks[2].x + 1 + input_ref.len() as u16)
-                        .min(chunks[2].x + chunks[2].width - 2);
-                    f.set_cursor_position((cursor_x, chunks[2].y + 1));
-                }
-
-                // Overlay Approval Popup if active
-                if let Some((req, _)) = approval_ref {
-                    let popup_area = centered_rect(60, 40, f.area());
-                    f.render_widget(Clear, popup_area);
-
-                    let popup_text = vec![
-                        Line::from(vec![
-                            Span::styled("Tool Name: ", Style::default().add_modifier(Modifier::BOLD)),
-                            Span::styled(&req.tool_name, Style::default().fg(Color::Magenta)),
-                        ]),
-                        Line::from(""),
-                        Line::from(vec![
-                            Span::styled("Description: ", Style::default().add_modifier(Modifier::BOLD)),
-                            Span::raw(&req.description),
-                        ]),
-                        Line::from(""),
-                        Line::from(vec![
-                            Span::styled("Input Parameters: ", Style::default().add_modifier(Modifier::BOLD)),
-                        ]),
-                        Line::from(req.input.to_string()),
-                        Line::from(""),
-                        Line::from(vec![
-                            Span::styled("Action Required: ", Style::default().add_modifier(Modifier::BOLD)),
-                            Span::raw("Approve [a], Deny [d], Cancel [c]"),
-                        ]),
-                    ];
-
-                    let popup_para = Paragraph::new(popup_text)
-                        .block(Block::default().borders(Borders::ALL).title("Approval Request"))
-                        .wrap(Wrap { trim: true });
-
-                    f.render_widget(popup_para, popup_area);
-                }
+                state.chrome.terminal_width = f.area().width;
+                state.chrome.terminal_height = f.area().height;
+                draw_chat_screen(f, &state);
             })
             .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
 
@@ -401,160 +353,290 @@ pub async fn run_tui(
             Some(msg) = bridge_rx.recv() => {
                 match msg {
                     TuiBridgeMessage::AgentEvent(ev) => {
-                        agent_events.push(ev);
+                        let _ = update::apply_agent_event(&mut state, ev);
                     }
                     TuiBridgeMessage::ApprovalRequest { request, response_tx } => {
-                        active_approval = Some((request, response_tx));
-                        status = "Awaiting Approval".to_string();
+                        active_approval_tx = Some(response_tx);
+                        state.approval.active_request = Some(request);
+                        state.chrome.active_modal = TuiModal::Approval;
+                        state.status = "Awaiting Approval".to_string();
                     }
                     TuiBridgeMessage::RunCompleted(res) => {
-                        is_running = false;
-                        active_approval = None; // Dismiss any active approvals
+                        state.is_running = false;
+                        state.approval.active_request = None;
+                        state.chrome.active_modal = TuiModal::None;
+                        active_approval_tx = None;
                         match res {
                             Ok(run_dir) => {
-                                status = "Completed. Ready for prompt.".to_string();
+                                state.status = "Completed. Ready for prompt.".to_string();
                                 let manifest_path = run_dir.join("run.json");
                                 if let Ok(manifest) = RunManifest::load_from(&manifest_path) {
-                                    parent_run_id = Some(manifest.run_id);
-                                    session_id = manifest.session_id;
+                                    state.parent_run_id = Some(manifest.run_id);
+                                    state.session_id = manifest.session_id;
                                 }
                             }
                             Err(HarnessError::Cancelled) => {
-                                status = "Cancelled. Ready for prompt.".to_string();
-                                run_error = Some("Cancelled by user".to_string());
-                                if let Some(latest) = find_latest_run_id(config, &session_id) {
-                                    parent_run_id = Some(latest);
+                                state.status = "Cancelled. Ready for prompt.".to_string();
+                                state.run_error = Some("Cancelled by user".to_string());
+                                if let Some(latest) = find_latest_run_id(&state.config, &state.session_id) {
+                                    state.parent_run_id = Some(latest);
                                 }
                             }
                             Err(e) => {
-                                status = format!("Failed: {}. Ready.", e);
-                                run_error = Some(format!("{}", e));
-                                if let Some(latest) = find_latest_run_id(config, &session_id) {
-                                    parent_run_id = Some(latest);
+                                let message = e.to_string();
+                                state.status = "Failed. Ready for prompt.".to_string();
+                                state.run_error = Some(message.clone());
+                                state.show_notification("Run failed", message, true);
+                                if let Some(latest) = find_latest_run_id(&state.config, &state.session_id) {
+                                    state.parent_run_id = Some(latest);
                                 }
                             }
+                        }
+                        // Refresh lineage tree
+                        if let Ok(tree) = services::load_lineage_tree(&state.config, &state.session_id) {
+                            state.lineage.model = Some(tree);
                         }
                     }
                 }
             }
-            // Crossterm Keyboard inputs
-            Some(ev) = input_rx.recv() => {
-                if let Event::Key(key) = ev {
-                    if key.kind == event::KeyEventKind::Press {
-                        if is_running {
-                            if let Some((req, response_tx)) = active_approval.take() {
-                                match key.code {
-                                    KeyCode::Char('a') => {
-                                        let _ = response_tx.send(ApprovalDecision::Approve);
-                                        status = "Running".to_string();
-                                    }
-                                    KeyCode::Char('d') => {
-                                        let _ = response_tx.send(ApprovalDecision::Deny);
-                                        status = "Running".to_string();
-                                    }
-                                    KeyCode::Char('c') => {
-                                        drop(response_tx);
-                                        status = "Running".to_string();
-                                    }
-                                    _ => {
-                                        // Finding 2: Re-wrap active approval on non-approval key
-                                        active_approval = Some((req, response_tx));
-                                    }
-                                }
-                            } else {
-                                // Escape / Ctrl+C triggers cancellation of active run
-                                if key.code == KeyCode::Esc || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
-                                    active_cancel_token.cancel();
-                                    status = "Cancelling...".to_string();
-                                }
-                            }
-                        } else {
-                            // If NOT running, handle text input and general navigation
-                            match key.code {
-                                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                    break;
-                                }
-                                KeyCode::Char('q') => {
-                                    break;
-                                }
-                                KeyCode::Enter => {
-                                    let trimmed = input_buffer.trim();
-                                    if !trimmed.is_empty() {
-                                        agent_events.clear();
-                                        run_error = None;
-                                        is_running = true;
-                                        status = "Running".to_string();
-                                        active_cancel_token = CancelToken::new();
-                                        spawn_run(
-                                            Some(trimmed.to_string()),
-                                            None,
-                                            session_id.clone(),
-                                            parent_run_id.clone(),
-                                            active_cancel_token.clone(),
-                                        );
-                                        input_buffer.clear();
-                                    }
-                                }
-                                KeyCode::Backspace => {
-                                    input_buffer.pop();
-                                }
-                                KeyCode::Char(c) => {
-                                    input_buffer.push(c);
-                                }
-                                _ => {}
-                            }
+            // Onboarding connection results from background thread
+            Some(conn_res) = conn_rx.recv() => {
+                match conn_res {
+                    Ok(_) => {
+                        state.chrome.active_modal = TuiModal::None;
+                        state.status = "Provider Connected. Ready.".to_string();
+                        // Reload config
+                        if let Ok(new_cfg) = crate::config::load_effective_config(&crate::config::CliOverrides::default()) {
+                            state.config = new_cfg.clone();
+                            state.details.config = Some(new_cfg);
+                        }
+                        // Refresh sessions list
+                        if let Ok(list) = services::load_session_list(&state.config) {
+                            state.switcher.model = Some(list);
+                        }
+                        // Refresh lineage tree
+                        if let Ok(tree) = services::load_lineage_tree(&state.config, &state.session_id) {
+                            state.lineage.model = Some(tree);
                         }
                     }
+                    Err(e) => {
+                        state.onboarding.error_message = Some(format!("{e}"));
+                        state.status = "Connection Failed".to_string();
+                    }
+                }
+            }
+            // Crossterm events
+            Some(ev) = input_rx.recv() => {
+                match ev {
+                    Event::Key(key) => {
+                        let actions = update::handle_key_event(&mut state, key);
+                        let mut should_quit = false;
+
+                        for action in actions {
+                            match action {
+                                TuiUiAction::SubmitPrompt(p) => {
+                                    state.is_running = true;
+                                    state.status = "Running".to_string();
+                                    active_cancel_token = CancelToken::new();
+                                    spawn_run(
+                                        state.config.clone(),
+                                        Some(p),
+                                        None,
+                                        state.session_id.clone(),
+                                        state.parent_run_id.clone(),
+                                        "continue",
+                                        active_cancel_token.clone(),
+                                    );
+                                }
+                                TuiUiAction::BranchSession { parent_run_id, prompt } => {
+                                    state.is_running = true;
+                                    state.status = "Running".to_string();
+                                    active_cancel_token = CancelToken::new();
+                                    spawn_run(
+                                        state.config.clone(),
+                                        Some(prompt),
+                                        None,
+                                        state.session_id.clone(),
+                                        Some(parent_run_id),
+                                        "branch",
+                                        active_cancel_token.clone(),
+                                    );
+                                }
+                                TuiUiAction::InterruptRun => {
+                                    active_cancel_token.cancel();
+                                    state.status = "Cancelling...".to_string();
+                                }
+                                TuiUiAction::ApprovalDecision { decision } => {
+                                    if let Some(tx) = active_approval_tx.take() {
+                                        let _ = tx.send(decision);
+                                    }
+                                    state.status = "Running".to_string();
+                                }
+                                TuiUiAction::SelectSession(sid) => {
+                                    state.session_id = sid.clone();
+                                    state.parent_run_id = find_latest_run_id(&state.config, &sid);
+                                    if let Ok(transcript) = services::load_session_transcript(&state.config, &state.session_id, state.parent_run_id.as_deref()) {
+                                        state.chat.events = transcript;
+                                    } else {
+                                        state.chat.events.clear();
+                                    }
+                                    state.lineage.selected_index = 0;
+                                    if let Ok(tree) = services::load_lineage_tree(&state.config, &state.session_id) {
+                                        state.lineage.model = Some(tree);
+                                    }
+                                }
+                                TuiUiAction::LoadSessions => {
+                                    if let Ok(list) = services::load_session_list(&state.config) {
+                                        state.switcher.model = Some(list);
+                                    }
+                                    state.switcher.selected_index = 0;
+                                }
+                                TuiUiAction::LoadLineage => {
+                                    if let Ok(tree) = services::load_lineage_tree(&state.config, &state.session_id) {
+                                        state.lineage.model = Some(tree);
+                                    }
+                                    state.lineage.selected_index = 0;
+                                }
+                                TuiUiAction::StartNewSession => {
+                                    state.start_new_session();
+                                }
+                                TuiUiAction::SaveOnboarding { provider, api_key } => {
+                                    state.onboarding.error_message = None;
+                                    state.status = "Connecting LLM Provider...".to_string();
+                                    let config = state.config.clone();
+                                    let prov = provider.clone();
+                                    let key_opt = if api_key.is_empty() { None } else { Some(api_key) };
+                                    let tx = conn_tx.clone();
+                                    tokio::task::spawn_blocking(move || {
+                                        let res = crate::connect::connect_provider(
+                                            &config,
+                                            &prov,
+                                            key_opt,
+                                            false, // no_keychain
+                                            true,  // set_default
+                                            None, None, None, None,
+                                        );
+                                        let _ = tx.send(res);
+                                    });
+                                }
+                                TuiUiAction::ChangeMode(mode) => {
+                                    if crate::config::mode_from_str(&mode).is_ok() {
+                                        state.config.defaults.mode = Some(mode.clone());
+                                        state.details.config = Some(state.config.clone());
+                                        push_event(&mut state.chat.events, AgentEvent::ContextBuilt {
+                                            packet_id: String::new(),
+                                            token_estimate: 0,
+                                            packet_hash: None,
+                                            sources: None,
+                                            omissions: None,
+                                            prompt_source: Some(format!("Switched execution mode to '{mode}'")),
+                                        });
+                                    } else {
+                                        push_event(&mut state.chat.events, AgentEvent::Error {
+                                            message: format!("Invalid mode: '{mode}'. Supported: confirm, yolo, human, dry-run, replay"),
+                                            recoverable: true,
+                                        });
+                                    }
+                                }
+                                TuiUiAction::CalculateCost => {
+                                    let cost = crate::slash::calculate_session_cost(&state.config, &state.session_id);
+                                    push_event(&mut state.chat.events, AgentEvent::ContextBuilt {
+                                        packet_id: String::new(),
+                                        token_estimate: 0,
+                                        packet_hash: None,
+                                        sources: None,
+                                        omissions: None,
+                                        prompt_source: Some(format!("Aggregated session cost: ${cost:.6}")),
+                                    });
+                                }
+                                TuiUiAction::ExplainContext(parent) => {
+                                    let overrides = crate::config::CliOverrides {
+                                        workspace: Some(state.config.workspace_root.clone()),
+                                        provider: state.config.provider_override.clone(),
+                                        model: state.config.model_override.clone(),
+                                        mode: state.config.defaults.mode.clone(),
+                                        max_turns: state.config.defaults.max_turns,
+                                        profile: state.config.defaults.profile.clone(),
+                                    };
+                                    let tx = bridge_tx.clone();
+                                    tokio::spawn(async move {
+                                        let res = crate::context::explain_context(&overrides, None, Some(&parent)).await;
+                                        let msg = match res {
+                                            Ok(report) => report.render_text(),
+                                            Err(e) => format!("Error explaining context: {e}"),
+                                        };
+                                        let _ = tx.send(TuiBridgeMessage::AgentEvent(AgentEvent::ContextBuilt {
+                                            packet_id: String::new(),
+                                            token_estimate: 0,
+                                            packet_hash: None,
+                                            sources: None,
+                                            omissions: None,
+                                            prompt_source: Some(msg),
+                                        }));
+                                    });
+                                }
+                                TuiUiAction::ExportRun { parent_run_id, format } => {
+                                    let config = state.config.clone();
+                                    let tx = bridge_tx.clone();
+                                    tokio::spawn(async move {
+                                        let export_format = match format.as_str() {
+                                            "jsonl" => crate::output::ExportFormat::Jsonl,
+                                            "sharegpt" => crate::output::ExportFormat::Sharegpt,
+                                            _ => crate::output::ExportFormat::Markdown,
+                                        };
+                                        let res = crate::export::export_run(&config, &parent_run_id, export_format);
+                                        let msg = match res {
+                                            Ok(report) => report.render_text(),
+                                            Err(e) => format!("Error exporting run: {e}"),
+                                        };
+                                        let _ = tx.send(TuiBridgeMessage::AgentEvent(AgentEvent::ContextBuilt {
+                                            packet_id: String::new(),
+                                            token_estimate: 0,
+                                            packet_hash: None,
+                                            sources: None,
+                                            omissions: None,
+                                            prompt_source: Some(msg),
+                                        }));
+                                    });
+                                }
+                                TuiUiAction::VerifyRun(parent) => {
+                                    let config = state.config.clone();
+                                    let tx = bridge_tx.clone();
+                                    tokio::spawn(async move {
+                                        let res = crate::verify::verify_run(&config, &parent).await;
+                                        let msg = match res {
+                                            Ok(report) => report.render_text(),
+                                            Err(e) => format!("Error verifying run: {e}"),
+                                        };
+                                        let _ = tx.send(TuiBridgeMessage::AgentEvent(AgentEvent::ContextBuilt {
+                                            packet_id: String::new(),
+                                            token_estimate: 0,
+                                            packet_hash: None,
+                                            sources: None,
+                                            omissions: None,
+                                            prompt_source: Some(msg),
+                                        }));
+                                    });
+                                }
+                                TuiUiAction::Quit => {
+                                    should_quit = true;
+                                }
+                            }
+                        }
+
+                        if should_quit {
+                            break;
+                        }
+                    }
+                    Event::Resize(w, h) => {
+                        state.chrome.terminal_width = w;
+                        state.chrome.terminal_height = h;
+                    }
+                    _ => {}
                 }
             }
         }
     }
 
     Ok(())
-}
-
-/// Helper function to format an `AgentEvent` variant into a summary line.
-fn format_agent_event(event: &AgentEvent) -> String {
-    match event {
-        AgentEvent::UserMessage { content } => format!("User> {}", content),
-        AgentEvent::ContextBuilt { token_estimate, .. } => format!("Context built (~{} tokens)", token_estimate),
-        AgentEvent::ModelRequest { model, .. } => format!("Model request ({})", model),
-        AgentEvent::Text { delta } => format!("Text: {}", delta),
-        AgentEvent::Thinking { delta } => format!("Thinking: {}", delta),
-        AgentEvent::ToolCallStreamed { name, .. } => format!("Tool call streaming: {}", name),
-        AgentEvent::ToolCallProposed { name, .. } => format!("Tool call proposed: {}", name),
-        AgentEvent::PolicyDecision { tool_name, risk, .. } => format!("Policy decision for {:?} (Risk: {:?})", tool_name, risk),
-        AgentEvent::ApprovalDecision { decision, .. } => format!("Approval decision: {:?}", decision),
-        AgentEvent::ToolResult { tool_name, is_error, .. } => format!(
-            "Tool {} result (Error: {})",
-            tool_name.as_deref().unwrap_or("unknown"),
-            is_error
-        ),
-        AgentEvent::Checkpoint { .. } => "Checkpoint saved".to_string(),
-        AgentEvent::Interrupted { reason } => format!("Interrupted: {}", reason),
-        AgentEvent::Stop { reason } => format!("Stop: {:?}", reason),
-        AgentEvent::Error { message, .. } => format!("Error: {}", message),
-        _ => format!("{:?}", event),
-    }
-}
-
-/// Helper function to create a centered rectangle for popup overlays.
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }

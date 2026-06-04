@@ -1,33 +1,35 @@
+use chrono::{DateTime, Utc};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use serde::Serialize;
-use chrono::{DateTime, Utc};
 
 use gestalt_core::{
-    trace::TraceSink, AgentEvent, AgentLoop, Message, Session, SessionConfig,
-    TokenBudget, ToolCatalog, ToolContext, WorkspaceSnapshotter,
+    trace::TraceSink, AgentEvent, AgentLoop, Message, Session, SessionConfig, TokenBudget,
+    ToolCatalog, ToolContext, WorkspaceSnapshotter,
 };
 use gestalt_models::registry;
 use gestalt_tools::default_registry;
 use gestalt_trace::{
-    aggregate_costs, write_cost_report, write_summary, JsonlTraceSink,
-    run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint},
+    aggregate_costs,
     resume::ResumeAnalyzer,
+    run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
+    write_cost_report, write_summary, JsonlTraceSink,
 };
 
 use crate::{
     config::EffectiveConfig,
-    output::{CliReport, render_event},
-    run::{build_pipeline, build_policy, approval_provider, emit_trace_event},
+    output::{render_event, CliReport},
+    run::{approval_provider, build_pipeline, build_policy, emit_trace_event},
     runs::{resolve_run_path, summarize_run_dir, RunSummary},
 };
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SessionSummary {
     pub session_id: String,
+    pub title: String,
     pub created_at: Option<DateTime<Utc>>,
     pub runs_count: usize,
     pub latest_run_id: String,
@@ -55,16 +57,29 @@ impl CliReport for SessionsListReport {
         let mut lines = Vec::new();
         lines.push(format!(
             "{:<45} | {:<20} | {:<10} | {:<45} | {:<12} | {:<6} | {:<10}",
-            "SESSION ID", "CREATED AT", "RUNS COUNT", "LATEST RUN ID", "STATUS", "TURNS", "EST. COST"
+            "SESSION ID",
+            "CREATED AT",
+            "RUNS COUNT",
+            "LATEST RUN ID",
+            "STATUS",
+            "TURNS",
+            "EST. COST"
         ));
         lines.push("-".repeat(161));
         for s in &self.sessions {
-            let created_at_str = s.created_at
+            let created_at_str = s
+                .created_at
                 .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             lines.push(format!(
                 "{:<45} | {:<20} | {:<10} | {:<45} | {:<12} | {:<6} | ${:<9.6}",
-                s.session_id, created_at_str, s.runs_count, s.latest_run_id, s.latest_run_status, s.total_turns, s.estimated_cost_usd
+                s.session_id,
+                created_at_str,
+                s.runs_count,
+                s.latest_run_id,
+                s.latest_run_status,
+                s.total_turns,
+                s.estimated_cost_usd
             ));
         }
         lines.join("\n")
@@ -100,7 +115,7 @@ impl CliReport for SessionInspectReport {
             return lines.join("\n");
         }
         lines.push("\nRuns Lineage Graph:".to_string());
-        
+
         // Simple tree layout: build adj list
         let mut root_runs = Vec::new();
         let mut children: HashMap<String, Vec<&RunManifestSummary>> = HashMap::new();
@@ -187,7 +202,9 @@ impl CliReport for SessionHistoryReport {
 }
 
 /// Lists all sessions by scanning all run.json manifests.
-pub fn list_sessions(config: &EffectiveConfig) -> Result<SessionsListReport, gestalt_core::HarnessError> {
+pub fn list_sessions(
+    config: &EffectiveConfig,
+) -> Result<SessionsListReport, gestalt_core::HarnessError> {
     let run_log_dir = config.run_log_dir();
     let mut sessions_map: HashMap<String, Vec<RunSummary>> = HashMap::new();
 
@@ -196,7 +213,10 @@ pub fn list_sessions(config: &EffectiveConfig) -> Result<SessionsListReport, ges
             for entry in entries.flatten() {
                 if entry.path().is_dir() {
                     if let Ok(summary) = summarize_run_dir(&entry.path()) {
-                        sessions_map.entry(summary.session_id.clone()).or_default().push(summary);
+                        sessions_map
+                            .entry(summary.session_id.clone())
+                            .or_default()
+                            .push(summary);
                     }
                 }
             }
@@ -206,15 +226,55 @@ pub fn list_sessions(config: &EffectiveConfig) -> Result<SessionsListReport, ges
     let mut sessions = Vec::new();
     for (session_id, mut runs) in sessions_map {
         runs.sort_by_key(|r| r.start_time);
-        
+
         let oldest = runs.first();
         let latest = runs.last().unwrap(); // Safe as vec is not empty
 
         let total_turns: usize = runs.iter().map(|r| r.turns.unwrap_or(0)).sum();
-        let total_cost: f64 = runs.iter().map(|r| r.estimated_cost_usd.unwrap_or(0.0)).sum();
+        let total_cost: f64 = runs
+            .iter()
+            .map(|r| r.estimated_cost_usd.unwrap_or(0.0))
+            .sum();
+
+        let title = if let Some(first_run) = oldest {
+            if let Ok(run_dir) = resolve_run_path(config, &first_run.run_id) {
+                let trace_path = run_dir.join("trace.jsonl");
+                if trace_path.exists() {
+                    if let Ok(envelopes) = gestalt_trace::read_trace(&trace_path) {
+                        let mut first_msg = None;
+                        for env in envelopes {
+                            if let gestalt_core::event::AgentEvent::UserMessage { content } =
+                                env.event
+                            {
+                                let trimmed = content.trim();
+                                if !trimmed.is_empty() {
+                                    let mut t = trimmed.chars().take(30).collect::<String>();
+                                    if trimmed.chars().count() > 30 {
+                                        t.push_str("...");
+                                    }
+                                    first_msg = Some(t);
+                                    break;
+                                }
+                            }
+                        }
+                        first_msg
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let title = title.unwrap_or_else(|| session_id.clone());
 
         sessions.push(SessionSummary {
             session_id,
+            title,
             created_at: oldest.and_then(|r| r.start_time),
             runs_count: runs.len(),
             latest_run_id: latest.run_id.clone(),
@@ -232,7 +292,10 @@ pub fn list_sessions(config: &EffectiveConfig) -> Result<SessionsListReport, ges
 }
 
 /// Inspects a session lineage tree.
-pub fn inspect_session(config: &EffectiveConfig, session_id: &str) -> Result<SessionInspectReport, gestalt_core::HarnessError> {
+pub fn inspect_session(
+    config: &EffectiveConfig,
+    session_id: &str,
+) -> Result<SessionInspectReport, gestalt_core::HarnessError> {
     let run_log_dir = config.run_log_dir();
     let mut runs = Vec::new();
 
@@ -251,7 +314,8 @@ pub fn inspect_session(config: &EffectiveConfig, session_id: &str) -> Result<Ses
                                     parent_run_id: manifest.parent_run_id.clone(),
                                     run_kind: format!("{:?}", manifest.run_kind).to_lowercase(),
                                     created_at: manifest.created_at,
-                                    lifecycle_state: format!("{:?}", manifest.lifecycle_state).to_lowercase(),
+                                    lifecycle_state: format!("{:?}", manifest.lifecycle_state)
+                                        .to_lowercase(),
                                     turns: summary.turns.unwrap_or(0),
                                 });
                             }
@@ -263,10 +327,12 @@ pub fn inspect_session(config: &EffectiveConfig, session_id: &str) -> Result<Ses
     }
 
     if runs.is_empty() {
-        return Err(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-            field: "session_id".to_string(),
-            reason: format!("No runs found for session ID: {}", session_id),
-        }));
+        return Err(gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::InvalidValue {
+                field: "session_id".to_string(),
+                reason: format!("No runs found for session ID: {}", session_id),
+            },
+        ));
     }
 
     runs.sort_by_key(|r| r.created_at);
@@ -278,7 +344,10 @@ pub fn inspect_session(config: &EffectiveConfig, session_id: &str) -> Result<Ses
 }
 
 /// Displays the logical chronological timeline of events across a session.
-pub fn history_session(config: &EffectiveConfig, session_id: &str) -> Result<SessionHistoryReport, gestalt_core::HarnessError> {
+pub fn history_session(
+    config: &EffectiveConfig,
+    session_id: &str,
+) -> Result<SessionHistoryReport, gestalt_core::HarnessError> {
     let run_log_dir = config.run_log_dir();
     let mut runs = Vec::new();
 
@@ -300,10 +369,12 @@ pub fn history_session(config: &EffectiveConfig, session_id: &str) -> Result<Ses
     }
 
     if runs.is_empty() {
-        return Err(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-            field: "session_id".to_string(),
-            reason: format!("No runs found for session ID: {}", session_id),
-        }));
+        return Err(gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::InvalidValue {
+                field: "session_id".to_string(),
+                reason: format!("No runs found for session ID: {}", session_id),
+            },
+        ));
     }
 
     runs.sort_by_key(|r| r.0);
@@ -321,15 +392,19 @@ pub fn history_session(config: &EffectiveConfig, session_id: &str) -> Result<Ses
                         }
                         AgentEvent::AssistantMessageCommitted { ref message } => {
                             let text = match message {
-                                Message::Assistant { content } => {
-                                    content.iter().filter_map(|block| {
-                                        if let gestalt_core::message::ContentBlock::Text { text } = block {
+                                Message::Assistant { content } => content
+                                    .iter()
+                                    .filter_map(|block| {
+                                        if let gestalt_core::message::ContentBlock::Text { text } =
+                                            block
+                                        {
                                             Some(text.clone())
                                         } else {
                                             None
                                         }
-                                    }).collect::<Vec<_>>().join(" ")
-                                }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
                                 _ => String::new(),
                             };
                             if !text.is_empty() {
@@ -341,12 +416,16 @@ pub fn history_session(config: &EffectiveConfig, session_id: &str) -> Result<Ses
                         AgentEvent::ToolExecutionStarted { ref tool_name, .. } => {
                             format!("Tool Executed: {}", tool_name)
                         }
-                        AgentEvent::ToolResult { ref id, is_error, .. } => {
-                            format!("Tool Result for {}: {}", id, if is_error { "error" } else { "success" })
+                        AgentEvent::ToolResult {
+                            ref id, is_error, ..
+                        } => {
+                            format!(
+                                "Tool Result for {}: {}",
+                                id,
+                                if is_error { "error" } else { "success" }
+                            )
                         }
-                        AgentEvent::Checkpoint { .. } => {
-                            "Checkpoint Committed".to_string()
-                        }
+                        AgentEvent::Checkpoint { .. } => "Checkpoint Committed".to_string(),
                         AgentEvent::Interrupted { ref reason } => {
                             format!("Interrupted: {}", reason)
                         }
@@ -380,7 +459,10 @@ pub struct ContinuedRunConfig {
 }
 
 /// Resolves a logical session's latest run head.
-fn resolve_session_head(config: &EffectiveConfig, session_id: &str) -> Result<PathBuf, gestalt_core::HarnessError> {
+fn resolve_session_head(
+    config: &EffectiveConfig,
+    session_id: &str,
+) -> Result<PathBuf, gestalt_core::HarnessError> {
     let run_log_dir = config.run_log_dir();
     let mut matching_runs = Vec::new();
 
@@ -400,10 +482,12 @@ fn resolve_session_head(config: &EffectiveConfig, session_id: &str) -> Result<Pa
     }
 
     if matching_runs.is_empty() {
-        return Err(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-            field: "session_id".to_string(),
-            reason: format!("No runs found for session ID: {}", session_id),
-        }));
+        return Err(gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::InvalidValue {
+                field: "session_id".to_string(),
+                reason: format!("No runs found for session ID: {}", session_id),
+            },
+        ));
     }
 
     matching_runs.sort_by_key(|r| r.0);
@@ -452,7 +536,11 @@ pub async fn run_session_action(
         execution_mode: format!("{:?}", config.selected_mode()?),
     };
 
-    let analysis = ResumeAnalyzer::analyze(&parent_run_path, Some(&current_snapshot), Some(&expected_fingerprint));
+    let analysis = ResumeAnalyzer::analyze(
+        &parent_run_path,
+        Some(&current_snapshot),
+        Some(&expected_fingerprint),
+    );
 
     // For branch, we bypass default safety rules if a specific checkpoint seq is requested.
     // However, if we do a normal resume, we check if it is safe to resume.
@@ -479,35 +567,52 @@ pub async fn run_session_action(
     let (history, token_budget, last_checkpoint_seq) = if let Some(target_seq) = branch_checkpoint {
         let trace_path = parent_run_path.join("trace.jsonl");
         if !trace_path.exists() {
-            return Err(gestalt_core::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
-                reason: "trace.jsonl missing".to_string(),
-            }));
+            return Err(gestalt_core::HarnessError::Trace(
+                gestalt_core::TraceError::ReadFailed {
+                    reason: "trace.jsonl missing".to_string(),
+                },
+            ));
         }
-        let envelopes = gestalt_trace::read_trace(&trace_path).map_err(|e| {
-            gestalt_core::HarnessError::Trace(e)
-        })?;
+        let envelopes = gestalt_trace::read_trace(&trace_path)
+            .map_err(|e| gestalt_core::HarnessError::Trace(e))?;
         let mut target_checkpoint = None;
         for env in &envelopes {
-            if matches!(env.event, gestalt_core::AgentEvent::Checkpoint { .. }) && env.seq == target_seq {
+            if matches!(env.event, gestalt_core::AgentEvent::Checkpoint { .. })
+                && env.seq == target_seq
+            {
                 target_checkpoint = Some(env);
                 break;
             }
         }
         match target_checkpoint {
             Some(env) => match &env.event {
-                gestalt_core::AgentEvent::Checkpoint { history, token_budget, .. } => {
-                    (history.clone(), token_budget.clone(), Some(target_seq))
+                gestalt_core::AgentEvent::Checkpoint {
+                    history,
+                    token_budget,
+                    ..
+                } => (history.clone(), token_budget.clone(), Some(target_seq)),
+                _ => {
+                    return Err(gestalt_core::HarnessError::Trace(
+                        gestalt_core::TraceError::ReadFailed {
+                            reason: format!("Event seq {} is not a Checkpoint", target_seq),
+                        },
+                    ))
                 }
-                _ => return Err(gestalt_core::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
-                    reason: format!("Event seq {} is not a Checkpoint", target_seq),
-                })),
             },
-            None => return Err(gestalt_core::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
-                reason: format!("Checkpoint with sequence {} not found", target_seq),
-            })),
+            None => {
+                return Err(gestalt_core::HarnessError::Trace(
+                    gestalt_core::TraceError::ReadFailed {
+                        reason: format!("Checkpoint with sequence {} not found", target_seq),
+                    },
+                ))
+            }
         }
     } else {
-        (analysis.history.clone(), analysis.token_budget.clone(), analysis.last_checkpoint_seq)
+        (
+            analysis.history.clone(),
+            analysis.token_budget.clone(),
+            analysis.last_checkpoint_seq,
+        )
     };
 
     let session_id = analysis.session_id.clone();
@@ -517,7 +622,7 @@ pub async fn run_session_action(
     let resolved = config.resolve_provider()?;
     let provider_name = resolved.provider_name.clone();
     let provider_config = resolved.provider_json();
-    let resolver = crate::auth::build_credential_resolver(api_key, true);
+    let resolver = crate::auth::build_credential_resolver(api_key, event_tx.is_none());
     let provider = registry::get_with_resolver(&resolved.kind, provider_config, resolver)?;
     let provider_default_model = provider.default_model().to_string();
 
@@ -533,11 +638,19 @@ pub async fn run_session_action(
     let policy = Arc::new(build_policy(config)?);
     let approval = approval_override.unwrap_or_else(|| approval_provider(mode));
 
-    let model = if resolved.model.is_empty() { provider_default_model } else { resolved.model };
+    let model = if resolved.model.is_empty() {
+        provider_default_model
+    } else {
+        resolved.model
+    };
     let run_id = format!("run-{}", uuid::Uuid::new_v4());
 
-    let (sink_inner, run_paths) =
-        JsonlTraceSink::create_run(config.run_log_dir(), &session_id, &run_id, Some(current_snapshot.clone()))?;
+    let (sink_inner, run_paths) = JsonlTraceSink::create_run(
+        config.run_log_dir(),
+        &session_id,
+        &run_id,
+        Some(current_snapshot.clone()),
+    )?;
     let sink = Arc::new(sink_inner);
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -563,8 +676,15 @@ pub async fn run_session_action(
     hooks.register_tool_hook(verification_hook);
     hooks.register_session_hook(evaluator_hook);
 
-    let loop_ =
-        AgentLoop::new(provider, tools.clone(), pipeline, policy, approval, max_turns).with_hooks(hooks);
+    let loop_ = AgentLoop::new(
+        provider,
+        tools.clone(),
+        pipeline,
+        policy,
+        approval,
+        max_turns,
+    )
+    .with_hooks(hooks);
 
     let mut session = Session::new(
         session_id.clone(),
@@ -644,13 +764,9 @@ pub async fn run_session_action(
     // If continue or branch, we append the user's prompt as the next turn
     if let Some(ref p) = prompt {
         session.history.push(Message::User {
-            content: vec![gestalt_core::ContentBlock::Text {
-                text: p.clone(),
-            }],
+            content: vec![gestalt_core::ContentBlock::Text { text: p.clone() }],
         });
-        let user_msg_event = AgentEvent::UserMessage {
-            content: p.clone(),
-        };
+        let user_msg_event = AgentEvent::UserMessage { content: p.clone() };
         sink.emit(user_msg_event.clone())?;
         if let Some(ref tx) = event_tx {
             let _ = tx.send(user_msg_event);
@@ -737,7 +853,10 @@ pub async fn run_session_action(
     final_status
 }
 
-fn write_cost_report_helper(trace_path: &std::path::Path, cost_path: &std::path::Path) -> Result<(), gestalt_core::HarnessError> {
+fn write_cost_report_helper(
+    trace_path: &std::path::Path,
+    cost_path: &std::path::Path,
+) -> Result<(), gestalt_core::HarnessError> {
     let report = aggregate_costs(trace_path, |model| {
         gestalt_models::ModelCatalog::new().get(model)
     })?;

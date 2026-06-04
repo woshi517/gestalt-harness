@@ -67,5 +67,6 @@ optional = true
 uuid = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
+insta = { version = "1", features = ["filters"] }
 
 
