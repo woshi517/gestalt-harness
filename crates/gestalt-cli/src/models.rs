@@ -1,7 +1,10 @@
-use gestalt_core::{model::{ModelInfo, ModelInfoSource}, ConfigError, HarnessError};
+use chrono::Utc;
+use gestalt_core::{
+    model::{ModelInfo, ModelInfoSource},
+    ConfigError, HarnessError,
+};
 use gestalt_models::ModelCatalog;
 use serde::Deserialize;
-use chrono::Utc;
 
 use crate::config::EffectiveConfig;
 use crate::output::ModelsRefreshReport;
@@ -14,7 +17,7 @@ pub fn list_models(config: &EffectiveConfig, provider_filter: Option<&str>) -> V
             qualified_id: "openrouter/free".to_string(),
             model_id: "free".to_string(),
             display_name: "Google: Gemini 2.5 Flash (free)".to_string(),
-            max_context_tokens: 1048576,
+            max_context_tokens: 1_048_576,
             max_output_tokens: 8192,
             supports_tools: true,
             supports_vision: true,
@@ -77,12 +80,20 @@ pub fn list_models(config: &EffectiveConfig, provider_filter: Option<&str>) -> V
     ];
 
     for builtin in builtins {
-        if !models.iter().any(|m| m.qualified_id == builtin.qualified_id) {
+        if !models
+            .iter()
+            .any(|m| m.qualified_id == builtin.qualified_id)
+        {
             models.push(builtin);
         }
     }
 
-    let mut cached_providers = vec!["openrouter".to_string(), "ollama".to_string(), "groq".to_string(), "together".to_string()];
+    let mut cached_providers = vec![
+        "openrouter".to_string(),
+        "ollama".to_string(),
+        "groq".to_string(),
+        "together".to_string(),
+    ];
     for p in config.providers.keys() {
         if !cached_providers.contains(p) {
             cached_providers.push(p.clone());
@@ -101,8 +112,12 @@ pub fn list_models(config: &EffectiveConfig, provider_filter: Option<&str>) -> V
     }
 
     if let Some(p) = provider_filter {
-        models.into_iter()
-            .filter(|m| m.qualified_id.starts_with(&format!("{p}/")) || m.qualified_id.starts_with(&format!("{p}:")))
+        models
+            .into_iter()
+            .filter(|m| {
+                m.qualified_id.starts_with(&format!("{p}/"))
+                    || m.qualified_id.starts_with(&format!("{p}:"))
+            })
             .collect()
     } else {
         models
@@ -111,12 +126,14 @@ pub fn list_models(config: &EffectiveConfig, provider_filter: Option<&str>) -> V
 
 pub fn inspect_model(config: &EffectiveConfig, model: &str) -> Result<ModelInfo, HarnessError> {
     let list = list_models(config, None);
-    list.into_iter().find(|m| m.qualified_id == model).ok_or_else(|| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: "model".to_string(),
-            reason: format!("unknown model: {model}"),
+    list.into_iter()
+        .find(|m| m.qualified_id == model)
+        .ok_or_else(|| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: "model".to_string(),
+                reason: format!("unknown model: {model}"),
+            })
         })
-    })
 }
 
 pub fn search_models(config: &EffectiveConfig, query: &str) -> Vec<ModelInfo> {
@@ -131,7 +148,10 @@ pub fn search_models(config: &EffectiveConfig, query: &str) -> Vec<ModelInfo> {
         .collect()
 }
 
-pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<ModelsRefreshReport, HarnessError> {
+pub async fn refresh_models(
+    config: &EffectiveConfig,
+    live: bool,
+) -> Result<ModelsRefreshReport, HarnessError> {
     if !live {
         let count = list_models(config, None).len();
         return Ok(ModelsRefreshReport {
@@ -162,10 +182,11 @@ pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<Mode
     };
 
     let provider_config = resolved.provider_json();
-    let auth_config = gestalt_models::auth::provider_auth_config(&provider_config, &provider_name, "DUMMY_KEY")?;
-    let resolver = crate::auth::build_credential_resolver(None, false);
+    let auth_config =
+        gestalt_models::auth::provider_auth_config(&provider_config, &provider_name, "DUMMY_KEY")?;
+    let cred_resolver = crate::auth::build_credential_resolver(None, false);
 
-    let api_key = match resolver.resolve(&auth_config) {
+    let api_key = match cred_resolver.resolve(&auth_config) {
         Ok(cred) => Some(cred.secret().to_string()),
         Err(_) => None,
     };
@@ -173,7 +194,11 @@ pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<Mode
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| HarnessError::Provider(gestalt_core::ProviderError::Transport(std::io::Error::other(e))))?;
+        .map_err(|e| {
+            HarnessError::Provider(gestalt_core::ProviderError::Transport(
+                std::io::Error::other(e),
+            ))
+        })?;
 
     let mut req_builder = client.get(&endpoint);
     if let Some(ref key) = api_key {
@@ -187,14 +212,18 @@ pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<Mode
     }
 
     let resp = req_builder.send().await.map_err(|e| {
-        HarnessError::Provider(gestalt_core::ProviderError::Transport(std::io::Error::other(e)))
+        HarnessError::Provider(gestalt_core::ProviderError::Transport(
+            std::io::Error::other(e),
+        ))
     })?;
 
     let status_code = resp.status();
     if !status_code.is_success() {
-        return Err(HarnessError::Provider(gestalt_core::ProviderError::UnexpectedResponse {
-            details: format!("API returned status {}", status_code),
-        }));
+        return Err(HarnessError::Provider(
+            gestalt_core::ProviderError::UnexpectedResponse {
+                details: format!("API returned status {}", status_code),
+            },
+        ));
     }
 
     #[derive(Deserialize)]
@@ -226,11 +255,11 @@ pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<Mode
     for entry in parsed.data {
         let qualified_id = format!("{}/{}", provider_name, entry.id);
         let display_name = entry.name.unwrap_or_else(|| entry.id.clone());
-        
+
         let mut max_context_tokens = 4096;
         if let Some(ref ctx_val) = entry.context_length {
             if let Some(ctx_num) = ctx_val.as_u64() {
-                max_context_tokens = ctx_num as usize;
+                max_context_tokens = usize::try_from(ctx_num).unwrap_or(usize::MAX);
             } else if let Some(ctx_str) = ctx_val.as_str() {
                 if let Ok(ctx_num) = ctx_str.parse::<usize>() {
                     max_context_tokens = ctx_num;
@@ -280,12 +309,14 @@ pub async fn refresh_models(config: &EffectiveConfig, live: bool) -> Result<Mode
     }
 
     if !discovered_models.is_empty() {
-        crate::model_cache::save_cached_models(&provider_name, &discovered_models).map_err(|e| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: "model_cache".to_string(),
-                reason: format!("Failed to save cached models: {}", e),
-            })
-        })?;
+        crate::model_cache::save_cached_models(&provider_name, &discovered_models).map_err(
+            |e| {
+                HarnessError::Config(ConfigError::InvalidValue {
+                    field: "model_cache".to_string(),
+                    reason: format!("Failed to save cached models: {}", e),
+                })
+            },
+        )?;
     }
 
     let total_count = list_models(config, None).len();

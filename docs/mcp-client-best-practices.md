@@ -294,3 +294,13 @@ effects already committed.
 ## Combining Both Patterns
 
 Progressive discovery and programmatic tool calling work well together. The model uses discovery tools to identify which tools it needs, loads their schemas, and then writes a single script that calls multiple tools in one execution pass. This combination minimizes both the token cost of tool definitions *and* the token cost of tool results, keeping the model's context focused on reasoning rather than passing data through it.
+
+---
+
+## Gestalt Implementation Mapping
+
+In `gestalt-harness`, process-backed stdio JSON-RPC extensions are mapped directly to these safety and design patterns:
+1. **Host Broker Separation**: The `ProcessExtensionBroker` sits between the child process and the core `AgentLoop`. The extension never receives direct credentials, workspace roots, or network access.
+2. **Explicit Capability Enforcement**: Extension capabilities must be declared in the manifest and approved by the user configuration before they can be registered or called.
+3. **Strict Resource and Stdio Gating**: The host enforces message size limits, request timeouts, and reaps the child process immediately if a protocol or timeout violation occurs.
+

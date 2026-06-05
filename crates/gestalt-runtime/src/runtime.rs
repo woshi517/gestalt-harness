@@ -11,24 +11,25 @@ use gestalt_core::{
     policy::PolicyEngine,
     provider::Provider,
     session::{RunResult, Session, SessionConfig},
+    snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter},
     tool::{ToolCatalog, ToolContext},
     trace::TraceSink,
     AgentLoop,
-    snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter},
 };
 
 use crate::config::RuntimeConfig;
-use crate::error::{RuntimeError, Result};
+use crate::error::{Result, RuntimeError};
 use crate::inspect::{RuntimeInspect, ToolInspectInfo};
 
-use std::sync::Mutex;
-use crate::registry::RuntimeRegistry;
 use crate::composition_hooks::{
-    CompositionHooks, RuntimeContextHookAdapter, RuntimeToolHookAdapter, RuntimeTraceHookAdapter,
-    OnEventCtx,
+    CompositionHooks, OnEventCtx, RuntimeContextHookAdapter, RuntimeToolHookAdapter,
+    RuntimeTraceHookAdapter,
 };
-use crate::context::{RuntimeContextPipeline, ContextContributor};
+use crate::context::{ContextContributor, RuntimeContextPipeline};
+use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::policy::RuntimePolicyEngine;
+use crate::registry::RuntimeRegistry;
+use std::sync::Mutex;
 
 pub struct UserInput {
     pub prompt: String,
@@ -49,6 +50,7 @@ pub struct AgentRuntime {
     pub registry: RuntimeRegistry,
     pub hooks: gestalt_core::HookRegistry,
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
+    pub event_bus: RuntimeEventBus,
 }
 
 impl AgentRuntime {
@@ -64,6 +66,7 @@ impl AgentRuntime {
         hooks: gestalt_core::HookRegistry,
         registry: RuntimeRegistry,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
+        event_bus: RuntimeEventBus,
     ) -> Self {
         Self {
             provider,
@@ -76,12 +79,15 @@ impl AgentRuntime {
             registry,
             hooks,
             composition_hooks,
+            event_bus,
         }
     }
 
     pub async fn run_prompt(&self, input: UserInput) -> Result<RunResult> {
-        let session_id = input.session_id.unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
-        
+        let session_id = input
+            .session_id
+            .unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
+
         let snapshotter = GitWorkspaceSnapshotter;
         let snapshot = snapshotter.capture(&self.config.workspace_root).await?;
 
@@ -124,11 +130,16 @@ impl AgentRuntime {
             snapshot.clone(),
         );
 
+        self.event_bus.publish(RuntimeEvent::SessionSpawned {
+            session_id: session_id.clone(),
+        });
+
         let snapshot_id: String = snapshot.content_hash.chars().take(12).collect();
         let snapshot_event = AgentEvent::WorkspaceSnapshotCaptured {
             snapshot_id,
             dirty: snapshot.git_dirty.unwrap_or(false),
         };
+        self.event_bus.publish_agent(snapshot_event.clone());
         if let Some(ref sink) = self.trace_sink {
             let _ = sink.emit(snapshot_event.clone());
         }
@@ -145,6 +156,7 @@ impl AgentRuntime {
         let user_msg_event = AgentEvent::UserMessage {
             content: input.prompt.clone(),
         };
+        self.event_bus.publish_agent(user_msg_event.clone());
         if let Some(ref sink) = self.trace_sink {
             let _ = sink.emit(user_msg_event.clone());
         }
@@ -152,7 +164,8 @@ impl AgentRuntime {
             let _ = tx.send(user_msg_event);
         }
 
-        self.run_session(&mut session, &input.cancel_token, input.event_tx).await
+        self.run_session(&mut session, &input.cancel_token, input.event_tx)
+            .await
     }
 
     pub async fn run_session(
@@ -178,13 +191,33 @@ impl AgentRuntime {
 
             let comp_hooks_clone = comp_hooks.clone();
             let session_id_clone = session.id.clone();
+            let event_bus_clone = self.event_bus.clone();
             let trace_worker = tokio::spawn(async move {
                 while let Some(event) = trace_rx.recv().await {
+                    event_bus_clone.publish(RuntimeEvent::HookStarted {
+                        hook_name: "on_event".to_string(),
+                        lifecycle_point: "on_event".to_string(),
+                    });
                     let ctx = OnEventCtx {
                         session_id: session_id_clone.clone(),
                         event,
                     };
-                    let _ = comp_hooks_clone.on_event(&ctx).await;
+                    match comp_hooks_clone.on_event(&ctx).await {
+                        Ok(()) => {
+                            event_bus_clone.publish(RuntimeEvent::HookCompleted {
+                                hook_name: "on_event".to_string(),
+                                lifecycle_point: "on_event".to_string(),
+                                outcome: "Continue".to_string(),
+                            });
+                        }
+                        Err(err) => {
+                            event_bus_clone.publish(RuntimeEvent::HookFailed {
+                                hook_name: "on_event".to_string(),
+                                lifecycle_point: "on_event".to_string(),
+                                error: err.to_string(),
+                            });
+                        }
+                    }
                 }
             });
             maybe_trace_worker = Some(trace_worker);
@@ -200,9 +233,15 @@ impl AgentRuntime {
                 base: policy.clone(),
                 hooks: comp_hooks.clone(),
                 session_id: session.id.clone(),
+                event_bus: self.event_bus.clone(),
             });
 
-            let contributors: Vec<Arc<dyn ContextContributor>> = self.registry.context_contributors.values().cloned().collect();
+            let contributors: Vec<Arc<dyn ContextContributor>> = self
+                .registry
+                .context_contributors
+                .values()
+                .map(|c| c.contributor.clone())
+                .collect();
 
             core_hooks.register_context_hook(Arc::new(RuntimeContextHookAdapter {
                 hooks: comp_hooks.clone(),
@@ -210,15 +249,15 @@ impl AgentRuntime {
                 contributors,
                 workspace_root: self.config.workspace_root.clone(),
                 block_reason: Some(block_reason),
+                event_bus: self.event_bus.clone(),
             }));
 
             core_hooks.register_tool_hook(Arc::new(RuntimeToolHookAdapter {
                 hooks: comp_hooks.clone(),
+                event_bus: self.event_bus.clone(),
             }));
 
-            core_hooks.register_trace_hook(Arc::new(RuntimeTraceHookAdapter {
-                tx: trace_tx,
-            }));
+            core_hooks.register_trace_hook(Arc::new(RuntimeTraceHookAdapter { tx: trace_tx }));
         }
 
         let loop_result = {
@@ -232,23 +271,30 @@ impl AgentRuntime {
             )
             .with_hooks(core_hooks);
 
+            let event_bus_clone = self.event_bus.clone();
             loop_
-                .run(session, cancel_token, self.trace_sink.as_ref().map(|x| x.as_ref()), |event| {
-                    if let Some(ref sink) = self.trace_sink {
-                        let _ = sink.emit(event.clone());
-                    }
-                    if let Some(ref tx) = event_tx {
-                        let _ = tx.send(event.clone());
-                    }
-                    if let Some(ref br) = maybe_block_reason {
-                        if let Some(reason) = &*br.lock().unwrap() {
-                            return Err(gestalt_core::error::HarnessError::Policy(
-                                gestalt_core::error::PolicyError::Denied(reason.clone())
-                            ));
+                .run(
+                    session,
+                    cancel_token,
+                    self.trace_sink.as_ref().map(|x| x.as_ref()),
+                    |event| {
+                        event_bus_clone.publish_agent(event.clone());
+                        if let Some(ref sink) = self.trace_sink {
+                            let _ = sink.emit(event.clone());
                         }
-                    }
-                    Ok::<(), gestalt_core::error::HarnessError>(())
-                })
+                        if let Some(ref tx) = event_tx {
+                            let _ = tx.send(event.clone());
+                        }
+                        if let Some(ref br) = maybe_block_reason {
+                            if let Some(reason) = &*br.lock().unwrap() {
+                                return Err(gestalt_core::error::HarnessError::Policy(
+                                    gestalt_core::error::PolicyError::Denied(reason.clone()),
+                                ));
+                            }
+                        }
+                        Ok::<(), gestalt_core::error::HarnessError>(())
+                    },
+                )
                 .await
         };
 
@@ -265,13 +311,16 @@ impl AgentRuntime {
                 let interrupted_event = AgentEvent::Interrupted {
                     reason: "signal".to_string(),
                 };
+                self.event_bus.publish_agent(interrupted_event.clone());
                 if let Some(ref sink) = self.trace_sink {
                     let _ = sink.emit(interrupted_event.clone());
                 }
                 if let Some(ref tx) = event_tx {
                     let _ = tx.send(interrupted_event);
                 }
-                Err(RuntimeError::Harness(gestalt_core::error::HarnessError::Cancelled))
+                Err(RuntimeError::Harness(
+                    gestalt_core::error::HarnessError::Cancelled,
+                ))
             }
             Err(e) => Err(RuntimeError::Harness(e)),
         }
@@ -282,7 +331,11 @@ impl AgentRuntime {
         let tools: Vec<ToolInspectInfo> = schemas
             .iter()
             .map(|s| {
-                let name = s.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let name = s
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let schema_hash = crate::registry::compute_schema_hash(s);
                 ToolInspectInfo { name, schema_hash }
             })
@@ -308,7 +361,10 @@ impl AgentRuntime {
         };
 
         // Determine trace sink kind
-        let trace_sink_kind = self.trace_sink.as_ref().map(|_| "JsonlTraceSink".to_string());
+        let trace_sink_kind = self
+            .trace_sink
+            .as_ref()
+            .map(|_| "JsonlTraceSink".to_string());
 
         let enabled_cli_features = self.config.enabled_cli_features.clone();
 
@@ -326,6 +382,7 @@ impl AgentRuntime {
             hook_contract_hash,
             verifiers: self.registry.verifiers.clone(),
             extensions: self.registry.extensions.clone(),
+            context_injectors: self.registry.context_contributors.keys().cloned().collect(),
             trace_sink_kind,
             trace_run_dir: None,
             workspace_root: self.config.workspace_root.to_string_lossy().to_string(),

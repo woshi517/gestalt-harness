@@ -14,7 +14,9 @@ async fn test_policy_input_validation() {
     let missing_cmd_json = "{}";
     let res = explain_policy(&overrides, "bash", missing_cmd_json).await;
     if let Err(e) = res {
-        assert!(e.to_string().contains("Bash tool input must contain a non-empty 'command' string"));
+        assert!(e
+            .to_string()
+            .contains("Bash tool input must contain a non-empty 'command' string"));
     } else {
         panic!("Expected error for missing command");
     }
@@ -23,7 +25,9 @@ async fn test_policy_input_validation() {
     let empty_cmd_json = r#"{"command": "   "}"#;
     let res = explain_policy(&overrides, "bash", empty_cmd_json).await;
     if let Err(e) = res {
-        assert!(e.to_string().contains("Bash tool input must contain a non-empty 'command' string"));
+        assert!(e
+            .to_string()
+            .contains("Bash tool input must contain a non-empty 'command' string"));
     } else {
         panic!("Expected error for empty command");
     }
@@ -32,7 +36,9 @@ async fn test_policy_input_validation() {
     let non_object_json = r#""echo hello""#;
     let res = explain_policy(&overrides, "bash", non_object_json).await;
     if let Err(e) = res {
-        assert!(e.to_string().contains("Bash tool input must be a JSON object"));
+        assert!(e
+            .to_string()
+            .contains("Bash tool input must be a JSON object"));
     } else {
         panic!("Expected error for non-object input");
     }
@@ -47,7 +53,9 @@ async fn test_policy_input_validation() {
     // Same behavior for test_policy
     let res_test = test_policy(&overrides, "bash", empty_cmd_json, None).await;
     if let Err(e) = res_test {
-        assert!(e.to_string().contains("Bash tool input must contain a non-empty 'command' string"));
+        assert!(e
+            .to_string()
+            .contains("Bash tool input must contain a non-empty 'command' string"));
     } else {
         panic!("Expected error for test_policy empty command");
     }

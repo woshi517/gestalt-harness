@@ -1,5 +1,5 @@
 use gestalt_cli::config::CliOverrides;
-use gestalt_cli::tools::{list_tools, inspect_tool};
+use gestalt_cli::tools::{inspect_tool, list_tools};
 
 #[test]
 fn test_tools_list_and_inspect() {

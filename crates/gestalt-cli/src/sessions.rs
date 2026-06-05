@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gestalt_core::{
-    trace::TraceSink, AgentEvent, Message, Session, SessionConfig, TokenBudget,
-    ToolCatalog, ToolContext, WorkspaceSnapshotter,
+    trace::TraceSink, AgentEvent, Message, Session, SessionConfig, TokenBudget, ToolCatalog,
+    ToolContext, WorkspaceSnapshotter,
 };
 use gestalt_tools::default_registry;
 use gestalt_trace::{
@@ -633,7 +633,7 @@ pub async fn run_session_action(
         event_tx.clone(),
         approval_override,
         Some(sink.clone() as Arc<dyn gestalt_core::trace::TraceSink>),
-    )?;
+    ).await?;
 
     let mode = config.selected_mode()?;
     let max_turns = config.max_turns();
@@ -703,8 +703,6 @@ pub async fn run_session_action(
         let _ = tx.send(snapshot_event);
     }
 
-
-
     // If continue or branch, we append the user's prompt as the next turn
     if let Some(ref p) = prompt {
         session.history.push(Message::User {
@@ -729,7 +727,9 @@ pub async fn run_session_action(
         }
     });
 
-    let loop_result = runtime.run_session(&mut session, &cancel_token, Some(tx)).await;
+    let loop_result = runtime
+        .run_session(&mut session, &cancel_token, Some(tx))
+        .await;
 
     // Await rendering task to finish processing all events before completing
     let _ = render_task.await;
@@ -745,7 +745,9 @@ pub async fn run_session_action(
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             Ok(run_paths.root.clone())
         }
-        Err(gestalt_runtime::RuntimeError::Harness(gestalt_core::error::HarnessError::Cancelled)) => {
+        Err(gestalt_runtime::RuntimeError::Harness(
+            gestalt_core::error::HarnessError::Cancelled,
+        )) => {
             manifest.lifecycle_state = LifecycleState::Interrupted;
             manifest.interrupted_phase = Some("agent_loop".to_string());
             let _ = sink.flush();
@@ -781,10 +783,12 @@ pub async fn run_session_action(
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             match err {
                 gestalt_runtime::RuntimeError::Harness(he) => Err(he),
-                other => Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                    field: "runtime".to_string(),
-                    reason: other.to_string(),
-                })),
+                other => Err(gestalt_core::HarnessError::Config(
+                    gestalt_core::error::ConfigError::InvalidValue {
+                        field: "runtime".to_string(),
+                        reason: other.to_string(),
+                    },
+                )),
             }
         }
     };

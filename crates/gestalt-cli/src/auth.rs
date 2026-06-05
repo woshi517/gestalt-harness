@@ -1,13 +1,11 @@
+use gestalt_core::{ConfigError, HarnessError, ProviderError};
+use gestalt_models::auth::{
+    provider_auth_config, ChainCredentialResolver, CredentialResolver, CredentialSource,
+    EnvironmentCredentialResolver, ProviderAuthConfig, ResolvedCredential,
+};
 use std::collections::HashMap;
 use std::io::{stdin, IsTerminal};
 use std::sync::{Arc, Mutex, OnceLock};
-use gestalt_core::{ConfigError, HarnessError, ProviderError};
-use gestalt_models::{
-    auth::{
-        provider_auth_config, ChainCredentialResolver, CredentialResolver, CredentialSource,
-        EnvironmentCredentialResolver, ProviderAuthConfig, ResolvedCredential,
-    },
-};
 
 use crate::{
     config::EffectiveConfig,
@@ -73,7 +71,9 @@ pub fn set_use_fake_keychain(use_fake: bool) {
 }
 
 pub fn get_keychain_secret(account: &str) -> Result<String, String> {
-    if USE_FAKE_KEYCHAIN.load(std::sync::atomic::Ordering::SeqCst) || std::env::var("GESTALT_USE_FAKE_KEYCHAIN").is_ok() {
+    if USE_FAKE_KEYCHAIN.load(std::sync::atomic::Ordering::SeqCst)
+        || std::env::var("GESTALT_USE_FAKE_KEYCHAIN").is_ok()
+    {
         if let Some(secret) = get_file_fake(account) {
             return Ok(secret);
         }
@@ -87,8 +87,8 @@ pub fn get_keychain_secret(account: &str) -> Result<String, String> {
     } else {
         #[cfg(not(test))]
         {
-            let entry = keyring::Entry::new("gestalt-harness", account)
-                .map_err(|err| err.to_string())?;
+            let entry =
+                keyring::Entry::new("gestalt-harness", account).map_err(|err| err.to_string())?;
             entry.get_password().map_err(|err| err.to_string())
         }
         #[cfg(test)]
@@ -108,7 +108,9 @@ pub fn get_keychain_secret(account: &str) -> Result<String, String> {
 }
 
 pub fn set_keychain_secret(account: &str, secret: &str) -> Result<(), String> {
-    if USE_FAKE_KEYCHAIN.load(std::sync::atomic::Ordering::SeqCst) || std::env::var("GESTALT_USE_FAKE_KEYCHAIN").is_ok() {
+    if USE_FAKE_KEYCHAIN.load(std::sync::atomic::Ordering::SeqCst)
+        || std::env::var("GESTALT_USE_FAKE_KEYCHAIN").is_ok()
+    {
         set_file_fake(account, secret);
         let fake = KEYCHAIN_FAKE.get_or_init(|| Mutex::new(HashMap::new()));
         let mut map = fake.lock().unwrap();
@@ -117,8 +119,8 @@ pub fn set_keychain_secret(account: &str, secret: &str) -> Result<(), String> {
     } else {
         #[cfg(not(test))]
         {
-            let entry = keyring::Entry::new("gestalt-harness", account)
-                .map_err(|err| err.to_string())?;
+            let entry =
+                keyring::Entry::new("gestalt-harness", account).map_err(|err| err.to_string())?;
             entry.set_password(secret).map_err(|err| err.to_string())
         }
         #[cfg(test)]
@@ -133,7 +135,9 @@ pub fn set_keychain_secret(account: &str, secret: &str) -> Result<(), String> {
 }
 
 pub fn delete_keychain_secret(account: &str) -> Result<(), String> {
-    if USE_FAKE_KEYCHAIN.load(std::sync::atomic::Ordering::SeqCst) || std::env::var("GESTALT_USE_FAKE_KEYCHAIN").is_ok() {
+    if USE_FAKE_KEYCHAIN.load(std::sync::atomic::Ordering::SeqCst)
+        || std::env::var("GESTALT_USE_FAKE_KEYCHAIN").is_ok()
+    {
         delete_file_fake(account);
         let fake = KEYCHAIN_FAKE.get_or_init(|| Mutex::new(HashMap::new()));
         let mut map = fake.lock().unwrap();
@@ -142,8 +146,8 @@ pub fn delete_keychain_secret(account: &str) -> Result<(), String> {
     } else {
         #[cfg(not(test))]
         {
-            let entry = keyring::Entry::new("gestalt-harness", account)
-                .map_err(|err| err.to_string())?;
+            let entry =
+                keyring::Entry::new("gestalt-harness", account).map_err(|err| err.to_string())?;
             match entry.delete_password() {
                 Ok(_) => Ok(()),
                 Err(keyring::Error::NoEntry) => Ok(()),
@@ -213,10 +217,7 @@ impl CredentialResolver for PromptCredentialResolver {
             if let Ok(key) = rpassword::read_password() {
                 let trimmed = key.trim().to_string();
                 if !trimmed.is_empty() {
-                    return Ok(ResolvedCredential::new(
-                        trimmed,
-                        CredentialSource::Session,
-                    ));
+                    return Ok(ResolvedCredential::new(trimmed, CredentialSource::Session));
                 }
             }
         }
@@ -248,9 +249,7 @@ pub fn resolve_auth(
 ) -> Result<AuthResolveReport, HarnessError> {
     // We check if provider matches a resolved provider name or if it's one of the configured providers
     // If provider is a legacy/direct provider, config.resolve_provider() will handle it
-    let mut overrides = crate::config::CliOverrides::default();
-    overrides.provider = Some(provider.to_string());
-    
+
     // Create a temporary config with the targeted provider
     let resolved = if let Ok(c) = config.resolve_provider() {
         if c.provider_name == provider {
@@ -272,9 +271,9 @@ pub fn resolve_auth(
     let provider_config = resolved.provider_json();
     let auth_config = provider_auth_config(&provider_config, &resolved.provider_name, "DUMMY_KEY")?;
 
-    let resolver = build_credential_resolver(None, false);
+    let cred_resolver = build_credential_resolver(None, false);
 
-    let (source, status, variable) = match resolver.resolve(&auth_config) {
+    let (source, status, variable) = match cred_resolver.resolve(&auth_config) {
         Ok(cred) => {
             let src = match cred.source() {
                 CredentialSource::Session => "session".to_string(),
@@ -283,9 +282,11 @@ pub fn resolve_auth(
             };
             (src, "present".to_string(), auth_config.api_key_env.clone())
         }
-        Err(_) => {
-            ("missing".to_string(), "missing".to_string(), auth_config.api_key_env.clone())
-        }
+        Err(_) => (
+            "missing".to_string(),
+            "missing".to_string(),
+            auth_config.api_key_env.clone(),
+        ),
     };
 
     Ok(AuthResolveReport {

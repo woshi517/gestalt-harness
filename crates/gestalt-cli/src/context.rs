@@ -1,8 +1,8 @@
-use gestalt_core::{Message, TokenBudget, context::ContextPipeline};
-use gestalt_tools::default_registry;
 use crate::config::{load_effective_config, CliOverrides};
 use crate::output::ContextExplainReport;
 use gestalt_core::ToolCatalog;
+use gestalt_core::{context::ContextPipeline, Message, TokenBudget};
+use gestalt_tools::default_registry;
 
 pub async fn explain_context(
     overrides: &CliOverrides,

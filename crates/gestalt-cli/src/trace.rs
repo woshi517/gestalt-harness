@@ -28,17 +28,32 @@ pub fn resolve_trace_target(
     let path = std::path::Path::new(run_id_or_path);
     if path.exists() {
         if path.is_dir() {
-            let run_id = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let run_id = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             let trace_path = path.join("trace.jsonl");
             Ok((run_id, path.to_path_buf(), trace_path))
         } else {
-            let run_dir = path.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
-            let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let run_dir = path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .to_path_buf();
+            let run_id = run_dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             Ok((run_id, run_dir, path.to_path_buf()))
         }
     } else {
         let run_dir = runs::resolve_run_path(config, run_id_or_path)?;
-        let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let run_id = run_dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let trace_path = run_dir.join("trace.jsonl");
         Ok((run_id, run_dir, trace_path))
     }
@@ -100,7 +115,9 @@ pub fn inspect_trace(
             AgentEvent::ModelResponseStarted { .. } => "model_response_started",
             AgentEvent::ModelResponseStreamCompleted { .. } => "model_response_stream_completed",
             AgentEvent::ModelResponseStreamFailed { .. } => "model_response_stream_failed",
-            AgentEvent::ModelResponseStreamInterrupted { .. } => "model_response_stream_interrupted",
+            AgentEvent::ModelResponseStreamInterrupted { .. } => {
+                "model_response_stream_interrupted"
+            }
             AgentEvent::PolicyEvaluationStarted { .. } => "policy_evaluation_started",
             AgentEvent::PolicyEvaluationFailed { .. } => "policy_evaluation_failed",
             AgentEvent::PolicyEvaluationCancelled { .. } => "policy_evaluation_cancelled",
@@ -142,7 +159,10 @@ pub fn inspect_trace(
             AgentEvent::ArtifactCreated { path, .. } => {
                 artifacts.push(path.clone());
             }
-            AgentEvent::Usage { input_tokens, output_tokens } => {
+            AgentEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
                 total_input_tokens += input_tokens;
                 total_output_tokens += output_tokens;
             }
@@ -154,10 +174,8 @@ pub fn inspect_trace(
     }
 
     // Cost calculation
-    let resolver = |model_id: &str| {
-        gestalt_models::ModelCatalog::built_in()
-            .get_qualified(model_id)
-    };
+    let resolver =
+        |model_id: &str| gestalt_models::ModelCatalog::built_in().get_qualified(model_id);
     let cost_rep = aggregate_costs(&trace_path, resolver).ok();
     let estimated_cost_usd = cost_rep.and_then(|c| c.estimated_cost_usd);
 
@@ -193,7 +211,10 @@ pub fn validate_trace(
     let mut valid = true;
 
     if !trace_path.exists() {
-        errors.push(format!("trace.jsonl file does not exist at {}", trace_path.display()));
+        errors.push(format!(
+            "trace.jsonl file does not exist at {}",
+            trace_path.display()
+        ));
         return Ok(TraceValidateReport {
             run_id,
             path: trace_path,
@@ -246,13 +267,19 @@ pub fn validate_trace(
 
         if envelope.v != 1 {
             valid = false;
-            errors.push(format!("Line {line_num}: invalid schema version (expected 1, got {})", envelope.v));
+            errors.push(format!(
+                "Line {line_num}: invalid schema version (expected 1, got {})",
+                envelope.v
+            ));
         }
 
         if let Some(prev) = prev_seq {
             if envelope.seq <= prev {
                 valid = false;
-                errors.push(format!("Line {line_num}: sequence number regression (expected > {prev}, got {})", envelope.seq));
+                errors.push(format!(
+                    "Line {line_num}: sequence number regression (expected > {prev}, got {})",
+                    envelope.seq
+                ));
             }
         }
         prev_seq = Some(envelope.seq);
@@ -261,7 +288,9 @@ pub fn validate_trace(
             AgentEvent::ArtifactCreated { path, .. } => {
                 let p = run_dir.join(path);
                 if !p.exists() {
-                    warnings.push(format!("Line {line_num}: referenced artifact does not exist at {path}"));
+                    warnings.push(format!(
+                        "Line {line_num}: referenced artifact does not exist at {path}"
+                    ));
                 }
             }
             AgentEvent::ToolResult { artifact_refs, .. } => {

@@ -127,7 +127,8 @@ impl AnthropicProvider {
 
     fn headers(&self) -> Result<HeaderMap, HarnessError> {
         let mut headers = HeaderMap::new();
-        let has_auth = self.auth.auth_ref.is_some() || (!self.auth.api_key_env.is_empty() && self.auth.api_key_env != "none");
+        let has_auth = self.auth.auth_ref.is_some()
+            || (!self.auth.api_key_env.is_empty() && self.auth.api_key_env != "none");
         if has_auth {
             let credential = self.resolver.resolve(&self.auth)?;
             headers.insert(

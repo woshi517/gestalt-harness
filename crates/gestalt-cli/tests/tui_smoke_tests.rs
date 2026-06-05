@@ -34,8 +34,16 @@ mod tests {
         // Should roll over and keep exactly 100 logs
         assert_eq!(logs.len(), 100);
         // The first elements should be the rolled elements (50 to 149)
-        assert!(logs[0].contains("test log message 50"), "First log was: {}", logs[0]);
-        assert!(logs[99].contains("test log message 149"), "Last log was: {}", logs[99]);
+        assert!(
+            logs[0].contains("test log message 50"),
+            "First log was: {}",
+            logs[0]
+        );
+        assert!(
+            logs[99].contains("test log message 149"),
+            "Last log was: {}",
+            logs[99]
+        );
     }
 
     #[tokio::test]
@@ -53,8 +61,10 @@ mod tests {
 
         // Simulate user decision in UI loop
         let handle = tokio::spawn(async move {
-            if let Some(TuiBridgeMessage::ApprovalRequest { request, response_tx }) =
-                bridge_rx.recv().await
+            if let Some(TuiBridgeMessage::ApprovalRequest {
+                request,
+                response_tx,
+            }) = bridge_rx.recv().await
             {
                 assert_eq!(request.tool_name, "test_tool");
                 let _ = response_tx.send(ApprovalDecision::Approve);
@@ -94,14 +104,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_tui_terminal_restore_on_early_error() {
-        use gestalt_cli::config::{CliOverrides, validate_workspace_config};
+        use gestalt_cli::config::{validate_workspace_config, CliOverrides};
         use gestalt_cli::tui::run_tui;
 
-        let temp_dir = std::env::temp_dir().join(format!("gestalt-tui-test-{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("gestalt-tui-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let gestalt_dir = temp_dir.join(".gestalt");
         std::fs::create_dir_all(&gestalt_dir).unwrap();
-        std::fs::write(gestalt_dir.join("config.toml"), "[defaults]\nprovider = \"mock\"\n").unwrap();
+        std::fs::write(
+            gestalt_dir.join("config.toml"),
+            "[defaults]\nprovider = \"mock\"\n",
+        )
+        .unwrap();
         std::fs::write(gestalt_dir.join("policies.toml"), "[policies]\n").unwrap();
 
         let config = validate_workspace_config(&CliOverrides {
@@ -110,14 +125,24 @@ mod tests {
         })
         .unwrap();
 
-        let res = run_tui(&config, Some("nonexistent-run-123".to_string()), None, None, CancelToken::new()).await;
+        let res = run_tui(
+            &config,
+            Some("nonexistent-run-123".to_string()),
+            None,
+            None,
+            CancelToken::new(),
+        )
+        .await;
         assert!(res.is_err());
 
         // Programmatically verify that raw mode was successfully disabled.
         // This validates that TerminalGuard's RAII Drop implementation successfully executed
         // on the early return/error path.
         let raw_mode_enabled = crossterm::terminal::is_raw_mode_enabled().unwrap();
-        assert!(!raw_mode_enabled, "Raw mode should be disabled after run_tui returns an error");
+        assert!(
+            !raw_mode_enabled,
+            "Raw mode should be disabled after run_tui returns an error"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

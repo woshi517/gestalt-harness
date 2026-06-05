@@ -37,3 +37,7 @@ Use this checklist before tagging or publishing `gestalt-harness` v0.1.
 - Run `gestalt cost` on a recorded trace.
 - Confirm trace output remains JSONL and auditable.
 - Confirm default builds do not enable optional `tui`, `mcp`, `otel`, or PDF-related features unless explicitly requested.
+- Run `gestalt extension list` and confirm it lists discovered/enabled extensions.
+- Run `gestalt runtime doctor` and confirm it reports the status of registered extensions and configuration integrity.
+- Run `gestalt runtime inspect` to verify that active extensions, tools, hooks, and context injectors are correctly reported.
+

@@ -1,7 +1,7 @@
+use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_cli::trace::{inspect_trace, replay_trace, validate_trace};
 use std::fs;
 use std::path::PathBuf;
-use gestalt_cli::config::{CliOverrides, load_effective_config};
-use gestalt_cli::trace::{replay_trace, inspect_trace, validate_trace};
 
 fn create_temp_workspace() -> PathBuf {
     let temp = std::env::temp_dir().join(format!("gestalt-test-trace-{}", uuid::Uuid::new_v4()));
@@ -35,8 +35,12 @@ fn test_trace_replay_and_inspect() {
     // 1. Test Replay
     let replay_rep = replay_trace(&config, "20260603T100000Z-session-123").unwrap();
     assert!(replay_rep.rendered.contains("user> hello world"));
-    assert!(replay_rep.rendered.contains("model> anthropic/claude-3-5-sonnet-20241022"));
-    assert!(replay_rep.rendered.contains("artifact-created> artifacts/output.txt size=12 mime=text/plain hash=abc123xy"));
+    assert!(replay_rep
+        .rendered
+        .contains("model> anthropic/claude-3-5-sonnet-20241022"));
+    assert!(replay_rep
+        .rendered
+        .contains("artifact-created> artifacts/output.txt size=12 mime=text/plain hash=abc123xy"));
 
     // 2. Test Inspect
     let inspect_rep = inspect_trace(&config, "20260603T100000Z-session-123").unwrap();
@@ -46,7 +50,10 @@ fn test_trace_replay_and_inspect() {
     assert_eq!(inspect_rep.total_input_tokens, 15);
     assert_eq!(inspect_rep.total_output_tokens, 8);
     assert!(inspect_rep.redacted);
-    assert_eq!(inspect_rep.artifacts, vec!["artifacts/output.txt".to_string()]);
+    assert_eq!(
+        inspect_rep.artifacts,
+        vec!["artifacts/output.txt".to_string()]
+    );
 
     // 3. Test with Run Dir path
     let inspect_by_dir = inspect_trace(&config, &run_dir.to_string_lossy()).unwrap();
@@ -113,7 +120,8 @@ fn test_trace_validation() {
     let missing_art_rep = validate_trace(&config, "20260603T110000Z-session-val").unwrap();
     assert!(missing_art_rep.valid); // Artifact missing should be a warning, not an error
     assert_eq!(missing_art_rep.warnings.len(), 1);
-    assert!(missing_art_rep.warnings[0].contains("referenced artifact does not exist at artifacts/missing.md"));
+    assert!(missing_art_rep.warnings[0]
+        .contains("referenced artifact does not exist at artifacts/missing.md"));
 
     let _ = fs::remove_dir_all(&temp_root);
 }

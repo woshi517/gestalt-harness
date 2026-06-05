@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::config::ProviderConfig;
+use std::collections::HashMap;
 
 pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
     match name {
@@ -14,7 +14,10 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             models_endpoint: Some("https://openrouter.ai/api/v1/models".to_string()),
             headers: Some({
                 let mut h = HashMap::new();
-                h.insert("HTTP-Referer".to_string(), "https://github.com/gestalt-harness".to_string());
+                h.insert(
+                    "HTTP-Referer".to_string(),
+                    "https://github.com/gestalt-harness".to_string(),
+                );
                 h.insert("X-Title".to_string(), "Gestalt Harness".to_string());
                 h
             }),

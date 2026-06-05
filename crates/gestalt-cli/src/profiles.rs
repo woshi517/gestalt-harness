@@ -1,20 +1,47 @@
-use std::path::PathBuf;
-use gestalt_core::{ConfigError, HarnessError};
 use crate::config::{EffectiveConfig, WorkspaceConfig};
 use crate::output::{ProfilesInspectReport, ProfilesListReport, ProfilesUseReport};
+use gestalt_core::{ConfigError, HarnessError};
+use std::path::PathBuf;
 
 pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, HarnessError> {
     let active_profile = config.resolve_provider().ok().and_then(|r| r.profile_name);
     let mut profiles = std::collections::HashMap::new();
 
     // Built-in profiles:
-    profiles.insert("default".to_string(), ("openrouter".to_string(), "openrouter/free".to_string()));
-    profiles.insert("openrouter".to_string(), ("openrouter".to_string(), "openrouter/free".to_string()));
-    profiles.insert("anthropic".to_string(), ("anthropic".to_string(), "claude-3-5-sonnet-20241022".to_string()));
-    profiles.insert("openai".to_string(), ("openai".to_string(), "gpt-4o-mini".to_string()));
-    profiles.insert("ollama".to_string(), ("ollama".to_string(), "llama3".to_string()));
-    profiles.insert("groq".to_string(), ("groq".to_string(), "llama3-8b-8192".to_string()));
-    profiles.insert("together".to_string(), ("together".to_string(), "mistralai/Mixtral-8x7B-Instruct-v0.1".to_string()));
+    profiles.insert(
+        "default".to_string(),
+        ("openrouter".to_string(), "openrouter/free".to_string()),
+    );
+    profiles.insert(
+        "openrouter".to_string(),
+        ("openrouter".to_string(), "openrouter/free".to_string()),
+    );
+    profiles.insert(
+        "anthropic".to_string(),
+        (
+            "anthropic".to_string(),
+            "claude-3-5-sonnet-20241022".to_string(),
+        ),
+    );
+    profiles.insert(
+        "openai".to_string(),
+        ("openai".to_string(), "gpt-4o-mini".to_string()),
+    );
+    profiles.insert(
+        "ollama".to_string(),
+        ("ollama".to_string(), "llama3".to_string()),
+    );
+    profiles.insert(
+        "groq".to_string(),
+        ("groq".to_string(), "llama3-8b-8192".to_string()),
+    );
+    profiles.insert(
+        "together".to_string(),
+        (
+            "together".to_string(),
+            "mistralai/Mixtral-8x7B-Instruct-v0.1".to_string(),
+        ),
+    );
 
     // Configured profiles override built-ins or add new ones:
     for (name, prof_cfg) in &config.profiles {
@@ -55,11 +82,14 @@ pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, Har
     Ok(ProfilesListReport { profiles: entries })
 }
 
-pub fn inspect_profile(config: &EffectiveConfig, name: &str) -> Result<ProfilesInspectReport, HarnessError> {
+pub fn inspect_profile(
+    config: &EffectiveConfig,
+    name: &str,
+) -> Result<ProfilesInspectReport, HarnessError> {
     let mut temp_cfg = config.clone();
     temp_cfg.defaults.profile = Some(name.to_string());
     temp_cfg.defaults.provider = None; // clear provider override
-    
+
     let resolved = temp_cfg.resolve_provider()?;
     let active_profile = config.resolve_provider().ok().and_then(|r| r.profile_name);
     let active = Some(name.to_string()) == active_profile;
@@ -76,7 +106,10 @@ pub fn inspect_profile(config: &EffectiveConfig, name: &str) -> Result<ProfilesI
     })
 }
 
-pub fn use_profile(config: &EffectiveConfig, name: &str) -> Result<ProfilesUseReport, HarnessError> {
+pub fn use_profile(
+    config: &EffectiveConfig,
+    name: &str,
+) -> Result<ProfilesUseReport, HarnessError> {
     let list = list_profiles(config)?;
     if !list.profiles.iter().any(|p| p.name == name) {
         return Err(HarnessError::Config(ConfigError::InvalidValue {

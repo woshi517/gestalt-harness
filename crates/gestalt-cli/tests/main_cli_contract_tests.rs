@@ -1,6 +1,6 @@
-use std::process::Command;
-use std::fs;
 use gestalt_cli::workspace::init_workspace;
+use std::fs;
+use std::process::Command;
 
 fn get_bin() -> &'static str {
     env!("CARGO_BIN_EXE_gestalt")
@@ -114,7 +114,9 @@ fn test_cli_runs_delete_without_yes_exits_non_zero() {
 
     assert!(!output.status.success());
     let stderr_str = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr_str.contains("non-interactive execution requires") || stderr_str.contains("error:"));
+    assert!(
+        stderr_str.contains("non-interactive execution requires") || stderr_str.contains("error:")
+    );
 
     let _ = fs::remove_dir_all(&temp_root);
 }
@@ -354,9 +356,15 @@ fn test_cli_provider_connection_and_profile_contracts() {
     assert_eq!(json["schema_version"], 1);
     assert_eq!(json["kind"], "providers.doctor");
     let results = json["data"]["results"].as_array().unwrap();
-    let openrouter_res = results.iter().find(|r| r["provider"] == "openrouter").unwrap();
+    let openrouter_res = results
+        .iter()
+        .find(|r| r["provider"] == "openrouter")
+        .unwrap();
     assert_eq!(openrouter_res["auth_status"], "present");
-    assert!(openrouter_res["auth_source"].as_str().unwrap().contains("keychain"));
+    assert!(openrouter_res["auth_source"]
+        .as_str()
+        .unwrap()
+        .contains("keychain"));
 
     // 4. Test models search
     let output = Command::new(get_bin())
@@ -379,8 +387,9 @@ fn test_cli_provider_connection_and_profile_contracts() {
     assert_eq!(json["schema_version"], 1);
     assert_eq!(json["kind"], "models.search");
     let models = json["data"]["models"].as_array().unwrap();
-    assert!(models.iter().any(|m| m["qualified_id"] == "openrouter/free"));
+    assert!(models
+        .iter()
+        .any(|m| m["qualified_id"] == "openrouter/free"));
 
     let _ = fs::remove_dir_all(&temp_root);
 }
-

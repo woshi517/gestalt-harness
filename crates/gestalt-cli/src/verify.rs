@@ -37,7 +37,11 @@ pub async fn verify_run(
     run_id_or_path: &str,
 ) -> Result<VerifyRunReport, Box<dyn std::error::Error>> {
     let run_dir = runs::resolve_run_path(config, run_id_or_path)?;
-    let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let run_id = run_dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     let artifacts_dir = run_dir.join("artifacts");
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -69,7 +73,11 @@ pub async fn verify_run(
         };
 
         for path in artifact_paths {
-            let target_path = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let target_path = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             let artifact_ref = ArtifactRef {
                 path: path.clone(),
                 mime_type: mime_type_for_path(&target_path),
@@ -80,7 +88,9 @@ pub async fn verify_run(
 
             for (name, res) in verifier_results {
                 total_checks += 1;
-                let failed_count = res.findings.iter()
+                let failed_count = res
+                    .findings
+                    .iter()
                     .filter(|f| matches!(f.severity, FindingSeverity::Error))
                     .count();
                 if failed_count > 0 || matches!(res.status, VerificationStatus::Failed) {

@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::PathBuf;
+use chrono::{DateTime, Utc};
 use gestalt_core::model::ModelInfo;
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
 pub struct CachedModels {
@@ -22,16 +22,18 @@ pub fn load_cached_models(provider: &str) -> Option<Vec<ModelInfo>> {
     if !path.exists() {
         return None;
     }
-    
+
     let content = fs::read_to_string(&path).ok()?;
     let cached: CachedModels = serde_json::from_str(&content).ok()?;
-    
-    let last_updated = DateTime::parse_from_rfc3339(&cached.last_updated).ok()?.with_timezone(&Utc);
+
+    let last_updated = DateTime::parse_from_rfc3339(&cached.last_updated)
+        .ok()?
+        .with_timezone(&Utc);
     let now = Utc::now();
     if now.signed_duration_since(last_updated).num_hours() >= 24 {
         return None;
     }
-    
+
     Some(cached.models)
 }
 
@@ -40,12 +42,12 @@ pub fn save_cached_models(provider: &str, models: &[ModelInfo]) -> Result<(), st
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    
+
     let cached = CachedModels {
         last_updated: Utc::now().to_rfc3339(),
         models: models.to_vec(),
     };
-    
+
     let content = serde_json::to_string_pretty(&cached).map_err(|e| std::io::Error::other(e))?;
     fs::write(path, content)?;
     Ok(())

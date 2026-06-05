@@ -131,7 +131,7 @@ impl ToolExecutor {
         for (order, id, name, input, tool, policy) in confirm_queue {
             let call_id = id.clone();
             let original_input_hash = hash_input(&input);
-            
+
             emit(AgentEvent::ApprovalRequested {
                 tool_call_id: id.clone(),
                 tool_name: name.clone(),
@@ -139,13 +139,19 @@ impl ToolExecutor {
                 risk: tool.risk(&input),
             })?;
 
-            let approval_res = self.approval.approve_cancellable(ApprovalRequest {
-                tool_call_id: id.clone(),
-                tool_name: name.clone(),
-                input: input.clone(),
-                description: tool.description().to_string(),
-                decision: policy.clone(),
-            }, cancel_token).await;
+            let approval_res = self
+                .approval
+                .approve_cancellable(
+                    ApprovalRequest {
+                        tool_call_id: id.clone(),
+                        tool_name: name.clone(),
+                        input: input.clone(),
+                        description: tool.description().to_string(),
+                        decision: policy.clone(),
+                    },
+                    cancel_token,
+                )
+                .await;
 
             let approval = match approval_res {
                 Ok(a) => a,
@@ -182,7 +188,16 @@ impl ToolExecutor {
                     let edited_hash = hash_input(&new_input);
                     let new_risk = tool.risk(&new_input);
                     let re_evaluated = self
-                        .evaluate_policy(session, &id, &name, &new_input, new_risk, None, emit, cancel_token)
+                        .evaluate_policy(
+                            session,
+                            &id,
+                            &name,
+                            &new_input,
+                            new_risk,
+                            None,
+                            emit,
+                            cancel_token,
+                        )
                         .await?;
                     match re_evaluated.status {
                         PolicyStatus::Allowed => {
@@ -251,7 +266,8 @@ impl ToolExecutor {
             tool_session.tool_ctx = tool_ctx.clone();
 
             if tool.can_run_in_parallel(&input) {
-                emit_tool_hooks_before(hooks, &tool_session, &name, &input, emit, cancel_token).await?;
+                emit_tool_hooks_before(hooks, &tool_session, &name, &input, emit, cancel_token)
+                    .await?;
                 current_parallel.push((order, id, name, input, tool, policy, tool_ctx));
                 continue;
             }
@@ -281,14 +297,15 @@ impl ToolExecutor {
                         async move {
                             let start = std::time::Instant::now();
                             let result =
-                                execute_tool(tool.as_ref(), input, &tool_ctx, &tool_call_id, &c).await;
+                                execute_tool(tool.as_ref(), input, &tool_ctx, &tool_call_id, &c)
+                                    .await;
                             let duration =
                                 u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                             (order, id, result, duration, policy.policy_source)
                         }
                     },
                 );
-                
+
                 let parallel_results = tokio::select! {
                     res = join_all(futures) => res,
                     _ = cancel_token.cancelled() => {
@@ -359,7 +376,7 @@ impl ToolExecutor {
                     }
                 },
             );
-            
+
             let parallel_results = tokio::select! {
                 res = join_all(futures) => res,
                 _ = cancel_token.cancelled() => {
@@ -435,7 +452,10 @@ impl ToolExecutor {
             user_approved: false,
         };
 
-        let decision_res = self.policy.evaluate_cancellable(request, cancel_token).await;
+        let decision_res = self
+            .policy
+            .evaluate_cancellable(request, cancel_token)
+            .await;
 
         let decision = match decision_res {
             Ok(d) => d,
@@ -550,20 +570,30 @@ where
     F: FnMut(AgentEvent) -> crate::error::Result<()> + Send,
 {
     for hook in &hooks.tool_hooks {
-        emit(AgentEvent::HookStarted { hook_type: "tool".to_string(), name: "before_tool_execution".to_string() })?;
+        emit(AgentEvent::HookStarted {
+            hook_type: "tool".to_string(),
+            name: "before_tool_execution".to_string(),
+        })?;
         let hook_res = tokio::select! {
             res = hook.before_tool_execution(session, tool_name, input) => res,
             _ = cancel_token.cancelled() => return Err(crate::error::HarnessError::Cancelled),
         };
         match hook_res {
             Ok(events) => {
-                emit(AgentEvent::HookCompleted { hook_type: "tool".to_string(), name: "before_tool_execution".to_string() })?;
+                emit(AgentEvent::HookCompleted {
+                    hook_type: "tool".to_string(),
+                    name: "before_tool_execution".to_string(),
+                })?;
                 for ev in events {
                     emit(ev)?;
                 }
             }
             Err(err) => {
-                emit(AgentEvent::HookFailed { hook_type: "tool".to_string(), name: "before_tool_execution".to_string(), error: err.to_string() })?;
+                emit(AgentEvent::HookFailed {
+                    hook_type: "tool".to_string(),
+                    name: "before_tool_execution".to_string(),
+                    error: err.to_string(),
+                })?;
                 emit(AgentEvent::Error {
                     message: format!("ToolHook.before_tool_execution failed: {err}"),
                     recoverable: true,

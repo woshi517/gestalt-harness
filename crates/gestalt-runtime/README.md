@@ -229,3 +229,47 @@ impl CompositionHooks for SafetyHook {
     }
 }
 ```
+
+---
+
+## Orchestration & Multi-Session Boundary
+
+`gestalt-runtime` provides abstractions for coordinating multiple agent sessions and passing artifacts between them.
+
+### 1. `ArtifactStore`
+A pluggable interface for saving and retrieving files produced by or fed to sessions:
+* `InMemoryArtifactStore`: Storage in a thread-safe in-memory map (ideal for testing).
+* `FilesystemArtifactStore`: Durably persists artifacts on disk relative to a base workspace path with built-in path-traversal prevention.
+
+```rust
+pub trait ArtifactStore: Send + Sync {
+    fn put_artifact(&self, session_id: &str, name: &str, content: &[u8]) -> Result<String>;
+    fn get_artifact(&self, session_id: &str, name: &str) -> Result<Vec<u8>>;
+    fn list_artifacts(&self, session_id: &str) -> Result<Vec<String>>;
+}
+```
+
+### 2. `AgentRuntimeHandle`
+Exposed to orchestrators to control the lifecycle of individual sessions:
+```rust
+#[async_trait::async_trait]
+pub trait AgentRuntimeHandle: Send + Sync {
+    async fn spawn_session(&self, session_id: &str, config_override: Option<RuntimeConfig>) -> Result<String>;
+    async fn send_message(&self, session_id: &str, prompt: &str) -> Result<gestalt_core::session::RunResult>;
+    fn subscribe(&self) -> tokio::sync::broadcast::Receiver<std::sync::Arc<RuntimeEvent>>;
+    fn artifact_store(&self) -> std::sync::Arc<dyn ArtifactStore>;
+    async fn create_artifact(&self, session_id: &str, name: &str, content: &[u8]) -> Result<String>;
+    async fn read_artifact(&self, session_id: &str, name: &str) -> Result<Vec<u8>>;
+    async fn list_artifacts(&self, session_id: &str) -> Result<Vec<String>>;
+}
+```
+
+### 3. `Orchestrator`
+A trait implemented by developers to compose workflows (e.g., writer-reviewer loops or multi-agent delegation chains):
+```rust
+#[async_trait::async_trait]
+pub trait Orchestrator: Send + Sync {
+    async fn execute(&self, handle: Arc<dyn AgentRuntimeHandle>, task: OrchestrationTask) -> Result<OrchestrationResult>;
+}
+```
+

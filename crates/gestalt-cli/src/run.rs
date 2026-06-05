@@ -1,9 +1,7 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use gestalt_context::MinimalContextPipeline;
-use gestalt_core::{
-    trace::TraceSink, ExecutionMode, WorkspaceSnapshotter,
-};
+use gestalt_core::{trace::TraceSink, ExecutionMode, WorkspaceSnapshotter};
 use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
 use gestalt_trace::{aggregate_costs, write_cost_report, write_summary, JsonlTraceSink};
 
@@ -39,7 +37,7 @@ pub async fn run_prompt(
         event_tx.clone(),
         approval_override,
         Some(sink.clone() as Arc<dyn gestalt_core::trace::TraceSink>),
-    )?;
+    ).await?;
 
     // Initial manifest setup and save
     let run_manifest_path = run_paths.root.join("run.json");
@@ -115,7 +113,9 @@ pub async fn run_prompt(
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             Ok(run_paths.root.clone())
         }
-        Err(gestalt_runtime::RuntimeError::Harness(gestalt_core::error::HarnessError::Cancelled)) => {
+        Err(gestalt_runtime::RuntimeError::Harness(
+            gestalt_core::error::HarnessError::Cancelled,
+        )) => {
             manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Interrupted;
             manifest.interrupted_phase = Some("agent_loop".to_string());
             let _ = sink.flush();
@@ -151,10 +151,12 @@ pub async fn run_prompt(
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             match err {
                 gestalt_runtime::RuntimeError::Harness(he) => Err(he),
-                other => Err(gestalt_core::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
-                    field: "runtime".to_string(),
-                    reason: other.to_string(),
-                })),
+                other => Err(gestalt_core::HarnessError::Config(
+                    gestalt_core::error::ConfigError::InvalidValue {
+                        field: "runtime".to_string(),
+                        reason: other.to_string(),
+                    },
+                )),
             }
         }
     };
@@ -298,8 +300,6 @@ pub(crate) fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::Ap
     }
 }
 
-
-
 #[allow(dead_code)]
 pub(crate) fn emit_trace_event<S: TraceSink>(
     sink: &S,
@@ -418,6 +418,7 @@ mod tests {
             provider_override: None,
             model_override: None,
             tui: crate::config::TuiConfig::default(),
+            extensions: Default::default(),
         };
 
         // Scenario 1: No policies.toml => uses default prompt
@@ -554,10 +555,10 @@ override = "Manual override text"
         }
 
         // Scenario 7: policies.toml with prompt.override as an integer (invalid value shape)
-        let policies_toml_bad_shape = r#"
+        let policies_toml_bad_shape = r"
 [prompt]
 override = 12345
-"#;
+";
         fs::write(gestalt_dir.join("policies.toml"), policies_toml_bad_shape).unwrap();
         let result = super::build_pipeline(
             &config,

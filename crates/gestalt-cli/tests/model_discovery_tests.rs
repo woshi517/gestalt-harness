@@ -1,10 +1,12 @@
+use chrono::{Duration, Utc};
+use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_cli::model_cache::{
+    get_cache_path, load_cached_models, save_cached_models, CachedModels,
+};
+use gestalt_cli::models::{list_models, search_models};
+use gestalt_core::model::{ModelInfo, ModelInfoSource};
 use std::fs;
 use std::sync::Mutex;
-use chrono::{Utc, Duration};
-use gestalt_core::model::{ModelInfo, ModelInfoSource};
-use gestalt_cli::config::{load_effective_config, CliOverrides};
-use gestalt_cli::models::{list_models, search_models};
-use gestalt_cli::model_cache::{save_cached_models, load_cached_models, get_cache_path, CachedModels};
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -51,7 +53,9 @@ fn test_builtin_models_inclusion() {
     assert!(models.iter().any(|m| m.qualified_id == "openrouter/free"));
     assert!(models.iter().any(|m| m.qualified_id == "openrouter/auto"));
     assert!(models.iter().any(|m| m.qualified_id == "ollama/llama3"));
-    assert!(models.iter().any(|m| m.qualified_id == "groq/llama3-8b-8192"));
+    assert!(models
+        .iter()
+        .any(|m| m.qualified_id == "groq/llama3-8b-8192"));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -63,7 +67,7 @@ fn test_query_matching_search() {
     fs::create_dir_all(&temp_dir).unwrap();
 
     let cfg = test_config(&temp_dir);
-    
+
     // Case-insensitive matching by display name
     let results1 = search_models(&cfg, "gemini");
     assert!(!results1.is_empty());
@@ -109,14 +113,18 @@ fn test_cache_loading_and_expiration() {
     };
 
     // 1. Save and load cache - happy path
-    save_cached_models("openrouter", &[test_model.clone()]).expect("save cache");
+    save_cached_models("openrouter", std::slice::from_ref(&test_model)).expect("save cache");
     let loaded = load_cached_models("openrouter").expect("load cache");
-    assert!(loaded.iter().any(|m| m.qualified_id == "openrouter/cached-model"));
+    assert!(loaded
+        .iter()
+        .any(|m| m.qualified_id == "openrouter/cached-model"));
 
     // 2. Load from list_models with provider cache
     let cfg = test_config(&temp_dir);
     let models_list = list_models(&cfg, Some("openrouter"));
-    assert!(models_list.iter().any(|m| m.qualified_id == "openrouter/cached-model"));
+    assert!(models_list
+        .iter()
+        .any(|m| m.qualified_id == "openrouter/cached-model"));
 
     // 3. Cache expiration (older than 24 hours)
     let expired_time = Utc::now() - Duration::hours(25);
@@ -134,7 +142,9 @@ fn test_cache_loading_and_expiration() {
 
     // list_models should filter out expired cache
     let models_list_expired = list_models(&cfg, Some("openrouter"));
-    assert!(!models_list_expired.iter().any(|m| m.qualified_id == "openrouter/cached-model"));
+    assert!(!models_list_expired
+        .iter()
+        .any(|m| m.qualified_id == "openrouter/cached-model"));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

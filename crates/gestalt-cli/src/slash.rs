@@ -23,15 +23,15 @@ pub async fn handle_slash_command(
 
     let cmd = parts[0];
     match cmd {
-        "/quit" | "/exit" => {
-            Ok(SlashOutcome::Quit)
-        }
+        "/quit" | "/exit" => Ok(SlashOutcome::Quit),
         "/help" => {
             println!("Available slash commands:");
             println!("  /help                  Show this help message");
             println!("  /quit, /exit           Exit the chat session");
             println!("  /mode <mode>           Change the execution mode (confirm, yolo, human, dry-run, replay)");
-            println!("  /cost                  Show the aggregated cost of all runs in this session");
+            println!(
+                "  /cost                  Show the aggregated cost of all runs in this session"
+            );
             println!("  /context               Explain the context pipeline of the latest run");
             println!("  /runs                  Display the lineage tree of runs in this session");
             println!("  /export <format>       Export the latest run's trace (markdown, jsonl)");
@@ -51,7 +51,9 @@ pub async fn handle_slash_command(
                     Ok(SlashOutcome::ChangeMode(new_mode))
                 }
                 _ => {
-                    println!("Invalid mode. Supported modes: confirm, yolo, human, dry-run, replay");
+                    println!(
+                        "Invalid mode. Supported modes: confirm, yolo, human, dry-run, replay"
+                    );
                     Ok(SlashOutcome::None)
                 }
             }

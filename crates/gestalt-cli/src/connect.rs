@@ -1,9 +1,9 @@
+use crate::auth::{delete_keychain_secret, set_keychain_secret};
+use crate::config::{EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig};
+use crate::output::{ConnectReport, DisconnectReport};
+use gestalt_core::{ConfigError, HarnessError};
 use std::io::IsTerminal;
 use std::path::PathBuf;
-use gestalt_core::{ConfigError, HarnessError};
-use crate::config::{EffectiveConfig, WorkspaceConfig, ProviderConfig, ProfileConfig};
-use crate::output::{ConnectReport, DisconnectReport};
-use crate::auth::{set_keychain_secret, delete_keychain_secret};
 
 pub fn connect_provider(
     _config: &EffectiveConfig,
@@ -18,12 +18,20 @@ pub fn connect_provider(
 ) -> Result<ConnectReport, HarnessError> {
     let key_val = if let Some(key) = api_key {
         let trimmed = key.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     } else if !no_keychain && std::io::stdin().is_terminal() && provider == "openrouter" {
         println!("Enter OpenRouter API key:");
         if let Ok(key) = rpassword::read_password() {
             let trimmed = key.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         } else {
             None
         }
@@ -31,7 +39,11 @@ pub fn connect_provider(
         println!("Enter API key (optional, press Enter to skip):");
         if let Ok(key) = rpassword::read_password() {
             let trimmed = key.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         } else {
             None
         }
@@ -46,74 +58,87 @@ pub fn connect_provider(
         }));
     }
 
-    let (conn_name, kind, base_url, default_model, api_key_env, headers, models_endpoint) = match provider {
-        "openrouter" => {
-            let builtin = crate::provider_catalog::get_builtin_provider("openrouter").unwrap();
-            (
-                "openrouter".to_string(),
-                "openai-compatible".to_string(),
-                builtin.base_url.unwrap(),
-                builtin.default_model.unwrap(),
-                builtin.api_key_env,
-                builtin.headers,
-                builtin.models_endpoint,
-            )
-        }
-        "openai-compatible" => {
-            let conn_name = name_opt.ok_or_else(|| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: "name".to_string(),
-                    reason: "connection name is required for openai-compatible provider".to_string(),
-                })
-            })?;
-            let base_url = base_url_opt.ok_or_else(|| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: "base_url".to_string(),
-                    reason: "base URL is required for openai-compatible provider".to_string(),
-                })
-            })?;
-            let default_model = default_model_opt.ok_or_else(|| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: "default_model".to_string(),
-                    reason: "default model is required for openai-compatible provider".to_string(),
-                })
-            })?;
-            let env_val = api_key_env_opt.clone().or_else(|| {
-                if key_val.is_none() {
-                    Some("none".to_string())
-                } else {
-                    Some(format!("{}_API_KEY", conn_name.to_uppercase().replace("-", "_")))
-                }
-            });
-            (
-                conn_name,
-                "openai-compatible".to_string(),
-                base_url,
-                default_model,
-                env_val,
-                None,
-                None,
-            )
-        }
-        _ => {
-            if let Some(builtin) = crate::provider_catalog::get_builtin_provider(provider) {
+    let (conn_name, kind, base_url, default_model, api_key_env, headers, models_endpoint) =
+        match provider {
+            "openrouter" => {
+                let builtin = crate::provider_catalog::get_builtin_provider("openrouter").unwrap();
                 (
-                    provider.to_string(),
-                    builtin.kind.unwrap_or_else(|| "openai-compatible".to_string()),
-                    builtin.base_url.unwrap_or_default(),
-                    builtin.default_model.unwrap_or_default(),
-                    builtin.api_key_env.or_else(|| Some(format!("{}_API_KEY", provider.to_uppercase().replace("-", "_")))),
+                    "openrouter".to_string(),
+                    "openai-compatible".to_string(),
+                    builtin.base_url.unwrap(),
+                    builtin.default_model.unwrap(),
+                    builtin.api_key_env,
                     builtin.headers,
                     builtin.models_endpoint,
                 )
-            } else {
-                return Err(HarnessError::Config(ConfigError::InvalidValue {
-                    field: "provider".to_string(),
-                    reason: format!("unknown provider connection type: '{provider}'"),
-                }));
             }
-        }
-    };
+            "openai-compatible" => {
+                let conn_name = name_opt.ok_or_else(|| {
+                    HarnessError::Config(ConfigError::InvalidValue {
+                        field: "name".to_string(),
+                        reason: "connection name is required for openai-compatible provider"
+                            .to_string(),
+                    })
+                })?;
+                let base_url = base_url_opt.ok_or_else(|| {
+                    HarnessError::Config(ConfigError::InvalidValue {
+                        field: "base_url".to_string(),
+                        reason: "base URL is required for openai-compatible provider".to_string(),
+                    })
+                })?;
+                let default_model = default_model_opt.ok_or_else(|| {
+                    HarnessError::Config(ConfigError::InvalidValue {
+                        field: "default_model".to_string(),
+                        reason: "default model is required for openai-compatible provider"
+                            .to_string(),
+                    })
+                })?;
+                let env_val = api_key_env_opt.or_else(|| {
+                    if key_val.is_none() {
+                        Some("none".to_string())
+                    } else {
+                        Some(format!(
+                            "{}_API_KEY",
+                            conn_name.to_uppercase().replace('-', "_")
+                        ))
+                    }
+                });
+                (
+                    conn_name,
+                    "openai-compatible".to_string(),
+                    base_url,
+                    default_model,
+                    env_val,
+                    None,
+                    None,
+                )
+            }
+            _ => {
+                if let Some(builtin) = crate::provider_catalog::get_builtin_provider(provider) {
+                    (
+                        provider.to_string(),
+                        builtin
+                            .kind
+                            .unwrap_or_else(|| "openai-compatible".to_string()),
+                        builtin.base_url.unwrap_or_default(),
+                        builtin.default_model.unwrap_or_default(),
+                        builtin.api_key_env.or_else(|| {
+                            Some(format!(
+                                "{}_API_KEY",
+                                provider.to_uppercase().replace('-', "_")
+                            ))
+                        }),
+                        builtin.headers,
+                        builtin.models_endpoint,
+                    )
+                } else {
+                    return Err(HarnessError::Config(ConfigError::InvalidValue {
+                        field: "provider".to_string(),
+                        reason: format!("unknown provider connection type: '{provider}'"),
+                    }));
+                }
+            }
+        };
 
     if no_keychain {
         let env_var = api_key_env.as_deref().unwrap_or("OPENROUTER_API_KEY");
@@ -181,16 +206,20 @@ pub fn connect_provider(
 
     let mut profile_created = None;
     if set_default {
-        let profile_name = if conn_name == "openrouter" { "default".to_string() } else { conn_name.clone() };
+        let profile_name = if conn_name == "openrouter" {
+            "default".to_string()
+        } else {
+            conn_name.clone()
+        };
         let mut defaults = ws_cfg.defaults.unwrap_or_default();
         defaults.profile = Some(profile_name.clone());
         ws_cfg.defaults = Some(defaults);
 
-        let prof_config = ProfileConfig {
+        let profile_cfg = ProfileConfig {
             provider: Some(conn_name.clone()),
             model: None,
         };
-        ws_cfg.profiles.insert(profile_name.clone(), prof_config);
+        ws_cfg.profiles.insert(profile_name.clone(), profile_cfg);
         profile_created = Some(profile_name);
     }
 

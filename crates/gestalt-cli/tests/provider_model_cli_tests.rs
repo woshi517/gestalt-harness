@@ -37,7 +37,9 @@ async fn test_models_filtering_and_refresh() {
     let all = list_models(&cfg, None);
     let openai_only = list_models(&cfg, Some("openai"));
     assert!(openai_only.len() < all.len());
-    assert!(openai_only.iter().all(|m| m.qualified_id.starts_with("openai/")));
+    assert!(openai_only
+        .iter()
+        .all(|m| m.qualified_id.starts_with("openai/")));
 
     // refresh offline
     let refresh_offline = refresh_models(&cfg, false).await.unwrap();
@@ -45,5 +47,10 @@ async fn test_models_filtering_and_refresh() {
 
     // refresh live
     let refresh_live = refresh_models(&cfg, true).await.unwrap();
-    assert!(refresh_live.status == "offline" || refresh_live.status == "unsupported" || refresh_live.status == "live requested" || refresh_live.status == "live performed");
+    assert!(
+        refresh_live.status == "offline"
+            || refresh_live.status == "unsupported"
+            || refresh_live.status == "live requested"
+            || refresh_live.status == "live performed"
+    );
 }

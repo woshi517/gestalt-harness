@@ -1076,6 +1076,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
+ "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1151,6 +1152,8 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
+ "url",
  "uuid",
 ]
 

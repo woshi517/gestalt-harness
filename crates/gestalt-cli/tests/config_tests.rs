@@ -77,16 +77,15 @@ fn test_config_precedence_and_sources() {
     let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", &temp_dir);
 
     // Write global config.toml - defines [tools] but NOT [context]
-    let global_toml = r#"
+    let global_toml = r"
 [tools]
 bash_timeout_secs = 99
 max_output_tokens = 5000
-"#;
+";
     fs::write(global_config_dir.join("config.toml"), global_toml).unwrap();
 
     // Write workspace config.toml - defines [context] and overrides parts of [tools]
-    let workspace_toml = r#"
-[tools]
+    let workspace_toml = r#"[tools]
 sandbox_type = "docker"
 
 [context]

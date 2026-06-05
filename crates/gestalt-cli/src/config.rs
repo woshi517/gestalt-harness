@@ -25,6 +25,21 @@ pub struct WorkspaceConfig {
     pub profiles: HashMap<String, ProfileConfig>,
     #[serde(default)]
     pub tui: Option<TuiConfig>,
+    #[serde(default)]
+    pub extensions: Option<ExtensionsConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExtensionsConfig {
+    #[serde(default)]
+    pub explicit_loads: Vec<String>,
+    #[serde(default)]
+    pub disabled: Vec<String>,
+    #[serde(default)]
+    pub trusted: Vec<String>,
+    #[serde(default)]
+    pub allow_untrusted: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -144,6 +159,7 @@ pub struct EffectiveConfig {
     pub provider_override: Option<String>,
     pub model_override: Option<String>,
     pub tui: TuiConfig,
+    pub extensions: ExtensionsConfig,
 }
 
 impl WorkspaceConfig {
@@ -175,16 +191,24 @@ impl WorkspaceConfig {
 
         if let Some(other_tools) = other.tools {
             let mut self_tools = self.tools.unwrap_or_default();
-            self_tools.bash_timeout_secs = other_tools.bash_timeout_secs.or(self_tools.bash_timeout_secs);
-            self_tools.max_output_tokens = other_tools.max_output_tokens.or(self_tools.max_output_tokens);
+            self_tools.bash_timeout_secs = other_tools
+                .bash_timeout_secs
+                .or(self_tools.bash_timeout_secs);
+            self_tools.max_output_tokens = other_tools
+                .max_output_tokens
+                .or(self_tools.max_output_tokens);
             self_tools.sandbox_type = other_tools.sandbox_type.or(self_tools.sandbox_type);
             self.tools = Some(self_tools);
         }
 
         if let Some(other_context) = other.context {
             let mut self_context = self.context.unwrap_or_default();
-            self_context.max_context_window = other_context.max_context_window.or(self_context.max_context_window);
-            self_context.reserved_output_tokens = other_context.reserved_output_tokens.or(self_context.reserved_output_tokens);
+            self_context.max_context_window = other_context
+                .max_context_window
+                .or(self_context.max_context_window);
+            self_context.reserved_output_tokens = other_context
+                .reserved_output_tokens
+                .or(self_context.reserved_output_tokens);
             self.context = Some(self_context);
         }
 
@@ -203,6 +227,17 @@ impl WorkspaceConfig {
                 self_tui.diagnostics = Some(self_diag);
             }
             self.tui = Some(self_tui);
+        }
+
+        if let Some(other_extensions) = other.extensions {
+            let mut self_extensions = self.extensions.unwrap_or_default();
+            self_extensions
+                .explicit_loads
+                .extend(other_extensions.explicit_loads);
+            self_extensions.disabled.extend(other_extensions.disabled);
+            self_extensions.trusted.extend(other_extensions.trusted);
+            self_extensions.allow_untrusted = other_extensions.allow_untrusted || self_extensions.allow_untrusted;
+            self.extensions = Some(self_extensions);
         }
 
         self.providers.extend(other.providers);
@@ -296,8 +331,14 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         o
     };
 
-    let provider_override = overrides.provider.clone().or_else(|| std::env::var("GESTALT_PROVIDER").ok());
-    let model_override = overrides.model.clone().or_else(|| std::env::var("GESTALT_MODEL").ok());
+    let provider_override = overrides
+        .provider
+        .clone()
+        .or_else(|| std::env::var("GESTALT_PROVIDER").ok());
+    let model_override = overrides
+        .model
+        .clone()
+        .or_else(|| std::env::var("GESTALT_MODEL").ok());
 
     let mut tui = config.tui.unwrap_or_default();
     let mut diagnostics = tui.diagnostics.unwrap_or_default();
@@ -314,7 +355,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
     }
 
     let max_lines = diagnostics.max_log_lines.unwrap_or(1000);
-    if max_lines < 100 || max_lines > 50000 {
+    if !(100..=50_000).contains(&max_lines) {
         return Err(HarnessError::Config(ConfigError::InvalidValue {
             field: "tui.diagnostics.max_log_lines".to_string(),
             reason: format!("Value {max_lines} must be between 100 and 50,000"),
@@ -322,6 +363,8 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
     }
     diagnostics.max_log_lines = Some(max_lines);
     tui.diagnostics = Some(diagnostics);
+
+    let extensions = config.extensions.unwrap_or_default();
 
     Ok(EffectiveConfig {
         workspace_root,
@@ -334,6 +377,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         provider_override,
         model_override,
         tui,
+        extensions,
     })
 }
 
@@ -371,24 +415,51 @@ impl EffectiveConfig {
         let active_profile = self.defaults.profile.clone();
         let active_provider = self.defaults.provider.clone();
 
-        let (profile_name, mut provider_name, mut model_override) = if let Some(p) = active_profile {
+        let (profile_name, mut provider_name, mut model_override) = if let Some(p) = active_profile
+        {
             if let Some(prof_cfg) = self.profiles.get(&p) {
                 let prov = prof_cfg.provider.clone().unwrap_or_else(|| p.clone());
                 let model = prof_cfg.model.clone();
                 (Some(p), prov, model)
             } else {
                 match p.as_str() {
-                    "default" => (Some(p), "openrouter".to_string(), Some("openrouter/free".to_string())),
-                    "openrouter" => (Some(p), "openrouter".to_string(), Some("openrouter/free".to_string())),
-                    "anthropic" => (Some(p), "anthropic".to_string(), Some("claude-3-5-sonnet-20241022".to_string())),
-                    "openai" => (Some(p), "openai".to_string(), Some("gpt-4o-mini".to_string())),
+                    "default" => (
+                        Some(p),
+                        "openrouter".to_string(),
+                        Some("openrouter/free".to_string()),
+                    ),
+                    "openrouter" => (
+                        Some(p),
+                        "openrouter".to_string(),
+                        Some("openrouter/free".to_string()),
+                    ),
+                    "anthropic" => (
+                        Some(p),
+                        "anthropic".to_string(),
+                        Some("claude-3-5-sonnet-20241022".to_string()),
+                    ),
+                    "openai" => (
+                        Some(p),
+                        "openai".to_string(),
+                        Some("gpt-4o-mini".to_string()),
+                    ),
                     "ollama" => (Some(p), "ollama".to_string(), Some("llama3".to_string())),
-                    "groq" => (Some(p), "groq".to_string(), Some("llama3-8b-8192".to_string())),
-                    "together" => (Some(p), "together".to_string(), Some("mistralai/Mixtral-8x7B-Instruct-v0.1".to_string())),
+                    "groq" => (
+                        Some(p),
+                        "groq".to_string(),
+                        Some("llama3-8b-8192".to_string()),
+                    ),
+                    "together" => (
+                        Some(p),
+                        "together".to_string(),
+                        Some("mistralai/Mixtral-8x7B-Instruct-v0.1".to_string()),
+                    ),
                     _ => {
                         return Err(HarnessError::Config(ConfigError::InvalidValue {
                             field: "defaults.profile".to_string(),
-                            reason: format!("profile '{p}' not found in configuration or built-ins"),
+                            reason: format!(
+                                "profile '{p}' not found in configuration or built-ins"
+                            ),
                         }));
                     }
                 }
@@ -398,30 +469,38 @@ impl EffectiveConfig {
             (None, prov, model)
         } else {
             let p = "default".to_string();
-            (Some(p), "openrouter".to_string(), Some("openrouter/free".to_string()))
+            (
+                Some(p),
+                "openrouter".to_string(),
+                Some("openrouter/free".to_string()),
+            )
         };
 
         // Apply explicit CLI / Env overrides (which beat profiles and defaults)
         if let Some(ref prov_ovr) = self.provider_override {
-            provider_name = prov_ovr.clone();
+            provider_name.clone_from(prov_ovr);
         }
         if let Some(ref model_ovr) = self.model_override {
             model_override = Some(model_ovr.clone());
         }
 
-        let (kind, base_url, default_model, api_key_env, auth_ref, models_endpoint, headers) = 
+        let (kind, base_url, default_model, api_key_env, auth_ref, models_endpoint, headers) =
             if let Some(prov_cfg) = self.providers.get(&provider_name) {
-                let kind = prov_cfg.kind.clone().or_else(|| {
-                    if provider_name == "anthropic" {
-                        Some("anthropic".to_string())
-                    } else if provider_name == "openai" {
-                        Some("openai".to_string())
-                    } else if gestalt_models::registry::registered().contains(&provider_name) {
-                        Some(provider_name.clone())
-                    } else {
-                        Some("openai-compatible".to_string())
-                    }
-                }).unwrap();
+                let kind = prov_cfg
+                    .kind
+                    .clone()
+                    .or_else(|| {
+                        if provider_name == "anthropic" {
+                            Some("anthropic".to_string())
+                        } else if provider_name == "openai" {
+                            Some("openai".to_string())
+                        } else if gestalt_models::registry::registered().contains(&provider_name) {
+                            Some(provider_name.clone())
+                        } else {
+                            Some("openai-compatible".to_string())
+                        }
+                    })
+                    .unwrap();
                 let base = prov_cfg.base_url.clone();
                 let model = prov_cfg.default_model.clone();
                 let env = prov_cfg.api_key_env.clone();
@@ -429,9 +508,14 @@ impl EffectiveConfig {
                 let endpoint = prov_cfg.models_endpoint.clone();
                 let hdrs = prov_cfg.headers.clone();
                 (kind, base, model, env, auth, endpoint, hdrs)
-            } else if let Some(builtin) = crate::provider_catalog::get_builtin_provider(&provider_name) {
+            } else if let Some(builtin) =
+                crate::provider_catalog::get_builtin_provider(&provider_name)
+            {
                 (
-                    builtin.kind.clone().unwrap_or_else(|| "openai-compatible".to_string()),
+                    builtin
+                        .kind
+                        .clone()
+                        .unwrap_or_else(|| "openai-compatible".to_string()),
                     builtin.base_url,
                     builtin.default_model,
                     builtin.api_key_env,
@@ -440,32 +524,22 @@ impl EffectiveConfig {
                     builtin.headers,
                 )
             } else if gestalt_models::registry::registered().contains(&provider_name) {
-                (
-                    provider_name.clone(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
+                (provider_name.clone(), None, None, None, None, None, None)
             } else {
                 return Err(HarnessError::Provider(ProviderError::UnknownProvider(
                     provider_name.clone(),
                 )));
             };
 
-        let model = model_override
-            .or(default_model)
-            .unwrap_or_else(|| {
-                if kind == "anthropic" {
-                    "claude-3-5-sonnet-20241022".to_string()
-                } else if kind == "openai" {
-                    "gpt-4o-mini".to_string()
-                } else {
-                    "openrouter/free".to_string()
-                }
-            });
+        let model = model_override.or(default_model).unwrap_or_else(|| {
+            if kind == "anthropic" {
+                "claude-3-5-sonnet-20241022".to_string()
+            } else if kind == "openai" {
+                "gpt-4o-mini".to_string()
+            } else {
+                "openrouter/free".to_string()
+            }
+        });
 
         Ok(ResolvedProvider {
             profile_name,
@@ -512,22 +586,38 @@ impl EffectiveConfig {
 
     pub fn provider_json(&self, provider: &str) -> Value {
         let configured = self.providers.get(provider).cloned().unwrap_or_default();
-        let mut base = if let Some(builtin) = crate::provider_catalog::get_builtin_provider(provider) {
-            builtin
-        } else {
-            ProviderConfig::default()
-        };
+        let mut base = crate::provider_catalog::get_builtin_provider(provider).unwrap_or_default();
 
-        if let Some(id) = configured.id { base.id = Some(id); }
-        if let Some(display) = configured.display_name { base.display_name = Some(display); }
-        if let Some(protocol) = configured.protocol { base.protocol = Some(protocol); }
-        if let Some(base_url) = configured.base_url { base.base_url = Some(base_url); }
-        if let Some(def_model) = configured.default_model { base.default_model = Some(def_model); }
-        if let Some(api_key_env) = configured.api_key_env { base.api_key_env = Some(api_key_env); }
-        if let Some(auth_ref) = configured.auth_ref { base.auth_ref = Some(auth_ref); }
-        if let Some(kind) = configured.kind { base.kind = Some(kind); }
-        if let Some(models_endpoint) = configured.models_endpoint { base.models_endpoint = Some(models_endpoint); }
-        if let Some(headers) = configured.headers { base.headers = Some(headers); }
+        if let Some(id) = configured.id {
+            base.id = Some(id);
+        }
+        if let Some(display) = configured.display_name {
+            base.display_name = Some(display);
+        }
+        if let Some(protocol) = configured.protocol {
+            base.protocol = Some(protocol);
+        }
+        if let Some(base_url) = configured.base_url {
+            base.base_url = Some(base_url);
+        }
+        if let Some(def_model) = configured.default_model {
+            base.default_model = Some(def_model);
+        }
+        if let Some(api_key_env) = configured.api_key_env {
+            base.api_key_env = Some(api_key_env);
+        }
+        if let Some(auth_ref) = configured.auth_ref {
+            base.auth_ref = Some(auth_ref);
+        }
+        if let Some(kind) = configured.kind {
+            base.kind = Some(kind);
+        }
+        if let Some(models_endpoint) = configured.models_endpoint {
+            base.models_endpoint = Some(models_endpoint);
+        }
+        if let Some(headers) = configured.headers {
+            base.headers = Some(headers);
+        }
 
         json!({
             "id": base.id.unwrap_or_else(|| provider.to_string()),
@@ -574,7 +664,9 @@ pub struct ConfigSourceInfo {
     pub source: String,
 }
 
-pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, ConfigSourceInfo>, HarnessError> {
+pub fn explain_config(
+    overrides: &CliOverrides,
+) -> Result<HashMap<String, ConfigSourceInfo>, HarnessError> {
     let workspace_root = overrides
         .workspace
         .clone()
@@ -632,10 +724,13 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
                 active_value = json!(val);
             }
 
-            map.insert($key.to_string(), ConfigSourceInfo {
-                value: active_value,
-                source: active_source,
-            });
+            map.insert(
+                $key.to_string(),
+                ConfigSourceInfo {
+                    value: active_value,
+                    source: active_source,
+                },
+            );
         };
     }
 
@@ -717,7 +812,7 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         None::<&str>,
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.max_context_window)),
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.max_context_window)),
-        120000
+        120_000
     );
 
     resolve!(
@@ -751,8 +846,16 @@ pub fn explain_config(overrides: &CliOverrides) -> Result<HashMap<String, Config
         "tui.diagnostics.max_log_lines",
         None::<usize>,
         Some("GESTALT_TUI_MAX_LOG_LINES"),
-        (|c: &WorkspaceConfig| c.tui.as_ref().and_then(|t| t.diagnostics.as_ref()).and_then(|d| d.max_log_lines)),
-        (|c: &WorkspaceConfig| c.tui.as_ref().and_then(|t| t.diagnostics.as_ref()).and_then(|d| d.max_log_lines)),
+        (|c: &WorkspaceConfig| c
+            .tui
+            .as_ref()
+            .and_then(|t| t.diagnostics.as_ref())
+            .and_then(|d| d.max_log_lines)),
+        (|c: &WorkspaceConfig| c
+            .tui
+            .as_ref()
+            .and_then(|t| t.diagnostics.as_ref())
+            .and_then(|d| d.max_log_lines)),
         1000
     );
 

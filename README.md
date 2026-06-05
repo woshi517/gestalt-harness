@@ -174,6 +174,51 @@ You can use `--format json` to get machine-readable output envelopes for any of 
 
 ---
 
+## Extensions & Runtime Composition
+
+`gestalt-harness` supports loading dynamic extensions over stdio JSON-RPC. Extensions can register tools, hooks, and context contributors and declare their required permissions.
+
+Manage and diagnose extensions with the following CLI commands:
+
+- **List Extensions**:
+  ```bash
+  gestalt extension list
+  ```
+  Lists discovered extensions, their paths, versions, and enabled/disabled status.
+
+- **Enable/Disable an Extension**:
+  ```bash
+  gestalt extension enable <extension-id>
+  gestalt extension disable <extension-id>
+  ```
+  Enables or disables an extension by updating the workspace config.
+
+- **Inspect an Extension**:
+  ```bash
+  gestalt extension inspect <extension-id>
+  ```
+  Inspects declared capabilities and permission requirements for a given extension.
+
+- **Validate a Manifest**:
+  ```bash
+  gestalt extension validate <path-to-gestalt.extension.toml>
+  ```
+  Performs syntax validation and integrity checking on an extension manifest.
+
+- **Inspect Active Runtime**:
+  ```bash
+  gestalt runtime inspect
+  ```
+  Lists the currently active registry snapshot, including loaded tools, hooks, and context contributors.
+
+- **Diagnose Runtime Configuration**:
+  ```bash
+  gestalt runtime doctor
+  ```
+  Runs preflight checks on extensions, verifying executables, paths, and manifest safety.
+
+---
+
 ## Documentation
 
 | Document | Description |

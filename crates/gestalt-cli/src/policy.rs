@@ -1,10 +1,10 @@
-use serde_json::Value;
-use gestalt_core::{HarnessError, tool::RiskLevel};
-use gestalt_core::policy::{PolicyEngine, PolicyRequest};
-use gestalt_policy::{PolicyConfig, MinimalPolicyEngine};
-use gestalt_core::ToolCatalog;
 use crate::config::{load_effective_config, CliOverrides};
-use crate::output::{PolicyValidateReport, PolicyExplainReport, PolicyTestReport};
+use crate::output::{PolicyExplainReport, PolicyTestReport, PolicyValidateReport};
+use gestalt_core::policy::{PolicyEngine, PolicyRequest};
+use gestalt_core::ToolCatalog;
+use gestalt_core::{tool::RiskLevel, HarnessError};
+use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
+use serde_json::Value;
 
 pub fn validate_policy(overrides: &CliOverrides) -> Result<PolicyValidateReport, HarnessError> {
     let config = load_effective_config(overrides)?;
@@ -33,7 +33,10 @@ pub fn validate_policy(overrides: &CliOverrides) -> Result<PolicyValidateReport,
 
 fn get_tool_risk(tool_name: &str, input: &Value) -> RiskLevel {
     if tool_name == "bash" {
-        let command = input.get("command").and_then(Value::as_str).unwrap_or_default();
+        let command = input
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         gestalt_policy::classify_bash(command)
     } else if let Ok(registry) = gestalt_tools::default_registry() {
         if let Some(tool) = registry.get(tool_name) {

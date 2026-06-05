@@ -1,9 +1,9 @@
+use gestalt_cli::chat::run_chat;
+use gestalt_cli::config::CliOverrides;
+use gestalt_core::HarnessError;
+use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;
 use std::path::PathBuf;
-use gestalt_cli::config::CliOverrides;
-use gestalt_cli::chat::run_chat;
-use gestalt_core::HarnessError;
-use gestalt_trace::run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
 
 fn create_temp_workspace() -> PathBuf {
     let temp = std::env::temp_dir().join(format!("gestalt-test-chat-{}", uuid::Uuid::new_v4()));
@@ -59,7 +59,7 @@ async fn test_chat_exits_on_cancelled_token() {
 async fn test_chat_rejects_resume_unsafe_unfinalized() {
     let temp_root = create_temp_workspace();
     copy_minimal_workspace(&temp_root);
-    
+
     let runs_dir = temp_root.join(".gestalt/runs");
     fs::create_dir_all(&runs_dir).unwrap();
 
@@ -215,7 +215,10 @@ fn test_cli_run_resume() {
     }
     assert_eq!(updated_manifests.len(), 2);
 
-    let child_manifest = updated_manifests.iter().find(|m| m.run_id != parent_run_id).unwrap();
+    let child_manifest = updated_manifests
+        .iter()
+        .find(|m| m.run_id != parent_run_id)
+        .unwrap();
 
     assert_eq!(child_manifest.session_id, session_id);
     assert_eq!(child_manifest.parent_run_id.as_ref(), Some(&parent_run_id));

@@ -34,8 +34,12 @@ pub fn get_with_resolver(
     resolver: Arc<dyn crate::auth::CredentialResolver>,
 ) -> Result<Arc<dyn Provider>, HarnessError> {
     match name {
-        "anthropic" => Ok(Arc::new(AnthropicProvider::new_with_resolver(&config, resolver)?)),
-        "openai" => Ok(Arc::new(OpenAiProvider::new_with_resolver(&config, resolver)?)),
+        "anthropic" => Ok(Arc::new(AnthropicProvider::new_with_resolver(
+            &config, resolver,
+        )?)),
+        "openai" => Ok(Arc::new(OpenAiProvider::new_with_resolver(
+            &config, resolver,
+        )?)),
         "openai-compatible" => {
             let config = merge_defaults(
                 config,
@@ -45,7 +49,9 @@ pub fn get_with_resolver(
                     "api_key_env": "OPENAI_COMPATIBLE_API_KEY"
                 }),
             );
-            Ok(Arc::new(OpenAiProvider::new_with_resolver(&config, resolver)?))
+            Ok(Arc::new(OpenAiProvider::new_with_resolver(
+                &config, resolver,
+            )?))
         }
         _ => {
             let registry = REGISTRY.get_or_init(init_defaults).read().map_err(|_| {
@@ -68,7 +74,11 @@ pub fn get_with_resolver(
 }
 
 pub fn get(name: &str, config: ProviderConfig) -> Result<Arc<dyn Provider>, HarnessError> {
-    get_with_resolver(name, config, Arc::new(crate::auth::EnvironmentCredentialResolver))
+    get_with_resolver(
+        name,
+        config,
+        Arc::new(crate::auth::EnvironmentCredentialResolver),
+    )
 }
 
 #[must_use]

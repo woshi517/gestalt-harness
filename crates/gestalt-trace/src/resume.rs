@@ -1,7 +1,10 @@
-use std::path::Path;
+use crate::{
+    read_trace,
+    run_manifest::{LifecycleState, RunManifest},
+};
+use gestalt_core::{context::TokenBudget, snapshot::WorkspaceSnapshot, Message};
 use serde::{Deserialize, Serialize};
-use gestalt_core::{Message, context::TokenBudget, snapshot::WorkspaceSnapshot};
-use crate::{read_trace, run_manifest::{RunManifest, LifecycleState}};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -140,9 +143,11 @@ impl ResumeAnalyzer {
 
         let (history, token_budget) = match last_checkpoint {
             Some(env) => match &env.event {
-                gestalt_core::AgentEvent::Checkpoint { history, token_budget, .. } => {
-                    (history.clone(), token_budget.clone())
-                }
+                gestalt_core::AgentEvent::Checkpoint {
+                    history,
+                    token_budget,
+                    ..
+                } => (history.clone(), token_budget.clone()),
                 _ => (Vec::new(), TokenBudget::default()),
             },
             None => (Vec::new(), TokenBudget::default()),
@@ -172,15 +177,16 @@ impl ResumeAnalyzer {
             }
         }
 
-        let has_drift = if let (Some(cur), Some(ref rec)) = (current_snapshot, &recorded_snapshot_hash) {
-            if rec.len() == 12 {
-                !cur.content_hash.starts_with(rec)
+        let has_drift =
+            if let (Some(cur), Some(ref rec)) = (current_snapshot, &recorded_snapshot_hash) {
+                if rec.len() == 12 {
+                    !cur.content_hash.starts_with(rec)
+                } else {
+                    cur.content_hash != *rec
+                }
             } else {
-                cur.content_hash != *rec
-            }
-        } else {
-            false
-        };
+                false
+            };
 
         if has_drift {
             return ResumeAnalysis {
@@ -292,15 +298,16 @@ impl ResumeAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
+    use crate::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
+    use crate::EventEnvelope;
     use gestalt_core::snapshot::WorkspaceSnapshot;
     use gestalt_core::AgentEvent;
-    use crate::EventEnvelope;
     use std::fs;
     use std::path::PathBuf;
 
     fn temp_run_dir() -> PathBuf {
-        let temp = std::env::temp_dir().join(format!("gestalt-test-resume-{}", uuid::Uuid::new_v4()));
+        let temp =
+            std::env::temp_dir().join(format!("gestalt-test-resume-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp).unwrap();
         temp
     }
@@ -326,7 +333,11 @@ mod tests {
         }
     }
 
-    fn write_manifest(dir: &std::path::Path, lifecycle: LifecycleState, fp: CompatibilityFingerprint) {
+    fn write_manifest(
+        dir: &std::path::Path,
+        lifecycle: LifecycleState,
+        fp: CompatibilityFingerprint,
+    ) {
         let manifest = RunManifest {
             v: 1,
             session_id: "session-1".to_string(),
@@ -437,38 +448,41 @@ mod tests {
         let dir = temp_run_dir();
         write_manifest(&dir, LifecycleState::Interrupted, default_fingerprint());
 
-        write_trace(&dir, vec![
-            AgentEvent::ToolExecutionStarted {
-                id: "tool-1".to_string(),
-                tool_name: "bash".to_string(),
-                input_hash: "hash".to_string(),
-                policy_source: "policy".to_string(),
-                working_dir: ".".to_string(),
-                parallel_group_id: Some("group-1".to_string()),
-                parallel_safe: true,
-            },
-            AgentEvent::ToolExecutionStarted {
-                id: "tool-2".to_string(),
-                tool_name: "bash".to_string(),
-                input_hash: "hash".to_string(),
-                policy_source: "policy".to_string(),
-                working_dir: ".".to_string(),
-                parallel_group_id: Some("group-1".to_string()),
-                parallel_safe: true,
-            },
-            AgentEvent::ToolResult {
-                id: "tool-1".to_string(),
-                output: "success".to_string(),
-                is_error: false,
-                truncated: false,
-                tool_name: None,
-                working_dir: None,
-                duration_ms: None,
-                output_hash: None,
-                artifact_refs: None,
-                policy_source: None,
-            }
-        ]);
+        write_trace(
+            &dir,
+            vec![
+                AgentEvent::ToolExecutionStarted {
+                    id: "tool-1".to_string(),
+                    tool_name: "bash".to_string(),
+                    input_hash: "hash".to_string(),
+                    policy_source: "policy".to_string(),
+                    working_dir: ".".to_string(),
+                    parallel_group_id: Some("group-1".to_string()),
+                    parallel_safe: true,
+                },
+                AgentEvent::ToolExecutionStarted {
+                    id: "tool-2".to_string(),
+                    tool_name: "bash".to_string(),
+                    input_hash: "hash".to_string(),
+                    policy_source: "policy".to_string(),
+                    working_dir: ".".to_string(),
+                    parallel_group_id: Some("group-1".to_string()),
+                    parallel_safe: true,
+                },
+                AgentEvent::ToolResult {
+                    id: "tool-1".to_string(),
+                    output: "success".to_string(),
+                    is_error: false,
+                    truncated: false,
+                    tool_name: None,
+                    working_dir: None,
+                    duration_ms: None,
+                    output_hash: None,
+                    artifact_refs: None,
+                    policy_source: None,
+                },
+            ],
+        );
 
         let analysis = ResumeAnalyzer::analyze(&dir, None, None);
         assert_eq!(analysis.status, RecoveryStatus::InterruptedAmbiguousTool);
@@ -479,12 +493,13 @@ mod tests {
     fn test_ambiguous_hook() {
         let dir = temp_run_dir();
         write_manifest(&dir, LifecycleState::Interrupted, default_fingerprint());
-        write_trace(&dir, vec![
-            AgentEvent::HookStarted {
+        write_trace(
+            &dir,
+            vec![AgentEvent::HookStarted {
                 hook_type: "session".to_string(),
                 name: "on_session_end".to_string(),
-            }
-        ]);
+            }],
+        );
 
         let analysis = ResumeAnalyzer::analyze(&dir, None, None);
         assert_eq!(analysis.status, RecoveryStatus::InterruptedAmbiguousHook);
@@ -502,24 +517,35 @@ mod tests {
         assert_eq!(analysis.status, RecoveryStatus::InterruptedContextBuild);
 
         // Test provider stream
-        write_trace(&dir, vec![AgentEvent::ModelResponseStarted { provider_request_hash: "req".to_string() }]);
+        write_trace(
+            &dir,
+            vec![AgentEvent::ModelResponseStarted {
+                provider_request_hash: "req".to_string(),
+            }],
+        );
         let analysis = ResumeAnalyzer::analyze(&dir, None, None);
         assert_eq!(analysis.status, RecoveryStatus::InterruptedProviderStream);
 
         // Test policy eval
-        write_trace(&dir, vec![AgentEvent::PolicyEvaluationStarted { tool_call_id: "call".to_string() }]);
+        write_trace(
+            &dir,
+            vec![AgentEvent::PolicyEvaluationStarted {
+                tool_call_id: "call".to_string(),
+            }],
+        );
         let analysis = ResumeAnalyzer::analyze(&dir, None, None);
         assert_eq!(analysis.status, RecoveryStatus::InterruptedPolicyEval);
 
         // Test approval pending
-        write_trace(&dir, vec![
-            AgentEvent::ApprovalRequested {
+        write_trace(
+            &dir,
+            vec![AgentEvent::ApprovalRequested {
                 tool_call_id: "call".to_string(),
                 tool_name: "bash".to_string(),
                 input: serde_json::Value::Null,
                 risk: gestalt_core::tool::RiskLevel::High,
-            }
-        ]);
+            }],
+        );
         let analysis = ResumeAnalyzer::analyze(&dir, None, None);
         assert_eq!(analysis.status, RecoveryStatus::InterruptedPendingApproval);
 

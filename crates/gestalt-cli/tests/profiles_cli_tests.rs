@@ -1,7 +1,7 @@
+use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_cli::profiles::{inspect_profile, list_profiles, use_profile};
 use std::fs;
 use std::sync::Mutex;
-use gestalt_cli::config::{load_effective_config, CliOverrides};
-use gestalt_cli::profiles::{list_profiles, inspect_profile, use_profile};
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -60,7 +60,7 @@ model = "gpt-4o"
     let list = list_profiles(&config).expect("list profiles");
     assert!(list.profiles.iter().any(|p| p.name == "openai"));
     assert!(list.profiles.iter().any(|p| p.name == "anthropic"));
-    
+
     let openai_profile = list.profiles.iter().find(|p| p.name == "openai").unwrap();
     assert!(openai_profile.active);
     assert_eq!(openai_profile.model, "gpt-4o");
@@ -75,7 +75,11 @@ model = "gpt-4o"
 
     let config2 = load_effective_config(&overrides).expect("reload config");
     let list2 = list_profiles(&config2).expect("list profiles");
-    let anthropic_profile = list2.profiles.iter().find(|p| p.name == "anthropic").unwrap();
+    let anthropic_profile = list2
+        .profiles
+        .iter()
+        .find(|p| p.name == "anthropic")
+        .unwrap();
     assert!(anthropic_profile.active);
 
     let _ = fs::remove_dir_all(&temp_dir);
@@ -130,4 +134,3 @@ model = "gpt-4o"
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
-

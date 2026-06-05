@@ -96,20 +96,30 @@ impl AgentLoop {
         };
 
         for hook in &self.hooks.session_hooks {
-            emit(AgentEvent::HookStarted { hook_type: "session".to_string(), name: "on_session_start".to_string() })?;
+            emit(AgentEvent::HookStarted {
+                hook_type: "session".to_string(),
+                name: "on_session_start".to_string(),
+            })?;
             let hook_res = tokio::select! {
                 res = hook.on_session_start(session) => res,
                 _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
             };
             match hook_res {
                 Ok(events) => {
-                    emit(AgentEvent::HookCompleted { hook_type: "session".to_string(), name: "on_session_start".to_string() })?;
+                    emit(AgentEvent::HookCompleted {
+                        hook_type: "session".to_string(),
+                        name: "on_session_start".to_string(),
+                    })?;
                     for ev in events {
                         emit(ev)?;
                     }
                 }
                 Err(err) => {
-                    emit(AgentEvent::HookFailed { hook_type: "session".to_string(), name: "on_session_start".to_string(), error: err.to_string() })?;
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "session".to_string(),
+                        name: "on_session_start".to_string(),
+                        error: err.to_string(),
+                    })?;
                     emit(AgentEvent::Error {
                         message: format!("SessionHook.on_session_start failed: {err}"),
                         recoverable: true,
@@ -121,7 +131,11 @@ impl AgentLoop {
         let mut last_packet_hash: Option<String> = None;
         let mut last_prompt_source: Option<String> = None;
 
-        let emit_checkpoint = |emit: &mut dyn FnMut(AgentEvent) -> Result<()>, session: &Session, hash: Option<String>, ps: Option<String>| -> Result<()> {
+        let emit_checkpoint = |emit: &mut dyn FnMut(AgentEvent) -> Result<()>,
+                               session: &Session,
+                               hash: Option<String>,
+                               ps: Option<String>|
+         -> Result<()> {
             emit(AgentEvent::Checkpoint {
                 history: session.history.clone(),
                 token_budget: session.token_budget.clone(),
@@ -130,7 +144,12 @@ impl AgentLoop {
             })
         };
 
-        emit_checkpoint(&mut emit, session, last_packet_hash.clone(), last_prompt_source.clone())?;
+        emit_checkpoint(
+            &mut emit,
+            session,
+            last_packet_hash.clone(),
+            last_prompt_source.clone(),
+        )?;
 
         let mut turns = 0_usize;
         let mut total_input_tokens = 0_usize;
@@ -152,7 +171,15 @@ impl AgentLoop {
                 break reason;
             }
 
-            let request = self.build_request(session, &mut emit, cancel_token, &mut last_packet_hash, &mut last_prompt_source).await?;
+            let request = self
+                .build_request(
+                    session,
+                    &mut emit,
+                    cancel_token,
+                    &mut last_packet_hash,
+                    &mut last_prompt_source,
+                )
+                .await?;
             let outcome = self
                 .run_turn(
                     session,
@@ -173,7 +200,12 @@ impl AgentLoop {
             let stop_opt = self.stop_reason(session, turns, outcome);
 
             if matches!(outcome, TurnOutcome::ToolExecuted | TurnOutcome::Stop(_)) {
-                emit_checkpoint(&mut emit, session, last_packet_hash.clone(), last_prompt_source.clone())?;
+                emit_checkpoint(
+                    &mut emit,
+                    session,
+                    last_packet_hash.clone(),
+                    last_prompt_source.clone(),
+                )?;
             }
 
             if let Some(reason) = stop_opt {
@@ -186,20 +218,30 @@ impl AgentLoop {
         };
 
         for hook in &self.hooks.session_hooks {
-            emit(AgentEvent::HookStarted { hook_type: "session".to_string(), name: "on_session_end".to_string() })?;
+            emit(AgentEvent::HookStarted {
+                hook_type: "session".to_string(),
+                name: "on_session_end".to_string(),
+            })?;
             let hook_res = tokio::select! {
                 res = hook.on_session_end(session) => res,
                 _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
             };
             match hook_res {
                 Ok(events) => {
-                    emit(AgentEvent::HookCompleted { hook_type: "session".to_string(), name: "on_session_end".to_string() })?;
+                    emit(AgentEvent::HookCompleted {
+                        hook_type: "session".to_string(),
+                        name: "on_session_end".to_string(),
+                    })?;
                     for ev in events {
                         emit(ev)?;
                     }
                 }
                 Err(err) => {
-                    emit(AgentEvent::HookFailed { hook_type: "session".to_string(), name: "on_session_end".to_string(), error: err.to_string() })?;
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "session".to_string(),
+                        name: "on_session_end".to_string(),
+                        error: err.to_string(),
+                    })?;
                     emit(AgentEvent::Error {
                         message: format!("SessionHook.on_session_end failed: {err}"),
                         recoverable: true,
@@ -234,7 +276,10 @@ impl AgentLoop {
         emit(AgentEvent::ContextBuildStarted)?;
 
         for hook in &self.hooks.context_hooks {
-            emit(AgentEvent::HookStarted { hook_type: "context".to_string(), name: "before_context_build".to_string() })?;
+            emit(AgentEvent::HookStarted {
+                hook_type: "context".to_string(),
+                name: "before_context_build".to_string(),
+            })?;
             let hook_res = tokio::select! {
                 res = hook.before_context_build(session) => res,
                 _ = cancel_token.cancelled() => {
@@ -244,13 +289,20 @@ impl AgentLoop {
             };
             match hook_res {
                 Ok(events) => {
-                    emit(AgentEvent::HookCompleted { hook_type: "context".to_string(), name: "before_context_build".to_string() })?;
+                    emit(AgentEvent::HookCompleted {
+                        hook_type: "context".to_string(),
+                        name: "before_context_build".to_string(),
+                    })?;
                     for ev in events {
                         emit(ev)?;
                     }
                 }
                 Err(err) => {
-                    emit(AgentEvent::HookFailed { hook_type: "context".to_string(), name: "before_context_build".to_string(), error: err.to_string() })?;
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "context".to_string(),
+                        name: "before_context_build".to_string(),
+                        error: err.to_string(),
+                    })?;
                     emit(AgentEvent::Error {
                         message: format!("ContextHook.before_context_build failed: {err}"),
                         recoverable: true,
@@ -264,7 +316,10 @@ impl AgentLoop {
             .build_packet(&session.history, &session.token_budget);
 
         for hook in &self.hooks.context_hooks {
-            emit(AgentEvent::HookStarted { hook_type: "context".to_string(), name: "after_context_build".to_string() })?;
+            emit(AgentEvent::HookStarted {
+                hook_type: "context".to_string(),
+                name: "after_context_build".to_string(),
+            })?;
             let hook_res = tokio::select! {
                 res = hook.after_context_build(session, &packet) => res,
                 _ = cancel_token.cancelled() => {
@@ -274,13 +329,20 @@ impl AgentLoop {
             };
             match hook_res {
                 Ok(events) => {
-                    emit(AgentEvent::HookCompleted { hook_type: "context".to_string(), name: "after_context_build".to_string() })?;
+                    emit(AgentEvent::HookCompleted {
+                        hook_type: "context".to_string(),
+                        name: "after_context_build".to_string(),
+                    })?;
                     for ev in events {
                         emit(ev)?;
                     }
                 }
                 Err(err) => {
-                    emit(AgentEvent::HookFailed { hook_type: "context".to_string(), name: "after_context_build".to_string(), error: err.to_string() })?;
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "context".to_string(),
+                        name: "after_context_build".to_string(),
+                        error: err.to_string(),
+                    })?;
                     emit(AgentEvent::Error {
                         message: format!("ContextHook.after_context_build failed: {err}"),
                         recoverable: true,
@@ -354,20 +416,30 @@ impl AgentLoop {
         F: FnMut(AgentEvent) -> Result<()> + Send,
     {
         for hook in &self.hooks.model_hooks {
-            emit(AgentEvent::HookStarted { hook_type: "model".to_string(), name: "before_model_request".to_string() })?;
+            emit(AgentEvent::HookStarted {
+                hook_type: "model".to_string(),
+                name: "before_model_request".to_string(),
+            })?;
             let hook_res = tokio::select! {
                 res = hook.before_model_request(session, &request) => res,
                 _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
             };
             match hook_res {
                 Ok(events) => {
-                    emit(AgentEvent::HookCompleted { hook_type: "model".to_string(), name: "before_model_request".to_string() })?;
+                    emit(AgentEvent::HookCompleted {
+                        hook_type: "model".to_string(),
+                        name: "before_model_request".to_string(),
+                    })?;
                     for ev in events {
                         emit(ev)?;
                     }
                 }
                 Err(err) => {
-                    emit(AgentEvent::HookFailed { hook_type: "model".to_string(), name: "before_model_request".to_string(), error: err.to_string() })?;
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "model".to_string(),
+                        name: "before_model_request".to_string(),
+                        error: err.to_string(),
+                    })?;
                     emit(AgentEvent::Error {
                         message: format!("ModelHook.before_model_request failed: {err}"),
                         recoverable: true,
@@ -493,20 +565,30 @@ impl AgentLoop {
             reason: stop_reason,
         };
         for hook in &self.hooks.model_hooks {
-            emit(AgentEvent::HookStarted { hook_type: "model".to_string(), name: "after_model_response".to_string() })?;
+            emit(AgentEvent::HookStarted {
+                hook_type: "model".to_string(),
+                name: "after_model_response".to_string(),
+            })?;
             let hook_res = tokio::select! {
                 res = hook.after_model_response(session, &assistant_turn_event) => res,
                 _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
             };
             match hook_res {
                 Ok(events) => {
-                    emit(AgentEvent::HookCompleted { hook_type: "model".to_string(), name: "after_model_response".to_string() })?;
+                    emit(AgentEvent::HookCompleted {
+                        hook_type: "model".to_string(),
+                        name: "after_model_response".to_string(),
+                    })?;
                     for ev in events {
                         emit(ev)?;
                     }
                 }
                 Err(err) => {
-                    emit(AgentEvent::HookFailed { hook_type: "model".to_string(), name: "after_model_response".to_string(), error: err.to_string() })?;
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "model".to_string(),
+                        name: "after_model_response".to_string(),
+                        error: err.to_string(),
+                    })?;
                     emit(AgentEvent::Error {
                         message: format!("ModelHook.after_model_response failed: {err}"),
                         recoverable: true,
@@ -587,32 +669,48 @@ impl AgentLoop {
             for hook in &self.hooks.tool_hooks {
                 let mut tool_session = session.clone();
                 tool_session.tool_ctx.current_tool_call_id = Some(id.clone());
-                emit(AgentEvent::HookStarted { hook_type: "tool".to_string(), name: "after_tool_execution".to_string() })?;
+                emit(AgentEvent::HookStarted {
+                    hook_type: "tool".to_string(),
+                    name: "after_tool_execution".to_string(),
+                })?;
                 let hook_res = tokio::select! {
                     res = hook.after_tool_execution(&tool_session, &tool_name, &result) => res,
                     _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
                 };
                 match hook_res {
                     Ok(events) => {
-                        emit(AgentEvent::HookCompleted { hook_type: "tool".to_string(), name: "after_tool_execution".to_string() })?;
+                        emit(AgentEvent::HookCompleted {
+                            hook_type: "tool".to_string(),
+                            name: "after_tool_execution".to_string(),
+                        })?;
                         for ev in events {
                             emit(ev.clone())?;
                             if let AgentEvent::VerificationResult { .. } = ev {
                                 for v_hook in &self.hooks.verification_hooks {
-                                    emit(AgentEvent::HookStarted { hook_type: "verification".to_string(), name: "after_verification".to_string() })?;
+                                    emit(AgentEvent::HookStarted {
+                                        hook_type: "verification".to_string(),
+                                        name: "after_verification".to_string(),
+                                    })?;
                                     let v_res = tokio::select! {
                                         res = v_hook.after_verification(&tool_session, &ev) => res,
                                         _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
                                     };
                                     match v_res {
                                         Ok(v_events) => {
-                                            emit(AgentEvent::HookCompleted { hook_type: "verification".to_string(), name: "after_verification".to_string() })?;
+                                            emit(AgentEvent::HookCompleted {
+                                                hook_type: "verification".to_string(),
+                                                name: "after_verification".to_string(),
+                                            })?;
                                             for v_ev in v_events {
                                                 emit(v_ev)?;
                                             }
                                         }
                                         Err(err) => {
-                                            emit(AgentEvent::HookFailed { hook_type: "verification".to_string(), name: "after_verification".to_string(), error: err.to_string() })?;
+                                            emit(AgentEvent::HookFailed {
+                                                hook_type: "verification".to_string(),
+                                                name: "after_verification".to_string(),
+                                                error: err.to_string(),
+                                            })?;
                                             emit(AgentEvent::Error {
                                                 message: format!("VerificationHook.after_verification failed: {err}"),
                                                 recoverable: true,
@@ -624,7 +722,11 @@ impl AgentLoop {
                         }
                     }
                     Err(err) => {
-                        emit(AgentEvent::HookFailed { hook_type: "tool".to_string(), name: "after_tool_execution".to_string(), error: err.to_string() })?;
+                        emit(AgentEvent::HookFailed {
+                            hook_type: "tool".to_string(),
+                            name: "after_tool_execution".to_string(),
+                            error: err.to_string(),
+                        })?;
                         emit(AgentEvent::Error {
                             message: format!("ToolHook.after_tool_execution failed: {err}"),
                             recoverable: true,

@@ -1,5 +1,5 @@
-use thiserror::Error;
 use gestalt_core::error::HarnessError;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
@@ -17,6 +17,9 @@ pub enum RuntimeError {
 
     #[error("hook error: {0}")]
     Hook(String),
+
+    #[error("orchestration error: {0}")]
+    Orchestration(String),
 }
 
 pub type Result<T> = std::result::Result<T, RuntimeError>;
