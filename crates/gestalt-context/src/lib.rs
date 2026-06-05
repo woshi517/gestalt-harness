@@ -98,7 +98,10 @@ impl MinimalContextPipeline {
     pub fn build(&self, history: &[Message], budget: &TokenBudget) -> ContextBuild {
         let mut messages = Vec::new();
 
-        let is_override_empty = self.prompt_override.as_ref().map_or(true, |over| over.trim().is_empty());
+        let is_override_empty = self
+            .prompt_override
+            .as_ref()
+            .map_or(true, |over| over.trim().is_empty());
         let prompt_content = if is_override_empty {
             let tools_slice = self.available_tools.as_deref();
             Some(default_prompt::get_default_prompt(
@@ -357,7 +360,10 @@ impl ContextPipeline for MinimalContextPipeline {
             })
             .collect();
 
-        let is_default = self.prompt_override.as_ref().map_or(true, |over| over.trim().is_empty());
+        let is_default = self
+            .prompt_override
+            .as_ref()
+            .map_or(true, |over| over.trim().is_empty());
         let prompt_source = if is_default {
             Some("default".to_string())
         } else {

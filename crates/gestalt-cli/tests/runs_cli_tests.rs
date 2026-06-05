@@ -1,7 +1,7 @@
+use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_cli::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
 use std::fs;
 use std::path::PathBuf;
-use gestalt_cli::config::{CliOverrides, load_effective_config};
-use gestalt_cli::runs::{list_runs, inspect_run, resolve_run_path, prune_runs, delete_run};
 
 fn create_temp_workspace() -> PathBuf {
     let temp = std::env::temp_dir().join(format!("gestalt-test-runs-{}", uuid::Uuid::new_v4()));
@@ -118,10 +118,22 @@ fn test_runs_edge_cases() {
     assert!(gestalt_cli::runs::parse_duration("").is_err());
     assert!(gestalt_cli::runs::parse_duration("10").is_err());
     assert!(gestalt_cli::runs::parse_duration("10x").is_err());
-    assert_eq!(gestalt_cli::runs::parse_duration("10d").unwrap(), chrono::Duration::days(10));
-    assert_eq!(gestalt_cli::runs::parse_duration("5h").unwrap(), chrono::Duration::hours(5));
-    assert_eq!(gestalt_cli::runs::parse_duration("30m").unwrap(), chrono::Duration::minutes(30));
-    assert_eq!(gestalt_cli::runs::parse_duration("60s").unwrap(), chrono::Duration::seconds(60));
+    assert_eq!(
+        gestalt_cli::runs::parse_duration("10d").unwrap(),
+        chrono::Duration::days(10)
+    );
+    assert_eq!(
+        gestalt_cli::runs::parse_duration("5h").unwrap(),
+        chrono::Duration::hours(5)
+    );
+    assert_eq!(
+        gestalt_cli::runs::parse_duration("30m").unwrap(),
+        chrono::Duration::minutes(30)
+    );
+    assert_eq!(
+        gestalt_cli::runs::parse_duration("60s").unwrap(),
+        chrono::Duration::seconds(60)
+    );
     assert!(gestalt_cli::runs::parse_duration("10秒").is_err());
 
     // 2. parse_run_timestamp edge cases
@@ -135,8 +147,9 @@ fn test_runs_edge_cases() {
     assert!(gestalt_cli::runs::scan_trace_file(missing_path).is_err());
 
     // 4. resolve_run_path ambiguity
-    let temp_root = std::env::temp_dir().join(format!("gestalt-test-ambiguity-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&temp_root.join(".gestalt/runs")).unwrap();
+    let temp_root =
+        std::env::temp_dir().join(format!("gestalt-test-ambiguity-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(temp_root.join(".gestalt/runs")).unwrap();
     let run1 = temp_root.join(".gestalt/runs/20260602T100000Z-session-1");
     let run2 = temp_root.join(".gestalt/runs/20260602T100000Z-session-2");
     fs::create_dir_all(&run1).unwrap();
@@ -159,7 +172,7 @@ fn test_runs_edge_cases() {
 
 #[test]
 fn test_runs_new_features() {
-    use std::io::{Write, Seek, SeekFrom};
+    use std::io::{Seek, SeekFrom, Write};
     let temp_root = create_temp_workspace();
     let runs_dir = temp_root.join(".gestalt/runs");
     fs::create_dir_all(&runs_dir).unwrap();
@@ -168,6 +181,7 @@ fn test_runs_new_features() {
     let file_path = temp_root.join("test_tail.jsonl");
     let mut file = fs::OpenOptions::new()
         .create(true)
+        .truncate(true)
         .read(true)
         .write(true)
         .open(&file_path)
@@ -306,7 +320,9 @@ fn test_runs_additional_patch_requirements() {
 
 #[test]
 fn test_runs_descendant_aware_prune_and_delete() {
-    use gestalt_trace::run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
+    use gestalt_trace::run_manifest::{
+        CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
+    };
 
     let temp_root = create_temp_workspace();
     let runs_dir = temp_root.join(".gestalt/runs");
@@ -352,7 +368,9 @@ fn test_runs_descendant_aware_prune_and_delete() {
         interrupted_phase: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
-    parent_manifest.save_to(&parent_dir.join("run.json")).unwrap();
+    parent_manifest
+        .save_to(&parent_dir.join("run.json"))
+        .unwrap();
 
     let child_manifest = RunManifest {
         v: 1,
@@ -390,6 +408,3 @@ fn test_runs_descendant_aware_prune_and_delete() {
 
     let _ = fs::remove_dir_all(&temp_root);
 }
-
-
-

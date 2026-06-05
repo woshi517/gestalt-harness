@@ -3,14 +3,14 @@
 pub mod evaluator;
 pub mod fixture;
 pub mod golden;
-pub mod run_manifest;
 pub mod resume;
+pub mod run_manifest;
 
 pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
 pub use golden::{GoldenTrace, GoldenTraceRunner};
-pub use run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
-pub use resume::{ResumeAnalyzer, ResumeAnalysis, RecoveryStatus};
+pub use resume::{RecoveryStatus, ResumeAnalysis, ResumeAnalyzer};
+pub use run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 
 use std::{
     fs::{self, File},
@@ -121,7 +121,12 @@ impl JsonlTraceSink {
         workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<(Self, RunPaths), TraceError> {
         let paths = create_run_paths(base_dir, run_id)?;
-        let sink = Self::new(session_id.to_string(), run_id.to_string(), &paths.trace, workspace_snapshot)?;
+        let sink = Self::new(
+            session_id.to_string(),
+            run_id.to_string(),
+            &paths.trace,
+            workspace_snapshot,
+        )?;
         Ok((sink, paths))
     }
 }
@@ -189,10 +194,7 @@ impl Drop for JsonlTraceSink {
     }
 }
 
-pub fn create_run_paths(
-    base_dir: impl AsRef<Path>,
-    run_id: &str,
-) -> Result<RunPaths, TraceError> {
+pub fn create_run_paths(base_dir: impl AsRef<Path>, run_id: &str) -> Result<RunPaths, TraceError> {
     let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
     let root = base_dir.as_ref().join(format!("{stamp}-{run_id}"));
     let artifacts = root.join("artifacts");

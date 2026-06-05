@@ -30,9 +30,9 @@ pub fn inspect_provider(
     provider: &str,
 ) -> Result<serde_json::Value, HarnessError> {
     if !list_providers(config).contains(&provider.to_string()) {
-        return Err(HarnessError::Provider(gestalt_core::ProviderError::UnknownProvider(
-            provider.to_string(),
-        )));
+        return Err(HarnessError::Provider(
+            gestalt_core::ProviderError::UnknownProvider(provider.to_string()),
+        ));
     }
     Ok(config.provider_json(provider))
 }
@@ -43,10 +43,14 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
     temp_cfg.defaults.profile = None;
     let resolved = temp_cfg.resolve_provider()?;
     let provider_config = resolved.provider_json();
-    let auth_config = gestalt_models::auth::provider_auth_config(&provider_config, &resolved.provider_name, "DUMMY_KEY")?;
+    let auth_config = gestalt_models::auth::provider_auth_config(
+        &provider_config,
+        &resolved.provider_name,
+        "DUMMY_KEY",
+    )?;
 
-    let resolver = crate::auth::build_credential_resolver(None, false);
-    let credential = resolver.resolve(&auth_config).map_err(|_| {
+    let cred_resolver = crate::auth::build_credential_resolver(None, false);
+    let credential = cred_resolver.resolve(&auth_config).map_err(|_| {
         HarnessError::Provider(gestalt_core::ProviderError::AuthFailed {
             provider: provider.to_string(),
         })
@@ -56,19 +60,31 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| HarnessError::Provider(gestalt_core::ProviderError::Transport(std::io::Error::other(e))))?;
+        .map_err(|e| {
+            HarnessError::Provider(gestalt_core::ProviderError::Transport(
+                std::io::Error::other(e),
+            ))
+        })?;
 
     let mut req_builder = if resolved.kind == "anthropic" {
-        let base_url = resolved.base_url.as_deref().unwrap_or("https://api.anthropic.com").trim_end_matches('/');
+        let base_url = resolved
+            .base_url
+            .as_deref()
+            .unwrap_or("https://api.anthropic.com")
+            .trim_end_matches('/');
         let url = format!("{base_url}/v1/models");
-        client.get(&url)
+        client
+            .get(&url)
             .header("x-api-key", &api_key)
             .header("anthropic-version", "2023-06-01")
     } else {
-        let base_url = resolved.base_url.as_deref().unwrap_or("https://api.openai.com/v1").trim_end_matches('/');
+        let base_url = resolved
+            .base_url
+            .as_deref()
+            .unwrap_or("https://api.openai.com/v1")
+            .trim_end_matches('/');
         let url = format!("{base_url}/models");
-        client.get(&url)
-            .bearer_auth(&api_key)
+        client.get(&url).bearer_auth(&api_key)
     };
 
     if let Some(ref hdrs) = resolved.headers {
@@ -77,15 +93,19 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
         }
     }
 
-    let resp = req_builder.send()
-        .await
-        .map_err(|e| HarnessError::Provider(gestalt_core::ProviderError::Transport(std::io::Error::other(e))))?;
+    let resp = req_builder.send().await.map_err(|e| {
+        HarnessError::Provider(gestalt_core::ProviderError::Transport(
+            std::io::Error::other(e),
+        ))
+    })?;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(HarnessError::Provider(gestalt_core::ProviderError::UnexpectedResponse {
-            details: format!("API returned status {}: {}", status, body),
-        }));
+        return Err(HarnessError::Provider(
+            gestalt_core::ProviderError::UnexpectedResponse {
+                details: format!("API returned status {}: {}", status, body),
+            },
+        ));
     }
 
     Ok(())

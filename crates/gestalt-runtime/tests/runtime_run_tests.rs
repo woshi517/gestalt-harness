@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -8,8 +8,8 @@ use gestalt_core::{
     context::{ContextPipeline, TokenBudget},
     event::{AgentEvent, StopReason},
     message::Message,
-    policy::{PolicyEngine, PolicyDecision, PolicyRequest},
-    provider::{Provider, ProviderCapabilities, ProviderRequest, EventStream},
+    policy::{PolicyDecision, PolicyEngine, PolicyRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     session::{Session, SessionConfig},
     tool::{ToolCatalog, ToolContext, ToolSchema},
 };
@@ -19,9 +19,15 @@ struct MockProvider;
 
 #[async_trait::async_trait]
 impl Provider for MockProvider {
-    fn id(&self) -> &str { "mock" }
-    fn display_name(&self) -> &str { "Mock" }
-    fn default_model(&self) -> &str { "mock-model" }
+    fn id(&self) -> &str {
+        "mock"
+    }
+    fn display_name(&self) -> &str {
+        "Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
     fn capabilities(&self) -> &ProviderCapabilities {
         static CAP: ProviderCapabilities = ProviderCapabilities {
             supports_tools: false,
@@ -36,21 +42,40 @@ impl Provider for MockProvider {
         };
         &CAP
     }
-    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> { None }
-    fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, gestalt_core::error::HarnessError> { Ok(0) }
-    async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, gestalt_core::error::HarnessError> {
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(0)
+    }
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
         let events = vec![AgentEvent::Stop {
             reason: StopReason::EndTurn,
         }];
-        let stream = futures::stream::iter(events.into_iter().map(Ok::<_, gestalt_core::error::HarnessError>));
+        let stream = futures::stream::iter(
+            events
+                .into_iter()
+                .map(Ok::<_, gestalt_core::error::HarnessError>),
+        );
         Ok(Box::pin(stream))
     }
 }
 
 struct MockToolCatalog;
 impl ToolCatalog for MockToolCatalog {
-    fn schemas(&self) -> Vec<ToolSchema> { Vec::new() }
-    fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> { None }
+    fn schemas(&self) -> Vec<ToolSchema> {
+        Vec::new()
+    }
+    fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+        None
+    }
 }
 
 struct MockContextPipeline;
@@ -87,7 +112,7 @@ fn build_test_runtime() -> gestalt_runtime::runtime::AgentRuntime {
 async fn test_runtime_run_prompt_happy_path() {
     let runtime = build_test_runtime();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    
+
     let input = UserInput {
         prompt: "hello".to_string(),
         session_id: None,
@@ -109,7 +134,10 @@ async fn test_runtime_run_prompt_happy_path() {
 
     assert!(!events.is_empty());
     // Verify it captures workspace snapshot first
-    assert!(matches!(events[0], AgentEvent::WorkspaceSnapshotCaptured { .. }));
+    assert!(matches!(
+        events[0],
+        AgentEvent::WorkspaceSnapshotCaptured { .. }
+    ));
     // Verify it outputs the user message
     assert!(matches!(events[1], AgentEvent::UserMessage { .. }));
 }
@@ -177,7 +205,7 @@ async fn test_runtime_run_session_preserves_history() {
     assert!(res.is_ok());
 
     // Verify history was preserved and not reset
-    assert_eq!(session.history.len(), 3); 
+    assert_eq!(session.history.len(), 3);
     if let Message::User { content } = &session.history[0] {
         if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
             assert_eq!(text, "Initial user turn");

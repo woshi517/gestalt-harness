@@ -1,9 +1,9 @@
+use crate::config::EffectiveConfig;
+use chrono::Utc;
+use gestalt_core::HarnessError;
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use gestalt_core::HarnessError;
-use crate::config::EffectiveConfig;
-use chrono::Utc;
 
 /// Detailed cost and token usage report for runs.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -85,9 +85,13 @@ pub fn parse_duration(s: &str) -> Result<chrono::Duration, String> {
         return Err("empty duration".to_string());
     }
     let mut chars = s.chars();
-    let suffix = chars.next_back().ok_or_else(|| "empty duration".to_string())?;
+    let suffix = chars
+        .next_back()
+        .ok_or_else(|| "empty duration".to_string())?;
     let val_str = chars.as_str();
-    let val: i64 = val_str.parse().map_err(|_| format!("invalid duration number: {}", val_str))?;
+    let val: i64 = val_str
+        .parse()
+        .map_err(|_| format!("invalid duration number: {}", val_str))?;
 
     if val <= 0 {
         return Err(format!("duration must be positive, got: {}", val));
@@ -133,7 +137,8 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
             if path.join("trace.jsonl").exists() {
                 return Ok(path);
             }
-        } else if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some("trace.jsonl") {
+        } else if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some("trace.jsonl")
+        {
             if let Some(parent) = path.parent() {
                 return Ok(parent.to_path_buf());
             }
@@ -142,16 +147,14 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
 
     let run_log_dir = config.run_log_dir();
     if run_log_dir.exists() {
-        let entries = fs::read_dir(&run_log_dir).map_err(|e| {
-            HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-        })?;
+        let entries = fs::read_dir(&run_log_dir)
+            .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
         let mut matches = Vec::new();
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-            })?;
+            let entry =
+                entry.map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            
+
             let mut is_match = false;
             if name == input || name.starts_with(input) {
                 is_match = true;
@@ -167,14 +170,16 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
             if !is_match {
                 let manifest_path = entry.path().join("run.json");
                 if manifest_path.exists() {
-                    if let Ok(manifest) = gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path) {
+                    if let Ok(manifest) =
+                        gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path)
+                    {
                         if manifest.run_id == input || manifest.run_id.starts_with(input) {
                             is_match = true;
                         }
                     }
                 }
             }
-            
+
             if is_match {
                 matches.push(entry.path());
             }
@@ -187,7 +192,7 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
                 gestalt_core::ConfigError::InvalidValue {
                     field: "run-id".to_string(),
                     reason: format!("ambiguous run ID: '{}' matched multiple runs", input),
-                }
+                },
             ));
         }
     }
@@ -196,7 +201,7 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
         gestalt_core::ConfigError::InvalidValue {
             field: "run-id".to_string(),
             reason: format!("run ID or path not found: '{}'", input),
-        }
+        },
     ))
 }
 
@@ -236,7 +241,11 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
         }
 
         match envelope.event {
-            gestalt_core::AgentEvent::ModelRequest { provider: ref p, model: ref m, .. } => {
+            gestalt_core::AgentEvent::ModelRequest {
+                provider: ref p,
+                model: ref m,
+                ..
+            } => {
                 if provider.is_none() {
                     provider = Some(p.clone());
                 }
@@ -251,7 +260,8 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
                         apparent_status = "completed".to_string();
                         break;
                     }
-                    gestalt_core::StopReason::PolicyViolation | gestalt_core::StopReason::ProviderError => {
+                    gestalt_core::StopReason::PolicyViolation
+                    | gestalt_core::StopReason::ProviderError => {
                         apparent_status = "failed".to_string();
                         break;
                     }
@@ -268,7 +278,10 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
                     break;
                 }
             }
-            gestalt_core::AgentEvent::Usage { input_tokens, output_tokens } => {
+            gestalt_core::AgentEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
                 if let Some(i) = total_input_tokens {
                     total_input_tokens = Some(i + input_tokens);
                 }
@@ -323,7 +336,11 @@ pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
         None
     };
 
-    let folder_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let folder_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     let start_time = parse_run_timestamp(&folder_name);
     let run_id = if let Some(ref m) = manifest {
         m.run_id.clone()
@@ -395,8 +412,12 @@ pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
     artifacts.sort();
 
     let parent_run_id = manifest.as_ref().and_then(|m| m.parent_run_id.clone());
-    let run_kind = manifest.as_ref().map(|m| format!("{:?}", m.run_kind).to_lowercase());
-    let lifecycle_state = manifest.as_ref().map(|m| format!("{:?}", m.lifecycle_state).to_lowercase());
+    let run_kind = manifest
+        .as_ref()
+        .map(|m| format!("{:?}", m.run_kind).to_lowercase());
+    let lifecycle_state = manifest
+        .as_ref()
+        .map(|m| format!("{:?}", m.lifecycle_state).to_lowercase());
 
     Ok(RunSummary {
         run_id,
@@ -423,19 +444,20 @@ pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
 }
 
 /// Lists run indices under the run log directory.
-pub fn list_runs(config: &EffectiveConfig, limit: Option<usize>) -> Result<crate::output::RunsListReport, HarnessError> {
+pub fn list_runs(
+    config: &EffectiveConfig,
+    limit: Option<usize>,
+) -> Result<crate::output::RunsListReport, HarnessError> {
     let run_log_dir = config.run_log_dir();
     let mut runs = Vec::new();
 
     if run_log_dir.exists() {
-        let entries = fs::read_dir(&run_log_dir).map_err(|e| {
-            HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-        })?;
+        let entries = fs::read_dir(&run_log_dir)
+            .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-            })?;
+            let entry =
+                entry.map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
             let path = entry.path();
             if path.is_dir() {
                 if let Ok(summary) = summarize_run_dir(&path) {
@@ -460,13 +482,11 @@ pub fn list_runs(config: &EffectiveConfig, limit: Option<usize>) -> Result<crate
         }
     }
 
-    runs.sort_by(|a, b| {
-        match (a.start_time, b.start_time) {
-            (Some(ta), Some(tb)) => tb.cmp(&ta).then_with(|| b.run_id.cmp(&a.run_id)),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => b.run_id.cmp(&a.run_id),
-        }
+    runs.sort_by(|a, b| match (a.start_time, b.start_time) {
+        (Some(ta), Some(tb)) => tb.cmp(&ta).then_with(|| b.run_id.cmp(&a.run_id)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => b.run_id.cmp(&a.run_id),
     });
 
     if let Some(l) = limit {
@@ -477,7 +497,10 @@ pub fn list_runs(config: &EffectiveConfig, limit: Option<usize>) -> Result<crate
 }
 
 /// Inspects a specific run and returns a structured report.
-pub fn inspect_run(config: &EffectiveConfig, run_id_or_path: &str) -> Result<crate::output::RunsInspectReport, HarnessError> {
+pub fn inspect_run(
+    config: &EffectiveConfig,
+    run_id_or_path: &str,
+) -> Result<crate::output::RunsInspectReport, HarnessError> {
     let resolved_path = resolve_run_path(config, run_id_or_path)?;
     let summary = summarize_run_dir(&resolved_path)?;
 
@@ -519,14 +542,12 @@ pub fn read_next_line(file: &mut fs::File, buf: &mut String) -> std::io::Result<
             Ok(0) => {
                 if !bytes.is_empty() {
                     if bytes.last() == Some(&b'\n') {
-                        *buf = String::from_utf8(bytes).map_err(|e| {
-                            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-                        })?;
+                        *buf = String::from_utf8(bytes)
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
                         return Ok(buf.len());
-                    } else {
-                        file.seek(SeekFrom::Start(start_pos))?;
-                        return Ok(0);
                     }
+                    file.seek(SeekFrom::Start(start_pos))?;
+                    return Ok(0);
                 }
                 return Ok(0);
             }
@@ -534,9 +555,8 @@ pub fn read_next_line(file: &mut fs::File, buf: &mut String) -> std::io::Result<
                 let b = temp[0];
                 bytes.push(b);
                 if b == b'\n' {
-                    *buf = String::from_utf8(bytes).map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-                    })?;
+                    *buf = String::from_utf8(bytes)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
                     return Ok(buf.len());
                 }
             }
@@ -552,19 +572,22 @@ pub fn read_next_line(file: &mut fs::File, buf: &mut String) -> std::io::Result<
 }
 
 /// Streams new lines appended to the run's trace log in real-time.
-pub fn tail_run(config: &EffectiveConfig, run_id_or_path: &str, format: crate::output::OutputFormat) -> Result<(), HarnessError> {
+pub fn tail_run(
+    config: &EffectiveConfig,
+    run_id_or_path: &str,
+    format: crate::output::OutputFormat,
+) -> Result<(), HarnessError> {
     let resolved_path = resolve_run_path(config, run_id_or_path)?;
     let trace_path = resolved_path.join("trace.jsonl");
 
     if !trace_path.exists() {
         return Err(HarnessError::Trace(gestalt_core::TraceError::WriteFailed(
-            std::io::Error::new(std::io::ErrorKind::NotFound, "trace.jsonl file not found")
+            std::io::Error::new(std::io::ErrorKind::NotFound, "trace.jsonl file not found"),
         )));
     }
 
-    let mut file = fs::File::open(&trace_path).map_err(|e| {
-        HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-    })?;
+    let mut file = fs::File::open(&trace_path)
+        .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
     let mut line = String::new();
 
     // Read all existing complete lines
@@ -575,7 +598,9 @@ pub fn tail_run(config: &EffectiveConfig, run_id_or_path: &str, format: crate::o
                 print_tailed_line(&line, format)?;
             }
             Err(e) => {
-                return Err(HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)));
+                return Err(HarnessError::Trace(gestalt_core::TraceError::WriteFailed(
+                    e,
+                )));
             }
         }
     }
@@ -590,7 +615,9 @@ pub fn tail_run(config: &EffectiveConfig, run_id_or_path: &str, format: crate::o
                 print_tailed_line(&line, format)?;
             }
             Err(e) => {
-                return Err(HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)));
+                return Err(HarnessError::Trace(gestalt_core::TraceError::WriteFailed(
+                    e,
+                )));
             }
         }
     }
@@ -631,7 +658,9 @@ fn has_descendants(config: &EffectiveConfig, run_id: &str) -> bool {
         for entry in entries.flatten() {
             let manifest_path = entry.path().join("run.json");
             if manifest_path.exists() {
-                if let Ok(manifest) = gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path) {
+                if let Ok(manifest) =
+                    gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path)
+                {
                     if let Some(ref parent_id) = manifest.parent_run_id {
                         if parent_id == run_id {
                             return true;
@@ -644,7 +673,11 @@ fn has_descendants(config: &EffectiveConfig, run_id: &str) -> bool {
     false
 }
 
-fn gather_descendants(config: &EffectiveConfig, run_id: &str, out: &mut Vec<(String, PathBuf, u64)>) {
+fn gather_descendants(
+    config: &EffectiveConfig,
+    run_id: &str,
+    out: &mut Vec<(String, PathBuf, u64)>,
+) {
     let run_log_dir = config.run_log_dir();
     if !run_log_dir.exists() {
         return;
@@ -653,13 +686,19 @@ fn gather_descendants(config: &EffectiveConfig, run_id: &str, out: &mut Vec<(Str
         for entry in entries.flatten() {
             let manifest_path = entry.path().join("run.json");
             if manifest_path.exists() {
-                if let Ok(manifest) = gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path) {
+                if let Ok(manifest) =
+                    gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path)
+                {
                     if let Some(ref parent_id) = manifest.parent_run_id {
                         if parent_id == run_id {
                             let child_run_id = manifest.run_id.clone();
                             let child_path = entry.path();
                             let child_size = get_dir_size(&child_path).unwrap_or(0);
-                            let folder_name = child_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                            let folder_name = child_path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .into_owned();
                             let actual_child_id = if !child_run_id.is_empty() {
                                 child_run_id.clone()
                             } else {
@@ -701,14 +740,12 @@ pub fn prune_runs(
     let threshold = now - duration;
 
     if run_log_dir.exists() {
-        let entries = fs::read_dir(&run_log_dir).map_err(|e| {
-            HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-        })?;
+        let entries = fs::read_dir(&run_log_dir)
+            .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-            })?;
+            let entry =
+                entry.map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
             let path = entry.path();
             if path.is_dir() {
                 let run_id = entry.file_name().to_string_lossy().into_owned();
@@ -728,15 +765,15 @@ pub fn prune_runs(
                     let run_manifest_path = path.join("run.json");
                     let mut r_id = None;
                     if run_manifest_path.exists() {
-                        if let Ok(m) = gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path) {
+                        if let Ok(m) =
+                            gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path)
+                        {
                             r_id = Some(m.run_id);
                         }
                     }
 
                     let folder_name = entry.file_name().to_string_lossy().into_owned();
-                    let actual_run_id = r_id.clone().unwrap_or_else(|| {
-                        folder_name.clone()
-                    });
+                    let actual_run_id = r_id.clone().unwrap_or_else(|| folder_name.clone());
 
                     if let Some(ref rid) = r_id {
                         if !cascade && has_descendants(config, rid) {
@@ -779,7 +816,11 @@ pub fn prune_runs(
     if !dry_run && !skip_confirm {
         if std::io::stdin().is_terminal() {
             let size_mb = runs_to_prune.iter().map(|(_, _, s)| s).sum::<u64>() as f64 / 1_048_576.0;
-            println!("Are you sure you want to prune {} runs (reclaiming {:.2} MB)? [y/N]", runs_to_prune.len(), size_mb);
+            println!(
+                "Are you sure you want to prune {} runs (reclaiming {:.2} MB)? [y/N]",
+                runs_to_prune.len(),
+                size_mb
+            );
             let mut input = String::new();
             if std::io::stdin().read_line(&mut input).is_ok() {
                 let trimmed = input.trim().to_lowercase();
@@ -792,7 +833,12 @@ pub fn prune_runs(
                     });
                 }
             } else {
-                return Err(HarnessError::Approval(gestalt_core::ApprovalError::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "failed to read confirmation"))));
+                return Err(HarnessError::Approval(gestalt_core::ApprovalError::Io(
+                    std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "failed to read confirmation",
+                    ),
+                )));
             }
         } else {
             return Err(HarnessError::Approval(gestalt_core::ApprovalError::Rejected(
@@ -805,18 +851,19 @@ pub fn prune_runs(
     for (run_id, path, size) in runs_to_prune {
         if !dry_run {
             if !is_descendant(&run_log_dir, &path) {
-                return Err(HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-                    field: "run-log-dir".to_string(),
-                    reason: format!(
-                        "run path '{}' is not within the run log directory '{}'",
-                        path.display(),
-                        run_log_dir.display()
-                    ),
-                }));
+                return Err(HarnessError::Config(
+                    gestalt_core::ConfigError::InvalidValue {
+                        field: "run-log-dir".to_string(),
+                        reason: format!(
+                            "run path '{}' is not within the run log directory '{}'",
+                            path.display(),
+                            run_log_dir.display()
+                        ),
+                    },
+                ));
             }
-            fs::remove_dir_all(&path).map_err(|e| {
-                HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-            })?;
+            fs::remove_dir_all(&path)
+                .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
         }
         total_reclaimed_bytes += size;
         pruned_runs.push(run_id);
@@ -840,14 +887,16 @@ pub fn delete_run(
     let run_log_dir = config.run_log_dir();
 
     if !is_descendant(&run_log_dir, &resolved_path) {
-        return Err(HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-            field: "run-id".to_string(),
-            reason: format!(
-                "resolved path '{}' is not within the run log directory '{}'",
-                resolved_path.display(),
-                run_log_dir.display()
-            ),
-        }));
+        return Err(HarnessError::Config(
+            gestalt_core::ConfigError::InvalidValue {
+                field: "run-id".to_string(),
+                reason: format!(
+                    "resolved path '{}' is not within the run log directory '{}'",
+                    resolved_path.display(),
+                    run_log_dir.display()
+                ),
+            },
+        ));
     }
 
     let run_manifest_path = resolved_path.join("run.json");
@@ -858,10 +907,12 @@ pub fn delete_run(
         }
     }
 
-    let folder_name = resolved_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    let actual_run_id = target_run_id.clone().unwrap_or_else(|| {
-        folder_name.clone()
-    });
+    let folder_name = resolved_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let actual_run_id = target_run_id.clone().unwrap_or_else(|| folder_name.clone());
 
     if let Some(ref r_id) = target_run_id {
         if !cascade && has_descendants(config, r_id) {
@@ -872,7 +923,11 @@ pub fn delete_run(
         }
     }
 
-    let mut runs_to_delete = vec![(actual_run_id.clone(), resolved_path.clone(), get_dir_size(&resolved_path).unwrap_or(0))];
+    let mut runs_to_delete = vec![(
+        actual_run_id.clone(),
+        resolved_path.clone(),
+        get_dir_size(&resolved_path).unwrap_or(0),
+    )];
     if cascade {
         if let Some(ref r_id) = target_run_id {
             let mut descendants = Vec::new();
@@ -893,17 +948,27 @@ pub fn delete_run(
             if runs_to_delete.len() > 1 {
                 println!("Are you sure you want to delete run {} and its {} descendants (reclaiming {:.2} MB)? [y/N]", actual_run_id, runs_to_delete.len() - 1, size_mb);
             } else {
-                println!("Are you sure you want to delete run {} (reclaiming {:.2} MB)? [y/N]", actual_run_id, size_mb);
+                println!(
+                    "Are you sure you want to delete run {} (reclaiming {:.2} MB)? [y/N]",
+                    actual_run_id, size_mb
+                );
             }
             let mut input = String::new();
             if std::io::stdin().read_line(&mut input).is_ok() {
                 let trimmed = input.trim().to_lowercase();
                 if trimmed != "y" && trimmed != "yes" {
                     println!("Delete cancelled.");
-                    return Err(HarnessError::Approval(gestalt_core::ApprovalError::Rejected("cancelled by user".to_string())));
+                    return Err(HarnessError::Approval(
+                        gestalt_core::ApprovalError::Rejected("cancelled by user".to_string()),
+                    ));
                 }
             } else {
-                return Err(HarnessError::Approval(gestalt_core::ApprovalError::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "failed to read confirmation"))));
+                return Err(HarnessError::Approval(gestalt_core::ApprovalError::Io(
+                    std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "failed to read confirmation",
+                    ),
+                )));
             }
         } else {
             return Err(HarnessError::Approval(gestalt_core::ApprovalError::Rejected(
@@ -914,18 +979,19 @@ pub fn delete_run(
 
     for (_, path, _) in &runs_to_delete {
         if !is_descendant(&run_log_dir, path) {
-            return Err(HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-                field: "run-id".to_string(),
-                reason: format!(
-                    "run path '{}' is not within the run log directory '{}'",
-                    path.display(),
-                    run_log_dir.display()
-                ),
-            }));
+            return Err(HarnessError::Config(
+                gestalt_core::ConfigError::InvalidValue {
+                    field: "run-id".to_string(),
+                    reason: format!(
+                        "run path '{}' is not within the run log directory '{}'",
+                        path.display(),
+                        run_log_dir.display()
+                    ),
+                },
+            ));
         }
-        fs::remove_dir_all(path).map_err(|e| {
-            HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e))
-        })?;
+        fs::remove_dir_all(path)
+            .map_err(|e| HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
     }
 
     Ok(crate::output::RunsDeleteReport {

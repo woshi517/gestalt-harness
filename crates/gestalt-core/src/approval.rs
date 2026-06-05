@@ -9,7 +9,10 @@ use crate::tool::RiskLevel;
 
 #[async_trait]
 pub trait ApprovalProvider: Send + Sync {
-    async fn approve(&self, request: ApprovalRequest) -> Result<ApprovalDecision, crate::error::HarnessError>;
+    async fn approve(
+        &self,
+        request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, crate::error::HarnessError>;
 
     async fn approve_cancellable(
         &self,
@@ -44,7 +47,10 @@ pub struct AutoApprovalProvider;
 
 #[async_trait]
 impl ApprovalProvider for AutoApprovalProvider {
-    async fn approve(&self, _request: ApprovalRequest) -> Result<ApprovalDecision, crate::error::HarnessError> {
+    async fn approve(
+        &self,
+        _request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, crate::error::HarnessError> {
         Ok(ApprovalDecision::Approve)
     }
 }
@@ -53,7 +59,10 @@ pub struct DenyApprovalProvider;
 
 #[async_trait]
 impl ApprovalProvider for DenyApprovalProvider {
-    async fn approve(&self, _request: ApprovalRequest) -> Result<ApprovalDecision, crate::error::HarnessError> {
+    async fn approve(
+        &self,
+        _request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, crate::error::HarnessError> {
         Ok(ApprovalDecision::Deny)
     }
 }

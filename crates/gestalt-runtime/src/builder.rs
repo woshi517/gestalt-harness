@@ -1,22 +1,19 @@
-use std::sync::Arc;
 use gestalt_core::{
-    approval::ApprovalProvider,
-    context::ContextPipeline,
-    policy::PolicyEngine,
-    provider::Provider,
-    tool::ToolCatalog,
-    trace::TraceSink,
-    HookRegistry,
+    approval::ApprovalProvider, context::ContextPipeline, policy::PolicyEngine, provider::Provider,
+    tool::ToolCatalog, trace::TraceSink, HookRegistry,
 };
+use std::sync::Arc;
 
 use crate::config::RuntimeConfig;
-use crate::error::{RuntimeError, Result};
-use crate::runtime::AgentRuntime;
+use crate::error::{Result, RuntimeError};
 use crate::registry::RuntimeRegistry;
+use crate::runtime::AgentRuntime;
 
-use crate::extension::GestaltExtension;
 use crate::composition_hooks::CompositionHooks;
+use crate::event_bus::RuntimeEventBus;
+use crate::extension::GestaltExtension;
 
+#[derive(Clone)]
 pub struct AgentRuntimeBuilder {
     pub provider: Option<Arc<dyn Provider>>,
     pub tools: Option<Arc<dyn ToolCatalog>>,
@@ -29,6 +26,7 @@ pub struct AgentRuntimeBuilder {
     pub registry: RuntimeRegistry,
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
     pub extensions: Vec<Arc<dyn GestaltExtension>>,
+    pub event_bus: RuntimeEventBus,
 }
 
 impl Default for AgentRuntimeBuilder {
@@ -51,6 +49,7 @@ impl AgentRuntimeBuilder {
             registry: RuntimeRegistry::new(),
             composition_hooks: None,
             extensions: Vec::new(),
+            event_bus: RuntimeEventBus::new(),
         }
     }
 
@@ -111,14 +110,19 @@ impl AgentRuntimeBuilder {
 
     pub fn build(mut self) -> Result<AgentRuntime> {
         if self.config.max_turns == 0 {
-            return Err(RuntimeError::Builder("max_turns must be positive".to_string()));
+            return Err(RuntimeError::Builder(
+                "max_turns must be positive".to_string(),
+            ));
         }
 
         // Apply extensions before constructing AgentRuntime
         for ext in &self.extensions {
             let name = ext.name().to_string();
             if self.registry.extensions.contains(&name) {
-                return Err(RuntimeError::Registry(format!("Duplicate extension name: {}", name)));
+                return Err(RuntimeError::Registry(format!(
+                    "Duplicate extension name: {}",
+                    name
+                )));
             }
             ext.register(&mut self.registry).map_err(|e| {
                 RuntimeError::Extension(format!("Extension '{}' failed to register: {}", name, e))
@@ -126,15 +130,44 @@ impl AgentRuntimeBuilder {
             self.registry.register_extension(name)?;
         }
 
-        let provider = self.provider.ok_or_else(|| RuntimeError::Builder("Missing provider".to_string()))?;
-        let tools = self.tools.ok_or_else(|| RuntimeError::Builder("Missing tools".to_string()))?;
-        let middleware = self.middleware.ok_or_else(|| RuntimeError::Builder("Missing middleware/context pipeline".to_string()))?;
-        let policy = self.policy.ok_or_else(|| RuntimeError::Builder("Missing policy engine".to_string()))?;
-        let approval = self.approval.ok_or_else(|| RuntimeError::Builder("Missing approval provider".to_string()))?;
+        let provider = self
+            .provider
+            .ok_or_else(|| RuntimeError::Builder("Missing provider".to_string()))?;
+        let base_tools = self
+            .tools
+            .ok_or_else(|| RuntimeError::Builder("Missing tools".to_string()))?;
+
+        let mut extension_tools = std::collections::BTreeMap::new();
+        for (name, metadata) in &self.registry.tools {
+            if let Some(ref tool) = metadata.tool {
+                extension_tools.insert(name.clone(), tool.clone());
+            }
+        }
+
+        let composed_tools = Arc::new(
+            crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
+                .map_err(RuntimeError::Registry)?,
+        );
+
+        let middleware = self.middleware.ok_or_else(|| {
+            RuntimeError::Builder("Missing middleware/context pipeline".to_string())
+        })?;
+        let policy = self
+            .policy
+            .ok_or_else(|| RuntimeError::Builder("Missing policy engine".to_string()))?;
+        let approval = self
+            .approval
+            .ok_or_else(|| RuntimeError::Builder("Missing approval provider".to_string()))?;
+
+        let user_hooks = self.composition_hooks.take();
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> = Arc::new(crate::composition_hooks::ComposedCompositionHooks {
+            user_hooks,
+            extensions: self.extensions.clone(),
+        });
 
         Ok(AgentRuntime::new(
             provider,
-            tools,
+            composed_tools,
             middleware,
             policy,
             approval,
@@ -142,7 +175,8 @@ impl AgentRuntimeBuilder {
             self.config,
             self.hooks,
             self.registry,
-            self.composition_hooks,
+            Some(composed_hooks),
+            self.event_bus,
         ))
     }
 }

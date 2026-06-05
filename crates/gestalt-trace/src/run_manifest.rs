@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use std::path::Path;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,10 +63,15 @@ impl RunManifest {
 }
 
 pub fn compute_tool_schema_hash(schemas: &[serde_json::Value]) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     let mut sorted_schemas = schemas.to_vec();
-    sorted_schemas.sort_by_key(|s| s.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string());
+    sorted_schemas.sort_by_key(|s| {
+        s.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
     for s in &sorted_schemas {
         hasher.update(s.to_string().as_bytes());
     }
@@ -74,14 +79,14 @@ pub fn compute_tool_schema_hash(schemas: &[serde_json::Value]) -> String {
 }
 
 pub fn compute_policy_fingerprint(policies_content: &str) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(policies_content.as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
 pub fn compute_hook_contract_hash(hook_names: &[String]) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     let mut sorted = hook_names.to_vec();
     sorted.sort();

@@ -13,7 +13,8 @@ fn temp_dir(name: &str) -> PathBuf {
 #[test]
 fn jsonl_trace_sink_writes_monotonic_redacted_envelopes() {
     let dir = temp_dir("sink");
-    let (sink, paths) = JsonlTraceSink::create_run(&dir, "session-1", "run-1", None).expect("run paths");
+    let (sink, paths) =
+        JsonlTraceSink::create_run(&dir, "session-1", "run-1", None).expect("run paths");
 
     sink.emit(AgentEvent::ContextBuilt {
         packet_id: "session-1".to_string(),
@@ -82,7 +83,8 @@ fn test_trace_sink_propagates_snapshot() {
     };
 
     let (sink, paths) =
-        JsonlTraceSink::create_run(&dir, "session-1", "run-1", Some(snapshot1.clone())).expect("run paths");
+        JsonlTraceSink::create_run(&dir, "session-1", "run-1", Some(snapshot1.clone()))
+            .expect("run paths");
 
     sink.emit(AgentEvent::UserMessage {
         content: "hello".to_string(),

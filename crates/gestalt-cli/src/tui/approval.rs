@@ -26,8 +26,12 @@ impl ApprovalProvider for TuiApprovalProvider {
         let (response_tx, response_rx) = oneshot::channel();
 
         // Forward the request to the TUI bridge
-        if self.bridge_tx
-            .send(TuiBridgeMessage::ApprovalRequest { request, response_tx })
+        if self
+            .bridge_tx
+            .send(TuiBridgeMessage::ApprovalRequest {
+                request,
+                response_tx,
+            })
             .is_err()
         {
             // If the bridge is closed, the UI is terminating. Abort.

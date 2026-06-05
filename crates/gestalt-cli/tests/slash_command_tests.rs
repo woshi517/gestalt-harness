@@ -1,8 +1,8 @@
+use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_cli::slash::{calculate_session_cost, handle_slash_command, SlashOutcome};
+use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;
 use std::path::PathBuf;
-use gestalt_cli::config::{CliOverrides, load_effective_config};
-use gestalt_cli::slash::{handle_slash_command, SlashOutcome, calculate_session_cost};
-use gestalt_trace::run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
 
 fn create_temp_workspace() -> PathBuf {
     let temp = std::env::temp_dir().join(format!("gestalt-test-slash-{}", uuid::Uuid::new_v4()));
@@ -24,7 +24,11 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
         }
     } else {
         // Fallback for scaffold if running in wrong dir
-        fs::write(dest_gestalt.join("config.toml"), "[defaults]\nprovider = \"mock\"\n").unwrap();
+        fs::write(
+            dest_gestalt.join("config.toml"),
+            "[defaults]\nprovider = \"mock\"\n",
+        )
+        .unwrap();
         fs::write(dest_gestalt.join("policies.toml"), "[policies]\n").unwrap();
     }
 }
@@ -39,10 +43,14 @@ async fn test_slash_quit_and_exit() {
     };
     let config = load_effective_config(&overrides).unwrap();
 
-    let res = handle_slash_command("/quit", "session-1", None, &mut overrides, &config).await.unwrap();
+    let res = handle_slash_command("/quit", "session-1", None, &mut overrides, &config)
+        .await
+        .unwrap();
     assert!(matches!(res, SlashOutcome::Quit));
 
-    let res = handle_slash_command("/exit", "session-1", None, &mut overrides, &config).await.unwrap();
+    let res = handle_slash_command("/exit", "session-1", None, &mut overrides, &config)
+        .await
+        .unwrap();
     assert!(matches!(res, SlashOutcome::Quit));
 }
 
@@ -57,7 +65,9 @@ async fn test_slash_mode_change() {
     };
     let config = load_effective_config(&overrides).unwrap();
 
-    let res = handle_slash_command("/mode yolo", "session-1", None, &mut overrides, &config).await.unwrap();
+    let res = handle_slash_command("/mode yolo", "session-1", None, &mut overrides, &config)
+        .await
+        .unwrap();
     if let SlashOutcome::ChangeMode(mode) = res {
         assert_eq!(mode, "yolo");
     } else {
@@ -70,7 +80,7 @@ async fn test_slash_mode_change() {
 async fn test_slash_cost_calculation() {
     let temp_root = create_temp_workspace();
     copy_minimal_workspace(&temp_root);
-    
+
     let runs_dir = temp_root.join(".gestalt/runs");
     fs::create_dir_all(&runs_dir).unwrap();
 

@@ -43,6 +43,8 @@ reqwest = { workspace = true }
 keyring = "2"
 rpassword = "7"
 uuid = { workspace = true }
+toml_edit = { workspace = true }
+
 
 
 

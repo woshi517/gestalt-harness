@@ -40,22 +40,37 @@ impl GoldenTrace {
         let expected_path = dir.join("expected.jsonl");
 
         let input_file = std::fs::File::open(&input_path).map_err(|err| {
-            TraceErrorWrapper::Io(err, format!("Failed to open input.json in {}", dir.display()))
+            TraceErrorWrapper::Io(
+                err,
+                format!("Failed to open input.json in {}", dir.display()),
+            )
         })?;
         let input: FixtureInput = serde_json::from_reader(input_file).map_err(|err| {
-            TraceErrorWrapper::Serde(err, format!("Failed to parse input.json in {}", dir.display()))
+            TraceErrorWrapper::Serde(
+                err,
+                format!("Failed to parse input.json in {}", dir.display()),
+            )
         })?;
 
         let context_file = std::fs::File::open(&context_path).map_err(|err| {
-            TraceErrorWrapper::Io(err, format!("Failed to open context.json in {}", dir.display()))
+            TraceErrorWrapper::Io(
+                err,
+                format!("Failed to open context.json in {}", dir.display()),
+            )
         })?;
         let context_packet: ContextPacket =
             serde_json::from_reader(context_file).map_err(|err| {
-                TraceErrorWrapper::Serde(err, format!("Failed to parse context.json in {}", dir.display()))
+                TraceErrorWrapper::Serde(
+                    err,
+                    format!("Failed to parse context.json in {}", dir.display()),
+                )
             })?;
 
         let expected = read_trace(&expected_path).map_err(|err| {
-            TraceErrorWrapper::Trace(err, format!("Failed to read expected.jsonl in {}", dir.display()))
+            TraceErrorWrapper::Trace(
+                err,
+                format!("Failed to read expected.jsonl in {}", dir.display()),
+            )
         })?;
 
         Ok(Self {

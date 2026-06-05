@@ -1,20 +1,19 @@
-use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{ContextPipeline, TokenBudget},
-    event::{AgentEvent, StopReason, PolicyStatus},
-    message::Message,
-    policy::{PolicyEngine, PolicyDecision, PolicyRequest},
-    provider::{Provider, ProviderCapabilities, ProviderRequest, EventStream},
-    tool::{ToolCatalog, ToolSchema, ToolContext, ToolOutput},
     error::ToolError,
+    event::{AgentEvent, PolicyStatus, StopReason},
+    message::Message,
+    policy::{PolicyDecision, PolicyEngine, PolicyRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
+    tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
 use gestalt_runtime::{
-    AgentRuntimeBuilder, RuntimeConfig, UserInput,
-    CompositionHooks, HookOutcome, BeforeContextBuildCtx, AfterContextBuildCtx,
-    BeforeToolPolicyCtx, AfterToolResultCtx, OnEventCtx,
+    AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, BeforeContextBuildCtx,
+    BeforeToolPolicyCtx, CompositionHooks, HookOutcome, OnEventCtx, RuntimeConfig, UserInput,
 };
 
 struct MockProvider {
@@ -24,9 +23,15 @@ struct MockProvider {
 
 #[async_trait::async_trait]
 impl Provider for MockProvider {
-    fn id(&self) -> &str { "mock" }
-    fn display_name(&self) -> &str { "Mock" }
-    fn default_model(&self) -> &str { "mock-model" }
+    fn id(&self) -> &str {
+        "mock"
+    }
+    fn display_name(&self) -> &str {
+        "Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
     fn capabilities(&self) -> &ProviderCapabilities {
         static CAP: ProviderCapabilities = ProviderCapabilities {
             supports_tools: true,
@@ -41,21 +46,36 @@ impl Provider for MockProvider {
         };
         &CAP
     }
-    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> { None }
-    fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, gestalt_core::error::HarnessError> { Ok(0) }
-    async fn stream(&self, request: ProviderRequest) -> Result<EventStream, gestalt_core::error::HarnessError> {
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(0)
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
         let mut req_lock = self.last_request.lock().unwrap();
         *req_lock = Some(request);
-        
+
         let mut events_lock = self.stream_events.lock().unwrap();
-        let events = if !events_lock.is_empty() {
-            events_lock.remove(0)
-        } else {
+        let events = if events_lock.is_empty() {
             vec![AgentEvent::Stop {
                 reason: StopReason::EndTurn,
             }]
+        } else {
+            events_lock.remove(0)
         };
-        let stream = futures::stream::iter(events.into_iter().map(Ok::<_, gestalt_core::error::HarnessError>));
+        let stream = futures::stream::iter(
+            events
+                .into_iter()
+                .map(Ok::<_, gestalt_core::error::HarnessError>),
+        );
         Ok(Box::pin(stream))
     }
 }
@@ -66,8 +86,12 @@ struct MockTool {
 
 #[async_trait::async_trait]
 impl gestalt_core::tool::Tool for MockTool {
-    fn name(&self) -> &str { &self.name }
-    fn description(&self) -> &str { "test description" }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        "test description"
+    }
     fn schema(&self) -> ToolSchema {
         serde_json::from_value(serde_json::json!({
             "name": self.name.clone(),
@@ -76,13 +100,20 @@ impl gestalt_core::tool::Tool for MockTool {
                 "type": "object",
                 "properties": {}
             }
-        })).unwrap()
+        }))
+        .unwrap()
     }
     fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
         gestalt_core::tool::RiskLevel::Low
     }
-    async fn execute(&self, _input: serde_json::Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
-        Ok(ToolOutput::Text { content: "test result".to_string() })
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &ToolContext,
+    ) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput::Text {
+            content: "test result".to_string(),
+        })
     }
 }
 
@@ -106,7 +137,9 @@ impl ContextPipeline for MockContextPipeline {
             content: "base system instructions".to_string(),
         }]
     }
-    fn version(&self) -> &str { "base-v1" }
+    fn version(&self) -> &str {
+        "base-v1"
+    }
 }
 
 struct MockPolicyEngine;
@@ -127,38 +160,53 @@ struct TestCompositionHooks {
 
 #[async_trait::async_trait]
 impl CompositionHooks for TestCompositionHooks {
-    async fn before_context_build(&self, _context: &BeforeContextBuildCtx) -> gestalt_runtime::Result<HookOutcome> {
-        if let Some(reason) = self.block_reason.lock().unwrap().clone() {
-            Ok(HookOutcome::Block { reason })
-        } else if let Some(msg) = self.add_context.lock().unwrap().clone() {
-            Ok(HookOutcome::AddContext { message: msg })
-        } else {
-            Ok(HookOutcome::Continue)
+    async fn before_context_build(
+        &self,
+        _context: &BeforeContextBuildCtx,
+    ) -> gestalt_runtime::Result<HookOutcome> {
+        let block_reason = self.block_reason.lock().unwrap().clone();
+        if let Some(reason) = block_reason {
+            return Ok(HookOutcome::Block { reason });
         }
+        let add_context = self.add_context.lock().unwrap().clone();
+        if let Some(msg) = add_context {
+            return Ok(HookOutcome::AddContext { message: msg });
+        }
+        Ok(HookOutcome::Continue)
     }
 
-    async fn after_context_build(&self, _context: &AfterContextBuildCtx) -> gestalt_runtime::Result<HookOutcome> {
-        if let Some(outcome) = self.after_context_outcome.lock().unwrap().clone() {
+    async fn after_context_build(
+        &self,
+        _context: &AfterContextBuildCtx,
+    ) -> gestalt_runtime::Result<HookOutcome> {
+        let outcome = self.after_context_outcome.lock().unwrap().clone();
+        if let Some(outcome) = outcome {
             Ok(outcome)
         } else {
             Ok(HookOutcome::Continue)
         }
     }
 
-    async fn before_tool_policy(&self, _context: &BeforeToolPolicyCtx) -> gestalt_runtime::Result<HookOutcome> {
+    async fn before_tool_policy(
+        &self,
+        _context: &BeforeToolPolicyCtx,
+    ) -> gestalt_runtime::Result<HookOutcome> {
         if let Some(outcome) = self.policy_outcome.lock().unwrap().as_ref() {
             match outcome {
                 Ok(o) => Ok(o.clone()),
                 Err(_) => Err(gestalt_runtime::error::RuntimeError::Harness(
-                    gestalt_core::error::HarnessError::Cancelled
-                ))
+                    gestalt_core::error::HarnessError::Cancelled,
+                )),
             }
         } else {
             Ok(HookOutcome::Continue)
         }
     }
 
-    async fn after_tool_result(&self, _context: &AfterToolResultCtx) -> gestalt_runtime::Result<HookOutcome> {
+    async fn after_tool_result(
+        &self,
+        _context: &AfterToolResultCtx,
+    ) -> gestalt_runtime::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
@@ -190,7 +238,9 @@ async fn test_hooks_context_injection() {
 
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
-        .tools(Arc::new(MockToolCatalog { tools: HashMap::new() }))
+        .tools(Arc::new(MockToolCatalog {
+            tools: HashMap::new(),
+        }))
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
@@ -211,7 +261,11 @@ async fn test_hooks_context_injection() {
     assert!(res.is_ok());
 
     // Verify context injection actually reaches the built prompt
-    let req = last_request.lock().unwrap().clone().expect("Provider should have received a request");
+    let req = last_request
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("Provider should have received a request");
     let contains_injected = req.messages.iter().any(|msg| {
         if let Message::System { content } = msg {
             content.contains("hook injected system content")
@@ -219,14 +273,19 @@ async fn test_hooks_context_injection() {
             false
         }
     });
-    assert!(contains_injected, "ProviderRequest should contain the injected context message");
+    assert!(
+        contains_injected,
+        "ProviderRequest should contain the injected context message"
+    );
 
     // Verify events were observed by our on_event hook
     let observed = hooks.events.lock().unwrap().clone();
     assert!(!observed.is_empty());
-    
+
     // Check that we observed ContextBuildStarted or similar turn events
-    assert!(observed.iter().any(|ev| matches!(ev, AgentEvent::ContextBuildStarted)));
+    assert!(observed
+        .iter()
+        .any(|ev| matches!(ev, AgentEvent::ContextBuildStarted)));
 }
 
 #[tokio::test]
@@ -249,7 +308,9 @@ async fn test_hooks_context_blocking_before() {
 
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
-        .tools(Arc::new(MockToolCatalog { tools: HashMap::new() }))
+        .tools(Arc::new(MockToolCatalog {
+            tools: HashMap::new(),
+        }))
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
@@ -268,7 +329,7 @@ async fn test_hooks_context_blocking_before() {
 
     let res = runtime.run_prompt(input).await;
     assert!(res.is_err(), "Run should fail when context hook blocks");
-    
+
     // Verify that the error represents policy denial with block reason
     let err_str = res.unwrap_err().to_string();
     assert!(err_str.contains("safety block"));
@@ -296,7 +357,9 @@ async fn test_hooks_context_blocking_after() {
 
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
-        .tools(Arc::new(MockToolCatalog { tools: HashMap::new() }))
+        .tools(Arc::new(MockToolCatalog {
+            tools: HashMap::new(),
+        }))
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
@@ -314,8 +377,11 @@ async fn test_hooks_context_blocking_after() {
     };
 
     let res = runtime.run_prompt(input).await;
-    assert!(res.is_err(), "Run should fail when context hook blocks in after_context_build");
-    
+    assert!(
+        res.is_err(),
+        "Run should fail when context hook blocks in after_context_build"
+    );
+
     let err_str = res.unwrap_err().to_string();
     assert!(err_str.contains("after block reason"));
 }
@@ -353,7 +419,12 @@ async fn test_before_tool_policy_denial() {
     });
 
     let mut tools = HashMap::new();
-    tools.insert("test-tool".to_string(), Arc::new(MockTool { name: "test-tool".to_string() }) as Arc<dyn gestalt_core::tool::Tool>);
+    tools.insert(
+        "test-tool".to_string(),
+        Arc::new(MockTool {
+            name: "test-tool".to_string(),
+        }) as Arc<dyn gestalt_core::tool::Tool>,
+    );
     let catalog = Arc::new(MockToolCatalog { tools });
 
     let runtime = AgentRuntimeBuilder::new()
@@ -395,9 +466,9 @@ async fn test_before_tool_policy_error() {
     let hooks = Arc::new(TestCompositionHooks {
         add_context: Mutex::new(None),
         block_reason: Mutex::new(None),
-        policy_outcome: Mutex::new(Some(Err(
-            gestalt_runtime::error::RuntimeError::Harness(gestalt_core::error::HarnessError::Cancelled)
-        ))),
+        policy_outcome: Mutex::new(Some(Err(gestalt_runtime::error::RuntimeError::Harness(
+            gestalt_core::error::HarnessError::Cancelled,
+        )))),
         after_context_outcome: Mutex::new(None),
         events: Mutex::new(Vec::new()),
     });
@@ -423,7 +494,12 @@ async fn test_before_tool_policy_error() {
     });
 
     let mut tools = HashMap::new();
-    tools.insert("test-tool".to_string(), Arc::new(MockTool { name: "test-tool".to_string() }) as Arc<dyn gestalt_core::tool::Tool>);
+    tools.insert(
+        "test-tool".to_string(),
+        Arc::new(MockTool {
+            name: "test-tool".to_string(),
+        }) as Arc<dyn gestalt_core::tool::Tool>,
+    );
     let catalog = Arc::new(MockToolCatalog { tools });
 
     let runtime = AgentRuntimeBuilder::new()
@@ -451,13 +527,22 @@ async fn test_before_tool_policy_error() {
     // Verify policy engine denied event was observed due to fail-closed behavior on hook error
     let observed = hooks.events.lock().unwrap().clone();
     let denied = observed.iter().any(|ev| {
-        if let AgentEvent::PolicyDecision { decision, reason, .. } = ev {
-            *decision == PolicyStatus::Denied && reason.as_ref().map_or(false, |r| r.contains("failed to evaluate"))
+        if let AgentEvent::PolicyDecision {
+            decision, reason, ..
+        } = ev
+        {
+            *decision == PolicyStatus::Denied
+                && reason
+                    .as_ref()
+                    .map_or(false, |r| r.contains("failed to evaluate"))
         } else {
             false
         }
     });
-    assert!(denied, "Tool execution should have failed closed on hook error");
+    assert!(
+        denied,
+        "Tool execution should have failed closed on hook error"
+    );
 }
 
 #[tokio::test]
@@ -485,9 +570,15 @@ async fn test_after_context_build_context_addition() {
 
     #[async_trait::async_trait]
     impl Provider for MultiTurnMockProvider {
-        fn id(&self) -> &str { "mock" }
-        fn display_name(&self) -> &str { "Mock" }
-        fn default_model(&self) -> &str { "mock-model" }
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn display_name(&self) -> &str {
+            "Mock"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
         fn capabilities(&self) -> &ProviderCapabilities {
             static CAP: ProviderCapabilities = ProviderCapabilities {
                 supports_tools: true,
@@ -502,9 +593,20 @@ async fn test_after_context_build_context_addition() {
             };
             &CAP
         }
-        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> { None }
-        fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, gestalt_core::error::HarnessError> { Ok(0) }
-        async fn stream(&self, request: ProviderRequest) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+            None
+        }
+        fn count_tokens(
+            &self,
+            _model: &str,
+            _messages: &[Message],
+        ) -> Result<usize, gestalt_core::error::HarnessError> {
+            Ok(0)
+        }
+        async fn stream(
+            &self,
+            request: ProviderRequest,
+        ) -> Result<EventStream, gestalt_core::error::HarnessError> {
             let mut turn_lock = self.turn.lock().unwrap();
             *turn_lock += 1;
             let current_turn = *turn_lock;
@@ -528,7 +630,11 @@ async fn test_after_context_build_context_addition() {
                 }]
             };
 
-            let stream = futures::stream::iter(events.into_iter().map(Ok::<_, gestalt_core::error::HarnessError>));
+            let stream = futures::stream::iter(
+                events
+                    .into_iter()
+                    .map(Ok::<_, gestalt_core::error::HarnessError>),
+            );
             Ok(Box::pin(stream))
         }
     }
@@ -540,7 +646,12 @@ async fn test_after_context_build_context_addition() {
     });
 
     let mut tools = HashMap::new();
-    tools.insert("test-tool".to_string(), Arc::new(MockTool { name: "test-tool".to_string() }) as Arc<dyn gestalt_core::tool::Tool>);
+    tools.insert(
+        "test-tool".to_string(),
+        Arc::new(MockTool {
+            name: "test-tool".to_string(),
+        }) as Arc<dyn gestalt_core::tool::Tool>,
+    );
     let catalog = Arc::new(MockToolCatalog { tools });
 
     let runtime = AgentRuntimeBuilder::new()
@@ -574,7 +685,10 @@ async fn test_after_context_build_context_addition() {
             false
         }
     });
-    assert!(!has_secret1, "First request should not contain Turn 1's after_context addition");
+    assert!(
+        !has_secret1,
+        "First request should not contain Turn 1's after_context addition"
+    );
 
     // Verify Turn 2 request DOES have the secret context added in Turn 1's after_context_build
     let req2 = turn2_request.lock().unwrap().clone().unwrap();
@@ -585,5 +699,8 @@ async fn test_after_context_build_context_addition() {
             false
         }
     });
-    assert!(has_secret2, "Second request must contain the accumulated after_context addition");
+    assert!(
+        has_secret2,
+        "Second request must contain the accumulated after_context addition"
+    );
 }

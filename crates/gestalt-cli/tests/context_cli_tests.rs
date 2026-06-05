@@ -1,7 +1,7 @@
+use gestalt_cli::config::CliOverrides;
+use gestalt_cli::context::explain_context;
 use std::fs;
 use std::path::PathBuf;
-use gestalt_cli::config::{CliOverrides};
-use gestalt_cli::context::explain_context;
 
 fn create_temp_workspace() -> PathBuf {
     let temp = std::env::temp_dir().join(format!("gestalt-test-context-{}", uuid::Uuid::new_v4()));
@@ -15,12 +15,20 @@ async fn test_context_explain_prompt() {
     let gestalt_dir = temp_root.join(".gestalt");
     fs::create_dir_all(&gestalt_dir).unwrap();
 
-    fs::write(gestalt_dir.join("config.toml"), r#"
+    fs::write(
+        gestalt_dir.join("config.toml"),
+        r#"
 [defaults]
 provider = "anthropic"
 mode = "confirm"
-"#).unwrap();
-    fs::write(gestalt_dir.join("workspace.md"), "# Workspace\nSome context about project").unwrap();
+"#,
+    )
+    .unwrap();
+    fs::write(
+        gestalt_dir.join("workspace.md"),
+        "# Workspace\nSome context about project",
+    )
+    .unwrap();
     fs::write(gestalt_dir.join("memory.md"), "# Memory\n").unwrap();
     fs::write(gestalt_dir.join("policies.toml"), "# Policies\n").unwrap();
 
@@ -30,10 +38,18 @@ mode = "confirm"
     };
 
     // Explain prompt: verify it builds context explain without any provider call
-    let res = explain_context(&overrides, Some("Explain how to build the gestalt project"), None).await;
+    let res = explain_context(
+        &overrides,
+        Some("Explain how to build the gestalt project"),
+        None,
+    )
+    .await;
     assert!(res.is_ok());
     let rep = res.unwrap();
-    assert_eq!(rep.prompt.as_deref(), Some("Explain how to build the gestalt project"));
+    assert_eq!(
+        rep.prompt.as_deref(),
+        Some("Explain how to build the gestalt project")
+    );
     assert!(rep.token_estimate > 0);
 
     let _ = fs::remove_dir_all(&temp_root);

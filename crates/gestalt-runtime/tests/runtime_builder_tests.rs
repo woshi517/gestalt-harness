@@ -1,5 +1,5 @@
-use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
 use gestalt_core::session::ExecutionMode;
+use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
 
 #[test]
 fn test_runtime_config_defaults() {

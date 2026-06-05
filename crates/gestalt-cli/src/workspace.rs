@@ -48,17 +48,17 @@ always_deny  = ["dd", "mkfs", "fdisk"]
 default = "confirm"
 "#;
 
-const DEFAULT_WORKSPACE_MD: &str = r#"# Workspace
+const DEFAULT_WORKSPACE_MD: &str = r"# Workspace
 
 Describe the purpose, architecture, and technology stack of this workspace here.
-"#;
+";
 
-const DEFAULT_MEMORY_MD: &str = r#"# Memory
+const DEFAULT_MEMORY_MD: &str = r"# Memory
 
 ## Facts
 
 - Describe learnings, state, and facts here.
-"#;
+";
 
 pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, HarnessError> {
     let gestalt_dir = root.join(".gestalt");
@@ -284,6 +284,7 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
                 provider_override: None,
                 model_override: None,
                 tui: crate::config::TuiConfig::default(),
+                extensions: Default::default(),
             }
         }
     };

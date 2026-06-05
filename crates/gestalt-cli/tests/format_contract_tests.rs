@@ -1,9 +1,9 @@
 use gestalt_cli::output::{
-    CliReport, ConfigValidateReport, JsonEnvelope, ModelsListReport, ProvidersListReport,
-    ReplayReport, RunReport, ToolsListReport, ToolsInspectReport, ToolsClassifyReport,
-    AuthDoctorReport, GlobalDoctorReport, AuthDoctorEntry, ToolInfoEntry,
-    ConnectReport, ProfilesListReport, ProvidersDoctorReport, ModelsSearchReport,
-    ProfileInfoEntry, ProviderDoctorResult, RuntimeInspectReport,
+    AuthDoctorEntry, AuthDoctorReport, CliReport, ConfigValidateReport, ConnectReport,
+    GlobalDoctorReport, JsonEnvelope, ModelsListReport, ModelsSearchReport, ProfileInfoEntry,
+    ProfilesListReport, ProviderDoctorResult, ProvidersDoctorReport, ProvidersListReport,
+    ReplayReport, RunReport, RuntimeInspectReport, ToolInfoEntry, ToolsClassifyReport,
+    ToolsInspectReport, ToolsListReport,
 };
 use gestalt_core::model::{ModelInfo, ModelInfoSource};
 use std::path::PathBuf;
@@ -79,7 +79,7 @@ fn test_models_list_report_contract() {
         qualified_id: "anthropic/claude-3".to_string(),
         model_id: "claude-3".to_string(),
         display_name: "Claude 3".to_string(),
-        max_context_tokens: 100000,
+        max_context_tokens: 100_000,
         max_output_tokens: 4000,
         supports_tools: true,
         supports_vision: false,
@@ -94,12 +94,17 @@ fn test_models_list_report_contract() {
     let report = ModelsListReport { models: vec![m1] };
     assert_eq!(report.kind(), "models.list");
     let expected_text = vec![
-        format!("{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
-            "Qualified ID", "Input $/M", "Output $/M", "Vision", "Tools", "Thinking", "Cache"),
+        format!(
+            "{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
+            "Qualified ID", "Input $/M", "Output $/M", "Vision", "Tools", "Thinking", "Cache"
+        ),
         "-".repeat(110),
-        format!("{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
-            "anthropic/claude-3", "N/A", "N/A", "no", "yes", "no", "no"),
-    ].join("\n");
+        format!(
+            "{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
+            "anthropic/claude-3", "N/A", "N/A", "no", "yes", "no", "no"
+        ),
+    ]
+    .join("\n");
     assert_eq!(report.render_text(), expected_text);
 }
 
@@ -264,7 +269,7 @@ fn test_models_search_report_contract() {
         qualified_id: "openrouter/free".to_string(),
         model_id: "free".to_string(),
         display_name: "Google: Gemini 2.5 Flash (free)".to_string(),
-        max_context_tokens: 1048576,
+        max_context_tokens: 1_048_576,
         max_output_tokens: 8192,
         supports_tools: true,
         supports_vision: true,
@@ -276,9 +281,7 @@ fn test_models_search_report_contract() {
         source: ModelInfoSource::BuiltIn,
         last_updated: None,
     };
-    let report = ModelsSearchReport {
-        models: vec![m],
-    };
+    let report = ModelsSearchReport { models: vec![m] };
     assert_eq!(report.kind(), "models.search");
     let text = report.render_text();
     assert!(text.contains("openrouter/free"));
@@ -312,6 +315,7 @@ fn test_runtime_inspect_report_contract() {
         hook_contract_hash: "hookhash123".to_string(),
         verifiers: vec!["FileExistsVerifier".to_string()],
         extensions: vec!["MockExtension".to_string()],
+        context_injectors: vec!["MockContextInjector".to_string()],
         trace_sink_kind: Some("JsonlTraceSink".to_string()),
         trace_run_dir: None,
         workspace_root: "/workspace".to_string(),
@@ -342,4 +346,3 @@ fn test_runtime_inspect_report_contract() {
     assert!(serialized.contains(r#""provider_name":"anthropic""#));
     assert!(serialized.contains(r#""provider_model":"claude-3-5-sonnet""#));
 }
-

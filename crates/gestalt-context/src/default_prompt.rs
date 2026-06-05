@@ -18,7 +18,10 @@ pub fn get_default_prompt(
     max_turns: Option<usize>,
     available_tools: Option<&[String]>,
 ) -> String {
-    let root_str = workspace_root.map_or_else(|| "unknown".to_string(), |p| p.to_string_lossy().into_owned());
+    let root_str = workspace_root.map_or_else(
+        || "unknown".to_string(),
+        |p| p.to_string_lossy().into_owned(),
+    );
     let mode_str = mode.unwrap_or("confirm");
     let turns_str = max_turns.map_or_else(|| "unlimited".to_string(), |t| t.to_string());
     let tools_str = available_tools.map_or_else(|| "none".to_string(), |t| t.join(", "));

@@ -2,28 +2,31 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 use gestalt_cli::{
-    auth::{resolve_auth, auth_doctor},
-    config::{load_effective_config, validate_workspace_config, explain_config, CliOverrides},
+    auth::{auth_doctor, resolve_auth},
+    chat,
+    config::{explain_config, load_effective_config, validate_workspace_config, CliOverrides},
+    context,
     cost::calculate_cost,
+    doctor, export,
     models::{inspect_model, list_models, refresh_models, search_models},
     output::{
-        AuthResolveReport, AuthDoctorReport, CliErrorPayload, CliReport, ConfigValidateReport, CostReportWrapper,
-        ExportFormat, JsonEnvelope, ModelsInspectReport, ModelsListReport,
-        ModelsRefreshReport, ModelsSelectReport, ModelsSearchReport, OutputFormat, ProvidersDoctorReport,
-        ProvidersInspectReport, ProvidersListReport, ReplayReport, RunReport, WorkspaceDoctorReport,
-        WorkspaceInfoReport, WorkspaceInitReport, WorkspaceSnapshotReport, WorkspaceStatusReport,
-        ConfigShowReport, ConfigExplainReport,
-        PolicyValidateReport, PolicyExplainReport, PolicyTestReport,
-        ContextExplainReport, RuntimeInspectReport,
+        AuthDoctorReport, AuthResolveReport, CliErrorPayload, CliReport, ConfigExplainReport,
+        ConfigShowReport, ConfigValidateReport, ContextExplainReport, CostReportWrapper,
+        ExportFormat, ExtensionActionReport, ExtensionInspectReport, ExtensionsListReport,
+        JsonEnvelope, ModelsInspectReport, ModelsListReport, ModelsRefreshReport,
+        ModelsSearchReport, ModelsSelectReport, OutputFormat, PolicyExplainReport,
+        PolicyTestReport, PolicyValidateReport, ProvidersDoctorReport, ProvidersInspectReport,
+        ProvidersListReport, ReplayReport, RunReport, RuntimeDoctorReport, RuntimeEventsReport,
+        RuntimeInspectReport, WorkspaceSnapshotReport,
     },
+    policy,
     providers::{doctor_provider, inspect_provider, list_providers},
     replay::replay_display,
     run::run_prompt,
-    runs,
+    runs, sessions, tools, trace, verify,
     workspace::{
         doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
     },
-    trace, export, verify, policy, context, tools, doctor, sessions, chat,
 };
 
 #[derive(Parser)]
@@ -132,6 +135,7 @@ enum Command {
     Context(ContextCommand),
     Tools(ToolsCommand),
     Runtime(RuntimeCommand),
+    Extension(ExtensionCommand),
     Doctor {
         #[arg(long)]
         live: bool,
@@ -147,12 +151,8 @@ pub struct ProfilesCommand {
 #[derive(Subcommand)]
 pub enum ProfilesSubcommand {
     List,
-    Inspect {
-        name: String,
-    },
-    Use {
-        name: String,
-    },
+    Inspect { name: String },
+    Use { name: String },
 }
 
 #[derive(Args)]
@@ -167,9 +167,27 @@ pub struct RuntimeCommand {
     pub command: RuntimeSubcommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum RuntimeSubcommand {
     Inspect,
+    Events,
+    Doctor,
+}
+
+#[derive(Args)]
+pub struct ExtensionCommand {
+    #[command(subcommand)]
+    pub command: ExtensionSubcommand,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum ExtensionSubcommand {
+    List,
+    Enable { id: String },
+    Disable { id: String },
+    Inspect { id: String },
+    Reload,
+    Validate { path: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -241,15 +259,9 @@ pub struct TraceCommand {
 
 #[derive(Subcommand)]
 pub enum TraceSubcommand {
-    Replay {
-        run_id_or_path: String,
-    },
-    Inspect {
-        run_id_or_path: String,
-    },
-    Validate {
-        run_id_or_path: String,
-    },
+    Replay { run_id_or_path: String },
+    Inspect { run_id_or_path: String },
+    Validate { run_id_or_path: String },
 }
 
 #[derive(Args)]
@@ -260,11 +272,8 @@ pub struct VerifyCommand {
 
 #[derive(Subcommand)]
 pub enum VerifySubcommand {
-    Run {
-        run_id_or_path: String,
-    },
+    Run { run_id_or_path: String },
 }
-
 
 #[derive(Args)]
 pub struct RunsCommand {
@@ -391,8 +400,12 @@ struct ProvidersCommand {
 #[derive(Subcommand)]
 enum ProvidersSubcommand {
     List,
-    Inspect { provider: String },
-    Test { provider: String },
+    Inspect {
+        provider: String,
+    },
+    Test {
+        provider: String,
+    },
     Doctor {
         provider: Option<String>,
         #[arg(long)]
@@ -412,13 +425,19 @@ enum ModelsSubcommand {
         #[arg(long)]
         provider: Option<String>,
     },
-    Inspect { model: String },
+    Inspect {
+        model: String,
+    },
     Refresh {
         #[arg(long)]
         live: bool,
     },
-    Select { model: String },
-    Search { query: String },
+    Select {
+        model: String,
+    },
+    Search {
+        query: String,
+    },
 }
 
 fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload {
@@ -547,7 +566,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let quiet = cli.quiet;
 
     match cli.command {
-        Command::Run { prompt, resume, yes, tui } => {
+        Command::Run {
+            prompt,
+            resume,
+            yes,
+            tui,
+        } => {
             if yes {
                 overrides.mode = Some("yolo".to_string());
             }
@@ -556,8 +580,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     let cancel_token = gestalt_core::CancelToken::new();
                     let config = load_effective_config(&overrides)?;
-                    gestalt_cli::tui::run_tui(&config, resume, Some(prompt), cli.api_key.clone(), cancel_token).await
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                    gestalt_cli::tui::run_tui(
+                        &config,
+                        resume,
+                        Some(prompt),
+                        cli.api_key.clone(),
+                        cancel_token,
+                    )
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
                 }
                 #[cfg(not(feature = "tui"))]
                 {
@@ -573,7 +604,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if tokio::signal::ctrl_c().await.is_ok() {
                         eprintln!("\n[Interrupt] Cancellation requested. Cleaning up...");
                         cancel_token_clone.cancel();
-                        
+
                         if tokio::signal::ctrl_c().await.is_ok() {
                             eprintln!("\n[Interrupt] Force exiting immediately.");
                             std::process::exit(130);
@@ -596,9 +627,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let res: Result<RunReport, gestalt_core::HarnessError> = async {
                     let config = load_effective_config(&overrides)?;
                     let run_dir = if let Some(ref target) = resume {
-                        sessions::run_session_action(&config, "branch", target, Some(prompt), None, cli.api_key.clone(), cancel_token, None, None).await?
+                        sessions::run_session_action(
+                            &config,
+                            "branch",
+                            target,
+                            Some(prompt),
+                            None,
+                            cli.api_key.clone(),
+                            cancel_token,
+                            None,
+                            None,
+                        )
+                        .await?
                     } else {
-                        run_prompt(&config, &prompt, cli.api_key.clone(), cancel_token, None, None, None).await?
+                        run_prompt(
+                            &config,
+                            &prompt,
+                            cli.api_key.clone(),
+                            cancel_token,
+                            None,
+                            None,
+                            None,
+                        )
+                        .await?
                     };
                     Ok(RunReport { run_dir })
                 }
@@ -619,8 +670,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     let cancel_token = gestalt_core::CancelToken::new();
                     let config = load_effective_config(&overrides)?;
-                    gestalt_cli::tui::run_tui(&config, resume, None, cli.api_key.clone(), cancel_token).await
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                    gestalt_cli::tui::run_tui(
+                        &config,
+                        resume,
+                        None,
+                        cli.api_key.clone(),
+                        cancel_token,
+                    )
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
                 }
                 #[cfg(not(feature = "tui"))]
                 {
@@ -644,7 +702,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     });
                 }
 
-                let res = chat::run_chat(&overrides, resume, cli.api_key.clone(), cancel_token).await;
+                let res =
+                    chat::run_chat(&overrides, resume, cli.api_key.clone(), cancel_token).await;
                 if let Err(err) = res {
                     print_error_and_exit(&err, format);
                 }
@@ -655,7 +714,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let cancel_token = gestalt_core::CancelToken::new();
                 let config = load_effective_config(&overrides)?;
-                gestalt_cli::tui::run_tui(&config, run, prompt, cli.api_key.clone(), cancel_token).await
+                gestalt_cli::tui::run_tui(&config, run, prompt, cli.api_key.clone(), cancel_token)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
             }
             #[cfg(not(feature = "tui"))]
@@ -727,14 +787,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         source,
                         explain_map,
                     })
-                })();
+                })(
+                );
                 handle_result(res, format, quiet)?;
             }
             ConfigSubcommand::Explain => {
                 let res: Result<ConfigExplainReport, Box<dyn std::error::Error>> = (|| {
                     let explain_map = explain_config(&overrides)?;
                     Ok(ConfigExplainReport { explain_map })
-                })();
+                })(
+                );
                 handle_result(res, format, quiet)?;
             }
         },
@@ -757,7 +819,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let report = auth_doctor(&config)?;
                     Ok(report)
-                })();
+                })(
+                );
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -837,7 +900,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let models = list_models(&config, provider.as_deref());
                     Ok(ModelsListReport { models })
-                })();
+                })(
+                );
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -849,7 +913,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let model_info = inspect_model(&config, &model)?;
                     Ok(ModelsInspectReport { model: model_info })
-                })();
+                })(
+                );
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -889,7 +954,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let config = load_effective_config(&overrides)?;
                     let models = search_models(&config, &query);
                     Ok(ModelsSearchReport { models })
-                })();
+                })(
+                );
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -898,12 +964,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         Command::Init { force } => {
-            let res: Result<WorkspaceInitReport, gestalt_core::HarnessError> = (|| {
-                let workspace_root = overrides.workspace.clone().unwrap_or_else(|| {
-                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-                });
-                init_workspace(&workspace_root, force)
-            })();
+            let workspace_root = overrides.workspace.clone().unwrap_or_else(|| {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            });
+            let res = init_workspace(&workspace_root, force);
             handle_result(
                 res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                 format,
@@ -911,8 +975,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         Command::Status => {
-            let res: Result<WorkspaceStatusReport, gestalt_core::HarnessError> =
-                (|| status_workspace(&overrides))();
+            let res = status_workspace(&overrides);
             handle_result(
                 res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                 format,
@@ -921,8 +984,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::Workspace(command) => match command.command {
             WorkspaceSubcommand::Info => {
-                let res: Result<WorkspaceInfoReport, gestalt_core::HarnessError> =
-                    (|| info_workspace(&overrides))();
+                let res = info_workspace(&overrides);
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -939,8 +1001,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             }
             WorkspaceSubcommand::Doctor => {
-                let res: Result<WorkspaceDoctorReport, gestalt_core::HarnessError> =
-                    (|| doctor_workspace(&overrides))();
+                let res = doctor_workspace(&overrides);
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -958,7 +1019,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     quiet,
                 )?;
             }
-            RunsSubcommand::Inspect { run_id_or_path, json } => {
+            RunsSubcommand::Inspect {
+                run_id_or_path,
+                json,
+            } => {
                 let fmt = if json { OutputFormat::Json } else { format };
                 let res = runs::inspect_run(&load_effective_config(&overrides)?, &run_id_or_path);
                 handle_result(
@@ -973,7 +1037,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     print_error_and_exit(&e, format);
                 }
             }
-            RunsSubcommand::Prune { older_than, dry_run, yes, json, cascade } => {
+            RunsSubcommand::Prune {
+                older_than,
+                dry_run,
+                yes,
+                json,
+                cascade,
+            } => {
                 let config = load_effective_config(&overrides)?;
                 let fmt = if json { OutputFormat::Json } else { format };
                 let res = runs::prune_runs(&config, older_than, dry_run, yes, cascade);
@@ -983,7 +1053,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     quiet,
                 )?;
             }
-            RunsSubcommand::Delete { run_id_or_path, yes, json, cascade } => {
+            RunsSubcommand::Delete {
+                run_id_or_path,
+                yes,
+                json,
+                cascade,
+            } => {
                 let config = load_effective_config(&overrides)?;
                 let fmt = if json { OutputFormat::Json } else { format };
                 let res = runs::delete_run(&config, &run_id_or_path, yes, cascade);
@@ -1021,7 +1096,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             }
             SessionsSubcommand::Inspect { session_id } => {
-                let res = sessions::inspect_session(&load_effective_config(&overrides)?, &session_id);
+                let res =
+                    sessions::inspect_session(&load_effective_config(&overrides)?, &session_id);
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -1029,7 +1105,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             }
             SessionsSubcommand::History { session_id } => {
-                let res = sessions::history_session(&load_effective_config(&overrides)?, &session_id);
+                let res =
+                    sessions::history_session(&load_effective_config(&overrides)?, &session_id);
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -1071,9 +1148,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     cancel_token,
                     None,
                     None,
-                ).await;
+                )
+                .await;
                 handle_result(
-                    res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    res.map(|run_dir| RunReport { run_dir })
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
                     quiet,
                 )?;
@@ -1113,14 +1192,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     cancel_token,
                     None,
                     None,
-                ).await;
+                )
+                .await;
                 handle_result(
-                    res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    res.map(|run_dir| RunReport { run_dir })
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
                     quiet,
                 )?;
             }
-            SessionsSubcommand::Branch { run_id_or_path, at, prompt } => {
+            SessionsSubcommand::Branch {
+                run_id_or_path,
+                at,
+                prompt,
+            } => {
                 let cancel_token = gestalt_core::CancelToken::new();
                 let cancel_token_clone = cancel_token.clone();
                 tokio::spawn(async move {
@@ -1155,15 +1240,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     cancel_token,
                     None,
                     None,
-                ).await;
+                )
+                .await;
                 handle_result(
-                    res.map(|run_dir| RunReport { run_dir }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
+                    res.map(|run_dir| RunReport { run_dir })
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
                     quiet,
                 )?;
             }
         },
-        Command::Export { run_id_or_path, format: export_format } => {
+        Command::Export {
+            run_id_or_path,
+            format: export_format,
+        } => {
             let config = load_effective_config(&overrides)?;
             let res = export::export_run(&config, &run_id_or_path, export_format);
             handle_result(res, format, quiet)?;
@@ -1177,7 +1267,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Command::Policy(command) => match command.command {
             PolicySubcommand::Validate => {
-                let res: Result<PolicyValidateReport, gestalt_core::HarnessError> = policy::validate_policy(&overrides);
+                let res: Result<PolicyValidateReport, gestalt_core::HarnessError> =
+                    policy::validate_policy(&overrides);
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -1185,17 +1276,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             }
             PolicySubcommand::Explain { tool, input } => {
-                let res: Result<PolicyExplainReport, Box<dyn std::error::Error>> = policy::explain_policy(&overrides, &tool, &input).await;
+                let res: Result<PolicyExplainReport, Box<dyn std::error::Error>> =
+                    policy::explain_policy(&overrides, &tool, &input).await;
                 handle_result(res, format, quiet)?;
             }
             PolicySubcommand::Test { tool, input, mode } => {
-                let res: Result<PolicyTestReport, Box<dyn std::error::Error>> = policy::test_policy(&overrides, &tool, &input, mode.as_deref()).await;
+                let res: Result<PolicyTestReport, Box<dyn std::error::Error>> =
+                    policy::test_policy(&overrides, &tool, &input, mode.as_deref()).await;
                 handle_result(res, format, quiet)?;
             }
         },
         Command::Context(command) => match command.command {
             ContextSubcommand::Explain { prompt, run } => {
-                let res: Result<ContextExplainReport, Box<dyn std::error::Error>> = context::explain_context(&overrides, prompt.as_deref(), run.as_deref()).await;
+                let res: Result<ContextExplainReport, Box<dyn std::error::Error>> =
+                    context::explain_context(&overrides, prompt.as_deref(), run.as_deref()).await;
                 handle_result(res, format, quiet)?;
             }
         },
@@ -1213,12 +1307,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let res = tools::classify_bash(&overrides, &command);
                     handle_result(res, format, quiet)?;
                 }
-            }
+            },
         },
         Command::Runtime(command) => match command.command {
             RuntimeSubcommand::Inspect => {
                 let res = gestalt_cli::runtime::inspect_runtime(&overrides, cli.api_key.clone())
+                    .await
                     .map(|inspect| RuntimeInspectReport { inspect });
+                handle_result(res, format, quiet)?;
+            }
+            RuntimeSubcommand::Events => {
+                let res = gestalt_cli::runtime::get_runtime_events(&overrides, cli.api_key.clone())
+                    .await
+                    .map(|events| RuntimeEventsReport { events });
+                handle_result(res, format, quiet)?;
+            }
+            RuntimeSubcommand::Doctor => {
+                let res = gestalt_cli::runtime::runtime_doctor(&overrides)
+                    .map(|checks| RuntimeDoctorReport { checks });
+                handle_result(res, format, quiet)?;
+            }
+        },
+        Command::Extension(command) => match command.command {
+            ExtensionSubcommand::List => {
+                let res = gestalt_cli::runtime::list_extensions(&overrides)
+                    .map(|extensions| ExtensionsListReport { extensions });
+                handle_result(res, format, quiet)?;
+            }
+            ExtensionSubcommand::Enable { id } => {
+                let res = gestalt_cli::runtime::enable_extension(&overrides, &id).map(|_| {
+                    ExtensionActionReport {
+                        action: "enable".to_string(),
+                        extension_id: id.clone(),
+                        success: true,
+                        message: format!("Extension '{}' enabled.", id),
+                    }
+                });
+                handle_result(res, format, quiet)?;
+            }
+            ExtensionSubcommand::Disable { id } => {
+                let res = gestalt_cli::runtime::disable_extension(&overrides, &id).map(|_| {
+                    ExtensionActionReport {
+                        action: "disable".to_string(),
+                        extension_id: id.clone(),
+                        success: true,
+                        message: format!("Extension '{}' disabled.", id),
+                    }
+                });
+                handle_result(res, format, quiet)?;
+            }
+            ExtensionSubcommand::Inspect { id } => {
+                let res = gestalt_cli::runtime::inspect_extension(&overrides, &id)
+                    .and_then(|opt| {
+                        opt.ok_or_else(|| format!("Extension '{}' not found", id).into())
+                    })
+                    .map(|manifest| ExtensionInspectReport { manifest });
+                handle_result(res, format, quiet)?;
+            }
+            ExtensionSubcommand::Reload => {
+                let res = gestalt_cli::runtime::list_extensions(&overrides).map(|extensions| {
+                    ExtensionActionReport {
+                        action: "reload".to_string(),
+                        extension_id: "all".to_string(),
+                        success: true,
+                        message: format!(
+                            "Reloaded extensions. Active count: {}",
+                            extensions.iter().filter(|e| e.enabled).count()
+                        ),
+                    }
+                });
+                handle_result(res, format, quiet)?;
+            }
+            ExtensionSubcommand::Validate { path } => {
+                let res = gestalt_cli::runtime::validate_extension(&path)
+                    .map(|manifest| ExtensionInspectReport { manifest });
                 handle_result(res, format, quiet)?;
             }
         },

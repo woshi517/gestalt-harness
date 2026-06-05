@@ -77,16 +77,24 @@ fn resolved_credential_debug_and_display_are_redacted() {
 fn test_chain_credential_resolver() {
     struct MissingResolver;
     impl CredentialResolver for MissingResolver {
-        fn resolve(&self, auth: &ProviderAuthConfig) -> Result<ResolvedCredential, gestalt_core::HarnessError> {
-            Err(gestalt_core::HarnessError::Provider(gestalt_core::ProviderError::AuthFailed {
-                provider: auth.provider_id.clone(),
-            }))
+        fn resolve(
+            &self,
+            auth: &ProviderAuthConfig,
+        ) -> Result<ResolvedCredential, gestalt_core::HarnessError> {
+            Err(gestalt_core::HarnessError::Provider(
+                gestalt_core::ProviderError::AuthFailed {
+                    provider: auth.provider_id.clone(),
+                },
+            ))
         }
     }
 
     struct SuccessResolver;
     impl CredentialResolver for SuccessResolver {
-        fn resolve(&self, _auth: &ProviderAuthConfig) -> Result<ResolvedCredential, gestalt_core::HarnessError> {
+        fn resolve(
+            &self,
+            _auth: &ProviderAuthConfig,
+        ) -> Result<ResolvedCredential, gestalt_core::HarnessError> {
             Ok(ResolvedCredential::new(
                 "sk-success".to_string(),
                 CredentialSource::Session,

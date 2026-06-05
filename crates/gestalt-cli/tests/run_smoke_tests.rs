@@ -132,9 +132,17 @@ override = "Smoke test override prompt"
     })
     .unwrap();
 
-    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None, gestalt_core::CancelToken::new(), None, None, None)
-        .await
-        .unwrap();
+    let log_dir = gestalt_cli::run::run_prompt(
+        &config,
+        "run smoke",
+        None,
+        gestalt_core::CancelToken::new(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     let trace_file = log_dir.join("trace.jsonl");
     let content = std::fs::read_to_string(trace_file).unwrap();
@@ -151,6 +159,9 @@ override = "Smoke test override prompt"
                 }
             }
         }
+    }
+    if !found_override {
+        println!("TRACE CONTENT:\n{}", content);
     }
     assert!(
         found_override,
@@ -180,9 +191,17 @@ default = "confirm"
     })
     .unwrap();
 
-    let log_dir2 = gestalt_cli::run::run_prompt(&config2, "run smoke", None, gestalt_core::CancelToken::new(), None, None, None)
-        .await
-        .unwrap();
+    let log_dir2 = gestalt_cli::run::run_prompt(
+        &config2,
+        "run smoke",
+        None,
+        gestalt_core::CancelToken::new(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     let trace_file2 = log_dir2.join("trace.jsonl");
     let content2 = std::fs::read_to_string(trace_file2).unwrap();
@@ -216,7 +235,10 @@ async fn test_cli_smoke_custom_provider_via_profile() {
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
 
-    let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-smoke-profile-{}", uuid::Uuid::new_v4()));
+    let temp_dir = std::env::temp_dir().join(format!(
+        "gestalt-cli-smoke-profile-{}",
+        uuid::Uuid::new_v4()
+    ));
     copy_minimal_workspace(&temp_dir);
 
     let gestalt_dir = temp_dir.join(".gestalt");
@@ -264,12 +286,19 @@ default = "confirm"
     assert_eq!(resolved.model, "mock-model");
 
     // Execute run_prompt to verify the loop runs
-    let log_dir = gestalt_cli::run::run_prompt(&config, "run smoke", None, gestalt_core::CancelToken::new(), None, None, None)
-        .await
-        .unwrap();
+    let log_dir = gestalt_cli::run::run_prompt(
+        &config,
+        "run smoke",
+        None,
+        gestalt_core::CancelToken::new(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     assert!(log_dir.join("trace.jsonl").exists());
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
-

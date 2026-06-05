@@ -294,11 +294,17 @@ impl CliReport for AuthDoctorReport {
 
     fn render_text(&self) -> String {
         let mut lines = vec![
-            format!("{:<30} | {:<10} | {:<15}", "Environment Variable", "Status", "Value"),
+            format!(
+                "{:<30} | {:<10} | {:<15}",
+                "Environment Variable", "Status", "Value"
+            ),
             "-".repeat(61),
         ];
         for entry in &self.entries {
-            lines.push(format!("{:<30} | {:<10} | {:<15}", entry.variable, entry.status, entry.value));
+            lines.push(format!(
+                "{:<30} | {:<10} | {:<15}",
+                entry.variable, entry.status, entry.value
+            ));
         }
         lines.join("\n")
     }
@@ -375,21 +381,32 @@ impl CliReport for ModelsListReport {
     }
     fn render_text(&self) -> String {
         let mut lines = vec![
-            format!("{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
-                "Qualified ID", "Input $/M", "Output $/M", "Vision", "Tools", "Thinking", "Cache"),
+            format!(
+                "{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
+                "Qualified ID", "Input $/M", "Output $/M", "Vision", "Tools", "Thinking", "Cache"
+            ),
             "-".repeat(110),
         ];
         for m in &self.models {
-            let input_cost = m.input_cost_per_million.map_or("N/A".to_string(), |c| format!("${:.2}", c));
-            let output_cost = m.output_cost_per_million.map_or("N/A".to_string(), |c| format!("${:.2}", c));
-            lines.push(format!("{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
+            let input_cost = m
+                .input_cost_per_million
+                .map_or("N/A".to_string(), |c| format!("${:.2}", c));
+            let output_cost = m
+                .output_cost_per_million
+                .map_or("N/A".to_string(), |c| format!("${:.2}", c));
+            lines.push(format!(
+                "{:<40} | {:<12} | {:<12} | {:<6} | {:<6} | {:<8} | {:<6}",
                 m.qualified_id,
                 input_cost,
                 output_cost,
                 if m.supports_vision { "yes" } else { "no" },
                 if m.supports_tools { "yes" } else { "no" },
                 if m.supports_thinking { "yes" } else { "no" },
-                if m.supports_prompt_caching { "yes" } else { "no" }
+                if m.supports_prompt_caching {
+                    "yes"
+                } else {
+                    "no"
+                }
             ));
         }
         lines.join("\n")
@@ -422,7 +439,10 @@ impl CliReport for ModelsRefreshReport {
     }
     fn render_text(&self) -> String {
         match self.status.as_str() {
-            "offline" => format!("built-in catalog available: {} models (offline)", self.count),
+            "offline" => format!(
+                "built-in catalog available: {} models (offline)",
+                self.count
+            ),
             "live requested" => format!("live refresh requested: {} models (offline)", self.count),
             "live performed" => format!("refreshed live catalog: {} models", self.count),
             "unsupported" => format!("live refresh unsupported: {} models (offline)", self.count),
@@ -598,16 +618,31 @@ impl CliReport for GlobalDoctorReport {
 
         // 1. Config Check
         if self.workspace_doctor.config_valid {
-            passes.push(format!("Configuration: valid (root: {})", self.workspace_doctor.workspace_root.display()));
+            passes.push(format!(
+                "Configuration: valid (root: {})",
+                self.workspace_doctor.workspace_root.display()
+            ));
         } else {
-            failures.push(format!("Configuration: invalid. Details: {}", self.workspace_doctor.config_error.as_deref().unwrap_or("unknown error")));
+            failures.push(format!(
+                "Configuration: invalid. Details: {}",
+                self.workspace_doctor
+                    .config_error
+                    .as_deref()
+                    .unwrap_or("unknown error")
+            ));
         }
 
         // 2. Policies Check
         if self.workspace_doctor.policies_valid {
             passes.push("Policies: syntax valid".to_string());
         } else {
-            failures.push(format!("Policies: invalid syntax. Details: {}", self.workspace_doctor.policies_error.as_deref().unwrap_or("unknown error")));
+            failures.push(format!(
+                "Policies: invalid syntax. Details: {}",
+                self.workspace_doctor
+                    .policies_error
+                    .as_deref()
+                    .unwrap_or("unknown error")
+            ));
         }
 
         // 2b. Selected Model Check
@@ -615,7 +650,13 @@ impl CliReport for GlobalDoctorReport {
             if self.workspace_doctor.model_valid {
                 passes.push(format!("Selected model '{model}': exists in catalog"));
             } else {
-                failures.push(format!("Selected model '{model}': {}", self.workspace_doctor.model_error.as_deref().unwrap_or("not found in catalog")));
+                failures.push(format!(
+                    "Selected model '{model}': {}",
+                    self.workspace_doctor
+                        .model_error
+                        .as_deref()
+                        .unwrap_or("not found in catalog")
+                ));
             }
         }
 
@@ -623,7 +664,10 @@ impl CliReport for GlobalDoctorReport {
         if self.workspace_doctor.missing_files.is_empty() {
             passes.push("Workspace files: all required files (.gestalt/config.toml, workspace.md, memory.md, policies.toml) present".to_string());
         } else {
-            warnings.push(format!("Workspace files: missing files: {}", self.workspace_doctor.missing_files.join(", ")));
+            warnings.push(format!(
+                "Workspace files: missing files: {}",
+                self.workspace_doctor.missing_files.join(", ")
+            ));
         }
 
         // 4. Writability Check
@@ -631,10 +675,13 @@ impl CliReport for GlobalDoctorReport {
             match self.workspace_doctor.run_dir_writable {
                 Some(true) => passes.push("Runs directory: exists and writable".to_string()),
                 Some(false) => failures.push("Runs directory: exists but NOT writable".to_string()),
-                None => warnings.push("Runs directory: exists but writability status is unknown".to_string()),
+                None => warnings
+                    .push("Runs directory: exists but writability status is unknown".to_string()),
             }
         } else {
-            warnings.push("Runs directory: does not exist yet (will be created on first run)".to_string());
+            warnings.push(
+                "Runs directory: does not exist yet (will be created on first run)".to_string(),
+            );
         }
 
         // 5. Auth / Providers Check
@@ -642,7 +689,9 @@ impl CliReport for GlobalDoctorReport {
         auths.sort_by_key(|(k, _)| *k);
         for (provider, status) in auths {
             if status == "present" || status == "ready" {
-                passes.push(format!("Provider '{provider}': credentials status is {status}"));
+                passes.push(format!(
+                    "Provider '{provider}': credentials status is {status}"
+                ));
             } else if status == "missing" {
                 warnings.push(format!("Provider '{provider}': credentials missing"));
             } else {
@@ -779,7 +828,8 @@ impl CliReport for RunsListReport {
         ));
         lines.push("-".repeat(129));
         for r in &self.runs {
-            let start_time_str = r.start_time
+            let start_time_str = r
+                .start_time
                 .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             let prov_mod = match (&r.provider, &r.model) {
@@ -792,7 +842,8 @@ impl CliReport for RunsListReport {
                 (Some(i), Some(o)) => format!("{i}/{o}"),
                 _ => "unknown".to_string(),
             };
-            let cost_str = r.estimated_cost_usd
+            let cost_str = r
+                .estimated_cost_usd
                 .map(|c| format!("${c:.6}"))
                 .unwrap_or_else(|| "unknown".to_string());
             lines.push(format!(
@@ -851,7 +902,8 @@ impl CliReport for RunsInspectReport {
         "runs.inspect"
     }
     fn render_text(&self) -> String {
-        let start_time_str = self.start_time
+        let start_time_str = self
+            .start_time
             .map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string())
             .unwrap_or_else(|| "unknown".to_string());
         let prov_mod = match (&self.provider, &self.model) {
@@ -864,25 +916,43 @@ impl CliReport for RunsInspectReport {
             (Some(i), Some(o)) => format!("{i} in / {o} out"),
             _ => "unknown".to_string(),
         };
-        let cost_str = self.estimated_cost_usd
+        let cost_str = self
+            .estimated_cost_usd
             .map(|c| format!("${c:.6}"))
             .unwrap_or_else(|| "unknown".to_string());
-        
+
         let mut lines = vec![
             format!("Run ID: {}", self.run_id),
             format!("Path: {}", self.path.display()),
             format!("Start Time: {start_time_str}"),
             format!("Session ID: {}", self.session_id),
-            format!("Parent Run ID: {}", self.parent_run_id.as_deref().unwrap_or("none")),
+            format!(
+                "Parent Run ID: {}",
+                self.parent_run_id.as_deref().unwrap_or("none")
+            ),
             format!("Run Kind: {}", self.run_kind.as_deref().unwrap_or("none")),
-            format!("Lifecycle State: {}", self.lifecycle_state.as_deref().unwrap_or("none")),
+            format!(
+                "Lifecycle State: {}",
+                self.lifecycle_state.as_deref().unwrap_or("none")
+            ),
             format!("Status: {}", self.apparent_status),
             format!("Provider/Model: {prov_mod}"),
-            format!("Turns: {}", self.turns.map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string())),
-            format!("Stop Reason: {}", self.stop_reason.as_deref().unwrap_or("unknown")),
+            format!(
+                "Turns: {}",
+                self.turns
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ),
+            format!(
+                "Stop Reason: {}",
+                self.stop_reason.as_deref().unwrap_or("unknown")
+            ),
             format!("Tokens: {tokens_str}"),
             format!("Cost: {cost_str}"),
-            format!("Workspace Snapshot ID: {}", self.workspace_snapshot_id.as_deref().unwrap_or("none")),
+            format!(
+                "Workspace Snapshot ID: {}",
+                self.workspace_snapshot_id.as_deref().unwrap_or("none")
+            ),
             format!("Artifacts: {} artifacts", self.artifacts.len()),
         ];
         for a in &self.artifacts {
@@ -908,14 +978,19 @@ impl CliReport for RunsPruneReport {
         "runs.prune"
     }
     fn render_text(&self) -> String {
-        let prefix = if self.dry_run { "Would prune" } else { "Pruned" };
+        let prefix = if self.dry_run {
+            "Would prune"
+        } else {
+            "Pruned"
+        };
         if self.pruned_runs.is_empty() {
             return "No runs found to prune.".to_string();
         }
         let size_mb = self.reclaimed_bytes as f64 / 1_048_576.0;
-        let mut lines = vec![
-            format!("{prefix} {} runs (reclaiming {size_mb:.2} MB):", self.pruned_runs.len())
-        ];
+        let mut lines = vec![format!(
+            "{prefix} {} runs (reclaiming {size_mb:.2} MB):",
+            self.pruned_runs.len()
+        )];
         for r in &self.pruned_runs {
             lines.push(format!("  - {r}"));
         }
@@ -999,9 +1074,22 @@ impl CliReport for TraceInspectReport {
             format!("  Confirmed: {}", self.policy_outcomes.confirmed),
             format!("  Denied: {}", self.policy_outcomes.denied),
             format!("Verification Results: {}", self.verification_results),
-            format!("  Status: {}", self.verification_status.map(|s| format!("{s:?}")).unwrap_or_else(|| "none".to_string())),
-            format!("Tokens: {} in / {} out", self.total_input_tokens, self.total_output_tokens),
-            format!("Cost: {}", self.estimated_cost_usd.map(|c| format!("${c:.6}")).unwrap_or_else(|| "unknown".to_string())),
+            format!(
+                "  Status: {}",
+                self.verification_status
+                    .map(|s| format!("{s:?}"))
+                    .unwrap_or_else(|| "none".to_string())
+            ),
+            format!(
+                "Tokens: {} in / {} out",
+                self.total_input_tokens, self.total_output_tokens
+            ),
+            format!(
+                "Cost: {}",
+                self.estimated_cost_usd
+                    .map(|c| format!("${c:.6}"))
+                    .unwrap_or_else(|| "unknown".to_string())
+            ),
             format!("Redacted: {}", self.redacted),
             format!("Artifacts: {} artifacts", self.artifacts.len()),
         ];
@@ -1116,10 +1204,14 @@ impl CliReport for VerifyRunReport {
             for v in &a.verifiers {
                 lines.push(format!("    * Verifier: {} [{:?}]", v.name, v.status));
                 for f in &v.findings {
-                    lines.push(format!("      - [{:?}] {}{}", 
-                        f.severity, 
+                    lines.push(format!(
+                        "      - [{:?}] {}{}",
+                        f.severity,
                         f.message,
-                        f.location.as_ref().map(|loc| format!(" at {loc}")).unwrap_or_default()
+                        f.location
+                            .as_ref()
+                            .map(|loc| format!(" at {loc}"))
+                            .unwrap_or_default()
                     ));
                 }
                 if let Some(r) = &v.report {
@@ -1147,7 +1239,10 @@ impl CliReport for ConfigShowReport {
         if self.source {
             if let Some(ref map) = self.explain_map {
                 let mut lines = vec![
-                    format!("{:<35} | {:<25} | {:<25}", "Configuration Key", "Value", "Source"),
+                    format!(
+                        "{:<35} | {:<25} | {:<25}",
+                        "Configuration Key", "Value", "Source"
+                    ),
                     "-".repeat(91),
                 ];
                 let mut keys: Vec<&String> = map.keys().collect();
@@ -1244,7 +1339,10 @@ impl CliReport for PolicyExplainReport {
 
     fn render_text(&self) -> String {
         let mut lines = vec![
-            format!("Policy Explain for tool '{}' with input {}", self.tool, self.input),
+            format!(
+                "Policy Explain for tool '{}' with input {}",
+                self.tool, self.input
+            ),
             format!("Execution Mode: {}", self.mode),
             format!("Classified Risk: {:?}", self.risk),
             format!("Outcome: {:?}", self.decision.status),
@@ -1275,7 +1373,10 @@ impl CliReport for PolicyTestReport {
 
     fn render_text(&self) -> String {
         let mut lines = vec![
-            format!("Policy Test for tool '{}' with input {}", self.tool, self.input),
+            format!(
+                "Policy Test for tool '{}' with input {}",
+                self.tool, self.input
+            ),
             format!("Execution Mode: {}", self.mode),
             format!("Classified Risk: {:?}", self.risk),
             format!("Outcome: {:?}", self.decision.status),
@@ -1314,14 +1415,20 @@ impl CliReport for ContextExplainReport {
             format!("Packet Hash:      {}", self.packet_hash),
         ];
         if self.prompt.is_some() {
-            lines.push(format!("Prompt Source:    {}", self.prompt_source.as_deref().unwrap_or("none")));
+            lines.push(format!(
+                "Prompt Source:    {}",
+                self.prompt_source.as_deref().unwrap_or("none")
+            ));
         } else if let Some(ref run_id) = self.run_id {
             lines.push(format!("Run ID:           {}", run_id));
         }
 
         lines.push(String::new());
         lines.push("Context Sources:".to_string());
-        lines.push(format!("{:<15} | {:<30} | {:<10} | {:<15} | {:<8}", "Kind", "Path/Label", "Trust", "Token Est.", "Included"));
+        lines.push(format!(
+            "{:<15} | {:<30} | {:<10} | {:<15} | {:<8}",
+            "Kind", "Path/Label", "Trust", "Token Est.", "Included"
+        ));
         lines.push("-".repeat(91));
         for s in &self.sources {
             lines.push(format!(
@@ -1333,7 +1440,10 @@ impl CliReport for ContextExplainReport {
         if !self.omissions.is_empty() {
             lines.push(String::new());
             lines.push("Context Omissions (Budget Exhausted):".to_string());
-            lines.push(format!("{:<15} | {:<30} | {:<10} | {:<15} | {:<20}", "Kind", "Path/Label", "Trust", "Token Est.", "Reason"));
+            lines.push(format!(
+                "{:<15} | {:<30} | {:<10} | {:<15} | {:<20}",
+                "Kind", "Path/Label", "Trust", "Token Est.", "Reason"
+            ));
             lines.push("-".repeat(98));
             for o in &self.omissions {
                 lines.push(format!(
@@ -1366,11 +1476,17 @@ impl CliReport for ToolsListReport {
 
     fn render_text(&self) -> String {
         let mut lines = vec![
-            format!("{:<15} | {:<20} | {:<50}", "Tool Name", "Risk Classification", "Description"),
+            format!(
+                "{:<15} | {:<20} | {:<50}",
+                "Tool Name", "Risk Classification", "Description"
+            ),
             "-".repeat(91),
         ];
         for t in &self.tools {
-            lines.push(format!("{:<15} | {:<20} | {:<50}", t.name, t.risk_type, t.description));
+            lines.push(format!(
+                "{:<15} | {:<20} | {:<50}",
+                t.name, t.risk_type, t.description
+            ));
         }
         lines.join("\n")
     }
@@ -1388,7 +1504,8 @@ impl CliReport for ToolsInspectReport {
     }
 
     fn render_text(&self) -> String {
-        serde_json::to_string_pretty(&self.schema).unwrap_or_else(|_| "Serialization error".to_string())
+        serde_json::to_string_pretty(&self.schema)
+            .unwrap_or_else(|_| "Serialization error".to_string())
     }
 }
 
@@ -1454,12 +1571,18 @@ impl CliReport for ProfilesListReport {
     }
     fn render_text(&self) -> String {
         let mut lines = vec![
-            format!("{:<15} | {:<20} | {:<30} | {:<8}", "Profile", "Provider", "Model", "Active"),
+            format!(
+                "{:<15} | {:<20} | {:<30} | {:<8}",
+                "Profile", "Provider", "Model", "Active"
+            ),
             "-".repeat(81),
         ];
         for p in &self.profiles {
             let active_str = if p.active { "yes" } else { "no" };
-            lines.push(format!("{:<15} | {:<20} | {:<30} | {:<8}", p.name, p.provider, p.model, active_str));
+            lines.push(format!(
+                "{:<15} | {:<20} | {:<30} | {:<8}",
+                p.name, p.provider, p.model, active_str
+            ));
         }
         lines.join("\n")
     }
@@ -1556,7 +1679,10 @@ impl CliReport for ModelsSearchReport {
 
     fn render_text(&self) -> String {
         let mut lines = vec![
-            format!("{:<30} | {:<25} | {:<10} | {:<10} | {:<10} | {:<10}", "Model ID", "Display Name", "Context", "Max Out", "Tools", "Vision"),
+            format!(
+                "{:<30} | {:<25} | {:<10} | {:<10} | {:<10} | {:<10}",
+                "Model ID", "Display Name", "Context", "Max Out", "Tools", "Vision"
+            ),
             "-".repeat(110),
         ];
         for m in &self.models {
@@ -1588,29 +1714,50 @@ impl CliReport for RuntimeInspectReport {
         let mut lines = Vec::new();
         lines.push("Resolved Gestalt Agent Runtime Shape".to_string());
         lines.push("====================================".to_string());
-        lines.push(format!("Provider Connection: {}", self.inspect.provider_name));
-        lines.push(format!("Provider Model:      {}", self.inspect.provider_model));
-        lines.push(format!("Execution Mode:      {}", self.inspect.execution_mode));
+        lines.push(format!(
+            "Provider Connection: {}",
+            self.inspect.provider_name
+        ));
+        lines.push(format!(
+            "Provider Model:      {}",
+            self.inspect.provider_model
+        ));
+        lines.push(format!(
+            "Execution Mode:      {}",
+            self.inspect.execution_mode
+        ));
         lines.push(format!("Max Turns Limit:     {}", self.inspect.max_turns));
-        lines.push(format!("Context Version:     {}", self.inspect.context_pipeline_version));
-        lines.push(format!("Workspace Root:      {}", self.inspect.workspace_root));
-        
+        lines.push(format!(
+            "Context Version:     {}",
+            self.inspect.context_pipeline_version
+        ));
+        lines.push(format!(
+            "Workspace Root:      {}",
+            self.inspect.workspace_root
+        ));
+
         if let Some(ref source) = self.inspect.policy_source_path {
             lines.push(format!("Policy Source:       {}", source));
         }
         if let Some(ref fp) = self.inspect.policy_fingerprint {
             lines.push(format!("Policy Fingerprint:  {}", fp));
         }
-        
+
         if let Some(ref sink) = self.inspect.trace_sink_kind {
             lines.push(format!("Trace Sink Kind:     {}", sink));
         }
 
         lines.push(String::new());
-        lines.push(format!("Enabled CLI Features: {:?}", self.inspect.enabled_cli_features));
+        lines.push(format!(
+            "Enabled CLI Features: {:?}",
+            self.inspect.enabled_cli_features
+        ));
 
         lines.push(String::new());
-        lines.push(format!("Extensions Installed ({}):", self.inspect.extensions.len()));
+        lines.push(format!(
+            "Extensions Installed ({}):",
+            self.inspect.extensions.len()
+        ));
         if self.inspect.extensions.is_empty() {
             lines.push("  (none)".to_string());
         } else {
@@ -1620,7 +1767,10 @@ impl CliReport for RuntimeInspectReport {
         }
 
         lines.push(String::new());
-        lines.push(format!("Active Verification Rules ({}):", self.inspect.verifiers.len()));
+        lines.push(format!(
+            "Active Verification Rules ({}):",
+            self.inspect.verifiers.len()
+        ));
         if self.inspect.verifiers.is_empty() {
             lines.push("  (none)".to_string());
         } else {
@@ -1630,8 +1780,14 @@ impl CliReport for RuntimeInspectReport {
         }
 
         lines.push(String::new());
-        lines.push(format!("Registered Composition Hooks ({}):", self.inspect.hooks.len()));
-        lines.push(format!("Hook Contract Hash:  {}", self.inspect.hook_contract_hash));
+        lines.push(format!(
+            "Registered Composition Hooks ({}):",
+            self.inspect.hooks.len()
+        ));
+        lines.push(format!(
+            "Hook Contract Hash:  {}",
+            self.inspect.hook_contract_hash
+        ));
         if self.inspect.hooks.is_empty() {
             lines.push("  (none)".to_string());
         } else {
@@ -1641,7 +1797,11 @@ impl CliReport for RuntimeInspectReport {
         }
 
         lines.push(String::new());
-        lines.push(format!("Available Tools ({}) - Schema Hash {}:", self.inspect.tools.len(), self.inspect.tool_schema_hash));
+        lines.push(format!(
+            "Available Tools ({}) - Schema Hash {}:",
+            self.inspect.tools.len(),
+            self.inspect.tool_schema_hash
+        ));
         if self.inspect.tools.is_empty() {
             lines.push("  (none)".to_string());
         } else {
@@ -1656,4 +1816,112 @@ impl CliReport for RuntimeInspectReport {
     }
 }
 
+#[derive(Serialize)]
+pub struct ExtensionsListReport {
+    pub extensions: Vec<gestalt_runtime::DiscoveredExtension>,
+}
 
+impl CliReport for ExtensionsListReport {
+    fn kind(&self) -> &'static str {
+        "extensions.list"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push("Discovered Gestalt Extensions".to_string());
+        lines.push("=============================".to_string());
+        if self.extensions.is_empty() {
+            lines.push("No extensions found.".to_string());
+        } else {
+            for ext in &self.extensions {
+                let status = if ext.enabled { "ENABLED" } else { "DISABLED" };
+                lines.push(format!(
+                    "- {} (v{}) [{}] - {}",
+                    ext.manifest.id,
+                    ext.manifest.version,
+                    status,
+                    ext.manifest_path.to_string_lossy()
+                ));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct ExtensionInspectReport {
+    pub manifest: gestalt_runtime::ExtensionManifest,
+}
+
+impl CliReport for ExtensionInspectReport {
+    fn kind(&self) -> &'static str {
+        "extensions.inspect"
+    }
+
+    fn render_text(&self) -> String {
+        serde_json::to_string_pretty(&self.manifest).unwrap_or_default()
+    }
+}
+
+#[derive(Serialize)]
+pub struct ExtensionActionReport {
+    pub action: String,
+    pub extension_id: String,
+    pub success: bool,
+    pub message: String,
+}
+
+impl CliReport for ExtensionActionReport {
+    fn kind(&self) -> &'static str {
+        "extensions.action"
+    }
+
+    fn render_text(&self) -> String {
+        format!(
+            "{}: {} (success: {})",
+            self.action, self.message, self.success
+        )
+    }
+}
+
+#[derive(Serialize)]
+pub struct RuntimeEventsReport {
+    pub events: Vec<gestalt_runtime::RuntimeEvent>,
+}
+
+impl CliReport for RuntimeEventsReport {
+    fn kind(&self) -> &'static str {
+        "runtime.events"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push("Runtime Events Log".to_string());
+        lines.push("==================".to_string());
+        for evt in &self.events {
+            lines.push(format!("{:?}", evt));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct RuntimeDoctorReport {
+    pub checks: Vec<String>,
+}
+
+impl CliReport for RuntimeDoctorReport {
+    fn kind(&self) -> &'static str {
+        "runtime.doctor"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push("Runtime Diagnostics (Doctor)".to_string());
+        lines.push("===========================".to_string());
+        for check in &self.checks {
+            lines.push(check.clone());
+        }
+        lines.join("\n")
+    }
+}

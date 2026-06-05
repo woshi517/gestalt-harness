@@ -48,6 +48,31 @@ too-many-arguments = { level = "allow", priority = 1 }
 too-many-lines = { level = "allow", priority = 1 }
 unnecessary-literal-bound = { level = "allow", priority = 1 }
 unused-self = { level = "allow", priority = 1 }
+ignored-unit-patterns = { level = "allow", priority = 1 }
+assigning-clones = { level = "allow", priority = 1 }
+manual-let-else = { level = "allow", priority = 1 }
+redundant-clone = { level = "allow", priority = 1 }
+option-if-let-else = { level = "allow", priority = 1 }
+collapsible-if = { level = "allow", priority = 1 }
+io-other-error = { level = "allow", priority = 1 }
+misnamed-getters = { level = "allow", priority = 1 }
+similar-names = { level = "allow", priority = 1 }
+bool-to-int-with-if = { level = "allow", priority = 1 }
+missing-panics-doc = { level = "allow", priority = 1 }
+field-reassign-with-default = { level = "allow", priority = 1 }
+unnecessary-map-or = { level = "allow", priority = 1 }
+significant-drop-tightening = { level = "allow", priority = 1 }
+items-after-statements = { level = "allow", priority = 1 }
+uninlined-format-args = { level = "allow", priority = 1 }
+redundant-closure-for-method-calls = { level = "allow", priority = 1 }
+needless-pass-by-value = { level = "allow", priority = 1 }
+redundant-else = { level = "allow", priority = 1 }
+unnecessary-debug-formatting = { level = "allow", priority = 1 }
+expect-fun-call = { level = "allow", priority = 1 }
+collapsible-match = { level = "allow", priority = 1 }
+default-trait-access = { level = "allow", priority = 1 }
+useless-vec = { level = "allow", priority = 1 }
+unused-async = { level = "allow", priority = 1 }
 
 [workspace.dependencies]
 # === Core shared deps ===
@@ -68,6 +93,7 @@ eventsource-stream = "0.2"
 # === CLI ===
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
+toml_edit = "0.22"
 dirs = "5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

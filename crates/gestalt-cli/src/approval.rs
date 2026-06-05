@@ -7,7 +7,10 @@ pub struct CliApprovalProvider;
 
 #[async_trait::async_trait]
 impl ApprovalProvider for CliApprovalProvider {
-    async fn approve(&self, request: ApprovalRequest) -> Result<ApprovalDecision, gestalt_core::HarnessError> {
+    async fn approve(
+        &self,
+        request: ApprovalRequest,
+    ) -> Result<ApprovalDecision, gestalt_core::HarnessError> {
         let cancel = gestalt_core::cancel::CancelToken::new();
         self.approve_cancellable(request, &cancel).await
     }

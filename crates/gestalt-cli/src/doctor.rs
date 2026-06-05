@@ -1,8 +1,8 @@
 use gestalt_core::error::HarnessError;
 use std::{fs, path::PathBuf};
 
-use crate::config::{load_effective_config, CliOverrides};
 use crate::auth::resolve_auth;
+use crate::config::{load_effective_config, CliOverrides};
 use crate::output::{GlobalDoctorReport, WorkspaceDoctorReport};
 use crate::providers::probe_provider;
 
@@ -42,6 +42,7 @@ pub async fn diagnose_workspace(
                 provider_override: None,
                 model_override: None,
                 tui: crate::config::TuiConfig::default(),
+                extensions: Default::default(),
             }
         }
     };

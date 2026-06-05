@@ -1,7 +1,7 @@
+use gestalt_core::session::ExecutionMode;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
-use gestalt_core::session::ExecutionMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeConfig {

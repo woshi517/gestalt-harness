@@ -1,8 +1,8 @@
+use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_cli::sessions::{history_session, inspect_session, list_sessions, run_session_action};
+use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;
 use std::path::PathBuf;
-use gestalt_cli::config::{CliOverrides, load_effective_config};
-use gestalt_cli::sessions::{list_sessions, inspect_session, history_session, run_session_action};
-use gestalt_trace::run_manifest::{RunManifest, RunKind, LifecycleState, CompatibilityFingerprint};
 
 fn create_temp_workspace() -> PathBuf {
     let temp = std::env::temp_dir().join(format!("gestalt-test-sessions-{}", uuid::Uuid::new_v4()));
@@ -22,7 +22,7 @@ async fn test_sessions_list_inspect_history() {
     let run1_id = "run-root".to_string();
     let run1_dir = runs_dir.join(format!("20260602T100000Z-{}", run1_id));
     fs::create_dir_all(&run1_dir).unwrap();
-    
+
     let fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
         tool_schema_hash: "hash1".to_string(),
@@ -107,7 +107,7 @@ async fn test_sessions_list_inspect_history() {
     assert_eq!(history_rep.session_id, session_id);
     // There should be checkpoints, user messages, and interrupts in timeline
     assert!(!history_rep.timeline.is_empty());
-    
+
     // 6. Test preflight validation failure (drift or state mismatch)
     // Resume on run-child should be safe because it is InterruptedSafe (no in-flight ambiguous tools/hooks)
     // But continue on run-child should be rejected because it is interrupted, not completed.
@@ -122,8 +122,9 @@ async fn test_sessions_list_inspect_history() {
         cancel.clone(),
         None,
         None,
-    ).await;
-    
+    )
+    .await;
+
     assert!(continue_err.is_err());
     let err_msg = format!("{:?}", continue_err.err().unwrap());
     assert!(err_msg.contains("Continue rejected") || err_msg.contains("Only completed head runs"));
@@ -133,9 +134,9 @@ async fn test_sessions_list_inspect_history() {
 
 #[tokio::test]
 async fn test_sessions_successful_resume_and_branch() {
-    use gestalt_core::provider::{Provider, ProviderCapabilities, ProviderRequest, EventStream};
-    use gestalt_core::message::{Message, ContentBlock};
     use gestalt_core::event::AgentEvent;
+    use gestalt_core::message::{ContentBlock, Message};
+    use gestalt_core::provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest};
     use gestalt_core::ToolCatalog;
     use std::sync::Arc;
 
@@ -161,17 +162,37 @@ async fn test_sessions_successful_resume_and_branch() {
     }
     #[async_trait::async_trait]
     impl Provider for MockProvider {
-        fn id(&self) -> &str { "mock-provider" }
-        fn display_name(&self) -> &str { "Mock Provider" }
-        fn default_model(&self) -> &str { "mock-model" }
-        fn capabilities(&self) -> &ProviderCapabilities { &self.capabilities }
-        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> { None }
-        fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, gestalt_core::HarnessError> { Ok(0) }
-        async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, gestalt_core::HarnessError> {
+        fn id(&self) -> &str {
+            "mock-provider"
+        }
+        fn display_name(&self) -> &str {
+            "Mock Provider"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+        fn capabilities(&self) -> &ProviderCapabilities {
+            &self.capabilities
+        }
+        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+            None
+        }
+        fn count_tokens(
+            &self,
+            _model: &str,
+            _messages: &[Message],
+        ) -> Result<usize, gestalt_core::HarnessError> {
+            Ok(0)
+        }
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+        ) -> Result<EventStream, gestalt_core::HarnessError> {
             let events = vec![AgentEvent::Stop {
                 reason: gestalt_core::event::StopReason::EndTurn,
             }];
-            let stream = futures::stream::iter(events.into_iter().map(Ok::<_, gestalt_core::HarnessError>));
+            let stream =
+                futures::stream::iter(events.into_iter().map(Ok::<_, gestalt_core::HarnessError>));
             Ok(Box::pin(stream))
         }
     }
@@ -221,7 +242,9 @@ model = "mock-model"
     // Fingerprint matching what run_session_action generates
     let fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
-        tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&gestalt_tools::default_registry().unwrap().schemas()),
+        tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
+            &gestalt_tools::default_registry().unwrap().schemas(),
+        ),
         policy_fingerprint: gestalt_trace::run_manifest::compute_policy_fingerprint(policies_toml),
         hook_contract_hash: {
             let hook_names = vec![
@@ -247,7 +270,9 @@ model = "mock-model"
         interrupted_phase: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
-    manifest_root.save_to(&run_root_dir.join("run.json")).unwrap();
+    manifest_root
+        .save_to(&run_root_dir.join("run.json"))
+        .unwrap();
 
     // Write trace with a Checkpoint event containing some history
     let history_msg = Message::Assistant {
@@ -274,7 +299,8 @@ model = "mock-model"
             redacted: false,
             workspace_snapshot: None,
             snapshot_id: None,
-        }).unwrap()
+        })
+        .unwrap()
     );
     fs::write(run_root_dir.join("trace.jsonl"), trace_data).unwrap();
 
@@ -290,7 +316,9 @@ model = "mock-model"
         cancel.clone(),
         None,
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // Verify it created a new run directory with CONTINUE kind and correct lineage
     let manifest_new = RunManifest::load_from(&new_run_path.join("run.json")).unwrap();
@@ -317,7 +345,10 @@ model = "mock-model"
             }
         }
     }
-    assert!(reconstructed_has_history, "Reconstructed run did not preserve final assistant turn history!");
+    assert!(
+        reconstructed_has_history,
+        "Reconstructed run did not preserve final assistant turn history!"
+    );
 
     // 2. Test BRANCHing from a specific checkpoint sequence
     let cancel_branch = gestalt_core::CancelToken::new();
@@ -331,7 +362,9 @@ model = "mock-model"
         cancel_branch,
         None,
         None,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     let manifest_branch = RunManifest::load_from(&branch_run_path.join("run.json")).unwrap();
     assert_eq!(manifest_branch.run_kind, RunKind::Branch);
@@ -345,7 +378,11 @@ model = "mock-model"
         if let Ok(env) = serde_json::from_str::<gestalt_trace::EventEnvelope>(line) {
             if let AgentEvent::Checkpoint { history, .. } = env.event {
                 found_checkpoint = true;
-                assert_eq!(history.len(), 1, "Branched run should only contain the branch prompt");
+                assert_eq!(
+                    history.len(),
+                    1,
+                    "Branched run should only contain the branch prompt"
+                );
                 if let Message::User { content } = &history[0] {
                     if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
                         assert_eq!(text, "branched prompt");

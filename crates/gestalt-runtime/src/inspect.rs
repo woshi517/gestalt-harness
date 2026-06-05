@@ -15,6 +15,7 @@ pub struct RuntimeInspect {
     pub hook_contract_hash: String,
     pub verifiers: Vec<String>,
     pub extensions: Vec<String>,
+    pub context_injectors: Vec<String>,
     pub trace_sink_kind: Option<String>,
     pub trace_run_dir: Option<String>,
     pub workspace_root: String,

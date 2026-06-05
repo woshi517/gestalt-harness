@@ -1,8 +1,8 @@
-use std::fs;
-use std::sync::Mutex;
+use gestalt_cli::auth::set_use_fake_keychain;
 use gestalt_cli::config::{load_effective_config, CliOverrides};
 use gestalt_cli::connect::{connect_provider, disconnect_provider};
-use gestalt_cli::auth::set_use_fake_keychain;
+use std::fs;
+use std::sync::Mutex;
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -69,10 +69,14 @@ fn test_connect_openrouter() {
     let resolved = config2.resolve_provider().expect("resolve provider");
     assert_eq!(resolved.provider_name, "openrouter");
     assert_eq!(resolved.model, "openrouter/free");
-    assert_eq!(resolved.auth_ref.as_deref(), Some("secret:provider/openrouter"));
+    assert_eq!(
+        resolved.auth_ref.as_deref(),
+        Some("secret:provider/openrouter")
+    );
 
     // Verify disconnect
-    let dis_report = disconnect_provider(&config2, "openrouter", true).expect("disconnect succeeds");
+    let dis_report =
+        disconnect_provider(&config2, "openrouter", true).expect("disconnect succeeds");
     assert_eq!(dis_report.provider, "openrouter");
     assert_eq!(dis_report.profile_removed.as_deref(), Some("default"));
 

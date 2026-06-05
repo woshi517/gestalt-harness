@@ -1,19 +1,25 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use gestalt_core::tool::ToolSchema;
-use crate::error::{Result, RuntimeError};
 use crate::context::ContextContributor;
+use crate::error::{Result, RuntimeError};
+use gestalt_core::tool::{Tool, ToolSchema};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ToolMetadata {
     pub name: String,
     pub schema: ToolSchema,
     pub schema_hash: String,
+    pub tool: Option<Arc<dyn Tool>>,
+    pub extension_id: Option<String>,
 }
 
 pub type ProviderFactory = Arc<
-    dyn Fn(serde_json::Value) -> std::result::Result<Arc<dyn gestalt_core::provider::Provider>, gestalt_core::error::HarnessError>
-        + Send
+    dyn Fn(
+            serde_json::Value,
+        ) -> std::result::Result<
+            Arc<dyn gestalt_core::provider::Provider>,
+            gestalt_core::error::HarnessError,
+        > + Send
         + Sync,
 >;
 
@@ -22,10 +28,36 @@ pub struct ProviderMetadata {
     pub factory: ProviderFactory,
 }
 
+impl Clone for ProviderMetadata {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            factory: self.factory.clone(),
+        }
+    }
+}
+
+pub struct ContextContributorMetadata {
+    pub name: String,
+    pub contributor: Arc<dyn ContextContributor>,
+    pub extension_id: Option<String>,
+}
+
+impl Clone for ContextContributorMetadata {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            contributor: self.contributor.clone(),
+            extension_id: self.extension_id.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct RuntimeRegistry {
-    pub tools: HashMap<String, ToolMetadata>,
-    pub providers: HashMap<String, ProviderMetadata>,
-    pub context_contributors: HashMap<String, Arc<dyn ContextContributor>>,
+    pub tools: BTreeMap<String, ToolMetadata>,
+    pub providers: BTreeMap<String, ProviderMetadata>,
+    pub context_contributors: BTreeMap<String, ContextContributorMetadata>,
     pub verifiers: Vec<String>,
     pub hooks: Vec<String>,
     pub extensions: Vec<String>,
@@ -40,9 +72,9 @@ impl Default for RuntimeRegistry {
 impl RuntimeRegistry {
     pub fn new() -> Self {
         Self {
-            tools: HashMap::new(),
-            providers: HashMap::new(),
-            context_contributors: HashMap::new(),
+            tools: BTreeMap::new(),
+            providers: BTreeMap::new(),
+            context_contributors: BTreeMap::new(),
             verifiers: Vec::new(),
             hooks: Vec::new(),
             extensions: Vec::new(),
@@ -51,39 +83,115 @@ impl RuntimeRegistry {
 
     pub fn register_tool(&mut self, name: String, schema: ToolSchema) -> Result<()> {
         if self.tools.contains_key(&name) {
-            return Err(RuntimeError::Registry(format!("Duplicate tool registered: {}", name)));
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate tool registered: {}",
+                name
+            )));
         }
         let schema_hash = compute_schema_hash(&schema);
-        self.tools.insert(name.clone(), ToolMetadata {
-            name,
-            schema,
-            schema_hash,
-        });
+        self.tools.insert(
+            name.clone(),
+            ToolMetadata {
+                name,
+                schema,
+                schema_hash,
+                tool: None,
+                extension_id: None,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn register_executable_tool(
+        &mut self,
+        name: String,
+        schema: ToolSchema,
+        tool: Arc<dyn Tool>,
+        extension_id: Option<String>,
+    ) -> Result<()> {
+        if self.tools.contains_key(&name) {
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate tool registered: {}",
+                name
+            )));
+        }
+        let schema_hash = compute_schema_hash(&schema);
+        self.tools.insert(
+            name.clone(),
+            ToolMetadata {
+                name,
+                schema,
+                schema_hash,
+                tool: Some(tool),
+                extension_id,
+            },
+        );
         Ok(())
     }
 
     pub fn register_provider(&mut self, name: String, factory: ProviderFactory) -> Result<()> {
         if self.providers.contains_key(&name) {
-            return Err(RuntimeError::Registry(format!("Duplicate provider registered: {}", name)));
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate provider registered: {}",
+                name
+            )));
         }
-        self.providers.insert(name.clone(), ProviderMetadata {
-            name,
-            factory,
-        });
+        self.providers
+            .insert(name.clone(), ProviderMetadata { name, factory });
         Ok(())
     }
 
-    pub fn register_context_contributor(&mut self, name: String, contributor: Arc<dyn ContextContributor>) -> Result<()> {
+    pub fn register_context_contributor(
+        &mut self,
+        name: String,
+        contributor: Arc<dyn ContextContributor>,
+    ) -> Result<()> {
         if self.context_contributors.contains_key(&name) {
-            return Err(RuntimeError::Registry(format!("Duplicate context contributor registered: {}", name)));
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate context contributor registered: {}",
+                name
+            )));
         }
-        self.context_contributors.insert(name, contributor);
+        self.context_contributors.insert(
+            name.clone(),
+            ContextContributorMetadata {
+                name: name.clone(),
+                contributor,
+                extension_id: None,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn register_executable_context_contributor(
+        &mut self,
+        name: String,
+        contributor: Arc<dyn ContextContributor>,
+        extension_id: Option<String>,
+    ) -> Result<()> {
+        if self.context_contributors.contains_key(&name) {
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate context contributor registered: {}",
+                name
+            )));
+        }
+        self.context_contributors.insert(
+            name.clone(),
+            ContextContributorMetadata {
+                name: name.clone(),
+                contributor,
+                extension_id,
+            },
+        );
         Ok(())
     }
 
     pub fn register_verifier(&mut self, name: String) -> Result<()> {
         if self.verifiers.contains(&name) {
-            return Err(RuntimeError::Registry(format!("Duplicate verifier registered: {}", name)));
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate verifier registered: {}",
+                name
+            )));
         }
         self.verifiers.push(name);
         Ok(())
@@ -91,7 +199,10 @@ impl RuntimeRegistry {
 
     pub fn register_hook(&mut self, name: String) -> Result<()> {
         if self.hooks.contains(&name) {
-            return Err(RuntimeError::Registry(format!("Duplicate hook registered: {}", name)));
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate hook registered: {}",
+                name
+            )));
         }
         self.hooks.push(name);
         Ok(())
@@ -99,7 +210,10 @@ impl RuntimeRegistry {
 
     pub fn register_extension(&mut self, name: String) -> Result<()> {
         if self.extensions.contains(&name) {
-            return Err(RuntimeError::Registry(format!("Duplicate extension registered: {}", name)));
+            return Err(RuntimeError::Registry(format!(
+                "Duplicate extension registered: {}",
+                name
+            )));
         }
         self.extensions.push(name);
         Ok(())

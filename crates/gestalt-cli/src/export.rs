@@ -23,7 +23,10 @@ pub fn export_run(
     if !trace_path.exists() {
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("trace.jsonl does not exist in run directory: {}", run_dir.display()),
+            format!(
+                "trace.jsonl does not exist in run directory: {}",
+                run_dir.display()
+            ),
         )));
     }
 
@@ -37,7 +40,11 @@ pub fn export_run(
         }
         ExportFormat::Markdown => {
             let events = gestalt_trace::read_trace(&trace_path)?;
-            let run_id = run_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let run_id = run_dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             let summary = runs::summarize_run_dir(&run_dir)?;
 
             let prov_mod = match (&summary.provider, &summary.model) {
@@ -47,7 +54,8 @@ pub fn export_run(
                 _ => "unknown".to_string(),
             };
 
-            let start_time_str = summary.start_time
+            let start_time_str = summary
+                .start_time
                 .map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string())
                 .unwrap_or_else(|| "unknown".to_string());
 
@@ -56,7 +64,8 @@ pub fn export_run(
                 _ => "unknown".to_string(),
             };
 
-            let cost_str = summary.estimated_cost_usd
+            let cost_str = summary
+                .estimated_cost_usd
                 .map(|c| format!("${c:.6}"))
                 .unwrap_or_else(|| "unknown".to_string());
 
@@ -72,7 +81,10 @@ pub fn export_run(
                  ## Transcript\n\n",
                 summary.session_id,
                 summary.apparent_status,
-                summary.turns.map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string())
+                summary
+                    .turns
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
             );
 
             let transcript = gestalt_trace::render_display(&events);
@@ -83,11 +95,9 @@ pub fn export_run(
                 content: markdown,
             })
         }
-        ExportFormat::Sharegpt => {
-            Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "ShareGPT export format is not supported yet.",
-            )))
-        }
+        ExportFormat::Sharegpt => Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "ShareGPT export format is not supported yet.",
+        ))),
     }
 }

@@ -1,0 +1,28 @@
+id = "mock-ext"
+name = "Mock Stdio Extension"
+version = "0.1.0"
+runtime = "stdio"
+
+[entrypoint]
+command = "/home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/tests/fixtures/extensions/mock-ext/mock_ext.sh"
+
+[capabilities]
+tools = true
+hooks = false
+context = true
+
+[permissions]
+allow_network = []
+allow_workspace_read = true
+allow_workspace_write = false
+allow_shell = false
+allow_all_paths = false
+allowed_paths = []
+
+[[tools]]
+name = "bash_tool"
+description = "Brings hello from bash"
+input_schema = { type = "object" }
+
+[[context_injectors]]
+name = "bash_context"

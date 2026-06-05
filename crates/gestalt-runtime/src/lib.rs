@@ -1,25 +1,52 @@
-pub mod config;
-pub mod error;
+pub mod artifact_store;
 pub mod builder;
-pub mod runtime;
-pub mod registry;
-pub mod inspect;
-pub mod context;
 pub mod composition_hooks;
-pub mod policy;
+pub mod config;
+pub mod context;
+pub mod discovery;
+pub mod error;
+pub mod event_bus;
 pub mod extension;
+pub mod inspect;
+pub mod jsonrpc;
+pub mod manifest;
+pub mod orchestration;
+pub mod permissions;
+pub mod policy;
+pub mod process_extension;
+pub mod registry;
+pub mod runtime;
+pub mod tool_catalog;
 
-pub use config::RuntimeConfig;
-pub use error::{RuntimeError, Result};
+pub use artifact_store::{ArtifactStore, FilesystemArtifactStore, InMemoryArtifactStore};
 pub use builder::AgentRuntimeBuilder;
-pub use runtime::{AgentRuntime, UserInput};
-pub use registry::{RuntimeRegistry, ToolMetadata, ProviderMetadata, ProviderFactory, compute_schema_hash, compute_tool_schema_hash};
-pub use inspect::{RuntimeInspect, ToolInspectInfo, compute_hook_contract_hash, compute_policy_fingerprint};
-pub use context::{ContextContributor, RuntimeContextPipeline};
 pub use composition_hooks::{
-    CompositionHooks, HookOutcome,
-    BeforeContextBuildCtx, AfterContextBuildCtx, BeforeToolPolicyCtx, AfterToolResultCtx, OnEventCtx,
-    RuntimeContextHookAdapter, RuntimeToolHookAdapter, RuntimeTraceHookAdapter,
+    AfterContextBuildCtx, AfterToolResultCtx, BeforeContextBuildCtx, BeforeToolPolicyCtx,
+    CompositionHooks, HookOutcome, OnEventCtx, RuntimeContextHookAdapter, RuntimeToolHookAdapter,
+    RuntimeTraceHookAdapter,
 };
-pub use policy::RuntimePolicyEngine;
+pub use config::RuntimeConfig;
+pub use context::{ContextContributor, RuntimeContextPipeline};
+pub use discovery::{DiscoveredExtension, ExtensionDiscovery};
+pub use error::{Result, RuntimeError};
+pub use event_bus::{RuntimeEvent, RuntimeEventBus};
 pub use extension::GestaltExtension;
+pub use inspect::{
+    compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
+};
+pub use manifest::{Capabilities, Entrypoint, ExtensionManifest, Permissions};
+pub use orchestration::{
+    AgentRuntimeHandle, DefaultAgentRuntimeHandle, OrchestrationResult, OrchestrationTask,
+    Orchestrator,
+};
+pub use permissions::{check_network_permission, check_path_permission, check_shell_permission};
+pub use policy::RuntimePolicyEngine;
+pub use process_extension::{
+    ProcessBackedContextContributor, ProcessBackedTool, ProcessExtension, ProcessExtensionBroker,
+};
+pub use registry::{
+    compute_schema_hash, compute_tool_schema_hash, ProviderFactory, ProviderMetadata,
+    RuntimeRegistry, ToolMetadata,
+};
+pub use runtime::{AgentRuntime, UserInput};
+pub use tool_catalog::ComposedToolCatalog;
