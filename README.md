@@ -13,6 +13,10 @@
 
 `gestalt-harness` handles reading project docs, validating configs, replaying traces, running tools under policy, and keeping the full session auditable from start to finish.
 
+![screenshot](/assets/gestalt-screenshot.png)
+
+
+
 ---
 
 ## Table of Contents
