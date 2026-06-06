@@ -40,4 +40,9 @@ Use this checklist before tagging or publishing `gestalt-harness` v0.1.
 - Run `gestalt extension list` and confirm it lists discovered/enabled extensions.
 - Run `gestalt runtime doctor` and confirm it reports the status of registered extensions and configuration integrity.
 - Run `gestalt runtime inspect` to verify that active extensions, tools, hooks, and context injectors are correctly reported.
+- `gestalt extension validate` on a known-good manifest
+- `gestalt extension reload` and verify active count
+- `gestalt runtime events` produces non-empty output
+- Verify extension discovery finds `.gestalt/extensions/` entries
+- Verify `gestalt runtime inspect` shows expected tool/hook hashes
 

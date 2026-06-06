@@ -192,6 +192,83 @@ gestalt-core/src/
 
 ---
 
+### 4.4 Runtime Composition Layer (`gestalt-runtime`)
+
+The `gestalt-runtime` crate is the primary integration surface between applications and the pure `gestalt-core` agent loop. It provides:
+
+- **`AgentRuntime`** — the stateless execution boundary that runs agent prompts on sessions, manages workspace snapshots, and coordinates hooks/extensions.
+- **`AgentRuntimeBuilder`** — deterministic builder that wires providers, tools, hooks, middleware, policy, approval, and extensions into a cohesive runtime.
+- **`RuntimeRegistry`** — stores registered tools, providers, context contributors, verifiers, hooks, and extensions. Extensions register their capabilities here during builder construction.
+- **`RuntimeEventBus`** — a broadcast channel for `RuntimeEvent` (extension lifecycles, permission decisions, tool registration, process spawn/exit). Separated from core `AgentEvent` for system-level auditability.
+- **`RuntimeConfig`** — centralized config (workspace_root, execution_mode, max_turns, model, provider, token budgets, timeouts, network access, environment).
+- **`RuntimeInspect`** — introspection snapshot capturing provider details, tool schema hashes, policy fingerprints, and hook contract hashes.
+
+See [ADR-023](adrs/ADR-023-runtime-composition-layer.md) for the full rationale.
+
+#### 4.4.1 Process-Backed Extensions
+
+Extensions are standalone executables spawned as child processes, communicating over newline-delimited JSON-RPC 2.0 via stdin/stdout. This allows extensions to be written in any language.
+
+**Key types:**
+- **`ProcessExtensionBroker`** — manages one child process: spawn (with environment isolation), JSON-RPC handshake, request/response dispatch (30s timeout), and shutdown (kill-on-drop).
+- **`ProcessBackedTool`** — wraps a broker, implementing the core `Tool` trait. Before executing, it scans tool input JSON for path-like and network-like keys and enforces manifest permissions.
+- **`ProcessBackedContextContributor`** — wraps a broker, implementing `ContextContributor` to inject context via the `context/inject` RPC.
+- **`ProcessExtension`** — implements `GestaltExtension`, bridges manifest-declared tools/hooks/context-injectors into the registry.
+
+**Extension Manifest (`gestalt.extension.toml`):**
+- Declares tools, hooks, and context injectors with schemas and risk levels.
+- Declares capabilities (tools, hooks, context as booleans).
+- Declares permissions: filesystem paths (allow_workspace_read/write, allowed_paths, allow_all_paths), network hosts (allow_network with wildcard), and shell access (allow_shell).
+
+**Extension Discovery:**
+- Three-tier lookup: explicit CLI paths → project-local (`.gestalt/extensions/`) → global (`~/.config/gestalt/extensions/`).
+- Deduplicated by extension `id`. First-seen wins.
+- Each discovered manifest is SHA-256 hashed for integrity tracking.
+
+**Trust Model:**
+- Explicitly loaded extensions and global extensions are always trusted.
+- Project-local extensions must have their ID in the `trusted` list or `allow_untrusted = true` in config.
+
+**Permissions Enforcement:**
+- **Filesystem**: paths are canonicalized and checked against workspace root and `allowed_paths`. Write access gates on `allow_workspace_write`.
+- **Network**: host checked against `allow_network` list (supports `*` wildcard).
+- **Shell**: if `allow_shell = false`, entrypoints containing shell metacharacters or known shell executable names (sh, bash, zsh, cmd, powershell, etc.) are rejected at manifest validation and spawn time.
+- **Environment**: `env_clear()` at spawn, only a safe allowlist inherited (PATH, HOME, USER, TERM, LANG, etc.).
+
+Every permission decision publishes a `RuntimeEvent::PermissionDecision` for auditability.
+
+See [ADR-024](adrs/ADR-024-process-extensions.md) for the full rationale.
+
+#### 4.4.2 Composition Hooks
+
+The `CompositionHooks` trait provides five interception points in the agent loop lifecycle:
+
+| Hook | When | Returns |
+|------|------|---------|
+| `before_context_build` | Before prompt assembly | HookOutcome |
+| `after_context_build` | After prompt assembly, before LLM call | HookOutcome |
+| `before_tool_policy` | Before policy evaluation on a tool call | HookOutcome |
+| `after_tool_result` | After tool execution completes | HookOutcome |
+| `on_event` | On any AgentEvent (non-blocking) | () |
+
+Hook outcomes: `Continue`, `Block { reason }`, `AddContext { message }`, `Annotate { metadata }`.
+
+Fail-closed: errors in `before_tool_policy` result in policy denial. Context additions from hooks are cached in a patch store and applied to the next turn.
+
+Hooks are chained via `ComposedCompositionHooks` which runs user-registered hooks first, then extension hooks.
+
+#### 4.4.3 Tool Composition
+
+`ComposedToolCatalog` merges the base tool catalog (built-in tools) with extension-registered tools. Duplicate tool names between extensions and base tools are rejected at construction time with an error. Tool schemas are sorted alphabetically for deterministic ordering.
+
+#### 4.4.4 Orchestration & Multi-Session
+
+- **`AgentRuntimeHandle`** — trait for spawning sessions, sending messages, subscribing to events, and managing artifacts. Implemented by `DefaultAgentRuntimeHandle`.
+- **`Orchestrator`** — trait for composing multi-agent workflows (e.g., writer-reviewer loops, artifact handoff chains).
+- **`ArtifactStore`** — pluggable file storage for session artifacts. Implementations: `InMemoryArtifactStore` (testing), `FilesystemArtifactStore` (production, with path-traversal prevention).
+
+---
+
 ## 5. Runtime State Machine
 
 ```mermaid
