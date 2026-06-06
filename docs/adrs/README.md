@@ -1,7 +1,7 @@
 # Architecture Decision Records (ADRs)
 
 This index lists the Architecture Decision Records (ADRs) accepted for `gestalt-harness`.
-The detailed descriptions and rationale are documented in the [architecture document](../gestalt-harness-architecture.md).
+ADRs 001–022 are documented in the [architecture document](../gestalt-harness-architecture.md). ADRs 023+ are standalone files in this directory.
 
 | ADR | Title | Status |
 |-----|-------|--------|
@@ -30,4 +30,7 @@ The detailed descriptions and rationale are documented in the [architecture docu
 | [ADR-023](./ADR-023-runtime-composition-layer.md) | Runtime Composition Layer | Accepted |
 | [ADR-024](./ADR-024-process-extensions.md) | Process-Backed Extensions over Stdio JSON-RPC | Accepted |
 
+ADR-023: Introduces the gestalt-runtime crate as the primary orchestration and composition shell above the pure kernel (gestalt-core).
+
+ADR-024: Implements process-backed extensions executed in separate child processes over stdio using newline-delimited JSON-RPC 2.0 protocol.
 
