@@ -30,11 +30,25 @@ Phase completion requires all tasks and phase-level verification gates to pass.
 
 ## Current Repository State
 
-As of 2026-06-01, the repository contains a working Rust workspace with Phase 0 complete and most of Phase 1 implemented.
+As of 2026-06-01, the repository contains a working Rust workspace with Phase 0 and Phase 1 complete, and Phase 1.5 (Runtime Composition & Extensions) substantially implemented.
 
 - Workspace crates, CI, fixtures, and baseline docs are in place.
 - Core loop, context, tools, policy, exec, provider adapters, trace writing, replay, cost reporting, and the plain-stdout CLI path all exist.
+- The runtime composition layer, extension system, process-backed extensions, event bus, permissions, orchestration, and CLI extension commands are delivered.
 - Remaining Phase 1 work is release hardening and any intentionally deferred UX or credential-backend work.
+
+**Phase 1.5 (Runtime Composition & Extensions) — Delivered**
+- Runtime composition layer (`gestalt-runtime` crate) with `AgentRuntimeBuilder`, `RuntimeRegistry`, `RuntimeConfig`, `RuntimeEventBus`
+- Process-backed extensions over stdio JSON-RPC 2.0 (`ProcessExtensionBroker`, `ProcessBackedTool`, `ProcessBackedContextContributor`)
+- Extension manifest system (`gestalt.extension.toml`) with capability declarations and permission profiles
+- Extension discovery (three-tier: explicit → project-local → global)
+- Permission enforcement (filesystem paths, network hosts, shell commands, environment isolation)
+- Composition hooks (5 lifecycle points: before/after context build, before tool policy, after tool result, on event)
+- Composed tool catalog (base + extension tool merging with collision detection)
+- Orchestration traits (`AgentRuntimeHandle`, `Orchestrator`, `ArtifactStore`)
+- CLI extension management commands (list, enable, disable, inspect, reload, validate)
+- Runtime inspection (`gestalt runtime inspect`, `RuntimeInspect`)
+- Runtime event bus for system-level auditability
 
 ---
 
@@ -44,10 +58,11 @@ As of 2026-06-01, the repository contains a working Rust workspace with Phase 0 
 flowchart TD
     P0["Phase 0: Project Scaffold"]
     P1["Phase 1: Core Loop & Local Substrates v0.1"]
+    P15["Phase 1.5: Runtime Composition & Extensions"]
     P2["Phase 2: Knowledge Ingestion & Policy Maturity v0.2"]
     P3["Phase 3: Autonomy, Scheduling & Embedding v0.3"]
 
-    P0 --> P1 --> P2 --> P3
+    P0 --> P1 --> P15 --> P2 --> P3
 
     P1A["Core traits/events/session"] --> P1B["Agent loop"]
     P1B --> P1C["Providers"]
@@ -285,6 +300,53 @@ flowchart TD
 **Depends on:** P1.1-P1.9.  
 **Tests:** workspace test suite, clippy, fmt, install smoke, dependency audit, recorded-provider suite.  
 **Done when:** v0.1 is safe and usable for local single-agent sessions.
+
+---
+
+## Phase 1.5: Runtime Composition & Extensions
+
+**Goal:** Ship an extension runtime that supports process-backed extensions over stdio JSON-RPC 2.0, with capability declaration, permission enforcement, composition hooks, and CLI management.
+
+**Not in scope:** WASM extensions, network-socket extensions, shared-library extensions, marketplace, dynamic hot-reload.
+
+**Exit criteria:** `gestalt extension list` shows installed extensions; `gestalt runtime inspect` reports runtime state; extension tools appear in the composed catalog; permission violations are denied at the host boundary.
+
+### P1.5.1 Runtime Composition Layer
+
+- [x] `AgentRuntimeBuilder`, `RuntimeRegistry`, `RuntimeConfig`, `RuntimeEventBus`
+- [x] Composition hooks at 5 lifecycle points
+- [x] Composed tool catalog with collision detection
+- [x] Runtime inspection (`RuntimeInspect`, `gestalt runtime inspect`)
+
+### P1.5.2 Extension Manifest & Discovery
+
+- [x] `gestalt.extension.toml` schema with capability declarations and permission profiles
+- [x] Three-tier discovery: explicit → project-local → global
+- [x] Extension validation (schema, file existence, binary availability)
+
+### P1.5.3 Process-Backed Extensions
+
+- [x] `ProcessExtensionBroker` for stdio JSON-RPC 2.0
+- [x] `ProcessBackedTool` and `ProcessBackedContextContributor`
+- [x] RPC timeout (30s default), kill_on_drop, environment isolation
+- [x] Error recovery: extension errors/timeouts never crash the harness
+
+### P1.5.4 Permission Enforcement
+
+- [x] Permission profiles for filesystem paths, network hosts, shell commands
+- [x] Host-side permission checks before forwarding tool calls to extensions
+- [x] Environment isolation (env_clear + safe allowlist)
+- [x] Secrets never leak to extensions
+
+### P1.5.5 Orchestration Traits & CLI
+
+- [x] `AgentRuntimeHandle`, `Orchestrator`, `ArtifactStore`
+- [x] CLI extension management commands (list, enable, disable, inspect, reload, validate)
+- [x] Runtime event bus for system-level auditability
+
+**Depends on:** Phase 1.  
+**Tests:** extension lifecycle tests; RPC timeout tests; permission enforcement tests; permission denial tests; manifest validation tests; discovery tier tests; composed catalog collision tests; CLI golden tests.  
+**Done when:** a process-backed extension with declared tools and context can be discovered, validated, loaded, and driven through the full composition lifecycle.
 
 ---
 
@@ -777,6 +839,11 @@ More advanced planning, utility-aware context optimization, eval gates, failure 
 - Do not introduce live provider calls in CI. Use recorded fixtures and mock providers.
 - Do not store provider API keys or secrets in config, traces, fixtures, or exports.
 - Prefer feature gates for optional/heavy capabilities.
+- Extensions must declare capabilities (tools, hooks, context) and permissions (paths, network, shell) in their manifest.
+- The host performs permission checks BEFORE forwarding tool calls to extensions.
+- Extension environments are isolated (env_clear + safe allowlist). Secrets never leak to extensions.
+- RuntimeEvent is separated from AgentEvent — the former is for system auditability, the latter for agent loop state.
+- Extension errors/timeouts must not crash the harness; kill_on_drop and 30s RPC timeouts enforce this.
 
 ---
 

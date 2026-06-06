@@ -300,7 +300,16 @@ Progressive discovery and programmatic tool calling work well together. The mode
 ## Gestalt Implementation Mapping
 
 In `gestalt-harness`, process-backed stdio JSON-RPC extensions are mapped directly to these safety and design patterns:
-1. **Host Broker Separation**: The `ProcessExtensionBroker` sits between the child process and the core `AgentLoop`. The extension never receives direct credentials, workspace roots, or network access.
-2. **Explicit Capability Enforcement**: Extension capabilities must be declared in the manifest and approved by the user configuration before they can be registered or called.
-3. **Strict Resource and Stdio Gating**: The host enforces message size limits, request timeouts, and reaps the child process immediately if a protocol or timeout violation occurs.
+
+- **`ProcessExtensionBroker`** sits between the child process and the core agent loop, managing the JSON-RPC 2.0 protocol over stdio (newline-delimited framing, method dispatch, timeout enforcement).
+
+- **`ProcessBackedTool`** implements the core `Tool` trait, forwarding `execute()` calls to the extension via the `tools/call` RPC method. The same pattern applies similarly to MCP-bridged tools.
+
+- **`CompositionHooks`** maps to the progressive hook/event model: five lifecycle points (`before_context_build`, `after_context_build`, `before_tool_policy`, `after_tool_result`, `on_event`) allow extensions to intercept and modify agent behavior without tight coupling.
+
+- **Extension manifests** declare capabilities (tools, hooks, context) and permissions (filesystem paths, network hosts, shell access). The host enforces these BEFORE forwarding requests to the child process.
+
+- **`ComposedToolCatalog`** merges tools from multiple extensions with built-in tools, rejecting duplicate tool names with clear errors.
+
+- Safety properties: 30-second RPC timeouts, `kill_on_drop(true)`, environment isolation (`env_clear()` + safe allowlist), and recursive input argument scanning for path/network permission enforcement.
 

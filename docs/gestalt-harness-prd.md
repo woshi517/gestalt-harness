@@ -747,27 +747,74 @@ The CLI serves three audiences: interactive users working session by session, pi
 ```
 gestalt [OPTIONS] <COMMAND>
 
-COMMANDS:
-  run        Execute an interactive prompt or one-shot task
-  pipeline   Run a Markdown pipeline file non-interactively
-  replay     Replay a trace from JSONL (display mode by default)
-  cost       Summarize token usage and estimated cost across runs
-  auth       Inspect credential resolution for a provider
-  providers  Inspect configured providers
-  models     List available models or refresh the model catalog
-  mcp        Inspect or configure MCP server connections
-  skill      List, validate, or trigger workspace skills
-  export     Export run logs as jsonl, markdown, or sharegpt
-  config     Validate, explain, or show effective configuration
+SESSION COMMANDS:
+  run          Execute a prompt or start an interactive session
+  chat         Start an interactive chat session
+  tui          Launch the terminal UI (requires --features tui)
+
+WORKSPACE COMMANDS:
+  init         Initialize a .gestalt workspace with defaults
+  status       Show workspace health and configuration summary
+  workspace    Workspace operations: info, snapshot, doctor
+
+PROVIDER COMMANDS:
+  auth         Inspect credential resolution and run auth diagnostics
+  providers    List, inspect, test, or diagnose configured providers
+  models       List, inspect, refresh, search, or select models
+  connect      Register a new provider connection interactively
+  disconnect   Remove a provider connection
+  profiles     List, inspect, or switch configuration profiles
+
+RUN & SESSION COMMANDS:
+  runs         List, inspect, tail, prune, or delete completed runs
+  sessions     List, inspect, continue, resume, or branch sessions
+  replay       Replay a trace from JSONL in display mode
+  trace        Replay, inspect, or validate a run trace
+  export       Export run logs as jsonl, markdown, or sharegpt
+  cost         Summarize token usage and estimated cost across runs
+
+POLICY & CONTEXT COMMANDS:
+  policy       Validate, explain, or test policy decisions
+  context      Explain context assembly for a given prompt or run
+
+TOOL COMMANDS:
+  tools        List, inspect, or classify available tools
+  verify       Run verifiers against a completed run
+
+RUNTIME & EXTENSION COMMANDS:
+  runtime      Inspect runtime status, events, or run diagnostics
+  extension    List, enable, disable, inspect, reload, or validate extensions
+
+DIAGNOSTIC COMMANDS:
+  doctor       Run full system diagnostics (config, providers, workspace)
+  config       Validate, show, or explain effective configuration
 
 OPTIONS:
   --workspace <PATH>   Project workspace directory (default: current directory)
-  --mode <MODE>        confirm | yolo | human | dry-run | replay
   --model <MODEL>      Override the session model
+  --mode <MODE>        confirm | yolo | human | dry-run | replay
   --max-turns <N>      Maximum agent turns (default: 50)
+  --profile <NAME>     Configuration profile to use
+  --provider <NAME>    Provider override
+  --format <FMT>       Output format: text (default) or json
+  --api-key <KEY>      API key override (not recommended; use env vars)
+  -q, --quiet          Suppress non-essential output
+  -v, --verbose        Increase verbosity
+  --no-color           Disable colored output
 ```
 
-v0.1 uses plain stdout only. A dedicated `--no-tui` flag becomes relevant only once a TUI exists.
+### 16.1.X Extension Management Commands
+
+Extensions extend Gestalt with custom tools, hooks, and context injectors written in any language. They communicate via JSON-RPC 2.0 over stdio and are governed by manifest-declared permissions.
+
+| Command | Description |
+|---------|-------------|
+| `gestalt extension list` | List all discovered extensions with enabled/disabled status |
+| `gestalt extension enable <id>` | Enable an extension (remove from disabled list) |
+| `gestalt extension disable <id>` | Disable an extension (add to disabled list) |
+| `gestalt extension inspect <id>` | Show full manifest and metadata for an extension |
+| `gestalt extension validate <path>` | Parse and validate a manifest file |
+| `gestalt extension reload` | Re-run discovery and report active count |
 
 ### 16.2 Interactive Slash Commands
 
@@ -918,6 +965,16 @@ summary_threshold_tokens = 8000
 run_log_dir = ".gestalt/runs"
 log_format = "jsonl"
 token_alert_threshold = 100000
+
+[extensions]
+# Extension IDs to skip during loading
+disabled = ["old-ext"]
+# Extension IDs trusted to run from project-local directories
+trusted = ["my-custom-ext"]
+# Allow all extensions regardless of trust (use with caution)
+allow_untrusted = false
+# Explicit paths to extension manifests or directories
+explicit_loads = ["/path/to/custom-ext/gestalt.extension.toml"]
 ```
 
 In v0.1, API keys and secrets come from environment variables. Configuration files define behavior, not credentials. Later auth backends may satisfy the same credential boundary without changing config semantics.
@@ -1005,6 +1062,17 @@ Risk is determined by both the tool type and the specific input. `git status` an
 
 Every policy decision — the proposed tool name, input summary, risk level, policy source, decision, and reason — is written to the trace as a first-class event. Users can audit every approval, every auto-execute, and every denial after the fact.
 
+### 18.X Extension Permissions
+
+Process-backed extensions declare their required permissions in `gestalt.extension.toml`. The host enforces these as gating boundaries (not OS-level sandboxing):
+
+- **Filesystem:** Paths are canonicalized and checked against workspace root and `allowed_paths`. Write access is gated separately.
+- **Network:** Hosts are checked against `allow_network` (supports `*` wildcard).
+- **Shell:** Entrypoints containing shell metacharacters or known shell names are rejected at manifest validation unless `allow_shell = true`.
+- **Environment:** Extension processes run with `env_clear()`; only a safe allowlist (PATH, HOME, USER, TERM, etc.) is inherited.
+
+Every permission decision publishes a RuntimeEvent for auditability.
+
 ---
 
 ## 19. Verification
@@ -1046,7 +1114,7 @@ In v0.1, verification is implemented by the `gestalt-verify` crate, which provid
 
 ## 20. Observability
 
-Observability is built around three layers: JSONL run logs for replay and audit, cost reports for token and model usage, and structured tracing for runtime debugging.
+Observability is built around three layers: JSONL run logs for replay and audit, cost reports for token and model usage, and structured tracing for runtime debugging. The `RuntimeEvent` enum extends `AgentEvent` with system-level events (extension lifecycle, permission decisions, hook execution, process management) and is published via `RuntimeEventBus` for real-time subscription and historical replay.
 
 ### 20.1 Run Log Structure
 
@@ -1113,47 +1181,61 @@ To protect invariants across changes, v0.1 ships with:
 
 ## 21. Roadmap & Build Order
 
-### Phase 1 — Core Loop & Local Substrates (v0.1)
+### ✅ Delivered — Core Loop & Local Substrates
 
-Target: a usable, reliable single-agent loop with a minimal policy gate and the most critical tools.
+The foundational layer is complete:
 
-**In scope:**
-
-- `gestalt-core`: agent loop, provider trait, tool trait, event model, session types, minimal policy trait
-- `gestalt-models`: Anthropic and OpenAI SSE stream adapters, model catalog
+- `gestalt-core`: agent loop, provider trait, tool trait, event model, session types, policy trait
+- `gestalt-models`: Anthropic, OpenAI, OpenAI-compatible, Ollama, Mistral, Groq provider adapters; model catalog
 - `gestalt-tools`: `BashTool`, `ReadTool`, `WriteTool`, `PatchTool`, `SearchTool`, `WebFetchTool`
-- `gestalt-policy`: minimal path/network/bash policy, confirm/yolo/deny routing, `policies.toml` parser
-- `gestalt-exec`: `NoSandbox` (unconfined host subprocess + timeout + output cap + env allowlist; *explicitly documented as not a security boundary*)
-- `gestalt-trace`: JSONL writer and `gestalt replay --mode display`
-- `gestalt-harness` package (`crates/gestalt-cli`): `run`, `replay`, `cost`, `config validate` commands; plain-stdout mode
-- Integration tests with mock provider (no live API calls in CI)
-- `cargo install gestalt-harness` works on Linux and macOS
+- `gestalt-policy`: path/network/bash policy, confirm/yolo/deny routing, `policies.toml` parser
+- `gestalt-exec`: `NoSandbox` (unconfined host subprocess + timeout + output cap + env allowlist)
+- `gestalt-trace`: JSONL writer, replay (display mode), inspect, validate
+- `gestalt-cli`: `run`, `chat`, `tui`, `replay`, `cost`, `config`, `auth`, `providers`, `models`, `init`, `status`, `workspace`, `doctor` commands
+- `gestalt-verify`: verifier trait, registry, built-in verifiers (Command, FileExists, NoSecrets, PatchApplies, MarkdownStructure)
+- `gestalt-connect`: interactive provider connection and disconnection
+- Integration tests, CI pipeline
 
-**Not in scope for v0.1:** PDF tool, MCP client, pipeline mode, skills, vector index, TUI, WASM.
+### ✅ Delivered — Runtime Composition Layer
 
-### Phase 2 — Knowledge Ingestion & Policy Maturity (v0.2)
+The runtime composition layer, extension system, process-backed extensions, event bus, permissions system, orchestration, session/run management, and TUI infrastructure are all complete:
 
-- `gestalt-policy`: full `policies.toml` grammar, MCP tool-level permissions, skill permissions, approval UX
-- `gestalt-docs`: PDF ingestion (`pdfium-render`), HTML extraction, Markdown chunking; source cache with content hashing
+- `gestalt-runtime`: `RuntimeEventBus` (broadcast channel + historical buffer), `RuntimeEvent` enum (wrapping `AgentEvent` with system-level variants), `AgentRuntime` with session lifecycle, hook middleware, and orchestration
+- Process-backed extensions: `ProcessExtensionBroker` — full lifecycle management (spawn, initialize, RPC dispatch, stderr drain, graceful shutdown, process kill)
+- Extension permissions: `permissions.rs` — filesystem (canonicalized path checks, gated write access), network (host allowlist, `*` wildcard), shell (entrypoint validation, `allow_shell` gate), environment (`env_clear()` + safe allowlist)
+- `RuntimeRegistry`: persistent extension state with enable/disable tracking
+- Extension manifests: `gestalt.extension.toml` parser — name, version, description, tools, hooks (before_hook, after_hook, context_injector, permission_delegation), entrypoint, permissions
+- Orchestration: `Orchestrator` — session routing, task dispatch, artifact routing
+- Extension CLI: `gestalt extension {list, enable, disable, inspect, reload, validate}`
+- Runtime CLI: `gestalt runtime {inspect, events, doctor}`
+- Sessions CLI: `gestalt sessions {list, inspect, history, continue, resume, branch}`
+- Runs CLI: `gestalt runs {list, inspect, tail, prune, delete}`
+- Trace CLI: `gestalt trace {replay, inspect, validate}`
+- Tools CLI: `gestalt tools {list, inspect, classify}`
+- Policy CLI: `gestalt policy {validate, explain, test}`
+- Context CLI: `gestalt context explain`
+- Profiles CLI: `gestalt profiles {list, inspect, use}`
+- TUI: `ratatui`-based terminal UI behind `--features tui` flag
+
+### 🔜 Phase 3 — Knowledge Ingestion, MCP & Skills (Current)
+
 - `gestalt-mcp`: MCP client over stdio and HTTP SSE; capability negotiation; tool registration; trust boundary enforcement
-- `gestalt-memory`: `memory.md` parser, memory proposal generation at session end, deduplication before proposal
+- `gestalt-docs`: PDF ingestion (`pdfium-render`), HTML readability extraction, Markdown chunking; source cache with content hashing
+- `gestalt-memory`: `memory.md` parser, memory proposal generation at session end, deduplication
 - `gestalt-index`: lexical workspace search index (BM25 / ripgrep); source summary cache
-- Additional providers: Mistral, Groq, Ollama
 - Citation contract enforcement and `CitationVerifier`
 - `gestalt skill` command, SKILL.md parser, three-phase disclosure, skill trust levels
-- `gestalt replay --mode deterministic`
-
-### Phase 3 — Autonomy, Scheduling & Embedding (v0.3)
-
 - Pipeline mode: Markdown pipeline parser, sequential task execution, run diffs
-- Session resumability: replay partial sessions, continue interrupted runs
-- Sub-agent spawning: delegate bounded tasks to a child loop instance
+
+### 🔜 Phase 4 — Autonomy, Sandboxing & Embedding (Future)
+
 - Sandbox implementations: `BubblewrapSandbox` (Linux), `DockerSandbox` (cross-platform)
 - `gestalt export --format sharegpt` for fine-tuning data
 - OpenTelemetry span export (optional feature flag)
 - WASM build target for embedding in the Gestalt frontend
 - Programmatic tool calling via `code_execution` for data-heavy multi-tool workflows
-- `gestalt replay --mode regression`
+- Sub-agent spawning: delegate bounded tasks to a child loop instance
+- `gestalt replay --mode deterministic` and `--mode regression`
 - Community skill registry: `gestalt skill fetch <name>`
 - Remote task execution stub (see architecture §18)
 
@@ -1211,6 +1293,17 @@ This file governs how AI agents and human contributors work in this repository.
 4. Add to the `models.toml` generation script and the model catalog.
 5. Add an integration test with a recorded HTTP cassette (no live API calls in CI).
 6. Pass the provider normalization test matrix (see architecture §11.4).
+
+---
+
+## Adding an Extension
+
+1. Write a `gestalt.extension.toml` manifest with name, version, entrypoint, capabilities (tools, hooks, context injectors), and required permissions.
+2. Implement the JSON-RPC 2.0 protocol over stdio — handle `initialize`, tool/hook/injector method calls, and `shutdown`.
+3. Place the extension directory in `.gestalt/extensions/` or point to it via `config.toml` `[extensions] explicit_loads`.
+4. Run `gestalt extension list` to verify discovery.
+5. Run `gestalt extension validate <path>` to check the manifest.
+6. Extensions run as child processes with `env_clear()`, strict permission gating, and automatic stderr capture.
 
 ---
 
