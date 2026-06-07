@@ -164,7 +164,14 @@ impl AnthropicProvider {
             body.insert("system".to_string(), Value::String(system));
         }
         if !request.tools.is_empty() {
-            body.insert("tools".to_string(), json!(request.tools));
+            let tools_val = request.tools.iter().map(|tool| {
+                json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_schema
+                })
+            }).collect::<Vec<_>>();
+            body.insert("tools".to_string(), json!(tools_val));
         }
         if let Some(temperature) = request.temperature {
             body.insert("temperature".to_string(), json!(temperature));
@@ -181,6 +188,16 @@ impl AnthropicProvider {
 impl Provider for AnthropicProvider {
     fn id(&self) -> &str {
         "anthropic"
+    }
+
+    fn adapt_tools(
+        &self,
+        tools: &[gestalt_core::tool_descriptor::ToolDescriptor],
+    ) -> (
+        Vec<gestalt_core::provider::ProviderToolSchema>,
+        Vec<gestalt_core::tool_name_mapping::ToolNameMapping>,
+    ) {
+        crate::tool_schema_adapter::ToolSchemaAdapter::adapt_batch(tools, self.capabilities())
     }
 
     fn display_name(&self) -> &str {
@@ -416,6 +433,7 @@ fn split_anthropic_messages(messages: &[Message]) -> (String, Vec<Value>) {
                 tool_use_id,
                 content,
                 is_error,
+                ..
             } => output.push(json!({
                 "role": "user",
                 "content": [{

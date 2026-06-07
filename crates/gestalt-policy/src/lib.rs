@@ -269,10 +269,10 @@ impl PolicyEngine for MinimalPolicyEngine {
 impl MinimalPolicyEngine {
     fn evaluate_tool_policy(&self, request: &PolicyRequest) -> Option<PolicyDecision> {
         match request.tool_name.as_str() {
-            "read" | "search" => Some(self.evaluate_path_tool(request, PathAccess::Read)),
-            "write" | "patch" => Some(self.evaluate_path_tool(request, PathAccess::Write)),
-            "bash" => Some(self.evaluate_bash(request)),
-            "web_fetch" => Some(self.evaluate_network(request)),
+            "read" | "builtin:read" | "search" | "builtin:search" => Some(self.evaluate_path_tool(request, PathAccess::Read)),
+            "write" | "builtin:write" | "patch" | "builtin:patch" => Some(self.evaluate_path_tool(request, PathAccess::Write)),
+            "bash" | "builtin:bash" => Some(self.evaluate_bash(request)),
+            "web_fetch" | "builtin:web_fetch" => Some(self.evaluate_network(request)),
             _ => None,
         }
     }
@@ -665,6 +665,8 @@ mod tests {
         PolicyRequest {
             tool_call_id: "call-1".to_string(),
             tool_name: tool_name.to_string(),
+            namespace: gestalt_core::tool_descriptor::ToolNamespace::BuiltIn,
+            annotations: gestalt_core::tool_descriptor::ToolAnnotations::default(),
             input,
             risk,
             mode,

@@ -1676,6 +1676,79 @@ fn default_true() -> bool { true }
 |`IngestDocTool`|Medium|May fetch and write|
 |`BashTool`|Context-dependent|Classified per §10.3|
 
+### 9.8 Tool Reliability Layer
+
+The reliability layer is the boundary between "the model said it wants to call a tool" and "the harness executed something". It enforces five invariants that every provider/tool combination must satisfy.
+
+#### 9.8.1 Deterministic Provider Name Resolution (`ToolNameMapping::resolve_provider_names`)
+
+When two canonical tool IDs (`builtin:read`, `ext:acme:read`) would collapse to the same provider-facing name (`read`), the layer assigns suffixes in **stable occurrence order** (`read`, `read_2`, `read_3`, ...). Slicing a `Vec<CanonicalToolId>` preserves input order, and the default provider impls (`OpenAI`, `Anthropic`) sort by canonical ID before resolution so the output is the same regardless of catalog iteration order. Provider names longer than `MAX_PROVIDER_NAME_LEN = 64` are truncated so the suffix still fits.
+
+```rust
+// gestalt-core/src/tool_name_mapping.rs
+pub fn resolve_provider_names(canonicals: &[CanonicalToolId])
+    -> Vec<(CanonicalToolId, String)>;
+```
+
+The mapping carries an optional provider-rendered `input_schema` and a `strict` flag so the executor can re-validate against the contract the provider actually saw (see §9.8.3).
+
+#### 9.8.2 Structured Failure Propagation (`ToolFailureKind` + `ToolErrorReport`)
+
+Every failure that reaches the model is wrapped in a `ToolErrorReport` with a typed `kind`:
+
+| Kind | Transient? | Repair Guidance Source |
+|---|---|---|
+| `SchemaMismatch` | no | "Expected schema: …" |
+| `ToolNotFound` | no | "Check spelling or ensure the tool is loaded." |
+| `DuplicateCallId` | no | "Use unique IDs per turn." |
+| `PolicyDenied` | no | Echoes the policy reason. |
+| `ApprovalDenied` | no | "The user denied the approval. Adjust the request or ask before retrying." |
+| `ExecutionFailed` | yes | Tool-specific. |
+| `Timeout` | yes | "Retry, or split the call into smaller inputs." |
+| `Cancelled` | no | "Run was cancelled." |
+
+The report rides along on `ToolExecutionResult.failure`, `Message::ToolResult.failure`, and `AgentEvent::ToolResult.failure` so traces, replays, and the model all see the same structure.
+
+#### 9.8.3 Strict Schema Validation Gate
+
+The executor performs two validation passes per call:
+
+1. **Basic pass** — `ToolCallValidator::validate` against the raw descriptor schema. Catches missing required fields, wrong types, duplicate IDs, unknown tools.
+2. **Strict pass** — `ToolCallValidator::validate_against_strict` against the provider-rendered `input_schema` when `mapping.strict == Some(true)`. Catches `additionalProperties: false` violations and refinements the provider enforces that the raw schema does not.
+
+A strict-pass failure emits `AgentEvent::ToolCallValidationFailed` and short-circuits the call with `ToolFailureKind::SchemaMismatch`.
+
+#### 9.8.4 Extension Trust Builder
+
+Extension tools (`ProcessBackedTool::descriptor()`) go through `extension_trust::build_extension_tool_descriptor` which:
+
+- Records `read_only` / `idempotent` annotations from the manifest.
+- Promotes the descriptor to `BuiltInTrusted` **only when** the extension ID is in the harness-side allow-list (`is_trusted_extension_id` / `set_trusted_extension_ids`).
+- Issues a `RetryPolicy` (currently `max_retries: 1, backoff_ms: 200`) only on the same trust-promoted path. Extension-declared annotations are never treated as a self-attestation of trust.
+
+#### 9.8.5 Transient-Only Retry
+
+`executor::execute_tool_with_retry` consults `ToolFailureKind::is_transient()` instead of `is_error`. Permanent failures (validation, policy, approval, duplicate-id) never retry even if the underlying tool flagged them as `is_error = true`. This prevents the harness from masking a deterministic bug as a flaky network.
+
+#### 9.8.6 Trace Replay & Analysis
+
+Three new event types are emitted and rendered end-to-end:
+
+- `tool_catalog_selected` — fired each turn after the catalog is built.
+- `tool_call_validation_failed` — fired on either validation pass failure.
+- `tool_retry_attempt` — fired before each retry; carries attempt index and the previous failure kind.
+
+The `gestalt trace analyze --tools` (alias for `--kind tools`) CLI walks a trace or fixture directory and reports `gestalt-trace::analyze_tool_metrics` summary: total proposed calls, validation failures, policy decisions, denials, first-call success rate, truncation rate, exposed catalog size, and token/cost totals. The `--kind` flag is reserved for future analyzers (cost, retries, etc.).
+
+#### 9.8.7 Golden Fixtures
+
+New golden fixtures under `tests/fixtures/traces/tool-calling/` exercise the layer end-to-end:
+
+- `valid_read` — happy path, exercises F1 (collision-safe mapping) and F2 (no failure emitted).
+- `invalid_input_repair` — input missing a required field, exercises F2 + F3 (`ToolCallValidationFailed` + `failure: schema_mismatch`).
+- `parallel_reads` — two parallel `read` calls in one turn, exercises F1 (deterministic order).
+- `write_requires_approval` — `write` to `docs/`, denied by user, exercises F2 (`failure: approval_denied` + repair guidance).
+
 ---
 
 ## 10. Policy Architecture

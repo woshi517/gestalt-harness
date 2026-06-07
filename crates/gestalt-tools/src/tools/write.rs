@@ -38,6 +38,19 @@ impl Tool for WriteTool {
         RiskLevel::Medium
     }
 
+    fn descriptor(&self) -> gestalt_core::tool_descriptor::ToolDescriptor {
+        crate::builtin_descriptors::make_builtin_descriptor(
+            self,
+            false, // read_only
+            false, // idempotent
+            None,  // no retries
+        )
+    }
+
+    fn shape_output(&self, result: &mut gestalt_core::tool::ToolExecutionResult) {
+        crate::response_shaping::shape_tool_response(self.name(), result);
+    }
+
     fn can_run_in_parallel(&self, _input: &Value) -> bool {
         false
     }

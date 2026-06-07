@@ -33,6 +33,70 @@ pub trait Provider: Send + Sync {
 
     /// Stream a normalized event sequence for one model request.
     async fn stream(&self, request: ProviderRequest) -> Result<EventStream, HarnessError>;
+
+    /// Adapt gestalt descriptors to provider-specific schema and mappings.
+    fn adapt_tools(
+        &self,
+        tools: &[crate::tool_descriptor::ToolDescriptor],
+    ) -> (
+        Vec<ProviderToolSchema>,
+        Vec<crate::tool_name_mapping::ToolNameMapping>,
+    ) {
+        use crate::tool_descriptor::CanonicalToolId;
+        use crate::tool_name_mapping::ToolNameMapping;
+        use sha2::{Digest, Sha256};
+
+        // Sort descriptors by canonical internal ID so collision
+        // resolution is deterministic regardless of the order the
+        // catalog returned them in.
+        let mut sorted: Vec<&crate::tool_descriptor::ToolDescriptor> = tools.iter().collect();
+        sorted.sort_by(|a, b| a.id.cmp(&b.id));
+
+        let ids: Vec<CanonicalToolId> = sorted.iter().map(|t| t.id.clone()).collect();
+        let resolved = ToolNameMapping::resolve_provider_names(&ids);
+
+        let mut schemas = Vec::with_capacity(sorted.len());
+        let mut mappings = Vec::with_capacity(sorted.len());
+
+        for (tool, (canonical_id, provider_name)) in sorted.iter().zip(resolved.iter()) {
+            // Sanity: the resolver should preserve the canonical IDs
+            // we fed it, but guard against any future drift so we
+            // never produce a mapping that doesn't line up with the
+            // descriptor it claims to represent.
+            debug_assert_eq!(&tool.id, canonical_id);
+
+            let desc_json = serde_json::to_string(tool).unwrap_or_default();
+            let mut hasher = Sha256::new();
+            hasher.update(desc_json.as_bytes());
+            let descriptor_hash = format!("{:x}", hasher.finalize());
+
+            let input_schema = tool
+                .schema
+                .get("input_schema")
+                .cloned()
+                .unwrap_or_else(|| tool.schema.clone());
+
+            let provider_schema = ProviderToolSchema {
+                name: provider_name.clone(),
+                description: tool.description.clone(),
+                input_schema,
+                strict: None,
+            };
+
+            let mapping = ToolNameMapping {
+                internal_id: tool.id.clone(),
+                provider_name: provider_name.clone(),
+                display_name: tool.id.name.clone(),
+                descriptor_hash,
+                input_schema: None,
+                strict: None,
+            };
+
+            schemas.push(provider_schema);
+            mappings.push(mapping);
+        }
+        (schemas, mappings)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +110,7 @@ pub struct ProviderCapabilities {
     pub supports_prompt_caching: bool,
     pub supports_usage_reporting: bool,
     pub supports_streaming: bool,
+    pub supports_strict_schema: bool,
 }
 
 impl Default for ProviderCapabilities {
@@ -60,15 +125,25 @@ impl Default for ProviderCapabilities {
             supports_prompt_caching: false,
             supports_usage_reporting: true,
             supports_streaming: true,
+            supports_strict_schema: false,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderToolSchema {
+    pub name: String,
+    pub description: String,
+    pub input_schema: ToolSchema,
+    pub strict: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRequest {
     pub model: String,
     pub messages: Vec<Message>,
-    pub tools: Vec<ToolSchema>,
+    pub tools: Vec<ProviderToolSchema>,
+    pub tool_name_map: Vec<crate::tool_name_mapping::ToolNameMapping>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
@@ -82,6 +157,7 @@ impl Default for ProviderRequest {
             model: String::new(),
             messages: Vec::new(),
             tools: Vec::new(),
+            tool_name_map: Vec::new(),
             max_tokens: 4096,
             temperature: None,
             top_p: None,

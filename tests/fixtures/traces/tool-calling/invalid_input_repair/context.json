@@ -1,0 +1,47 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "read a file with malformed input"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call-bad",
+          "name": "read",
+          "input": {}
+        }
+      ]
+    },
+    {
+      "role": "toolresult",
+      "tool_use_id": "call-bad",
+      "content": "[SchemaMismatch] Schema validation failed for tool 'read': Missing required field: 'path'\nrepair: The arguments provided do not match the expected schema. Expected: {\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"}",
+      "is_error": true,
+      "failure": {
+        "kind": "schema_mismatch",
+        "message": "Schema validation failed for tool 'read': Missing required field: 'path'",
+        "repair_guidance": "The arguments provided do not match the expected schema. Expected: {\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"type\":\"object\"}"
+      }
+    }
+  ],
+  "packet_hash": "79362e74f9d64e67970cbb0995dfe871522da64ef02c4224dfe9179e5d9316ce",
+  "pipeline_version": "fixture-pipeline",
+  "tokenizer_id": "default",
+  "token_estimate": 0,
+  "sources": [],
+  "omissions": [],
+  "message_hashes": [
+    "0d6d07508071751423afd42f15160a2701adf2aba8841e6b86764ca5d166c3db",
+    "836a618e1fb4e9ccacea5ea1d7c89cb55e2ff339432830a48daaf3dfd5d5ab31",
+    "817ea74ec728962b18480ecdce4075628327b3a603443c89150816084a1373f5"
+  ],
+  "prompt_source": "default"
+}

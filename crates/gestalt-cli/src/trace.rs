@@ -4,10 +4,10 @@ use std::io::{BufRead, BufReader};
 
 use gestalt_core::event::PolicyStatus;
 use gestalt_core::AgentEvent;
-use gestalt_trace::{aggregate_costs, read_trace};
+use gestalt_trace::{aggregate_costs, analyze_tool_metrics, read_trace};
 
 use crate::config::EffectiveConfig;
-use crate::output::{PolicyOutcomesSummary, ReplayReport, TraceInspectReport, TraceValidateReport};
+use crate::output::{PolicyOutcomesSummary, ReplayReport, TraceAnalyzeReport, TraceInspectReport, TraceValidateReport};
 use crate::replay::replay_display;
 use crate::runs;
 
@@ -128,6 +128,9 @@ pub fn inspect_trace(
             AgentEvent::HookCompleted { .. } => "hook_completed",
             AgentEvent::HookFailed { .. } => "hook_failed",
             AgentEvent::Error { .. } => "error",
+            AgentEvent::ToolCatalogSelected { .. } => "tool_catalog_selected",
+            AgentEvent::ToolCallValidationFailed { .. } => "tool_call_validation_failed",
+            AgentEvent::ToolRetryAttempt { .. } => "tool_retry_attempt",
         };
 
         *event_types.entry(variant_name.to_string()).or_insert(0) += 1;
@@ -318,4 +321,35 @@ pub fn validate_trace(
         errors,
         warnings,
     })
+}
+
+/// Analyze trace events for tool-calling reliability metrics. The
+/// path may point to a run directory, a single `trace.jsonl`, or a
+/// directory of fixture traces. The `kind` selector is forward
+/// compatible: today only `tools` is implemented, but the wrapper
+/// makes it easy to add `--kind cost` or similar without rewriting
+/// the CLI wiring.
+pub fn analyze_trace(
+    config: &EffectiveConfig,
+    run_id_or_path: &str,
+    kind: &str,
+) -> Result<TraceAnalyzeReport, Box<dyn std::error::Error>> {
+    let (_run_id, _run_dir, trace_path) = resolve_trace_target(config, run_id_or_path)?;
+    let resolver =
+        |model_id: &str| gestalt_models::ModelCatalog::built_in().get_qualified(model_id);
+    match kind {
+        "tools" => {
+            let tools_metrics = analyze_tool_metrics(&trace_path, resolver)?;
+            Ok(TraceAnalyzeReport {
+                path: trace_path,
+                tools_metrics,
+            })
+        }
+        other => Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "Unknown analyze kind '{other}'. Supported kinds: tools. (Note: the legacy --tools flag is the default and may be omitted.)"
+            ),
+        ))),
+    }
 }

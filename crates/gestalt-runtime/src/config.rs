@@ -19,6 +19,12 @@ pub struct RuntimeConfig {
     pub allow_network: bool,
     pub environment: HashMap<String, String>,
     pub enabled_cli_features: Vec<String>,
+    pub tool_profile: Option<crate::tool_catalog_planner::ToolProfile>,
+    /// Extension ids whose annotations are promoted to
+    /// `BuiltInTrusted`. Extensions not in this list are treated as
+    /// `ExtensionDeclared` regardless of manifest claims.
+    #[serde(default)]
+    pub trusted_extension_ids: Vec<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -38,6 +44,8 @@ impl Default for RuntimeConfig {
             allow_network: false,
             environment: HashMap::new(),
             enabled_cli_features: Vec::new(),
+            tool_profile: None,
+            trusted_extension_ids: Vec::new(),
         }
     }
 }

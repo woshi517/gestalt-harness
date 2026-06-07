@@ -57,6 +57,16 @@ pub struct ToolDeclaration {
     pub input_schema: serde_json::Value,
     #[serde(default)]
     pub risk: Option<String>,
+    /// Extension-declared `read_only` hint. This is *advisory* and
+    /// must be downgraded to `ExtensionDeclared` annotation source
+    /// in the descriptor; only `BuiltInTrusted` should ever be able
+    /// to enable automatic retry.
+    #[serde(default)]
+    pub read_only: Option<bool>,
+    /// Extension-declared `idempotent` hint. Same trust caveats as
+    /// `read_only`: surfaced for visibility, but not blindly trusted.
+    #[serde(default)]
+    pub idempotent: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1,0 +1,61 @@
+{
+  "user_prompt": "run two parallel reads",
+  "session_config": {
+    "model": "mock-model",
+    "provider": "fixture-provider",
+    "max_tokens": 4096,
+    "temperature": 0.0,
+    "max_turns": 3
+  },
+  "execution_mode": "yolo",
+  "tools": [
+    {
+      "name": "read",
+      "description": "read a workspace file",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" }
+        },
+        "required": ["path"]
+      },
+      "output": "contents",
+      "is_error": false,
+      "parallel_safe": true
+    }
+  ],
+  "policy_toml": null,
+  "mock_turns": [
+    [
+      {
+        "type": "tool_call_streamed",
+        "id": "call-a",
+        "name": "read",
+        "input_delta": "{\"path\": \"a.md\"}"
+      },
+      {
+        "type": "tool_call_streamed",
+        "id": "call-b",
+        "name": "read",
+        "input_delta": "{\"path\": \"b.md\"}"
+      },
+      {
+        "type": "stop",
+        "reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "usage",
+        "input_tokens": 10,
+        "output_tokens": 5
+      },
+      {
+        "type": "stop",
+        "reason": "end_turn"
+      }
+    ]
+  ],
+  "workspace_snapshot": null,
+  "approval_decisions": null
+}

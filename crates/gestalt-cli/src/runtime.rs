@@ -53,6 +53,38 @@ pub async fn build_cli_runtime(
     #[cfg(feature = "otel")]
     enabled_cli_features.push("otel".to_string());
 
+    let explicit_loads: Vec<std::path::PathBuf> = config
+        .extensions
+        .explicit_loads
+        .iter()
+        .map(|s| std::path::PathBuf::from(s))
+        .collect();
+
+    let global_dir = dirs::config_dir().map(|d| d.join("gestalt"));
+    let discovery =
+        gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
+
+    let mut trusted_extension_ids: Vec<String> = config.extensions.trusted.clone();
+
+    if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
+        for ext in &discovered {
+            if config.extensions.disabled.contains(&ext.manifest.id) {
+                continue;
+            }
+
+            let is_explicit = explicit_loads.iter().any(|p| {
+                p == &ext.manifest_path || p.parent() == Some(&ext.manifest_path)
+            });
+            let is_trusted = is_explicit 
+                || config.extensions.trusted.contains(&ext.manifest.id)
+                || config.extensions.allow_untrusted;
+
+            if is_trusted && !trusted_extension_ids.contains(&ext.manifest.id) {
+                trusted_extension_ids.push(ext.manifest.id.clone());
+            }
+        }
+    }
+
     let runtime_config = RuntimeConfig {
         workspace_root: config.workspace_root.clone(),
         execution_mode: mode,
@@ -68,6 +100,8 @@ pub async fn build_cli_runtime(
         allow_network: false,
         environment: std::collections::HashMap::new(),
         enabled_cli_features,
+        tool_profile: None,
+        trusted_extension_ids,
     };
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -109,17 +143,6 @@ pub async fn build_cli_runtime(
     if let Some(ref sink) = trace_sink {
         builder = builder.trace_sink(sink.clone());
     }
-
-    let explicit_loads: Vec<std::path::PathBuf> = config
-        .extensions
-        .explicit_loads
-        .iter()
-        .map(|s| std::path::PathBuf::from(s))
-        .collect();
-
-    let global_dir = dirs::config_dir().map(|d| d.join("gestalt"));
-    let discovery =
-        gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
 
     if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
         for ext in discovered {

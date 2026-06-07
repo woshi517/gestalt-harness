@@ -1,0 +1,50 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "deny a write"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call-w1",
+          "name": "write",
+          "input": {
+            "content": "hi",
+            "path": "docs/x.md"
+          }
+        }
+      ]
+    },
+    {
+      "role": "toolresult",
+      "tool_use_id": "call-w1",
+      "content": "[ApprovalDenied] medium-risk tool call\nrepair: The user denied the approval. Adjust the request or ask before retrying.",
+      "is_error": true,
+      "failure": {
+        "kind": "approval_denied",
+        "message": "medium-risk tool call",
+        "repair_guidance": "The user denied the approval. Adjust the request or ask before retrying."
+      }
+    }
+  ],
+  "packet_hash": "e36ff943f472ce91d8fae66656824823f2e27b5f4b7c93baac5307a53a933d82",
+  "pipeline_version": "fixture-pipeline",
+  "tokenizer_id": "default",
+  "token_estimate": 0,
+  "sources": [],
+  "omissions": [],
+  "message_hashes": [
+    "cc4e5e19acf403a393f6c1ca9a50dd3cfbbeb3989b3976065cc87a66aa114e1d",
+    "1b469285ed2f5f0dac57136a091987ec55d1afcfd99156734494f987af6733b7",
+    "0391973a346ca571830010a0dc83285f657e256aba6c91701cbaca204764c114"
+  ],
+  "prompt_source": "default"
+}

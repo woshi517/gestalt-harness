@@ -480,6 +480,7 @@ mod tests {
                     output_hash: None,
                     artifact_refs: None,
                     policy_source: None,
+                    failure: None,
                 },
             ],
         );

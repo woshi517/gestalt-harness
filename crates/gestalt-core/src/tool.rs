@@ -11,6 +11,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::error::ToolError;
+use crate::tool_failure::ToolErrorReport;
 
 pub type ToolSchema = Value;
 
@@ -34,12 +35,51 @@ pub trait Tool: Send + Sync {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError>;
+
+    fn shape_output(&self, _result: &mut ToolExecutionResult) {}
+
+    fn descriptor(&self) -> crate::tool_descriptor::ToolDescriptor {
+        let name = self.name().to_string();
+        let canonical_id = crate::tool_descriptor::CanonicalToolId {
+            namespace: crate::tool_descriptor::ToolNamespace::BuiltIn,
+            name: name.clone(),
+        };
+        crate::tool_descriptor::ToolDescriptor {
+            id: canonical_id,
+            description: self.description().to_string(),
+            schema: self.schema(),
+            risk: self.risk(&serde_json::Value::Null),
+            annotations: crate::tool_descriptor::ToolAnnotations::default(),
+            response_contract: crate::tool_descriptor::ToolResponseContract {
+                format: crate::tool_descriptor::ProviderToolFormat::Text,
+                shape_rules: None,
+            },
+            retry_policy: None,
+        }
+    }
 }
 
 #[async_trait]
 pub trait ToolCatalog: Send + Sync {
     fn schemas(&self) -> Vec<ToolSchema>;
     fn get(&self, name: &str) -> Option<Arc<dyn Tool>>;
+
+    fn get_by_id(&self, id: &crate::tool_descriptor::CanonicalToolId) -> Option<Arc<dyn Tool>> {
+        match &id.namespace {
+            crate::tool_descriptor::ToolNamespace::BuiltIn => self.get(&id.name),
+            _ => self.get(&id.to_string()),
+        }
+    }
+
+    fn descriptors(&self) -> Vec<crate::tool_descriptor::ToolDescriptor> {
+        self.schemas()
+            .iter()
+            .filter_map(|s| {
+                let name = s.get("name").and_then(|n| n.as_str())?;
+                self.get(name).map(|t| t.descriptor())
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -167,6 +207,21 @@ impl ToolOutput {
             }
         }
 
+        // When the caller flagged this result as an error we synthesize
+        // an `ExecutionFailed` failure report so the structured payload
+        // matches the rendered content. The report is intentionally
+        // minimal here — callers that have richer classification
+        // information (the executor) override it before the result
+        // reaches the model.
+        let failure = if is_error {
+            Some(ToolErrorReport::new(
+                crate::tool_failure::ToolFailureKind::ExecutionFailed,
+                content.clone(),
+            ))
+        } else {
+            None
+        };
+
         Ok(ToolExecutionResult {
             content,
             is_error,
@@ -175,6 +230,7 @@ impl ToolOutput {
             original_bytes,
             output_hash,
             metadata: Value::Null,
+            failure,
         })
     }
 }
@@ -189,18 +245,44 @@ pub struct ToolExecutionResult {
     #[serde(default)]
     pub output_hash: Option<String>,
     pub metadata: Value,
+    /// Structured failure report. Populated whenever `is_error` is
+    /// `true` and the executor has enough information to classify the
+    /// failure (validation, policy, approval, timeout, execution).
+    /// Tools that simply return an `Err` from `execute` end up with a
+    /// `ToolErrorReport` of kind `ExecutionFailed` so the model still
+    /// sees a structured payload even at the leaves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<ToolErrorReport>,
 }
 
 impl ToolExecutionResult {
     pub fn error(message: impl Into<String>) -> Self {
+        let message = message.into();
+        let failure = ToolErrorReport::new(crate::tool_failure::ToolFailureKind::ExecutionFailed, message.clone());
+        let rendered = failure.render_for_model();
         Self {
-            content: message.into(),
+            content: rendered,
             is_error: true,
             artifact: None,
             truncated: false,
             original_bytes: None,
             output_hash: None,
             metadata: Value::Null,
+            failure: Some(failure),
+        }
+    }
+
+    pub fn error_with_failure(failure: ToolErrorReport) -> Self {
+        let rendered = failure.render_for_model();
+        Self {
+            content: rendered,
+            is_error: true,
+            artifact: None,
+            truncated: false,
+            original_bytes: None,
+            output_hash: None,
+            metadata: Value::Null,
+            failure: Some(failure),
         }
     }
 
@@ -213,6 +295,7 @@ impl ToolExecutionResult {
             original_bytes: None,
             output_hash: None,
             metadata: Value::Null,
+            failure: None,
         }
     }
 

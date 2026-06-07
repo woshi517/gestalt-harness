@@ -60,6 +60,26 @@ async fn test_yolo_bash_allowlist_golden() {
 }
 
 #[tokio::test]
+async fn test_tool_calling_valid_read() {
+    run_and_assert_fixture("tool-calling/valid_read").await;
+}
+
+#[tokio::test]
+async fn test_tool_calling_invalid_input_repair() {
+    run_and_assert_fixture("tool-calling/invalid_input_repair").await;
+}
+
+#[tokio::test]
+async fn test_tool_calling_parallel_reads() {
+    run_and_assert_fixture("tool-calling/parallel_reads").await;
+}
+
+#[tokio::test]
+async fn test_tool_calling_write_requires_approval() {
+    run_and_assert_fixture("tool-calling/write_requires_approval").await;
+}
+
+#[tokio::test]
 async fn test_assert_golden_negative_cases() {
     let dir = get_trace_fixtures_dir().join("deny-read-secret-golden");
     let golden = GoldenTrace::load(&dir).expect("Failed to load deny-read-secret-golden");
