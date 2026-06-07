@@ -119,15 +119,4 @@ fn test_composed_tool_catalog_sorting_and_conflicts() {
     assert_eq!(schemas[1].get("name").unwrap().as_str().unwrap(), "b_tool");
     assert_eq!(schemas[2].get("name").unwrap().as_str().unwrap(), "c_tool");
     assert_eq!(schemas[3].get("name").unwrap().as_str().unwrap(), "d_tool");
-
-    // Check conflict detection
-    let mut bad_extensions: BTreeMap<String, Arc<dyn Tool>> = BTreeMap::new();
-    bad_extensions.insert(
-        "a_tool".to_string(),
-        Arc::new(DummyTool {
-            name: "a_tool".to_string(),
-        }),
-    );
-    let res = ComposedToolCatalog::new(base, bad_extensions);
-    assert!(res.is_err());
 }

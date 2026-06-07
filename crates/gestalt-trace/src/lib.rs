@@ -5,12 +5,14 @@ pub mod fixture;
 pub mod golden;
 pub mod resume;
 pub mod run_manifest;
+pub mod tool_metrics;
 
 pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
 pub use golden::{GoldenTrace, GoldenTraceRunner};
 pub use resume::{RecoveryStatus, ResumeAnalysis, ResumeAnalyzer};
 pub use run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
+pub use tool_metrics::{analyze_tool_metrics, ToolMetricsReport};
 
 use std::{
     fs::{self, File},
@@ -356,6 +358,7 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 output_hash,
                 artifact_refs,
                 policy_source,
+                failure,
             } => {
                 let mut extra = String::new();
                 if let Some(name) = tool_name {
@@ -377,6 +380,12 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 }
                 if let Some(src) = policy_source {
                     extra.push_str(&format!(" policy_source={src}"));
+                }
+                if let Some(failure) = failure {
+                    extra.push_str(&format!(" failure={}", failure.kind));
+                    if let Some(guidance) = &failure.repair_guidance {
+                        extra.push_str(&format!(" repair={}", guidance.chars().take(60).collect::<String>()));
+                    }
                 }
                 lines.push(format!(
                     "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
@@ -420,6 +429,47 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
             } => lines.push(format!("error> recoverable={recoverable} {message}")),
             AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
                 lines.push(format!("snapshot> id={snapshot_id} dirty={dirty}"));
+            }
+            AgentEvent::ToolCatalogSelected { tools } => {
+                // Surface the alias-to-canonical mapping so replay
+                // readers can recover internal identity from the
+                // provider-facing name. We render each entry on its
+                // own line for grep-friendly output, and a header
+                // line carries the count for quick scanning.
+                lines.push(format!("tool-catalog> selected={} tools", tools.len()));
+                for mapping in tools {
+                    lines.push(format!(
+                        "tool-catalog> alias={} internal={} hash={} strict={}",
+                        mapping.provider_name,
+                        mapping.internal_id,
+                        &mapping.descriptor_hash[..8.min(mapping.descriptor_hash.len())],
+                        mapping.strict.unwrap_or(false),
+                    ));
+                }
+            }
+            AgentEvent::ToolCallValidationFailed {
+                tool_call_id,
+                tool_name,
+                error,
+            } => {
+                let mut line = format!(
+                    "tool-validation> {tool_call_id} tool={tool_name} kind={} msg={}",
+                    error.kind, error.message
+                );
+                if let Some(guidance) = &error.repair_guidance {
+                    line.push_str(&format!(" repair={}", guidance));
+                }
+                lines.push(line);
+            }
+            AgentEvent::ToolRetryAttempt {
+                tool_call_id,
+                attempt,
+                error,
+                delay_ms,
+            } => {
+                lines.push(format!(
+                    "tool-retry> {tool_call_id} attempt={attempt} delay={delay_ms}ms reason={error}"
+                ));
             }
             _ => {}
         }
@@ -612,6 +662,7 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
             output_hash,
             artifact_refs,
             policy_source,
+            failure,
         } => {
             let (output, redacted) = redact_string(output);
             (
@@ -626,6 +677,7 @@ fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
                     output_hash: output_hash.clone(),
                     artifact_refs: artifact_refs.clone(),
                     policy_source: policy_source.clone(),
+                    failure: failure.clone(),
                 },
                 redacted,
             )

@@ -137,6 +137,30 @@ RuntimeEvent::PermissionDecision {
 
 All events are stored in the bus's history (`Vec<RuntimeEvent>` via `Arc<Mutex<...>>`) and can be inspected programmatically or written to logs.
 
+## Structured Failure Surface
+
+Permission denials and other tool failures that surface to the model carry a typed `ToolFailureKind` plus optional `repair_guidance`. The harness always renders a single line in the tool output that the model can see, in addition to the structured field:
+
+```
+[ApprovalDenied] medium-risk tool call
+repair: The user denied the approval. Adjust the request or ask before retrying.
+```
+
+Mapping of the high-traffic kinds:
+
+| Trigger | `kind` | `repair_guidance` (excerpt) |
+|---|---|---|
+| User denied an approval | `approval_denied` | "Adjust the request or ask before retrying." |
+| `policies.toml` denied | `policy_denied` | echoes the policy reason |
+| Schema mismatch (basic or strict pass) | `schema_mismatch` | "Expected schema: …" |
+| Tool not in catalog | `tool_not_found` | "Check spelling or ensure the tool is loaded." |
+| Duplicate `tool_use_id` in a turn | `duplicate_call_id` | "Use unique IDs per turn." |
+| Tool execution returned an error | `execution_failed` | tool-specific |
+| Tool execution timed out | `timeout` | "Retry, or split the call into smaller inputs." |
+| `CancelToken` tripped | `cancelled` | "Run was cancelled." |
+
+`timeout` and `execution_failed` are the only kinds that are considered **transient** by the executor's retry policy. All other kinds are permanent — retrying would just re-hit the same gate.
+
 ## Environment Isolation
 
 When spawning an extension's child process, the runtime clears the entire environment and only preserves a safe allowlist:

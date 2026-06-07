@@ -43,6 +43,7 @@ impl Provider for MockProvider {
             supports_prompt_caching: false,
             supports_usage_reporting: false,
             supports_streaming: true,
+            supports_strict_schema: false,
         };
         &CAP
     }
@@ -590,6 +591,7 @@ async fn test_after_context_build_context_addition() {
                 supports_prompt_caching: false,
                 supports_usage_reporting: false,
                 supports_streaming: true,
+                supports_strict_schema: false,
             };
             &CAP
         }

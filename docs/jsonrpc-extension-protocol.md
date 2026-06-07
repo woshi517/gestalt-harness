@@ -673,6 +673,34 @@ When `allow_shell` is `false`:
 - The command and its arguments are passed via `Command::arg()` not `Command::arg("sh -c ...")`, so no shell expansion occurs.
 - This prevents shell injection through argument values.
 
+### 8.7 Tool Trust Annotations and Harness Allow-List
+
+Each `ToolDeclaration` may carry two optional annotations:
+
+```toml
+[[tools]]
+name = "read_only_safe_op"
+read_only = true
+idempotent = true
+```
+
+These annotations affect the tool descriptor's `AnnotationSource`:
+
+- **No annotations** — descriptor is tagged `AnnotationSource::ExtensionDeclared`. The trust tier is whatever the extension's manifest already says (default: `Untrusted`).
+- **Annotations present** — descriptor is still `ExtensionDeclared`. The annotations are recorded on the descriptor so the executor can reason about them, but they are not treated as a self-attestation of trust.
+- **Annotations present AND extension ID is in the harness allow-list** — descriptor is promoted to `AnnotationSource::BuiltInTrusted` and a `RetryPolicy` (`max_retries: 1, backoff_ms: 200`) is attached. This is the **only** path through which an extension tool receives a retry policy.
+
+The harness-side allow-list is configured at runtime:
+
+```rust
+use gestalt_runtime::extension_trust;
+extension_trust::set_trusted_extension_ids(vec!["acme.fs".into(), "noentic.cache".into()]);
+```
+
+Extensions not on the list (including all `*-local` and explicitly-loaded ones unless they appear here) get the conservative path: no retry policy, no `BuiltInTrusted` promotion, and any retry gating falls back to the transient-failure rule.
+
+This avoids the "manifest says it's safe, harness believes the manifest" footgun: trust is a host-side decision that mirrors the way a real package manager's GPG signature would.
+
 ---
 
 ## 9. Compatibility & Versioning

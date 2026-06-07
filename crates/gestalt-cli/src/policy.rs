@@ -93,6 +93,8 @@ pub async fn explain_policy(
     let request = PolicyRequest {
         tool_call_id: "explain-call-id".to_string(),
         tool_name: tool_name.to_string(),
+        namespace: gestalt_core::tool_descriptor::ToolNamespace::BuiltIn,
+        annotations: gestalt_core::tool_descriptor::ToolAnnotations::default(),
         input: input.clone(),
         risk,
         mode,
@@ -139,6 +141,8 @@ pub async fn test_policy(
     let request = PolicyRequest {
         tool_call_id: "test-call-id".to_string(),
         tool_name: tool_name.to_string(),
+        namespace: gestalt_core::tool_descriptor::ToolNamespace::BuiltIn,
+        annotations: gestalt_core::tool_descriptor::ToolAnnotations::default(),
         input: input.clone(),
         risk,
         mode,

@@ -58,6 +58,7 @@ impl Default for OpenAiProvider {
                 supports_thinking: false,
                 supports_usage_reporting: true,
                 supports_streaming: true,
+                supports_strict_schema: true,
                 ..ProviderCapabilities::default()
             },
             headers: HashMap::new(),
@@ -123,6 +124,7 @@ impl OpenAiProvider {
                 supports_thinking: false,
                 supports_usage_reporting: true,
                 supports_streaming: true,
+                supports_strict_schema: true,
                 ..ProviderCapabilities::default()
             },
             headers,
@@ -210,6 +212,16 @@ impl OpenAiProvider {
 impl Provider for OpenAiProvider {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn adapt_tools(
+        &self,
+        tools: &[gestalt_core::tool_descriptor::ToolDescriptor],
+    ) -> (
+        Vec<gestalt_core::provider::ProviderToolSchema>,
+        Vec<gestalt_core::tool_name_mapping::ToolNameMapping>,
+    ) {
+        crate::tool_schema_adapter::ToolSchemaAdapter::adapt_batch(tools, self.capabilities())
     }
 
     fn display_name(&self) -> &str {
@@ -437,6 +449,7 @@ fn split_openai_messages(messages: &[Message]) -> Vec<Value> {
                 tool_use_id,
                 content,
                 is_error: _,
+                ..
             } => {
                 output.push(json!({
                     "role": "tool",
@@ -517,22 +530,20 @@ fn convert_assistant_message(content: &[ContentBlock]) -> Value {
     }
 }
 
-fn convert_tools(tools: &[gestalt_core::tool::ToolSchema]) -> Value {
+fn convert_tools(tools: &[gestalt_core::provider::ProviderToolSchema]) -> Value {
     let mut output = Vec::new();
     for tool in tools {
-        let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
-        let description = tool
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let parameters = tool.get("input_schema").cloned().unwrap_or(Value::Null);
+        let mut function_obj = json!({
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.input_schema
+        });
+        if let Some(strict) = tool.strict {
+            function_obj["strict"] = json!(strict);
+        }
         output.push(json!({
             "type": "function",
-            "function": {
-                "name": name,
-                "description": description,
-                "parameters": parameters
-            }
+            "function": function_obj
         }));
     }
     Value::Array(output)

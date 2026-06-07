@@ -371,10 +371,18 @@ impl AgentLoop {
             prompt_source: packet.prompt_source.clone(),
         })?;
 
+        let descriptors = self.executor.tools().descriptors();
+        let (tools, tool_name_map) = self.provider.adapt_tools(&descriptors);
+
+        emit(AgentEvent::ToolCatalogSelected {
+            tools: tool_name_map.clone(),
+        })?;
+
         let request = ProviderRequest {
             model,
             messages: packet.messages,
-            tools: self.executor.tools().schemas(),
+            tools,
+            tool_name_map,
             max_tokens: session.config.max_tokens,
             temperature: session.config.temperature,
             top_p: None,
@@ -415,6 +423,7 @@ impl AgentLoop {
     where
         F: FnMut(AgentEvent) -> Result<()> + Send,
     {
+        let tool_name_map = request.tool_name_map.clone();
         for hook in &self.hooks.model_hooks {
             emit(AgentEvent::HookStarted {
                 hook_type: "model".to_string(),
@@ -616,6 +625,7 @@ impl AgentLoop {
             .execute_tool_batch(
                 session,
                 tool_calls.clone(),
+                &tool_name_map,
                 emit,
                 session_grants,
                 current_turn,
@@ -664,6 +674,7 @@ impl AgentLoop {
                 output_hash: Some(output_hash),
                 artifact_refs,
                 policy_source: Some(policy_source),
+                failure: result.failure.clone(),
             })?;
 
             for hook in &self.hooks.tool_hooks {
@@ -742,6 +753,7 @@ impl AgentLoop {
                 tool_use_id: id,
                 content: result.content,
                 is_error: result.is_error,
+                failure: result.failure,
             });
         }
 

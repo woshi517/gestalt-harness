@@ -7,6 +7,7 @@ pub mod discovery;
 pub mod error;
 pub mod event_bus;
 pub mod extension;
+pub mod extension_trust;
 pub mod inspect;
 pub mod jsonrpc;
 pub mod manifest;
@@ -17,6 +18,7 @@ pub mod process_extension;
 pub mod registry;
 pub mod runtime;
 pub mod tool_catalog;
+pub mod tool_catalog_planner;
 
 pub use artifact_store::{ArtifactStore, FilesystemArtifactStore, InMemoryArtifactStore};
 pub use builder::AgentRuntimeBuilder;
@@ -30,7 +32,8 @@ pub use context::{ContextContributor, RuntimeContextPipeline};
 pub use discovery::{DiscoveredExtension, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};
-pub use extension::GestaltExtension;
+pub use extension::{GestaltExtension};
+pub use extension_trust::build_extension_tool_descriptor;
 pub use inspect::{
     compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
 };
@@ -50,3 +53,4 @@ pub use registry::{
 };
 pub use runtime::{AgentRuntime, UserInput};
 pub use tool_catalog::ComposedToolCatalog;
+pub use tool_catalog_planner::{ToolCatalogPlanner, ToolProfile};

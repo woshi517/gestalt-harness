@@ -115,6 +115,13 @@ impl AgentRuntimeBuilder {
             ));
         }
 
+        // Wire the trusted-extension allow-list before any extension
+        // descriptor is built, so `build_extension_tool_descriptor`
+        // can promote annotations to `BuiltInTrusted`.
+        crate::extension_trust::set_trusted_extension_ids(
+            self.config.trusted_extension_ids.iter().cloned(),
+        );
+
         // Apply extensions before constructing AgentRuntime
         for ext in &self.extensions {
             let name = ext.name().to_string();
@@ -144,10 +151,12 @@ impl AgentRuntimeBuilder {
             }
         }
 
-        let composed_tools = Arc::new(
-            crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
-                .map_err(RuntimeError::Registry)?,
-        );
+        let mut composed_tools = crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
+                .map_err(RuntimeError::Registry)?;
+        if let Some(ref profile) = self.config.tool_profile {
+            composed_tools = composed_tools.with_planner(crate::tool_catalog_planner::ToolCatalogPlanner::new(profile.clone()));
+        }
+        let composed_tools = Arc::new(composed_tools);
 
         let middleware = self.middleware.ok_or_else(|| {
             RuntimeError::Builder("Missing middleware/context pipeline".to_string())

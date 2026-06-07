@@ -41,6 +41,22 @@ impl Tool for ReadTool {
         RiskLevel::Low
     }
 
+    fn descriptor(&self) -> gestalt_core::tool_descriptor::ToolDescriptor {
+        crate::builtin_descriptors::make_builtin_descriptor(
+            self,
+            true,  // read_only
+            true,  // idempotent
+            Some(gestalt_core::tool_descriptor::ToolRetryPolicy {
+                max_retries: 2,
+                backoff_ms: 100,
+            }),
+        )
+    }
+
+    fn shape_output(&self, result: &mut gestalt_core::tool::ToolExecutionResult) {
+        crate::response_shaping::shape_tool_response(self.name(), result);
+    }
+
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let input = parse_input::<ReadInput>(self.name(), input)?;
         let path = validate_existing_path(&input.path, ctx)?;

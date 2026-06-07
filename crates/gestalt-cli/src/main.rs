@@ -262,6 +262,24 @@ pub enum TraceSubcommand {
     Replay { run_id_or_path: String },
     Inspect { run_id_or_path: String },
     Validate { run_id_or_path: String },
+    /// Analyze tool-calling reliability metrics over a run or
+    /// directory of fixture traces. Wraps
+    /// `gestalt_trace::analyze_tool_metrics` so the CLI does not
+    /// duplicate the JSONL walking logic.
+    ///
+    /// The `--tools` flag is the historical entry point and is
+    /// preserved as an alias for `--kind tools`. Both forms are
+    /// equivalent; `--kind` exists so future analyzers (cost,
+    /// retries, etc.) can be added without breaking the surface.
+    Analyze {
+        run_id_or_path: String,
+        #[arg(long, default_value = "tools")]
+        kind: String,
+        /// Shorthand for `--kind tools`. Kept for parity with the
+        /// original `gestalt trace analyze --tools` invocation.
+        #[arg(long)]
+        tools: bool,
+    },
 }
 
 #[derive(Args)]
@@ -1083,6 +1101,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TraceSubcommand::Validate { run_id_or_path } => {
                 let config = load_effective_config(&overrides)?;
                 let res = trace::validate_trace(&config, &run_id_or_path);
+                handle_result(res, format, quiet)?;
+            }
+            TraceSubcommand::Analyze { run_id_or_path, kind, tools } => {
+                // `--tools` is the historical entry point and
+                // short-circuits `--kind` so it is the explicit opt-in
+                // for tool-calling metrics. Any future analyzer kind
+                // would be selected via `--kind` instead.
+                let effective_kind = if tools { "tools" } else { kind.as_str() };
+                let config = load_effective_config(&overrides)?;
+                let res = trace::analyze_trace(&config, &run_id_or_path, effective_kind);
                 handle_result(res, format, quiet)?;
             }
         },

@@ -147,6 +147,9 @@ impl ToolCatalog for FixtureToolCatalog {
     fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
     }
+    fn descriptors(&self) -> Vec<gestalt_core::tool_descriptor::ToolDescriptor> {
+        self.tools.values().map(|t| t.descriptor()).collect()
+    }
 }
 
 struct FixturePipeline {

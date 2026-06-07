@@ -1,0 +1,44 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "read a workspace file"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call-1",
+          "name": "read",
+          "input": {
+            "path": "README.md"
+          }
+        }
+      ]
+    },
+    {
+      "role": "toolresult",
+      "tool_use_id": "call-1",
+      "content": "hello world",
+      "is_error": false
+    }
+  ],
+  "packet_hash": "910b9ceaca7a03078e956f3db3dce6d64f3a521638e09d88ef6ff6340757d620",
+  "pipeline_version": "fixture-pipeline",
+  "tokenizer_id": "default",
+  "token_estimate": 0,
+  "sources": [],
+  "omissions": [],
+  "message_hashes": [
+    "a72a1897ae4b8793556d307536b3bbd48623dced333fb96a6e6a78e83d60e30e",
+    "57ee90aeee908060aac55a9277df08c2d438180478d17d1de668aee023fc900e",
+    "e1caecdb84cce5268bd4a25db6d071906f482435f78ce7ee0fd4ffbd12ee63f8"
+  ],
+  "prompt_source": "default"
+}

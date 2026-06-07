@@ -208,10 +208,12 @@ impl MinimalContextPipeline {
                 tool_use_id,
                 content,
                 is_error,
+                failure,
             } => Message::ToolResult {
                 tool_use_id: tool_use_id.clone(),
                 content: render_untrusted_text("tool_result", content),
                 is_error: *is_error,
+                failure: failure.clone(),
             },
         }
     }

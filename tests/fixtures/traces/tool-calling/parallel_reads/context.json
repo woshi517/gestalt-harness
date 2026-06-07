@@ -1,0 +1,59 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "run two parallel reads"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call-a",
+          "name": "read",
+          "input": {
+            "path": "a.md"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "call-b",
+          "name": "read",
+          "input": {
+            "path": "b.md"
+          }
+        }
+      ]
+    },
+    {
+      "role": "toolresult",
+      "tool_use_id": "call-a",
+      "content": "contents",
+      "is_error": false
+    },
+    {
+      "role": "toolresult",
+      "tool_use_id": "call-b",
+      "content": "contents",
+      "is_error": false
+    }
+  ],
+  "packet_hash": "0f06dbe9b2a117db03e638c33bd94d89e4b08246c33cd1ac9d1dbdbb006cd3cb",
+  "pipeline_version": "fixture-pipeline",
+  "tokenizer_id": "default",
+  "token_estimate": 0,
+  "sources": [],
+  "omissions": [],
+  "message_hashes": [
+    "fd8d9154fb7c54e21121fe7c5a1870779145243039d040257a48f5c599478d6c",
+    "a1d4b86ecc691c67dee40bdd00b8171c8976a61209db0760cf301c5c0f46abcf",
+    "97eeed711a61dbff5960801d56ea6df2dee8a57d3acff8f5c88751a9fdff6159",
+    "2f169b5108e46f2d8fe7aa078df843799c0a852c0c1a38cc6004a31a60e95712"
+  ],
+  "prompt_source": "default"
+}

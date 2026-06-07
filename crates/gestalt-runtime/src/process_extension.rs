@@ -11,7 +11,7 @@ use crate::error::{Result, RuntimeError};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::extension::GestaltExtension;
 use crate::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
-use crate::manifest::ExtensionManifest;
+use crate::manifest::{ExtensionManifest, ToolDeclaration};
 use crate::registry::RuntimeRegistry;
 
 pub struct ProcessExtensionBroker {
@@ -378,6 +378,14 @@ pub struct ProcessBackedTool {
     description: String,
     schema: gestalt_core::tool::ToolSchema,
     risk: gestalt_core::tool::RiskLevel,
+    /// Manifest declaration for this tool. We retain it so the
+    /// trust/provenance-aware descriptor builder can be used at
+    /// `descriptor()` time. Keeping the original declaration also
+    /// preserves the extension-declared `risk` and any trust
+    /// annotations the manifest provides, so policy decisions and
+    /// trace metadata stay consistent with what the extension
+    /// shipped.
+    tool_decl: ToolDeclaration,
 }
 
 #[async_trait::async_trait]
@@ -396,6 +404,16 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
 
     fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
         self.risk
+    }
+
+    fn descriptor(&self) -> gestalt_core::tool_descriptor::ToolDescriptor {
+        // Delegate to the trust builder so extension provenance,
+        // `ExtensionDeclared` annotation source, and harness-side
+        // trust normalization stay in one place. The previous
+        // hand-rolled version here used `ToolAnnotations::default()`
+        // and silently downgraded trust; routing through
+        // `build_extension_tool_descriptor` closes that gap.
+        crate::extension_trust::build_extension_tool_descriptor(&self.broker.manifest, &self.tool_decl)
     }
 
     async fn execute(
@@ -539,6 +557,7 @@ impl GestaltExtension for ProcessExtension {
                 description: tool.description.clone(),
                 schema: tool_schema.clone(),
                 risk,
+                tool_decl: tool.clone(),
             });
 
             registry.register_executable_tool(

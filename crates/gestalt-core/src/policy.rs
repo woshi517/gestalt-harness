@@ -26,6 +26,8 @@ pub trait PolicyEngine: Send + Sync {
 pub struct PolicyRequest {
     pub tool_call_id: String,
     pub tool_name: String,
+    pub namespace: crate::tool_descriptor::ToolNamespace,
+    pub annotations: crate::tool_descriptor::ToolAnnotations,
     pub input: Value,
     pub risk: RiskLevel,
     pub mode: ExecutionMode,

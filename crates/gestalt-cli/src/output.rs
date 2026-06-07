@@ -115,6 +115,7 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             output_hash,
             artifact_refs,
             policy_source,
+            failure,
         } => {
             let mut extra = String::new();
             if let Some(name) = tool_name {
@@ -136,6 +137,12 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             }
             if let Some(src) = policy_source {
                 extra.push_str(&format!(" policy_source={src}"));
+            }
+            if let Some(failure) = failure {
+                extra.push_str(&format!(" failure={}", failure.kind));
+                if let Some(guidance) = &failure.repair_guidance {
+                    extra.push_str(&format!(" repair={}", guidance.chars().take(60).collect::<String>()));
+                }
             }
             Some(format!(
                 "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
@@ -1142,6 +1149,50 @@ impl CliReport for TraceValidateReport {
         lines.join("\n")
     }
 }
+
+/// Trace analysis report for tool-calling metrics.
+#[derive(Debug, Clone, Serialize)]
+pub struct TraceAnalyzeReport {
+    pub path: PathBuf,
+    pub tools_metrics: gestalt_trace::ToolMetricsReport,
+}
+
+impl CliReport for TraceAnalyzeReport {
+    fn kind(&self) -> &'static str {
+        "trace.analyze"
+    }
+
+    fn render_text(&self) -> String {
+        let m = &self.tools_metrics;
+        let cost_str = match m.estimated_cost_usd {
+            Some(c) => format!("${:.6}", c),
+            None => "N/A (pricing missing)".to_string(),
+        };
+        let lines: Vec<String> = vec![
+            format!("Analysis Path: {}", self.path.display()),
+            "Tool Metrics Summary:".to_string(),
+            format!("  Total Proposed Calls:          {}", m.total_proposed_calls),
+            format!("  Total Validation Failures:     {}", m.total_validation_failures),
+            format!("  Invalid Tool Call Rate:        {:.2}%", m.invalid_tool_call_rate * 100.0),
+            format!("  Total Policy Decisions:        {}", m.total_policy_decisions),
+            format!("  Total Policy Denials:          {}", m.total_policy_denials),
+            format!("  Policy Denied Rate:            {:.2}%", m.policy_denied_rate * 100.0),
+            format!("  Total Tool Results:            {}", m.total_tool_results),
+            format!("  Total Truncated Results:       {}", m.total_truncated_results),
+            format!("  Truncation Rate:               {:.2}%", m.truncation_rate * 100.0),
+            format!("  Total Executed Calls:          {}", m.total_executed_calls),
+            format!("  First-call Success Count:      {}", m.first_call_success_count),
+            format!("  First-call Success Rate:       {:.2}%", m.first_call_success_rate * 100.0),
+            format!("  Total Input Tokens:            {}", m.total_input_tokens),
+            format!("  Total Output Tokens:           {}", m.total_output_tokens),
+            format!("  Estimated Cost:                {}", cost_str),
+            format!("  Total Turns with Tool Catalog:  {}", m.total_turns_with_tool_selection),
+            format!("  Exposed Tool Catalog Size/Turn: {:.2}", m.tool_exposure_count_per_turn),
+        ];
+        lines.join("\n")
+    }
+}
+
 
 /// Export format wrapper for printing export outputs.
 #[derive(Debug, Clone, Serialize)]

@@ -86,6 +86,13 @@ pub enum AgentEvent {
         artifact_refs: Option<Vec<String>>,
         #[serde(default)]
         policy_source: Option<String>,
+        /// Optional structured failure report. Mirrors
+        /// `Message::ToolResult.failure` and the
+        /// `ToolExecutionResult.failure` field; included here so trace
+        /// consumers do not have to re-parse the rendered `output`
+        /// string to recover the failure class.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure: Option<crate::tool_failure::ToolErrorReport>,
     },
     ArtifactCreated {
         path: String,
@@ -194,6 +201,20 @@ pub enum AgentEvent {
         hook_type: String,
         name: String,
         error: String,
+    },
+    ToolCatalogSelected {
+        tools: Vec<crate::tool_name_mapping::ToolNameMapping>,
+    },
+    ToolCallValidationFailed {
+        tool_call_id: String,
+        tool_name: String,
+        error: crate::tool_failure::ToolErrorReport,
+    },
+    ToolRetryAttempt {
+        tool_call_id: String,
+        attempt: usize,
+        error: String,
+        delay_ms: u64,
     },
 }
 

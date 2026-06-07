@@ -26,6 +26,7 @@ impl MockProvider {
                 supports_prompt_caching: false,
                 supports_usage_reporting: false,
                 supports_streaming: true,
+                supports_strict_schema: false,
             },
         }
     }

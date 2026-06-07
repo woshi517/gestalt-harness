@@ -1,0 +1,58 @@
+{
+  "user_prompt": "deny a write",
+  "session_config": {
+    "model": "mock-model",
+    "provider": "fixture-provider",
+    "max_tokens": 4096,
+    "temperature": 0.0,
+    "max_turns": 3
+  },
+  "execution_mode": "confirm",
+  "tools": [
+    {
+      "name": "write",
+      "description": "write a file",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "content": { "type": "string" }
+        },
+        "required": ["path", "content"]
+      },
+      "output": "unused",
+      "is_error": false,
+      "parallel_safe": false
+    }
+  ],
+  "policy_toml": "[tools.write]\ndefault = \"confirm\"",
+  "mock_turns": [
+    [
+      {
+        "type": "tool_call_streamed",
+        "id": "call-w1",
+        "name": "write",
+        "input_delta": "{\"path\": \"docs/x.md\", \"content\": \"hi\"}"
+      },
+      {
+        "type": "stop",
+        "reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "usage",
+        "input_tokens": 10,
+        "output_tokens": 5
+      },
+      {
+        "type": "stop",
+        "reason": "end_turn"
+      }
+    ]
+  ],
+  "workspace_snapshot": null,
+  "approval_decisions": {
+    "call-w1": "deny"
+  }
+}
