@@ -333,6 +333,8 @@ pub struct ToolDeclaration {
     pub description: String,
     pub input_schema: serde_json::Value,
     pub risk: Option<String>,
+    pub read_only: Option<bool>,
+    pub idempotent: Option<bool>,
 }
 
 pub struct HookDeclaration {

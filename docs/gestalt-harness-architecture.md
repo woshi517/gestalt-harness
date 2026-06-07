@@ -788,6 +788,23 @@ pub enum AgentEvent {
         input: Value,
     },
 
+    /// Active tool catalog selected for this turn. Emitted once per turn
+    /// after catalog planning and before the provider request.
+    ToolCatalogSelected {
+        descriptor_count: usize,
+        tool_ids: Vec<String>,
+    },
+
+    /// A tool call failed validation (duplicate ID, unknown tool, schema
+    /// mismatch, disallowed namespace). The call never proceeds to policy
+    /// or execution.
+    ToolCallValidationFailed {
+        call_id: String,
+        tool_name: String,
+        kind: String,
+        reason: String,
+    },
+
     PolicyDecision {
         tool_call_id: String,
         decision: PolicyStatus,
@@ -795,11 +812,27 @@ pub enum AgentEvent {
         policy_source: String,
     },
 
+    ApprovalDecision {
+        tool_call_id: String,
+        decision: ApprovalStatus,
+        reason: Option<String>,
+    },
+
     ToolResult {
         id: String,
         output: String,
         is_error: bool,
         truncated: bool,
+        failure: Option<ToolErrorReport>,
+    },
+
+    /// A tool call is being retried (only for transient failures on
+    /// trusted, read-only, idempotent tools with an active retry policy).
+    ToolRetryAttempt {
+        call_id: String,
+        attempt: usize,
+        error: String,
+        next_retry_delay_ms: u64,
     },
 
     MemoryProposal {
@@ -1273,11 +1306,34 @@ pub trait Tool: Send + Sync {
     fn schema(&self) -> ToolSchema;
     fn risk(&self, input: &Value) -> RiskLevel;
 
+    /// Returns the provider-neutral ToolDescriptor for this tool.
+    /// Provides a default that derives from name(), description(),
+    /// and schema() so legacy tools still compile.
+    fn descriptor(&self) -> ToolDescriptor;
+
+    /// Shapes the tool's execution result before it enters session history.
+    /// Defaults to returning content unchanged.
+    fn shape_output(&self, result: &ToolExecutionResult) -> String;
+
+    /// Whether this tool can be executed in parallel with other tools
+    /// in the same turn. Defaults to false.
+    fn can_run_in_parallel(&self) -> bool;
+
     async fn execute(
         &self,
         input: Value,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ToolError>;
+}
+
+/// Catalog trait for tool lookup and descriptor enumeration.
+/// Implemented by ToolRegistry, ComposedToolCatalog, and MCP catalogs.
+pub trait ToolCatalog: Send + Sync {
+    fn get(&self, name: &str) -> Option<Arc<dyn Tool>>;
+    fn get_by_id(&self, id: &CanonicalToolId) -> Option<Arc<dyn Tool>>;
+    fn list(&self) -> Vec<String>;
+    fn schemas(&self) -> Vec<ToolSchema>;
+    fn descriptors(&self) -> Vec<ToolDescriptor>;
 }
 
 /// Execution environment passed to every tool invocation.
@@ -1390,7 +1446,9 @@ pub struct ToolArtifact {
 }
 ```
 
-### 9.2 Tool Registry
+### 9.2 Tool Registry and Tool Catalog
+
+`ToolRegistry` (in `gestalt-tools`) is the concrete implementation of the `ToolCatalog` trait. It stores `Arc<dyn Tool>` by name and provides both name-based and canonical-ID-based lookup:
 
 ```rust
 // gestalt-tools/src/registry.rs
@@ -1399,7 +1457,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use serde_json::Value;
 
-use gestalt_core::tool::{Tool, ToolContext, ToolExecutionResult, ToolSchema};
+use gestalt_core::tool::{Tool, ToolContext, ToolExecutionResult, ToolSchema, ToolCatalog};
 use gestalt_core::error::{HarnessError, ToolError};
 
 pub struct ToolRegistry {
@@ -1414,27 +1472,29 @@ impl ToolRegistry {
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
         self.tools.insert(tool.name().to_string(), tool);
     }
+}
 
-    pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
+impl ToolCatalog for ToolRegistry {
+    fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
     }
 
-    pub fn schemas(&self) -> Vec<ToolSchema> {
+    fn get_by_id(&self, id: &CanonicalToolId) -> Option<Arc<dyn Tool>> {
+        self.get(&id.name)
+    }
+
+    fn list(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    fn schemas(&self) -> Vec<ToolSchema> {
         self.tools.values().map(|t| t.schema()).collect()
     }
 
-    pub async fn execute(
-        &self,
-        name: &str,
-        input: Value,
-        ctx: &ToolContext,
-    ) -> Result<ToolExecutionResult, ToolError> {
-        let tool = self.tools.get(name)
-            .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
-
-        let output = tool.execute(input, ctx).await?;
-
-        Ok(output.into_execution_result(false))
+    fn descriptors(&self) -> Vec<ToolDescriptor> {
+        self.tools.values().map(|t| t.descriptor()).collect()
     }
 }
 ```
@@ -1698,14 +1758,16 @@ Every failure that reaches the model is wrapped in a `ToolErrorReport` with a ty
 
 | Kind | Transient? | Repair Guidance Source |
 |---|---|---|
-| `SchemaMismatch` | no | "Expected schema: …" |
 | `ToolNotFound` | no | "Check spelling or ensure the tool is loaded." |
+| `InvalidArguments` | no | "The arguments could not be parsed as JSON." |
+| `SchemaMismatch` | no | "Expected schema: …" |
 | `DuplicateCallId` | no | "Use unique IDs per turn." |
+| `DisallowedNamespace` | no | "This namespace is not allowed in the current configuration." |
 | `PolicyDenied` | no | Echoes the policy reason. |
 | `ApprovalDenied` | no | "The user denied the approval. Adjust the request or ask before retrying." |
-| `ExecutionFailed` | yes | Tool-specific. |
+| `ExecutionFailed` | no | Tool-specific. |
 | `Timeout` | yes | "Retry, or split the call into smaller inputs." |
-| `Cancelled` | no | "Run was cancelled." |
+| `Unknown` | no | "Turn could not be completed." |
 
 The report rides along on `ToolExecutionResult.failure`, `Message::ToolResult.failure`, and `AgentEvent::ToolResult.failure` so traces, replays, and the model all see the same structure.
 
@@ -2121,8 +2183,13 @@ pub struct ProviderRequest {
     /// Fully assembled message list after context compilation.
     pub messages: Vec<Message>,
 
-    /// Tool schemas available to the model for this turn.
-    pub tools: Vec<ToolSchema>,
+    /// Provider-rendered tool schemas available to the model for this turn.
+    pub tools: Vec<ProviderToolSchema>,
+
+    /// Deterministic mapping from provider-facing names back to canonical
+    /// internal tool IDs. Carried alongside tools so validation and execution
+    /// can recover the canonical identity without inspecting provider wire details.
+    pub tool_name_map: Vec<ToolNameMapping>,
 
     /// Maximum output tokens requested for this turn.
     pub max_tokens: u32,
@@ -2149,6 +2216,7 @@ impl Default for ProviderRequest {
             model: String::new(),
             messages: Vec::new(),
             tools: Vec::new(),
+            tool_name_map: Vec::new(),
             max_tokens: 4096,
             temperature: None,
             top_p: None,

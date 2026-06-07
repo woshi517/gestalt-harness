@@ -149,17 +149,21 @@ repair: The user denied the approval. Adjust the request or ask before retrying.
 Mapping of the high-traffic kinds:
 
 | Trigger | `kind` | `repair_guidance` (excerpt) |
-|---|---|---|
+|---|---|---|---|
 | User denied an approval | `approval_denied` | "Adjust the request or ask before retrying." |
 | `policies.toml` denied | `policy_denied` | echoes the policy reason |
 | Schema mismatch (basic or strict pass) | `schema_mismatch` | "Expected schema: …" |
+| Malformed JSON arguments | `invalid_arguments` | "The arguments could not be parsed as JSON." |
 | Tool not in catalog | `tool_not_found` | "Check spelling or ensure the tool is loaded." |
 | Duplicate `tool_use_id` in a turn | `duplicate_call_id` | "Use unique IDs per turn." |
+| Disallowed namespace (e.g. MCP in yolo mode) | `disallowed_namespace` | "This namespace is not allowed." |
 | Tool execution returned an error | `execution_failed` | tool-specific |
 | Tool execution timed out | `timeout` | "Retry, or split the call into smaller inputs." |
-| `CancelToken` tripped | `cancelled` | "Run was cancelled." |
+| Malformed provider streaming output | `unknown` | "Turn could not be completed." |
 
-`timeout` and `execution_failed` are the only kinds that are considered **transient** by the executor's retry policy. All other kinds are permanent — retrying would just re-hit the same gate.
+Only `timeout` is considered **transient** by the executor's retry policy. All other kinds — including `execution_failed` — are permanent, meaning retrying with the same input is unlikely to succeed without model or user intervention.
+
+Failures that occur before tool execution (validation, policy, approval) are classified as `is_pre_execution` and are excluded from first-call success rate calculations in trace metrics.
 
 ## Environment Isolation
 

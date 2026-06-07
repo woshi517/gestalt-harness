@@ -81,12 +81,17 @@ Each tool is an array of tables (`[[tools]]`). A manifest may declare zero or mo
 | `description` | `string` | yes | — | Free-text description of what the tool does. |
 | `input_schema` | JSON value | yes | — | JSON Schema object describing the tool's input. |
 | `risk` | `string?` | no | `"high"` | Risk level: `"low"`, `"medium"`, `"high"`, or `"critical"`. |
+| `read_only` | `bool?` | no | `false` | Whether the tool only reads without side effects. Helps the harness decide parallel execution and retry eligibility. |
+| `idempotent` | `bool?` | no | `false` | Whether repeated calls with the same input produce the same result. Only effective when the extension is trusted. |
 
 ```toml
 [[tools]]
 name = "bash_tool"
 description = "Brings hello from bash"
 input_schema = { type = "object" }
+risk = "low"
+read_only = true
+idempotent = true
 ```
 
 ### `[[hooks]]`
