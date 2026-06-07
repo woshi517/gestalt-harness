@@ -102,9 +102,13 @@ name = "search_docs"
 description = "Search the project documentation index"
 input_schema = { type = "object", properties = { query = { type = "string" } }, required = ["query"] }
 risk = "low"                      # Optional. One of low, medium, high, critical. Defaults to high.
+read_only = true                  # Optional. Set to true if the tool does not write or mutate.
+idempotent = true                 # Optional. Set to true if repeated calls produce the same result.
 ```
 
 The `input_schema` is a raw JSON Schema object. The `risk` field influences whether the tool can run in parallel with other tools (low risk tools can; high/critical tools are serialized).
+
+`read_only` and `idempotent` are self-declared annotations. They are recorded as `ExtensionDeclared` and never enable automatic retry unless your extension ID is in the user's `[extensions].trusted` list, which promotes annotations to `BuiltInTrusted`.
 
 ### 3.6 Hook Declarations
 
