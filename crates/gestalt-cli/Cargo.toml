@@ -38,6 +38,7 @@ tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 keyring = "2"
@@ -71,5 +72,4 @@ uuid = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
 insta = { version = "1", features = ["filters"] }
-
 

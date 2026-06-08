@@ -1,16 +1,16 @@
-use std::sync::Arc;
-use serde_json::json;
 use gestalt_core::{
-    tool::{Tool, ToolContext, ToolOutput, RiskLevel, ToolSchema},
-    tool_descriptor::{
-        CanonicalToolId, ToolNamespace, ToolDescriptor, AnnotationSource, ToolAnnotation,
-        ToolAnnotations, ProviderToolFormat,
-    },
+    error::ToolError,
     policy::PolicyRequest,
     provider::{ProviderRequest, ProviderToolSchema},
     session::ExecutionMode,
-    error::ToolError,
+    tool::{RiskLevel, Tool, ToolContext, ToolOutput, ToolSchema},
+    tool_descriptor::{
+        AnnotationSource, CanonicalToolId, ProviderToolFormat, ToolAnnotation, ToolAnnotations,
+        ToolDescriptor, ToolNamespace,
+    },
 };
+use serde_json::json;
+use std::sync::Arc;
 
 struct DummyTool;
 
@@ -42,8 +42,14 @@ impl Tool for DummyTool {
         RiskLevel::Low
     }
 
-    async fn execute(&self, _input: serde_json::Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
-        Ok(ToolOutput::Text { content: "ok".to_string() })
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &ToolContext,
+    ) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput::Text {
+            content: "ok".to_string(),
+        })
     }
 }
 
@@ -67,12 +73,18 @@ fn test_canonical_id_parsing() {
     assert_eq!(builtin_id.to_string(), "builtin:read");
 
     let ext_id: CanonicalToolId = "extension:mock-ext:convert_pdf".parse().unwrap();
-    assert_eq!(ext_id.namespace, ToolNamespace::Extension("mock-ext".to_string()));
+    assert_eq!(
+        ext_id.namespace,
+        ToolNamespace::Extension("mock-ext".to_string())
+    );
     assert_eq!(ext_id.name, "convert_pdf");
     assert_eq!(ext_id.to_string(), "extension:mock-ext:convert_pdf");
 
     let mcp_id: CanonicalToolId = "mcp:brave-search:web_search".parse().unwrap();
-    assert_eq!(mcp_id.namespace, ToolNamespace::Mcp("brave-search".to_string()));
+    assert_eq!(
+        mcp_id.namespace,
+        ToolNamespace::Mcp("brave-search".to_string())
+    );
     assert_eq!(mcp_id.name, "web_search");
     assert_eq!(mcp_id.to_string(), "mcp:brave-search:web_search");
 

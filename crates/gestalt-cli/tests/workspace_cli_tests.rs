@@ -1,9 +1,36 @@
 use gestalt_cli::config::CliOverrides;
+use gestalt_cli::policy::validate_policy;
 use gestalt_cli::workspace::{
     doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
 };
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &std::path::Path) -> Self {
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(ref val) = self.original {
+            std::env::set_var(self.key, val);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
 
 fn create_temp_workspace() -> PathBuf {
     let temp =
@@ -14,18 +41,25 @@ fn create_temp_workspace() -> PathBuf {
 
 #[test]
 fn test_init_workspace_scaffolding() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
 
     // 1. Initial run succeeds
     let report = init_workspace(&temp_root, false).unwrap();
     assert_eq!(report.workspace_root, temp_root);
-    assert_eq!(report.created_files.len(), 4);
+    assert_eq!(report.created_files.len(), 3);
 
     let gestalt_dir = temp_root.join(".gestalt");
-    assert!(gestalt_dir.join("config.toml").exists());
-    assert!(gestalt_dir.join("policies.toml").exists());
+    assert!(temp_root.join("gestalt.json").exists());
     assert!(gestalt_dir.join("workspace.md").exists());
     assert!(gestalt_dir.join("memory.md").exists());
+
+    let config_json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(temp_root.join("gestalt.json")).unwrap()).unwrap();
+    assert_eq!(
+        config_json["policies"]["paths"]["allow_write"],
+        serde_json::json!(["docs/", ".gestalt/"])
+    );
 
     // 2. Second run without force fails
     let err_res = init_workspace(&temp_root, false);
@@ -35,13 +69,14 @@ fn test_init_workspace_scaffolding() {
 
     // 3. Second run with force succeeds
     let report_force = init_workspace(&temp_root, true).unwrap();
-    assert_eq!(report_force.created_files.len(), 4);
+    assert_eq!(report_force.created_files.len(), 3);
 
     let _ = fs::remove_dir_all(&temp_root);
 }
 
 #[test]
 fn test_status_workspace() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
     init_workspace(&temp_root, false).unwrap();
 
@@ -70,6 +105,7 @@ fn test_status_workspace() {
 
 #[test]
 fn test_info_workspace() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
     init_workspace(&temp_root, false).unwrap();
 
@@ -80,11 +116,7 @@ fn test_info_workspace() {
 
     let report = info_workspace(&overrides).unwrap();
     assert_eq!(report.workspace_root, temp_root);
-    assert_eq!(report.config_path, temp_root.join(".gestalt/config.toml"));
-    assert_eq!(
-        report.policies_path,
-        temp_root.join(".gestalt/policies.toml")
-    );
+    assert_eq!(report.config_path, temp_root.join("gestalt.json"));
     assert_eq!(
         report.workspace_md_path,
         temp_root.join(".gestalt/workspace.md")
@@ -94,8 +126,65 @@ fn test_info_workspace() {
     let _ = fs::remove_dir_all(&temp_root);
 }
 
+#[test]
+fn test_global_only_config_reports_global_json_path() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+
+    let temp_root = create_temp_workspace();
+    let global_dir = temp_root.join("global");
+    fs::create_dir_all(&global_dir).unwrap();
+    let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", &global_dir);
+
+    let overrides = CliOverrides {
+        workspace: Some(temp_root.clone()),
+        ..CliOverrides::default()
+    };
+
+    let info = info_workspace(&overrides).unwrap();
+    let global_config_path = global_dir.join("gestalt/gestalt.json");
+    assert_eq!(info.config_path, global_config_path);
+
+    let policy_report = validate_policy(&overrides).unwrap();
+    assert_eq!(policy_report.path, global_config_path);
+    assert!(policy_report.valid);
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn test_legacy_workspace_reports_legacy_config_path() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+
+    let temp_root = create_temp_workspace();
+    let gestalt_dir = temp_root.join(".gestalt");
+    fs::create_dir_all(&gestalt_dir).unwrap();
+    fs::write(
+        gestalt_dir.join("config.toml"),
+        r#"
+[defaults]
+profile = "openai"
+"#,
+    )
+    .unwrap();
+
+    let global_dir = temp_root.join("global");
+    fs::create_dir_all(&global_dir).unwrap();
+    let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", &global_dir);
+
+    let overrides = CliOverrides {
+        workspace: Some(temp_root.clone()),
+        ..CliOverrides::default()
+    };
+
+    let info = info_workspace(&overrides).unwrap();
+    assert_eq!(info.config_path, gestalt_dir.join("config.toml"));
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
 #[tokio::test]
 async fn test_snapshot_workspace() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
     init_workspace(&temp_root, false).unwrap();
 
@@ -114,6 +203,7 @@ async fn test_snapshot_workspace() {
 
 #[test]
 fn test_doctor_workspace() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
     init_workspace(&temp_root, false).unwrap();
 
@@ -149,8 +239,8 @@ fn test_doctor_workspace() {
     assert!(!report_malformed.policies_valid);
     assert!(report_malformed.policies_error.is_some());
 
-    // Test with malformed config.toml (invalid-config branch in status and doctor)
-    fs::write(temp_root.join(".gestalt/config.toml"), "invalid = [toml").unwrap();
+    // Test with malformed gestalt.json (invalid-config branch in status and doctor)
+    fs::write(temp_root.join("gestalt.json"), "invalid = [json").unwrap();
     let report_invalid_config = doctor_workspace(&overrides).unwrap();
     assert!(!report_invalid_config.config_valid);
     assert!(report_invalid_config.config_error.is_some());
@@ -164,6 +254,7 @@ fn test_doctor_workspace() {
 
 #[tokio::test]
 async fn test_enhanced_cli_operations() {
+    let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
     init_workspace(&temp_root, false).unwrap();
 

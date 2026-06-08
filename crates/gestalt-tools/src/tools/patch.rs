@@ -36,8 +36,7 @@ impl Tool for PatchTool {
 
     fn descriptor(&self) -> gestalt_core::tool_descriptor::ToolDescriptor {
         crate::builtin_descriptors::make_builtin_descriptor(
-            self,
-            false, // read_only
+            self, false, // read_only
             false, // idempotent
             None,  // no retries
         )

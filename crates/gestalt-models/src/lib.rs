@@ -5,9 +5,9 @@ pub mod auth;
 pub mod catalog;
 pub mod openai;
 pub mod registry;
+mod sse;
 pub mod strict_schema;
 pub mod tool_schema_adapter;
-mod sse;
 
 pub use anthropic::AnthropicProvider;
 pub use auth::{

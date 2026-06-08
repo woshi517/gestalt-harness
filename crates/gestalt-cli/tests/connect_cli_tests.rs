@@ -87,3 +87,69 @@ fn test_connect_openrouter() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_connect_migrates_legacy_global_config() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+    set_use_fake_keychain(true);
+
+    let unique_id = uuid::Uuid::new_v4().to_string();
+    let temp_dir = std::env::temp_dir().join(format!("gestalt_test_connect_legacy_{}", unique_id));
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let global_dir = temp_dir.join("global");
+    let legacy_global_dir = global_dir.join("gestalt");
+    fs::create_dir_all(&legacy_global_dir).unwrap();
+
+    fs::write(
+        legacy_global_dir.join("config.toml"),
+        r#"
+[defaults]
+provider = "openai"
+model = "gpt-4o"
+"#,
+    )
+    .unwrap();
+
+    let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", &global_dir);
+
+    let overrides = CliOverrides {
+        workspace: Some(temp_dir.clone()),
+        ..CliOverrides::default()
+    };
+
+    let config = load_effective_config(&overrides).expect("load config");
+    assert_eq!(config.defaults.provider.as_deref(), Some("openai"));
+    assert_eq!(config.defaults.model.as_deref(), Some("gpt-4o"));
+
+    let report = connect_provider(
+        &config,
+        "openrouter",
+        Some("sk-or-test-key".to_string()),
+        false,
+        true,
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("connect succeeds");
+
+    assert_eq!(report.provider, "openrouter");
+    assert!(report.keychain_stored);
+
+    let config2 = load_effective_config(&overrides).expect("reload config");
+    assert_eq!(config2.defaults.provider.as_deref(), Some("openai"));
+    assert_eq!(config2.defaults.model.as_deref(), Some("gpt-4o"));
+    assert!(config2.providers.contains_key("openrouter"));
+
+    let dis_report =
+        disconnect_provider(&config2, "openrouter", true).expect("disconnect succeeds");
+    assert_eq!(dis_report.provider, "openrouter");
+
+    let config3 = load_effective_config(&overrides).expect("reload config");
+    assert!(!config3.providers.contains_key("openrouter"));
+    assert_eq!(config3.defaults.provider.as_deref(), Some("openai"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

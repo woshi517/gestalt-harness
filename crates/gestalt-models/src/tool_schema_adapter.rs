@@ -1,8 +1,8 @@
-use gestalt_core::tool_descriptor::ToolDescriptor;
+use crate::strict_schema::make_strict_schema;
 use gestalt_core::provider::{ProviderCapabilities, ProviderToolSchema};
+use gestalt_core::tool_descriptor::ToolDescriptor;
 use gestalt_core::tool_name_mapping::ToolNameMapping;
 use sha2::{Digest, Sha256};
-use crate::strict_schema::make_strict_schema;
 
 pub struct ToolSchemaAdapter;
 
@@ -41,9 +41,15 @@ impl ToolSchemaAdapter {
 
         for (descriptor, (canonical_id, provider_name)) in sorted.iter().zip(resolved.iter()) {
             debug_assert_eq!(&descriptor.id, canonical_id);
-            let (schema, input_schema, strict) = Self::build_schema_and_input(descriptor, capabilities, provider_name);
+            let (schema, input_schema, strict) =
+                Self::build_schema_and_input(descriptor, capabilities, provider_name);
             schemas.push(schema.clone());
-            mappings.push(Self::build_mapping(descriptor, provider_name, input_schema, strict));
+            mappings.push(Self::build_mapping(
+                descriptor,
+                provider_name,
+                input_schema,
+                strict,
+            ));
         }
         (schemas, mappings)
     }

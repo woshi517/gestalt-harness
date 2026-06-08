@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "defaults": {
+    "profile": "default",
+    "mode": "confirm",
+    "max_turns": 50
+  },
+  "profiles": {
+    "default": {
+      "provider": "openrouter",
+      "model": "openrouter/free"
+    }
+  },
+  "tools": {
+    "bash_timeout_secs": 60,
+    "max_output_tokens": 4000,
+    "sandbox_type": "none"
+  },
+  "context": {
+    "max_context_window": 120000,
+    "reserved_output_tokens": 8000,
+    "workspace_file": ".gestalt/workspace.md",
+    "memory_file": ".gestalt/memory.md"
+  },
+  "observe": {
+    "run_log_dir": ".gestalt/runs",
+    "log_format": "jsonl"
+  },
+  "policies": {
+    "paths": {
+      "allow_read": [".", "sources/", "docs/", "src/"],
+      "allow_write": ["docs/", ".gestalt/"],
+      "deny_write": [".git/", "secrets/", ".env", "*.key"]
+    },
+    "bash": {
+      "default": "confirm",
+      "yolo_allow": ["ls", "cat", "grep", "rg", "find"],
+      "always_deny": ["dd", "mkfs", "fdisk"]
+    },
+    "network": {
+      "default": "confirm"
+    }
+  }
+}

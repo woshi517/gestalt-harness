@@ -1,14 +1,14 @@
-use serde_json::json;
 use gestalt_core::{
-    tool_descriptor::{
-        ToolDescriptor, CanonicalToolId, ToolNamespace, ToolAnnotations,
-        ToolResponseContract, ProviderToolFormat
-    },
     provider::ProviderCapabilities,
     tool::RiskLevel,
+    tool_descriptor::{
+        CanonicalToolId, ProviderToolFormat, ToolAnnotations, ToolDescriptor, ToolNamespace,
+        ToolResponseContract,
+    },
 };
-use gestalt_models::tool_schema_adapter::ToolSchemaAdapter;
 use gestalt_models::strict_schema::make_strict_schema;
+use gestalt_models::tool_schema_adapter::ToolSchemaAdapter;
+use serde_json::json;
 
 #[test]
 fn test_make_strict_schema_basic() {
@@ -22,10 +22,10 @@ fn test_make_strict_schema_basic() {
     });
 
     let strict = make_strict_schema(&schema);
-    
+
     // Check that additionalProperties is false
     assert_eq!(strict["additionalProperties"], false);
-    
+
     // Check that both fields are required
     let req = strict["required"].as_array().unwrap();
     assert_eq!(req.len(), 2);
@@ -33,7 +33,10 @@ fn test_make_strict_schema_basic() {
     assert!(req.contains(&json!("age")));
 
     // Check that the optional field "age" is now nullable
-    assert_eq!(strict["properties"]["age"]["type"], json!(["integer", "null"]));
+    assert_eq!(
+        strict["properties"]["age"]["type"],
+        json!(["integer", "null"])
+    );
     // The required field "name" should NOT be nullable
     assert_eq!(strict["properties"]["name"]["type"], json!("string"));
 }
@@ -54,8 +57,14 @@ fn test_make_strict_schema_recursive() {
 
     let strict = make_strict_schema(&schema);
     assert_eq!(strict["additionalProperties"], false);
-    assert_eq!(strict["properties"]["nested"]["additionalProperties"], false);
-    assert_eq!(strict["properties"]["nested"]["properties"]["inner_val"]["type"], json!(["string", "null"]));
+    assert_eq!(
+        strict["properties"]["nested"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        strict["properties"]["nested"]["properties"]["inner_val"]["type"],
+        json!(["string", "null"])
+    );
 }
 
 #[test]
@@ -94,5 +103,8 @@ fn test_adapter_strict_mode() {
     caps.supports_strict_schema = false;
     let (adapted_no_strict, _) = ToolSchemaAdapter::adapt(&descriptor, &caps);
     assert_eq!(adapted_no_strict.strict, None);
-    assert!(adapted_no_strict.input_schema.get("additionalProperties").is_none());
+    assert!(adapted_no_strict
+        .input_schema
+        .get("additionalProperties")
+        .is_none());
 }

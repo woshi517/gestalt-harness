@@ -384,7 +384,10 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                 if let Some(failure) = failure {
                     extra.push_str(&format!(" failure={}", failure.kind));
                     if let Some(guidance) = &failure.repair_guidance {
-                        extra.push_str(&format!(" repair={}", guidance.chars().take(60).collect::<String>()));
+                        extra.push_str(&format!(
+                            " repair={}",
+                            guidance.chars().take(60).collect::<String>()
+                        ));
                     }
                 }
                 lines.push(format!(

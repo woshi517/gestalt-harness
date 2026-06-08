@@ -33,10 +33,17 @@ fn fixture_directories_exist() {
 #[test]
 fn minimal_workspace_fixture_exists() {
     let workspace = Path::new("../../tests/fixtures/workspaces/minimal/.gestalt");
+    assert!(Path::new("../../tests/fixtures/workspaces/minimal/gestalt.json").exists());
     assert!(workspace.join("config.toml").exists());
     assert!(workspace.join("policies.toml").exists());
     assert!(workspace.join("workspace.md").exists());
     assert!(workspace.join("memory.md").exists());
+
+    let legacy_workspace = Path::new("../../tests/fixtures/workspaces/legacy-minimal/.gestalt");
+    assert!(legacy_workspace.join("config.toml").exists());
+    assert!(legacy_workspace.join("policies.toml").exists());
+    assert!(legacy_workspace.join("workspace.md").exists());
+    assert!(legacy_workspace.join("memory.md").exists());
 }
 
 #[test]

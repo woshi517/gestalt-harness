@@ -1,5 +1,5 @@
+use crate::tool::{RiskLevel, ToolSchema};
 use serde::{Deserialize, Serialize};
-use crate::tool::{ToolSchema, RiskLevel};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]
@@ -113,9 +113,7 @@ impl ToolAnnotations {
     }
 
     pub fn get_bool_advisory(&self, key: &str) -> bool {
-        self.get(key)
-            .map(|a| a.value == "true")
-            .unwrap_or(false)
+        self.get(key).map(|a| a.value == "true").unwrap_or(false)
     }
 }
 

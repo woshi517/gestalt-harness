@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use futures::future::join_all;
 use serde_json::Value;
@@ -14,7 +14,7 @@ use crate::{
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     session::Session,
     tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolExecutionResult},
-    tool_descriptor::{ToolNamespace, ToolAnnotations, ToolDescriptor, ToolRetryPolicy},
+    tool_descriptor::{ToolAnnotations, ToolDescriptor, ToolNamespace, ToolRetryPolicy},
     tool_failure::{ToolErrorReport, ToolFailureKind},
 };
 
@@ -106,9 +106,13 @@ impl ToolExecutor {
             if mapping.strict != Some(true) {
                 continue;
             }
-            let Some(input_schema) = mapping.input_schema.as_ref() else { continue };
+            let Some(input_schema) = mapping.input_schema.as_ref() else {
+                continue;
+            };
             let canonical_id = resolve_tool_id(&call.name, tool_name_mappings);
-            let Some(tool) = self.tools.get_by_id(&canonical_id) else { continue };
+            let Some(tool) = self.tools.get_by_id(&canonical_id) else {
+                continue;
+            };
             // Re-validate the input against the strict schema the
             // provider actually saw. The basic validator already passed
             // against the raw schema; the strict check is a refinement
@@ -151,7 +155,10 @@ impl ToolExecutor {
         // 2. Policy evaluation for validated calls
         for (order, call) in validated_calls {
             let canonical_id = resolve_tool_id(&call.name, tool_name_mappings);
-            let tool = self.tools.get_by_id(&canonical_id).expect("Tool validated but not found in catalog");
+            let tool = self
+                .tools
+                .get_by_id(&canonical_id)
+                .expect("Tool validated but not found in catalog");
             let descriptor = tool.descriptor();
 
             let risk = tool.risk(&call.input);
@@ -251,7 +258,9 @@ impl ToolExecutor {
                         .clone()
                         .unwrap_or_else(|| format!("approval denied tool call {canonical_id}"));
                     let failure = ToolErrorReport::new(ToolFailureKind::ApprovalDenied, reason)
-                        .with_repair("The user denied the approval. Adjust the request or ask before retrying.");
+                        .with_repair(
+                        "The user denied the approval. Adjust the request or ask before retrying.",
+                    );
                     denied_results.push((
                         order,
                         id,
@@ -286,8 +295,13 @@ impl ToolExecutor {
                             let reason = re_evaluated.reason.clone().unwrap_or_else(|| {
                                 format!("policy denied edited tool call {canonical_id}")
                             });
-                            let failure = ToolErrorReport::new(ToolFailureKind::PolicyDenied, reason)
-                                .with_repair("The edited input is still not allowed. Reconsider the approach.");
+                            let failure = ToolErrorReport::new(
+                                ToolFailureKind::PolicyDenied,
+                                reason,
+                            )
+                            .with_repair(
+                                "The edited input is still not allowed. Reconsider the approach.",
+                            );
                             denied_results.push((
                                 order,
                                 id,
@@ -300,8 +314,13 @@ impl ToolExecutor {
                             let reason = format!(
                                 "approval edit still requires confirmation for {canonical_id}"
                             );
-                            let failure = ToolErrorReport::new(ToolFailureKind::ApprovalDenied, reason)
-                                .with_repair("Even after the edit, the call still needs approval. Ask the user.");
+                            let failure = ToolErrorReport::new(
+                                ToolFailureKind::ApprovalDenied,
+                                reason,
+                            )
+                            .with_repair(
+                                "Even after the edit, the call still needs approval. Ask the user.",
+                            );
                             denied_results.push((
                                 order,
                                 id,
@@ -351,8 +370,15 @@ impl ToolExecutor {
             tool_session.tool_ctx = tool_ctx.clone();
 
             if tool.can_run_in_parallel(&input) {
-                emit_tool_hooks_before(hooks, &tool_session, &canonical_id.to_string(), &input, emit, cancel_token)
-                    .await?;
+                emit_tool_hooks_before(
+                    hooks,
+                    &tool_session,
+                    &canonical_id.to_string(),
+                    &input,
+                    emit,
+                    cancel_token,
+                )
+                .await?;
                 current_parallel.push((order, id, canonical_id, input, tool, policy, tool_ctx));
                 continue;
             }
@@ -385,9 +411,17 @@ impl ToolExecutor {
                             let descriptor = tool.descriptor();
                             let retry_policy = descriptor.retry_policy.as_ref();
                             let start = std::time::Instant::now();
-                            let mut result =
-                                execute_tool_with_retry(tool.as_ref(), input, &tool_ctx, &tool_call_id, &c, retry_policy, &descriptor, &r_tx)
-                                    .await;
+                            let mut result = execute_tool_with_retry(
+                                tool.as_ref(),
+                                input,
+                                &tool_ctx,
+                                &tool_call_id,
+                                &c,
+                                retry_policy,
+                                &descriptor,
+                                &r_tx,
+                            )
+                            .await;
                             tool.shape_output(&mut result);
                             let duration =
                                 u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -420,7 +454,15 @@ impl ToolExecutor {
                 }
             }
 
-            emit_tool_hooks_before(hooks, &tool_session, &canonical_id.to_string(), &input, emit, cancel_token).await?;
+            emit_tool_hooks_before(
+                hooks,
+                &tool_session,
+                &canonical_id.to_string(),
+                &input,
+                emit,
+                cancel_token,
+            )
+            .await?;
             let input_hash = hash_input(&input);
             emit(AgentEvent::ToolExecutionStarted {
                 id: id.clone(),
@@ -483,9 +525,17 @@ impl ToolExecutor {
                         let descriptor = tool.descriptor();
                         let retry_policy = descriptor.retry_policy.as_ref();
                         let start = std::time::Instant::now();
-                        let mut result =
-                            execute_tool_with_retry(tool.as_ref(), input, &tool_ctx, &tool_call_id, &c, retry_policy, &descriptor, &r_tx)
-                                .await;
+                        let mut result = execute_tool_with_retry(
+                            tool.as_ref(),
+                            input,
+                            &tool_ctx,
+                            &tool_call_id,
+                            &c,
+                            retry_policy,
+                            &descriptor,
+                            &r_tx,
+                        )
+                        .await;
                         tool.shape_output(&mut result);
                         let duration =
                             u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -866,7 +916,7 @@ async fn execute_tool_with_retry(
     let mut attempt = 0;
     loop {
         let result = execute_tool(tool, input.clone(), ctx, tool_call_id, cancel_token).await;
-        
+
         if !result.is_error {
             return result;
         }
@@ -887,7 +937,7 @@ async fn execute_tool_with_retry(
         let can_retry = if let Some(policy) = retry_policy {
             let is_idempotent = descriptor.annotations.get_trusted_bool("idempotent");
             let is_read_only = descriptor.annotations.get_trusted_bool("read_only");
-            
+
             attempt < policy.max_retries && is_idempotent && is_read_only && is_transient
         } else {
             false
@@ -899,7 +949,7 @@ async fn execute_tool_with_retry(
 
         attempt += 1;
         let delay_ms = retry_policy.unwrap().backoff_ms;
-        
+
         // Emit retry event
         let _ = emit_retry_tx.send(AgentEvent::ToolRetryAttempt {
             tool_call_id: tool_call_id.to_string(),

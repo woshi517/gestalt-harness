@@ -29,15 +29,19 @@ mod tests {
     fn create_dummy_config() -> EffectiveConfig {
         EffectiveConfig {
             workspace_root: PathBuf::from("/dummy"),
+            config_path: PathBuf::from("/dummy/gestalt.json"),
             defaults: Default::default(),
             tools: Default::default(),
             context: Default::default(),
             observe: Default::default(),
             providers: Default::default(),
             profiles: Default::default(),
+            prompt: Default::default(),
+            policies: Default::default(),
             provider_override: None,
             model_override: None,
             tui: Default::default(),
+            extensions: Default::default(),
         }
     }
 

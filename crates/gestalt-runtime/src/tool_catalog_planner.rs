@@ -8,7 +8,9 @@ pub enum ToolProfile {
     #[default]
     All,
     BuiltInOnly,
-    Selected { names: Vec<String> },
+    Selected {
+        names: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -33,20 +35,21 @@ impl ToolCatalogPlanner {
         descs.sort_by_key(|a| a.id.to_string());
         match &self.profile {
             ToolProfile::All => descs,
-            ToolProfile::BuiltInOnly => {
-                descs
-                    .into_iter()
-                    .filter(|desc| matches!(desc.id.namespace, gestalt_core::tool_descriptor::ToolNamespace::BuiltIn))
-                    .collect()
-            }
-            ToolProfile::Selected { names } => {
-                descs
-                    .into_iter()
-                    .filter(|desc| {
-                        names.contains(&desc.id.name) || names.contains(&desc.id.to_string())
-                    })
-                    .collect()
-            }
+            ToolProfile::BuiltInOnly => descs
+                .into_iter()
+                .filter(|desc| {
+                    matches!(
+                        desc.id.namespace,
+                        gestalt_core::tool_descriptor::ToolNamespace::BuiltIn
+                    )
+                })
+                .collect(),
+            ToolProfile::Selected { names } => descs
+                .into_iter()
+                .filter(|desc| {
+                    names.contains(&desc.id.name) || names.contains(&desc.id.to_string())
+                })
+                .collect(),
         }
     }
 }

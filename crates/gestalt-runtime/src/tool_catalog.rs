@@ -21,7 +21,10 @@ impl ComposedToolCatalog {
         })
     }
 
-    pub fn with_planner(mut self, planner: crate::tool_catalog_planner::ToolCatalogPlanner) -> Self {
+    pub fn with_planner(
+        mut self,
+        planner: crate::tool_catalog_planner::ToolCatalogPlanner,
+    ) -> Self {
         self.planner = Some(planner);
         self
     }
@@ -50,14 +53,18 @@ impl ToolCatalog for ComposedToolCatalog {
         }
     }
 
-    fn get_by_id(&self, id: &gestalt_core::tool_descriptor::CanonicalToolId) -> Option<Arc<dyn Tool>> {
+    fn get_by_id(
+        &self,
+        id: &gestalt_core::tool_descriptor::CanonicalToolId,
+    ) -> Option<Arc<dyn Tool>> {
         match &id.namespace {
             gestalt_core::tool_descriptor::ToolNamespace::BuiltIn => self.base.get_by_id(id),
-            gestalt_core::tool_descriptor::ToolNamespace::Extension(_) | gestalt_core::tool_descriptor::ToolNamespace::Mcp(_) => {
-                self.extension_tools.values().find(|tool| {
-                    tool.descriptor().id == *id
-                }).cloned()
-            }
+            gestalt_core::tool_descriptor::ToolNamespace::Extension(_)
+            | gestalt_core::tool_descriptor::ToolNamespace::Mcp(_) => self
+                .extension_tools
+                .values()
+                .find(|tool| tool.descriptor().id == *id)
+                .cloned(),
         }
     }
 
@@ -70,9 +77,7 @@ impl ToolCatalog for ComposedToolCatalog {
             descs = planner.plan_descriptors(descs);
         }
         // Deterministic ordering by canonical ID string
-        descs.sort_by(|a, b| {
-            a.id.to_string().cmp(&b.id.to_string())
-        });
+        descs.sort_by(|a, b| a.id.to_string().cmp(&b.id.to_string()));
         descs
     }
 }

@@ -40,7 +40,11 @@ impl ContextPipeline for RuntimeContextPipeline {
         self.base.version()
     }
 
-    fn build_packet(&self, history: &[Message], budget: &TokenBudget) -> gestalt_core::context::ContextPacket {
+    fn build_packet(
+        &self,
+        history: &[Message],
+        budget: &TokenBudget,
+    ) -> gestalt_core::context::ContextPacket {
         use sha2::Digest;
         let mut packet = self.base.build_packet(history, budget);
         let patches = self.patch_store.lock().unwrap().clone();

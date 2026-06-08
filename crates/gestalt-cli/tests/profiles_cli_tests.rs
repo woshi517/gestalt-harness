@@ -105,13 +105,24 @@ fn test_profiles_use_workspace_config() {
     let initial_toml = r#"
 [defaults]
 profile = "openai"
+provider = "openai"
+model = "gpt-4o"
 
 [profiles.openai]
 provider = "openai"
 model = "gpt-4o"
 "#;
-    let ws_config_path = ws_gestalt_dir.join("config.toml");
-    fs::write(&ws_config_path, initial_toml).unwrap();
+    let legacy_ws_config_path = ws_gestalt_dir.join("config.toml");
+    fs::write(&legacy_ws_config_path, initial_toml).unwrap();
+    fs::write(
+        ws_gestalt_dir.join("policies.toml"),
+        r#"
+[paths]
+allow_write = ["docs/", ".gestalt/"]
+"#,
+    )
+    .unwrap();
+    let ws_config_path = workspace_dir.join("gestalt.json");
 
     let overrides = CliOverrides {
         workspace: Some(workspace_dir.clone()),
@@ -125,12 +136,22 @@ model = "gpt-4o"
     assert_eq!(use_report.name, "anthropic");
     assert_eq!(use_report.file_updated, ws_config_path);
 
-    // Verify it updated the workspace config, and did NOT create a global config
-    let global_config_path = global_dir.join("gestalt/config.toml");
-    assert!(!global_config_path.exists());
+    let config2 = load_effective_config(&overrides).expect("reload config");
+    assert_eq!(config2.defaults.provider.as_deref(), Some("openai"));
+    assert_eq!(config2.defaults.model.as_deref(), Some("gpt-4o"));
+    assert_eq!(
+        config2.policies.paths.allow_write,
+        Some(vec!["docs/".to_string(), ".gestalt/".to_string()])
+    );
+
+    // Verify it updated the workspace config without mutating the global bootstrap file
+    let global_config_path = global_dir.join("gestalt/gestalt.json");
+    assert!(global_config_path.exists());
+    let global_content = fs::read_to_string(&global_config_path).unwrap();
+    assert!(!global_content.contains("\"profile\": \"anthropic\""));
 
     let ws_content = fs::read_to_string(&ws_config_path).unwrap();
-    assert!(ws_content.contains("profile = \"anthropic\""));
+    assert!(ws_content.contains("\"profile\": \"anthropic\""));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

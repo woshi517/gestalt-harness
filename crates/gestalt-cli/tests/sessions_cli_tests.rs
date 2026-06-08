@@ -246,7 +246,9 @@ model = "mock-model"
         tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
             &gestalt_tools::default_registry().unwrap().schemas(),
         ),
-        policy_fingerprint: gestalt_trace::run_manifest::compute_policy_fingerprint(policies_toml),
+        policy_fingerprint: serde_json::to_string(&config.policies)
+            .map(|content| gestalt_trace::run_manifest::compute_policy_fingerprint(&content))
+            .unwrap(),
         hook_contract_hash: {
             let hook_names = vec![
                 "VerificationToolHook".to_string(),

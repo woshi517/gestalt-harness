@@ -1,7 +1,7 @@
 use gestalt_core::tool::Tool;
 use gestalt_core::tool_descriptor::{
-    ToolDescriptor, CanonicalToolId, ToolNamespace, ToolAnnotations, ToolAnnotation,
-    AnnotationSource, ToolResponseContract, ProviderToolFormat, ToolRetryPolicy
+    AnnotationSource, CanonicalToolId, ProviderToolFormat, ToolAnnotation, ToolAnnotations,
+    ToolDescriptor, ToolNamespace, ToolResponseContract, ToolRetryPolicy,
 };
 
 pub fn make_builtin_descriptor(
@@ -15,7 +15,7 @@ pub fn make_builtin_descriptor(
         namespace: ToolNamespace::BuiltIn,
         name,
     };
-    
+
     let annotations = vec![
         ToolAnnotation {
             key: "read_only".to_string(),

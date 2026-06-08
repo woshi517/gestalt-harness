@@ -32,10 +32,10 @@ pub mod session;
 pub mod snapshot;
 pub mod tool;
 pub mod tool_descriptor;
-pub mod tool_validation;
 pub mod tool_failure;
 pub mod tool_name_mapping;
 pub mod tool_trace;
+pub mod tool_validation;
 pub mod trace;
 pub mod turn;
 
@@ -60,7 +60,9 @@ pub use hook::{
 pub use message::{ContentBlock, ContentTrust, DocumentSource, ImageSource, Message};
 pub use model::{ModelInfo, ModelInfoSource};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};
-pub use provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest, ProviderToolSchema};
+pub use provider::{
+    EventStream, Provider, ProviderCapabilities, ProviderRequest, ProviderToolSchema,
+};
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
 pub use snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshot, WorkspaceSnapshotter};
 pub use tool::{
@@ -68,11 +70,11 @@ pub use tool::{
     ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolSchema,
 };
 pub use tool_descriptor::{
-    AnnotationSource, CanonicalToolId, ToolAnnotation, ToolAnnotations, ToolDescriptor,
-    ToolNamespace, ToolResponseContract, ToolRetryPolicy, ProviderToolFormat, ResponseShapeRules,
+    AnnotationSource, CanonicalToolId, ProviderToolFormat, ResponseShapeRules, ToolAnnotation,
+    ToolAnnotations, ToolDescriptor, ToolNamespace, ToolResponseContract, ToolRetryPolicy,
 };
-pub use tool_validation::ToolCallValidator;
 pub use tool_failure::{ToolErrorReport, ToolFailureKind};
 pub use tool_name_mapping::ToolNameMapping;
 pub use tool_trace::{ToolCallTraceMetadata, ToolRetryTraceMetadata};
+pub use tool_validation::ToolCallValidator;
 pub use turn::{AssistantTurn, ProposedToolCall, TurnAccumulator};

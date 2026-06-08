@@ -1,9 +1,9 @@
-use gestalt_core::tool_descriptor::{
-    ToolDescriptor, CanonicalToolId, ToolNamespace, ToolAnnotations, ToolAnnotation,
-    AnnotationSource, ToolResponseContract, ProviderToolFormat
-};
-use gestalt_core::tool::RiskLevel;
 use crate::manifest::{ExtensionManifest, ToolDeclaration};
+use gestalt_core::tool::RiskLevel;
+use gestalt_core::tool_descriptor::{
+    AnnotationSource, CanonicalToolId, ProviderToolFormat, ToolAnnotation, ToolAnnotations,
+    ToolDescriptor, ToolNamespace, ToolResponseContract,
+};
 
 /// Build a `ToolDescriptor` for a tool declared by an extension
 /// process. The descriptor carries the canonical
@@ -43,7 +43,10 @@ pub fn build_extension_tool_descriptor(
     // retry policy when they are on the trusted allow-list. That
     // mirrors U6B: "Allow only trusted built-in descriptors or
     // explicitly user-reviewed policy to enable automatic retry."
-    let retry_policy = if trusted_extension && tool_decl.read_only.unwrap_or(false) && tool_decl.idempotent.unwrap_or(false) {
+    let retry_policy = if trusted_extension
+        && tool_decl.read_only.unwrap_or(false)
+        && tool_decl.idempotent.unwrap_or(false)
+    {
         Some(gestalt_core::tool_descriptor::ToolRetryPolicy {
             max_retries: 1,
             backoff_ms: 200,
@@ -112,7 +115,9 @@ pub fn build_extension_tool_descriptor(
 static TRUSTED_EXTENSION_IDS: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
 
 pub fn is_trusted_extension_id(id: &str) -> bool {
-    let guard = TRUSTED_EXTENSION_IDS.read().expect("extension trust allow-list poisoned");
+    let guard = TRUSTED_EXTENSION_IDS
+        .read()
+        .expect("extension trust allow-list poisoned");
     guard.iter().any(|entry| entry == id)
 }
 
@@ -121,14 +126,18 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let mut guard = TRUSTED_EXTENSION_IDS.write().expect("extension trust allow-list poisoned");
+    let mut guard = TRUSTED_EXTENSION_IDS
+        .write()
+        .expect("extension trust allow-list poisoned");
     *guard = ids.into_iter().map(Into::into).collect();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{ExtensionManifest, ToolDeclaration, Entrypoint, Capabilities, Permissions};
+    use crate::manifest::{
+        Capabilities, Entrypoint, ExtensionManifest, Permissions, ToolDeclaration,
+    };
     use gestalt_core::tool_descriptor::{AnnotationSource, ToolNamespace};
 
     fn manifest(id: &str) -> ExtensionManifest {
@@ -174,8 +183,14 @@ mod tests {
     #[test]
     fn untrusted_extension_uses_extension_declared_source() {
         set_trusted_extension_ids::<Vec<String>, String>(vec![]);
-        let descriptor = build_extension_tool_descriptor(&manifest("untrusted"), &tool_decl("x", Some(true), Some(true)));
-        assert_eq!(descriptor.id.namespace, ToolNamespace::Extension("untrusted".to_string()));
+        let descriptor = build_extension_tool_descriptor(
+            &manifest("untrusted"),
+            &tool_decl("x", Some(true), Some(true)),
+        );
+        assert_eq!(
+            descriptor.id.namespace,
+            ToolNamespace::Extension("untrusted".to_string())
+        );
         let read_only = descriptor.annotations.get("read_only").unwrap();
         assert_eq!(read_only.source, AnnotationSource::ExtensionDeclared);
         assert_eq!(read_only.value, "true");
@@ -185,7 +200,10 @@ mod tests {
     #[test]
     fn trusted_extension_promotes_to_builtin_trusted() {
         set_trusted_extension_ids(vec!["trusted-ext".to_string()]);
-        let descriptor = build_extension_tool_descriptor(&manifest("trusted-ext"), &tool_decl("x", Some(true), Some(true)));
+        let descriptor = build_extension_tool_descriptor(
+            &manifest("trusted-ext"),
+            &tool_decl("x", Some(true), Some(true)),
+        );
         let read_only = descriptor.annotations.get("read_only").unwrap();
         assert_eq!(read_only.source, AnnotationSource::BuiltInTrusted);
         assert!(descriptor.retry_policy.is_some());
@@ -195,7 +213,8 @@ mod tests {
     #[test]
     fn trusted_extension_without_annotations_does_not_get_retry_policy() {
         set_trusted_extension_ids(vec!["trusted-ext".to_string()]);
-        let descriptor = build_extension_tool_descriptor(&manifest("trusted-ext"), &tool_decl("x", None, None));
+        let descriptor =
+            build_extension_tool_descriptor(&manifest("trusted-ext"), &tool_decl("x", None, None));
         assert!(descriptor.retry_policy.is_none());
         set_trusted_extension_ids::<Vec<String>, String>(vec![]);
     }

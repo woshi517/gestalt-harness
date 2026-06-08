@@ -1,11 +1,11 @@
-use std::collections::HashSet;
-use serde_json::Value;
 use crate::{
     tool::ToolCatalog,
-    tool_name_mapping::ToolNameMapping,
     tool_failure::{ToolErrorReport, ToolFailureKind},
+    tool_name_mapping::ToolNameMapping,
     turn::ProposedToolCall,
 };
+use serde_json::Value;
+use std::collections::HashSet;
 
 pub struct ToolCallValidator;
 
@@ -21,7 +21,9 @@ impl ToolCallValidator {
             return Err(ToolErrorReport {
                 kind: ToolFailureKind::DuplicateCallId,
                 message: format!("Duplicate tool call ID: {}", call.id),
-                repair_guidance: Some("Use unique IDs for each tool call in the same turn.".to_string()),
+                repair_guidance: Some(
+                    "Use unique IDs for each tool call in the same turn.".to_string(),
+                ),
             });
         }
 
@@ -32,9 +34,7 @@ impl ToolCallValidator {
         //    immediately — no fallback to canonical‑ID parsing or
         //    the full catalog, which would bypass the planner's
         //    active‑tool‑set boundary (U4).
-        let mapping = name_mappings
-            .iter()
-            .find(|m| m.provider_name == call.name);
+        let mapping = name_mappings.iter().find(|m| m.provider_name == call.name);
 
         let canonical_id = match mapping {
             Some(m) => m.internal_id.clone(),
@@ -74,11 +74,17 @@ impl ToolCallValidator {
         let descriptor = tool.descriptor();
 
         // 4. Validate input JSON structure / types
-        let input_schema = descriptor.schema.get("input_schema").unwrap_or(&descriptor.schema);
+        let input_schema = descriptor
+            .schema
+            .get("input_schema")
+            .unwrap_or(&descriptor.schema);
         if let Err(err_msg) = validate_json_value(&call.input, input_schema) {
             return Err(ToolErrorReport {
                 kind: ToolFailureKind::SchemaMismatch,
-                message: format!("Schema validation failed for tool '{}': {}", call.name, err_msg),
+                message: format!(
+                    "Schema validation failed for tool '{}': {}",
+                    call.name, err_msg
+                ),
                 repair_guidance: Some(format!(
                     "The arguments provided do not match the expected schema. Expected: {}",
                     serde_json::to_string(input_schema).unwrap_or_default()
@@ -96,10 +102,7 @@ impl ToolCallValidator {
     /// means the model has produced JSON that the provider would
     /// reject (or, for non-strict providers, that the strict-rendered
     /// version of the same schema would have rejected).
-    pub fn validate_against_strict(
-        input: &Value,
-        strict_schema: &Value,
-    ) -> Result<(), String> {
+    pub fn validate_against_strict(input: &Value, strict_schema: &Value) -> Result<(), String> {
         validate_json_value(input, strict_schema)
     }
 }
@@ -131,15 +134,12 @@ fn type_matches_single(value_type: &str, schema_type: &str) -> bool {
 fn type_matches(value: &Value, schema_type: &Value) -> bool {
     match schema_type.as_str() {
         Some(single) => type_matches_single(value_type_name(value), single),
-        None => {
-            schema_type
-                .as_array()
-                .map_or(true, |types| {
-                    types
-                        .iter()
-                        .any(|t| t.as_str().map_or(true, |s| type_matches_single(value_type_name(value), s)))
-                })
-        }
+        None => schema_type.as_array().map_or(true, |types| {
+            types.iter().any(|t| {
+                t.as_str()
+                    .map_or(true, |s| type_matches_single(value_type_name(value), s))
+            })
+        }),
     }
 }
 
@@ -166,15 +166,13 @@ fn validate_json_value(value: &Value, schema: &Value) -> Result<(), String> {
             if !type_matches(value, types) {
                 let type_label = match types.as_str() {
                     Some(s) => s.to_string(),
-                    None => types
-                        .as_array()
-                        .map_or_else(
-                            || "unknown".to_string(),
-                            |arr| {
-                                let names: Vec<_> = arr.iter().filter_map(|v| v.as_str()).collect();
-                                names.join(" or ")
-                            },
-                        ),
+                    None => types.as_array().map_or_else(
+                        || "unknown".to_string(),
+                        |arr| {
+                            let names: Vec<_> = arr.iter().filter_map(|v| v.as_str()).collect();
+                            names.join(" or ")
+                        },
+                    ),
                 };
                 return Err(format!(
                     "Expected {}, found {}",
@@ -186,7 +184,9 @@ fn validate_json_value(value: &Value, schema: &Value) -> Result<(), String> {
             match types.as_str() {
                 Some("object") => {
                     let val_obj = value.as_object().unwrap();
-                    if let Some(properties) = schema_obj.get("properties").and_then(|p| p.as_object()) {
+                    if let Some(properties) =
+                        schema_obj.get("properties").and_then(|p| p.as_object())
+                    {
                         for (prop_name, prop_schema) in properties {
                             if let Some(prop_val) = val_obj.get(prop_name) {
                                 if let Err(e) = validate_json_value(prop_val, prop_schema) {
@@ -206,10 +206,15 @@ fn validate_json_value(value: &Value, schema: &Value) -> Result<(), String> {
                     }
                     if let Some(additional) = schema_obj.get("additionalProperties") {
                         if let Some(false) = additional.as_bool() {
-                            if let Some(properties) = schema_obj.get("properties").and_then(|p| p.as_object()) {
+                            if let Some(properties) =
+                                schema_obj.get("properties").and_then(|p| p.as_object())
+                            {
                                 for key in val_obj.keys() {
                                     if !properties.contains_key(key) {
-                                        return Err(format!("Additional property '{}' not allowed", key));
+                                        return Err(format!(
+                                            "Additional property '{}' not allowed",
+                                            key
+                                        ));
                                     }
                                 }
                             }

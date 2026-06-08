@@ -259,9 +259,15 @@ pub struct TraceCommand {
 
 #[derive(Subcommand)]
 pub enum TraceSubcommand {
-    Replay { run_id_or_path: String },
-    Inspect { run_id_or_path: String },
-    Validate { run_id_or_path: String },
+    Replay {
+        run_id_or_path: String,
+    },
+    Inspect {
+        run_id_or_path: String,
+    },
+    Validate {
+        run_id_or_path: String,
+    },
     /// Analyze tool-calling reliability metrics over a run or
     /// directory of fixture traces. Wraps
     /// `gestalt_trace::analyze_tool_metrics` so the CLI does not
@@ -982,9 +988,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         Command::Init { force } => {
-            let workspace_root = overrides.workspace.clone().unwrap_or_else(|| {
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-            });
+            let workspace_root = overrides
+                .workspace
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             let res = init_workspace(&workspace_root, force);
             handle_result(
                 res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
@@ -1103,7 +1110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let res = trace::validate_trace(&config, &run_id_or_path);
                 handle_result(res, format, quiet)?;
             }
-            TraceSubcommand::Analyze { run_id_or_path, kind, tools } => {
+            TraceSubcommand::Analyze {
+                run_id_or_path,
+                kind,
+                tools,
+            } => {
                 // `--tools` is the historical entry point and
                 // short-circuits `--kind` so it is the explicit opt-in
                 // for tool-calling metrics. Any future analyzer kind

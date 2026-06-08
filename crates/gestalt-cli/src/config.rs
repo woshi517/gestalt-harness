@@ -5,12 +5,17 @@ use std::{
 };
 
 use gestalt_core::{ConfigError, ExecutionMode, HarnessError, ProviderError};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceConfig {
+    #[serde(default, rename = "$schema", skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
     #[serde(default)]
     pub defaults: Option<DefaultsConfig>,
     #[serde(default)]
@@ -26,10 +31,14 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub tui: Option<TuiConfig>,
     #[serde(default)]
+    pub prompt: Option<PromptConfig>,
+    #[serde(default)]
+    pub policies: Option<PoliciesConfig>,
+    #[serde(default)]
     pub extensions: Option<ExtensionsConfig>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionsConfig {
     #[serde(default)]
@@ -42,20 +51,77 @@ pub struct ExtensionsConfig {
     pub allow_untrusted: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PromptConfig {
+    #[serde(default, rename = "override", skip_serializing_if = "Option::is_none")]
+    pub r#override: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PoliciesConfig {
+    #[serde(default)]
+    pub paths: PolicyPathsConfig,
+    #[serde(default)]
+    pub bash: PolicyBashConfig,
+    #[serde(default)]
+    pub network: PolicyNetworkConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyPathsConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_read: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_write: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deny_write: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deny_read: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyBashConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yolo_allow: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always_confirm: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always_deny: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyNetworkConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_domains: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deny_domains: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TuiConfig {
     #[serde(default)]
     pub diagnostics: Option<TuiDiagnosticsConfig>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TuiDiagnosticsConfig {
     pub max_log_lines: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DefaultsConfig {
     pub provider: Option<String>,
@@ -65,14 +131,14 @@ pub struct DefaultsConfig {
     pub profile: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileConfig {
     pub provider: Option<String>,
     pub model: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ToolsConfig {
     pub bash_timeout_secs: Option<u64>,
@@ -90,11 +156,13 @@ impl Default for ToolsConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ContextConfig {
     pub max_context_window: Option<usize>,
     pub reserved_output_tokens: Option<usize>,
+    pub workspace_file: Option<String>,
+    pub memory_file: Option<String>,
 }
 
 impl Default for ContextConfig {
@@ -102,11 +170,13 @@ impl Default for ContextConfig {
         Self {
             max_context_window: Some(120_000),
             reserved_output_tokens: Some(8_000),
+            workspace_file: Some(".gestalt/workspace.md".to_string()),
+            memory_file: Some(".gestalt/memory.md".to_string()),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ObserveConfig {
     pub run_log_dir: Option<String>,
@@ -122,7 +192,7 @@ impl Default for ObserveConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderConfig {
     pub id: Option<String>,
@@ -137,6 +207,314 @@ pub struct ProviderConfig {
     pub headers: Option<HashMap<String, String>>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct LegacyPoliciesConfig {
+    #[serde(default)]
+    pub prompt: Option<PromptConfig>,
+    #[serde(default)]
+    pub paths: PolicyPathsConfig,
+    #[serde(default)]
+    pub tools: LegacyToolsConfig,
+    #[serde(default)]
+    pub network: PolicyNetworkConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct LegacyToolsConfig {
+    #[serde(default)]
+    pub bash: PolicyBashConfig,
+}
+
+fn with_default<T>(value: Option<Vec<T>>, default: Vec<T>) -> Vec<T> {
+    value.filter(|items| !items.is_empty()).unwrap_or(default)
+}
+
+fn parse_policy_action(
+    value: Option<&str>,
+    default: gestalt_policy::PolicyAction,
+) -> gestalt_policy::PolicyAction {
+    match value {
+        Some("allow" | "allowed" | "auto") => gestalt_policy::PolicyAction::Allow,
+        Some("deny" | "denied") => gestalt_policy::PolicyAction::Deny,
+        _ => default,
+    }
+}
+
+impl PoliciesConfig {
+    pub fn to_policy_config(&self) -> gestalt_policy::PolicyConfig {
+        let default_paths = gestalt_policy::PathPolicy::default();
+        let default_bash = gestalt_policy::BashPolicy::default();
+        let default_network = gestalt_policy::NetworkPolicy::default();
+
+        gestalt_policy::PolicyConfig {
+            paths: gestalt_policy::PathPolicy {
+                allow_read: with_default(self.paths.allow_read.clone(), default_paths.allow_read),
+                allow_write: with_default(
+                    self.paths.allow_write.clone(),
+                    default_paths.allow_write,
+                ),
+                deny_write: with_default(self.paths.deny_write.clone(), default_paths.deny_write),
+                deny_read: with_default(self.paths.deny_read.clone(), default_paths.deny_read),
+            },
+            bash: gestalt_policy::BashPolicy {
+                default: parse_policy_action(self.bash.default.as_deref(), default_bash.default),
+                yolo_allow: with_default(self.bash.yolo_allow.clone(), default_bash.yolo_allow),
+                always_confirm: with_default(
+                    self.bash.always_confirm.clone(),
+                    default_bash.always_confirm,
+                ),
+                always_deny: with_default(self.bash.always_deny.clone(), default_bash.always_deny),
+            },
+            network: gestalt_policy::NetworkPolicy {
+                default: parse_policy_action(
+                    self.network.default.as_deref(),
+                    default_network.default,
+                ),
+                allow_domains: with_default(
+                    self.network.allow_domains.clone(),
+                    default_network.allow_domains,
+                ),
+                deny_domains: with_default(
+                    self.network.deny_domains.clone(),
+                    default_network.deny_domains,
+                ),
+            },
+        }
+    }
+
+    pub fn from_policy_config(config: &gestalt_policy::PolicyConfig) -> Self {
+        Self {
+            paths: PolicyPathsConfig {
+                allow_read: Some(config.paths.allow_read.clone()),
+                allow_write: Some(config.paths.allow_write.clone()),
+                deny_write: Some(config.paths.deny_write.clone()),
+                deny_read: Some(config.paths.deny_read.clone()),
+            },
+            bash: PolicyBashConfig {
+                default: Some(match config.bash.default {
+                    gestalt_policy::PolicyAction::Allow => "allow".to_string(),
+                    gestalt_policy::PolicyAction::Confirm => "confirm".to_string(),
+                    gestalt_policy::PolicyAction::Deny => "deny".to_string(),
+                }),
+                yolo_allow: Some(config.bash.yolo_allow.clone()),
+                always_confirm: Some(config.bash.always_confirm.clone()),
+                always_deny: Some(config.bash.always_deny.clone()),
+            },
+            network: PolicyNetworkConfig {
+                default: Some(match config.network.default {
+                    gestalt_policy::PolicyAction::Allow => "allow".to_string(),
+                    gestalt_policy::PolicyAction::Confirm => "confirm".to_string(),
+                    gestalt_policy::PolicyAction::Deny => "deny".to_string(),
+                }),
+                allow_domains: Some(config.network.allow_domains.clone()),
+                deny_domains: Some(config.network.deny_domains.clone()),
+            },
+        }
+    }
+}
+
+pub fn workspace_config_path(root: &Path) -> PathBuf {
+    root.join("gestalt.json")
+}
+
+pub fn legacy_workspace_config_path(root: &Path) -> PathBuf {
+    root.join(".gestalt/config.toml")
+}
+
+pub fn legacy_workspace_policies_path(root: &Path) -> PathBuf {
+    root.join(".gestalt/policies.toml")
+}
+
+pub fn global_config_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("gestalt/gestalt.json")
+}
+
+pub fn legacy_global_config_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("gestalt/config.toml")
+}
+
+fn load_workspace_config_file(path: &Path) -> Result<WorkspaceConfig, HarnessError> {
+    let input = fs::read_to_string(path).map_err(|err| {
+        HarnessError::Config(ConfigError::InvalidValue {
+            field: path.display().to_string(),
+            reason: err.to_string(),
+        })
+    })?;
+
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("json") => serde_json::from_str(&input).map_err(|err| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: path.display().to_string(),
+                reason: err.to_string(),
+            })
+        }),
+        _ => toml::from_str(&input).map_err(|err| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: path.display().to_string(),
+                reason: err.to_string(),
+            })
+        }),
+    }
+}
+
+fn load_legacy_policies_file(path: &Path) -> Result<WorkspaceConfig, HarnessError> {
+    let input = fs::read_to_string(path).map_err(|err| {
+        HarnessError::Config(ConfigError::InvalidValue {
+            field: path.display().to_string(),
+            reason: err.to_string(),
+        })
+    })?;
+    let raw: LegacyPoliciesConfig = toml::from_str(&input).map_err(|err| {
+        HarnessError::Config(ConfigError::InvalidValue {
+            field: path.display().to_string(),
+            reason: err.to_string(),
+        })
+    })?;
+
+    Ok(WorkspaceConfig {
+        prompt: raw.prompt,
+        policies: Some(PoliciesConfig {
+            paths: raw.paths,
+            bash: raw.tools.bash,
+            network: raw.network,
+        }),
+        ..WorkspaceConfig::default()
+    })
+}
+
+pub fn write_workspace_config_file(
+    path: &Path,
+    config: &WorkspaceConfig,
+) -> Result<(), HarnessError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: path.display().to_string(),
+                reason: err.to_string(),
+            })
+        })?;
+    }
+    let serialized = serde_json::to_string_pretty(config).map_err(|err| {
+        HarnessError::Config(ConfigError::InvalidValue {
+            field: path.display().to_string(),
+            reason: err.to_string(),
+        })
+    })?;
+    fs::write(path, serialized).map_err(|err| {
+        HarnessError::Config(ConfigError::InvalidValue {
+            field: path.display().to_string(),
+            reason: err.to_string(),
+        })
+    })
+}
+
+fn seed_workspace_config_from_legacy(root: &Path) -> Result<WorkspaceConfig, HarnessError> {
+    let mut config = WorkspaceConfig::default();
+
+    let legacy_config_path = legacy_workspace_config_path(root);
+    if legacy_config_path.exists() {
+        config = config.merge(load_workspace_config_file(&legacy_config_path)?);
+    }
+
+    let legacy_policies_path = legacy_workspace_policies_path(root);
+    if legacy_policies_path.exists() {
+        config = config.merge(load_legacy_policies_file(&legacy_policies_path)?);
+    }
+
+    Ok(config)
+}
+
+fn seed_global_config_from_legacy() -> Result<WorkspaceConfig, HarnessError> {
+    let legacy_global_path = legacy_global_config_path();
+    if legacy_global_path.exists() {
+        load_workspace_config_file(&legacy_global_path)
+    } else {
+        Ok(WorkspaceConfig::default())
+    }
+}
+
+pub fn mutate_workspace_config_file(
+    path: &Path,
+    mutator: impl FnOnce(&mut WorkspaceConfig),
+) -> Result<(), HarnessError> {
+    let mut config = if path.exists() {
+        load_workspace_config_file(path)?
+    } else if path == global_config_path() {
+        seed_global_config_from_legacy()?
+    } else {
+        let root = path.parent().ok_or_else(|| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: path.display().to_string(),
+                reason: "configuration path has no parent directory".to_string(),
+            })
+        })?;
+        seed_workspace_config_from_legacy(root)?
+    };
+    mutator(&mut config);
+    write_workspace_config_file(path, &config)
+}
+
+fn bootstrap_global_config(path: &Path) -> Result<(), HarnessError> {
+    if path.exists() {
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: path.display().to_string(),
+                reason: err.to_string(),
+            })
+        })?;
+    }
+
+    let bootstrap = WorkspaceConfig {
+        version: Some(1),
+        ..WorkspaceConfig::default()
+    };
+    write_workspace_config_file(path, &bootstrap)
+}
+
+pub fn default_workspace_config() -> WorkspaceConfig {
+    let mut scaffold_policies = gestalt_policy::PolicyConfig::default();
+    scaffold_policies.paths.allow_write = vec!["docs/".to_string(), ".gestalt/".to_string()];
+
+    WorkspaceConfig {
+        version: Some(1),
+        defaults: Some(DefaultsConfig {
+            provider: None,
+            model: None,
+            mode: Some("confirm".to_string()),
+            max_turns: Some(50),
+            profile: Some("default".to_string()),
+        }),
+        profiles: {
+            let mut profiles = HashMap::new();
+            profiles.insert(
+                "default".to_string(),
+                ProfileConfig {
+                    provider: Some("openrouter".to_string()),
+                    model: Some("openrouter/free".to_string()),
+                },
+            );
+            profiles
+        },
+        tools: Some(ToolsConfig {
+            bash_timeout_secs: Some(60),
+            max_output_tokens: Some(4000),
+            sandbox_type: Some("none".to_string()),
+        }),
+        context: Some(ContextConfig::default()),
+        observe: Some(ObserveConfig::default()),
+        policies: Some(PoliciesConfig::from_policy_config(&scaffold_policies)),
+        ..WorkspaceConfig::default()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CliOverrides {
     pub provider: Option<String>,
@@ -147,15 +525,18 @@ pub struct CliOverrides {
     pub profile: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct EffectiveConfig {
     pub workspace_root: PathBuf,
+    pub config_path: PathBuf,
     pub defaults: DefaultsConfig,
     pub tools: ToolsConfig,
     pub context: ContextConfig,
     pub observe: ObserveConfig,
     pub providers: HashMap<String, ProviderConfig>,
     pub profiles: HashMap<String, ProfileConfig>,
+    pub prompt: PromptConfig,
+    pub policies: PoliciesConfig,
     pub provider_override: Option<String>,
     pub model_override: Option<String>,
     pub tui: TuiConfig,
@@ -170,12 +551,20 @@ impl WorkspaceConfig {
                 reason: err.to_string(),
             })
         })?;
-        toml::from_str(&input).map_err(|err| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: path.display().to_string(),
-                reason: err.to_string(),
-            })
-        })
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("json") => serde_json::from_str(&input).map_err(|err| {
+                HarnessError::Config(ConfigError::InvalidValue {
+                    field: path.display().to_string(),
+                    reason: err.to_string(),
+                })
+            }),
+            _ => toml::from_str(&input).map_err(|err| {
+                HarnessError::Config(ConfigError::InvalidValue {
+                    field: path.display().to_string(),
+                    reason: err.to_string(),
+                })
+            }),
+        }
     }
 
     fn merge(mut self, other: Self) -> Self {
@@ -209,6 +598,9 @@ impl WorkspaceConfig {
             self_context.reserved_output_tokens = other_context
                 .reserved_output_tokens
                 .or(self_context.reserved_output_tokens);
+            self_context.workspace_file =
+                other_context.workspace_file.or(self_context.workspace_file);
+            self_context.memory_file = other_context.memory_file.or(self_context.memory_file);
             self.context = Some(self_context);
         }
 
@@ -217,6 +609,61 @@ impl WorkspaceConfig {
             self_observe.run_log_dir = other_observe.run_log_dir.or(self_observe.run_log_dir);
             self_observe.log_format = other_observe.log_format.or(self_observe.log_format);
             self.observe = Some(self_observe);
+        }
+
+        if let Some(other_prompt) = other.prompt {
+            let mut self_prompt = self.prompt.unwrap_or_default();
+            self_prompt.r#override = other_prompt.r#override.or(self_prompt.r#override);
+            self_prompt.override_file = other_prompt.override_file.or(self_prompt.override_file);
+            self.prompt = Some(self_prompt);
+        }
+
+        if let Some(other_policies) = other.policies {
+            let mut self_policies = self.policies.unwrap_or_default();
+            self_policies.paths.allow_read = other_policies
+                .paths
+                .allow_read
+                .or(self_policies.paths.allow_read);
+            self_policies.paths.allow_write = other_policies
+                .paths
+                .allow_write
+                .or(self_policies.paths.allow_write);
+            self_policies.paths.deny_write = other_policies
+                .paths
+                .deny_write
+                .or(self_policies.paths.deny_write);
+            self_policies.paths.deny_read = other_policies
+                .paths
+                .deny_read
+                .or(self_policies.paths.deny_read);
+
+            self_policies.bash.default = other_policies.bash.default.or(self_policies.bash.default);
+            self_policies.bash.yolo_allow = other_policies
+                .bash
+                .yolo_allow
+                .or(self_policies.bash.yolo_allow);
+            self_policies.bash.always_confirm = other_policies
+                .bash
+                .always_confirm
+                .or(self_policies.bash.always_confirm);
+            self_policies.bash.always_deny = other_policies
+                .bash
+                .always_deny
+                .or(self_policies.bash.always_deny);
+
+            self_policies.network.default = other_policies
+                .network
+                .default
+                .or(self_policies.network.default);
+            self_policies.network.allow_domains = other_policies
+                .network
+                .allow_domains
+                .or(self_policies.network.allow_domains);
+            self_policies.network.deny_domains = other_policies
+                .network
+                .deny_domains
+                .or(self_policies.network.deny_domains);
+            self.policies = Some(self_policies);
         }
 
         if let Some(other_tui) = other.tui {
@@ -236,7 +683,8 @@ impl WorkspaceConfig {
                 .extend(other_extensions.explicit_loads);
             self_extensions.disabled.extend(other_extensions.disabled);
             self_extensions.trusted.extend(other_extensions.trusted);
-            self_extensions.allow_untrusted = other_extensions.allow_untrusted || self_extensions.allow_untrusted;
+            self_extensions.allow_untrusted =
+                other_extensions.allow_untrusted || self_extensions.allow_untrusted;
             self.extensions = Some(self_extensions);
         }
 
@@ -256,17 +704,43 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
                 reason: err.to_string(),
             })
         })?);
-    let global_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("gestalt/config.toml");
-    let workspace_path = workspace_root.join(".gestalt/config.toml");
+    let global_path = global_config_path();
+    let legacy_global_path = legacy_global_config_path();
+    let workspace_path = workspace_config_path(&workspace_root);
+    let legacy_workspace_path = legacy_workspace_config_path(&workspace_root);
+    let legacy_policies_path = legacy_workspace_policies_path(&workspace_root);
+
+    if !global_path.exists() && !legacy_global_path.exists() {
+        bootstrap_global_config(&global_path)?;
+    }
 
     let mut config = WorkspaceConfig::default();
+    let config_path = if workspace_path.exists() {
+        workspace_path.clone()
+    } else if legacy_workspace_path.exists() {
+        legacy_workspace_path.clone()
+    } else if legacy_policies_path.exists() {
+        legacy_policies_path.clone()
+    } else if global_path.exists() {
+        global_path.clone()
+    } else {
+        legacy_global_path.clone()
+    };
+
     if global_path.exists() {
         config = config.merge(WorkspaceConfig::from_file(&global_path)?);
+    } else if legacy_global_path.exists() {
+        config = config.merge(WorkspaceConfig::from_file(&legacy_global_path)?);
     }
     if workspace_path.exists() {
         config = config.merge(WorkspaceConfig::from_file(&workspace_path)?);
+    } else {
+        if legacy_workspace_path.exists() {
+            config = config.merge(WorkspaceConfig::from_file(&legacy_workspace_path)?);
+        }
+        if legacy_policies_path.exists() {
+            config = config.merge(load_legacy_policies_file(&legacy_policies_path)?);
+        }
     }
 
     let mut defaults = config.defaults.unwrap_or_default();
@@ -320,6 +794,8 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         let d = ContextConfig::default();
         c.max_context_window = c.max_context_window.or(d.max_context_window);
         c.reserved_output_tokens = c.reserved_output_tokens.or(d.reserved_output_tokens);
+        c.workspace_file = c.workspace_file.or(d.workspace_file);
+        c.memory_file = c.memory_file.or(d.memory_file);
         c
     };
 
@@ -330,6 +806,9 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         o.log_format = o.log_format.or(d.log_format);
         o
     };
+
+    let prompt = config.prompt.unwrap_or_default();
+    let policies = config.policies.unwrap_or_default();
 
     let provider_override = overrides
         .provider
@@ -368,12 +847,15 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
 
     Ok(EffectiveConfig {
         workspace_root,
+        config_path,
         defaults: config.defaults.unwrap_or_default(),
         tools,
         context,
         observe,
         providers: config.providers,
         profiles: config.profiles,
+        prompt,
+        policies,
         provider_override,
         model_override,
         tui,
@@ -584,6 +1066,18 @@ impl EffectiveConfig {
         self.workspace_root.join(relative)
     }
 
+    pub fn config_file(&self) -> PathBuf {
+        self.config_path.clone()
+    }
+
+    pub fn workspace_markdown_path(&self) -> PathBuf {
+        self.workspace_file("workspace.md")
+    }
+
+    pub fn memory_markdown_path(&self) -> PathBuf {
+        self.workspace_file("memory.md")
+    }
+
     pub fn provider_json(&self, provider: &str) -> Value {
         let configured = self.providers.get(provider).cloned().unwrap_or_default();
         let mut base = crate::provider_catalog::get_builtin_provider(provider).unwrap_or_default();
@@ -634,7 +1128,20 @@ impl EffectiveConfig {
     }
 
     pub fn workspace_file(&self, name: &str) -> PathBuf {
-        self.workspace_root.join(".gestalt").join(name)
+        let relative = match name {
+            "workspace.md" => self
+                .context
+                .workspace_file
+                .clone()
+                .unwrap_or_else(|| ".gestalt/workspace.md".to_string()),
+            "memory.md" => self
+                .context
+                .memory_file
+                .clone()
+                .unwrap_or_else(|| ".gestalt/memory.md".to_string()),
+            other => format!(".gestalt/{other}"),
+        };
+        self.workspace_root.join(relative)
     }
 }
 
@@ -676,18 +1183,32 @@ pub fn explain_config(
                 reason: err.to_string(),
             })
         })?);
-    let global_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("gestalt/config.toml");
-    let workspace_path = workspace_root.join(".gestalt/config.toml");
+    let global_path = global_config_path();
+    let legacy_global_path = legacy_global_config_path();
+    let workspace_path = workspace_config_path(&workspace_root);
+    let legacy_workspace_path = legacy_workspace_config_path(&workspace_root);
+    let legacy_policies_path = legacy_workspace_policies_path(&workspace_root);
 
     let mut global_cfg = None;
     if global_path.exists() {
         global_cfg = Some(WorkspaceConfig::from_file(&global_path)?);
+    } else if legacy_global_path.exists() {
+        global_cfg = Some(WorkspaceConfig::from_file(&legacy_global_path)?);
     }
     let mut ws_cfg = None;
     if workspace_path.exists() {
         ws_cfg = Some(WorkspaceConfig::from_file(&workspace_path)?);
+    } else {
+        if legacy_workspace_path.exists() {
+            ws_cfg = Some(WorkspaceConfig::from_file(&legacy_workspace_path)?);
+        }
+        if legacy_policies_path.exists() {
+            let legacy = load_legacy_policies_file(&legacy_policies_path)?;
+            ws_cfg = Some(match ws_cfg.take() {
+                Some(existing) => existing.merge(legacy),
+                None => legacy,
+            });
+        }
     }
 
     let mut map = HashMap::new();
@@ -822,6 +1343,202 @@ pub fn explain_config(
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
         8000
+    );
+
+    resolve!(
+        "context.workspace_file",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace_file.clone())),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace_file.clone())),
+        ".gestalt/workspace.md"
+    );
+
+    resolve!(
+        "context.memory_file",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory_file.clone())),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory_file.clone())),
+        ".gestalt/memory.md"
+    );
+
+    resolve!(
+        "prompt.override",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.prompt.as_ref().and_then(|p| p.r#override.clone())),
+        (|c: &WorkspaceConfig| c.prompt.as_ref().and_then(|p| p.r#override.clone())),
+        Value::Null
+    );
+
+    resolve!(
+        "prompt.override_file",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.prompt.as_ref().and_then(|p| p.override_file.clone())),
+        (|c: &WorkspaceConfig| c.prompt.as_ref().and_then(|p| p.override_file.clone())),
+        Value::Null
+    );
+
+    resolve!(
+        "policies.paths.allow_read",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.paths.allow_read.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.paths.allow_read.clone())),
+        vec![".".to_string()]
+    );
+
+    resolve!(
+        "policies.paths.allow_write",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.paths.allow_write.clone())),
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.paths.allow_write.clone())),
+        vec!["docs/".to_string(), ".gestalt/".to_string()]
+    );
+
+    resolve!(
+        "policies.paths.deny_write",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.paths.deny_write.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.paths.deny_write.clone())),
+        vec![
+            ".git/".to_string(),
+            "secrets/".to_string(),
+            ".env".to_string(),
+            "*.key".to_string()
+        ]
+    );
+
+    resolve!(
+        "policies.paths.deny_read",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.paths.deny_read.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.paths.deny_read.clone())),
+        vec![
+            ".env".to_string(),
+            ".env.*".to_string(),
+            "*.key".to_string(),
+            "*.pem".to_string(),
+            "*secret*".to_string(),
+            "*credential*".to_string(),
+            ".git/".to_string(),
+            "secrets/".to_string()
+        ]
+    );
+
+    resolve!(
+        "policies.bash.default",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.default.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.default.clone())),
+        "confirm"
+    );
+
+    resolve!(
+        "policies.bash.yolo_allow",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.yolo_allow.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.yolo_allow.clone())),
+        vec![
+            "cargo test".to_string(),
+            "cargo check".to_string(),
+            "cargo build".to_string(),
+            "ls".to_string(),
+            "grep".to_string(),
+            "rg".to_string(),
+            "find".to_string(),
+            "cat".to_string()
+        ]
+    );
+
+    resolve!(
+        "policies.bash.always_confirm",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.bash.always_confirm.clone())),
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.bash.always_confirm.clone())),
+        vec![
+            "rm".to_string(),
+            "sudo".to_string(),
+            "docker".to_string(),
+            "git push".to_string(),
+            "git reset".to_string(),
+            "ssh".to_string(),
+            "curl".to_string(),
+            "wget".to_string()
+        ]
+    );
+
+    resolve!(
+        "policies.bash.always_deny",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.always_deny.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.always_deny.clone())),
+        vec![
+            "dd".to_string(),
+            "mkfs".to_string(),
+            "fdisk".to_string(),
+            "chmod 777".to_string()
+        ]
+    );
+
+    resolve!(
+        "policies.network.default",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.network.default.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.network.default.clone())),
+        "confirm"
+    );
+
+    resolve!(
+        "policies.network.allow_domains",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.network.allow_domains.clone())),
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.network.allow_domains.clone())),
+        Vec::<String>::new()
+    );
+
+    resolve!(
+        "policies.network.deny_domains",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.network.deny_domains.clone())),
+        (|c: &WorkspaceConfig| c
+            .policies
+            .as_ref()
+            .and_then(|p| p.network.deny_domains.clone())),
+        Vec::<String>::new()
     );
 
     resolve!(

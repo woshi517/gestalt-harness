@@ -1,4 +1,7 @@
-use crate::config::{load_effective_config, CliOverrides};
+use crate::config::{
+    global_config_path, legacy_global_config_path, legacy_workspace_policies_path,
+    load_effective_config, workspace_config_path, CliOverrides,
+};
 use crate::output::{PolicyExplainReport, PolicyTestReport, PolicyValidateReport};
 use gestalt_core::policy::{PolicyEngine, PolicyRequest};
 use gestalt_core::ToolCatalog;
@@ -8,12 +11,36 @@ use serde_json::Value;
 
 pub fn validate_policy(overrides: &CliOverrides) -> Result<PolicyValidateReport, HarnessError> {
     let config = load_effective_config(overrides)?;
-    let policy_path = config.workspace_file("policies.toml");
+    let workspace_json = workspace_config_path(&config.workspace_root);
+    let legacy_workspace_policies = legacy_workspace_policies_path(&config.workspace_root);
+    let global_json = global_config_path();
+    let legacy_global = legacy_global_config_path();
+
+    let policy_path = if workspace_json.exists() {
+        workspace_json
+    } else if legacy_workspace_policies.exists() {
+        legacy_workspace_policies
+    } else if global_json.exists() {
+        global_json
+    } else if legacy_global.exists() {
+        legacy_global
+    } else {
+        workspace_json
+    };
+
     if !policy_path.exists() {
         return Ok(PolicyValidateReport {
             path: policy_path,
             valid: false,
-            error: Some("policies.toml does not exist".to_string()),
+            error: Some("policy config does not exist".to_string()),
+        });
+    }
+
+    if policy_path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+        return Ok(PolicyValidateReport {
+            path: policy_path,
+            valid: true,
+            error: None,
         });
     }
 
@@ -82,12 +109,7 @@ pub async fn explain_policy(
     let mode = config.selected_mode()?;
     let risk = get_tool_risk(tool_name, &input);
 
-    let policy_path = config.workspace_file("policies.toml");
-    let policy_config = if policy_path.exists() {
-        PolicyConfig::from_file(&policy_path)?
-    } else {
-        PolicyConfig::default()
-    };
+    let policy_config = config.policies.to_policy_config();
 
     let engine = MinimalPolicyEngine::new(policy_config);
     let request = PolicyRequest {
@@ -130,12 +152,7 @@ pub async fn test_policy(
     };
     let risk = get_tool_risk(tool_name, &input);
 
-    let policy_path = config.workspace_file("policies.toml");
-    let policy_config = if policy_path.exists() {
-        PolicyConfig::from_file(&policy_path)?
-    } else {
-        PolicyConfig::default()
-    };
+    let policy_config = config.policies.to_policy_config();
 
     let engine = MinimalPolicyEngine::new(policy_config);
     let request = PolicyRequest {

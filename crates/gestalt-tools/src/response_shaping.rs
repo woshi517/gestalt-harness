@@ -12,7 +12,10 @@ pub fn shape_tool_response(tool_name: &str, result: &mut ToolExecutionResult) {
                 prefix.push_str(&format!(
                     "[Output truncated. Original: {} bytes. Full output saved to artifact: {}]\n",
                     result.original_bytes.unwrap_or(0),
-                    result.artifact.as_ref().map_or("unavailable", |a| a.path.to_str().unwrap_or("")),
+                    result
+                        .artifact
+                        .as_ref()
+                        .map_or("unavailable", |a| a.path.to_str().unwrap_or("")),
                 ));
             }
             result.content = format!("{}{}", prefix, result.content);

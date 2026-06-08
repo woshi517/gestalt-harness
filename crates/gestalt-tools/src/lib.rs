@@ -6,9 +6,9 @@
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
 pub mod builtin_descriptors;
-pub mod response_shaping;
 mod path;
 mod registry;
+pub mod response_shaping;
 mod tools;
 
 pub use registry::ToolRegistry;

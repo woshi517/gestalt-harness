@@ -138,8 +138,19 @@ impl ExtensionManifest {
             if let Some(file_name) = cmd_path.file_name().and_then(|n| n.to_str()) {
                 let file_name_lower = file_name.to_lowercase();
                 let shell_names = [
-                    "sh", "bash", "zsh", "ksh", "csh", "tcsh", "cmd", "cmd.exe",
-                    "powershell", "powershell.exe", "pwsh", "pwsh.exe", "fish"
+                    "sh",
+                    "bash",
+                    "zsh",
+                    "ksh",
+                    "csh",
+                    "tcsh",
+                    "cmd",
+                    "cmd.exe",
+                    "powershell",
+                    "powershell.exe",
+                    "pwsh",
+                    "pwsh.exe",
+                    "fish",
                 ];
                 if shell_names.contains(&file_name_lower.as_str()) {
                     return Err("Entrypoint command is a shell executable but allow_shell permission is false".to_string());

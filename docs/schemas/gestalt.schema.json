@@ -1,0 +1,552 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkspaceConfig",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "context": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ContextConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "defaults": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DefaultsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "extensions": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ExtensionsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "observe": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ObserveConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policies": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PoliciesConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "profiles": {
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ProfileConfig"
+      }
+    },
+    "prompt": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PromptConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "providers": {
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ProviderConfig"
+      }
+    },
+    "tools": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ToolsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tui": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TuiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "version": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "ContextConfig": {
+      "type": "object",
+      "properties": {
+        "max_context_window": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "memory_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reserved_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "workspace_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "DefaultsConfig": {
+      "type": "object",
+      "properties": {
+        "max_turns": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExtensionsConfig": {
+      "type": "object",
+      "properties": {
+        "allow_untrusted": {
+          "default": false,
+          "type": "boolean"
+        },
+        "disabled": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "explicit_loads": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "trusted": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ObserveConfig": {
+      "type": "object",
+      "properties": {
+        "log_format": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_log_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PoliciesConfig": {
+      "type": "object",
+      "properties": {
+        "bash": {
+          "default": {},
+          "allOf": [
+            {
+              "$ref": "#/definitions/PolicyBashConfig"
+            }
+          ]
+        },
+        "network": {
+          "default": {},
+          "allOf": [
+            {
+              "$ref": "#/definitions/PolicyNetworkConfig"
+            }
+          ]
+        },
+        "paths": {
+          "default": {},
+          "allOf": [
+            {
+              "$ref": "#/definitions/PolicyPathsConfig"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PolicyBashConfig": {
+      "type": "object",
+      "properties": {
+        "always_confirm": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "always_deny": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "yolo_allow": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PolicyNetworkConfig": {
+      "type": "object",
+      "properties": {
+        "allow_domains": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deny_domains": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PolicyPathsConfig": {
+      "type": "object",
+      "properties": {
+        "allow_read": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "allow_write": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny_read": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny_write": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProfileConfig": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PromptConfig": {
+      "type": "object",
+      "properties": {
+        "override": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "override_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProviderConfig": {
+      "type": "object",
+      "properties": {
+        "api_key_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "auth_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "models_endpoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "protocol": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolsConfig": {
+      "type": "object",
+      "properties": {
+        "bash_timeout_secs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "max_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "sandbox_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TuiConfig": {
+      "type": "object",
+      "properties": {
+        "diagnostics": {
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TuiDiagnosticsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TuiDiagnosticsConfig": {
+      "type": "object",
+      "properties": {
+        "max_log_lines": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

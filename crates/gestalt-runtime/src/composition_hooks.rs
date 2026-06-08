@@ -300,7 +300,11 @@ fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
         if let Some(t) = obj.get("type").and_then(|v| v.as_str()) {
             match t {
                 "block" => {
-                    let reason = obj.get("reason").and_then(|v| v.as_str()).unwrap_or("Blocked by hook").to_string();
+                    let reason = obj
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Blocked by hook")
+                        .to_string();
                     return HookOutcome::Block { reason };
                 }
                 "add_context" => {
@@ -311,7 +315,10 @@ fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
                     }
                 }
                 "annotate" => {
-                    let metadata = obj.get("metadata").cloned().unwrap_or(serde_json::Value::Null);
+                    let metadata = obj
+                        .get("metadata")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     return HookOutcome::Annotate { metadata };
                 }
                 _ => {}
@@ -339,7 +346,12 @@ impl CompositionHooks for ComposedCompositionHooks {
         let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe.manifest.hooks.iter().find(|h| h.lifecycle_point == "before_context_build") {
+                if let Some(hook_decl) = pe
+                    .manifest
+                    .hooks
+                    .iter()
+                    .find(|h| h.lifecycle_point == "before_context_build")
+                {
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "before_context_build",
@@ -375,7 +387,12 @@ impl CompositionHooks for ComposedCompositionHooks {
         let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe.manifest.hooks.iter().find(|h| h.lifecycle_point == "after_context_build") {
+                if let Some(hook_decl) = pe
+                    .manifest
+                    .hooks
+                    .iter()
+                    .find(|h| h.lifecycle_point == "after_context_build")
+                {
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "after_context_build",
@@ -412,7 +429,12 @@ impl CompositionHooks for ComposedCompositionHooks {
         let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe.manifest.hooks.iter().find(|h| h.lifecycle_point == "before_tool_policy") {
+                if let Some(hook_decl) = pe
+                    .manifest
+                    .hooks
+                    .iter()
+                    .find(|h| h.lifecycle_point == "before_tool_policy")
+                {
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "before_tool_policy",
@@ -449,7 +471,12 @@ impl CompositionHooks for ComposedCompositionHooks {
         let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe.manifest.hooks.iter().find(|h| h.lifecycle_point == "after_tool_result") {
+                if let Some(hook_decl) = pe
+                    .manifest
+                    .hooks
+                    .iter()
+                    .find(|h| h.lifecycle_point == "after_tool_result")
+                {
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "after_tool_result",
@@ -482,7 +509,12 @@ impl CompositionHooks for ComposedCompositionHooks {
 
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe.manifest.hooks.iter().find(|h| h.lifecycle_point == "on_event") {
+                if let Some(hook_decl) = pe
+                    .manifest
+                    .hooks
+                    .iter()
+                    .find(|h| h.lifecycle_point == "on_event")
+                {
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "on_event",

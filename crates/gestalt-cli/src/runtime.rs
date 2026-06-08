@@ -1,4 +1,4 @@
-use crate::config::EffectiveConfig;
+use crate::config::{mutate_workspace_config_file, workspace_config_path, EffectiveConfig};
 use gestalt_core::error::HarnessError;
 use gestalt_core::tool::ToolCatalog;
 use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
@@ -72,10 +72,10 @@ pub async fn build_cli_runtime(
                 continue;
             }
 
-            let is_explicit = explicit_loads.iter().any(|p| {
-                p == &ext.manifest_path || p.parent() == Some(&ext.manifest_path)
-            });
-            let is_trusted = is_explicit 
+            let is_explicit = explicit_loads
+                .iter()
+                .any(|p| p == &ext.manifest_path || p.parent() == Some(&ext.manifest_path));
+            let is_trusted = is_explicit
                 || config.extensions.trusted.contains(&ext.manifest.id)
                 || config.extensions.allow_untrusted;
 
@@ -150,19 +150,21 @@ pub async fn build_cli_runtime(
                 continue;
             }
 
-            let is_explicit = explicit_loads.iter().any(|p| {
-                p == &ext.manifest_path || p.parent() == Some(&ext.manifest_path)
-            });
-            let is_trusted = is_explicit 
+            let is_explicit = explicit_loads
+                .iter()
+                .any(|p| p == &ext.manifest_path || p.parent() == Some(&ext.manifest_path));
+            let is_trusted = is_explicit
                 || config.extensions.trusted.contains(&ext.manifest.id)
                 || config.extensions.allow_untrusted;
 
-            let is_project_local = ext.manifest_path.starts_with(config.workspace_root.join(".gestalt/extensions"));
-            
+            let is_project_local = ext
+                .manifest_path
+                .starts_with(config.workspace_root.join(".gestalt/extensions"));
+
             if is_project_local && !is_trusted {
                 builder.event_bus.publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
                     extension_id: ext.manifest.id.clone(),
-                    reason: "Untrusted project extension ignored. Enable it by adding its ID to 'extensions.trusted' in config.toml".to_string(),
+                    reason: "Untrusted project extension ignored. Enable it by adding its ID to 'extensions.trusted' in gestalt.json".to_string(),
                 });
                 continue;
             }
@@ -182,10 +184,12 @@ pub async fn build_cli_runtime(
                     builder = builder.extension(wrapped_ext);
                 }
                 Err(e) => {
-                    builder.event_bus.publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
-                        extension_id: ext.manifest.id.clone(),
-                        reason: format!("Startup failure: {}", e),
-                    });
+                    builder
+                        .event_bus
+                        .publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
+                            extension_id: ext.manifest.id.clone(),
+                            reason: format!("Startup failure: {}", e),
+                        });
                 }
             }
         }
@@ -251,7 +255,8 @@ pub async fn inspect_runtime(
         None,
         None,
         Some(Arc::new(gestalt_core::trace::NullTraceSink)),
-    ).await?;
+    )
+    .await?;
     Ok(runtime.inspect())
 }
 
@@ -263,35 +268,12 @@ pub fn enable_extension(
         .workspace
         .clone()
         .unwrap_or(std::env::current_dir()?);
-    let config_path = workspace_root.join(".gestalt/config.toml");
-    let mut doc = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)?;
-        content.parse::<toml_edit::DocumentMut>()?
-    } else {
-        toml_edit::DocumentMut::new()
-    };
-
-    if let Some(extensions) = doc.get_mut("extensions") {
-        if let Some(disabled) = extensions
-            .get_mut("disabled")
-            .and_then(|v| v.as_array_mut())
-        {
-            let mut index_to_remove = None;
-            for (i, val) in disabled.iter().enumerate() {
-                if val.as_str() == Some(id) {
-                    index_to_remove = Some(i);
-                    break;
-                }
-            }
-            if let Some(idx) = index_to_remove {
-                disabled.remove(idx);
-            }
+    let config_path = workspace_config_path(&workspace_root);
+    mutate_workspace_config_file(&config_path, |config| {
+        if let Some(extensions) = config.extensions.as_mut() {
+            extensions.disabled.retain(|ext| ext != id);
         }
-    }
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&config_path, doc.to_string())?;
+    })?;
     Ok(())
 }
 
@@ -303,43 +285,13 @@ pub fn disable_extension(
         .workspace
         .clone()
         .unwrap_or(std::env::current_dir()?);
-    let config_path = workspace_root.join(".gestalt/config.toml");
-    let mut doc = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)?;
-        content.parse::<toml_edit::DocumentMut>()?
-    } else {
-        toml_edit::DocumentMut::new()
-    };
-
-    let extensions = doc
-        .entry("extensions")
-        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
-    let table = extensions
-        .as_table_mut()
-        .ok_or("extensions is not a table")?;
-    let disabled =
-        table
-            .entry("disabled")
-            .or_insert(toml_edit::Item::Value(toml_edit::Value::Array(
-                toml_edit::Array::new(),
-            )));
-
-    if let Some(arr) = disabled.as_array_mut() {
-        let mut exists = false;
-        for val in arr.iter() {
-            if val.as_str() == Some(id) {
-                exists = true;
-                break;
-            }
+    let config_path = workspace_config_path(&workspace_root);
+    mutate_workspace_config_file(&config_path, |config| {
+        let extensions = config.extensions.get_or_insert_with(Default::default);
+        if !extensions.disabled.iter().any(|ext| ext == id) {
+            extensions.disabled.push(id.to_string());
         }
-        if !exists {
-            arr.push(id);
-        }
-    }
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&config_path, doc.to_string())?;
+    })?;
     Ok(())
 }
 
@@ -408,7 +360,8 @@ pub async fn get_runtime_events(
         None,
         None,
         Some(Arc::new(gestalt_core::trace::NullTraceSink)),
-    ).await?;
+    )
+    .await?;
     let events = runtime.event_bus.history();
     Ok(events)
 }

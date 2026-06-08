@@ -519,11 +519,9 @@ pub async fn run_session_action(
     let expected_fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
         tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&tools.schemas()),
-        policy_fingerprint: {
-            let policies_path = config.workspace_file("policies.toml");
-            let content = std::fs::read_to_string(&policies_path).unwrap_or_default();
-            gestalt_trace::run_manifest::compute_policy_fingerprint(&content)
-        },
+        policy_fingerprint: serde_json::to_string(&config.policies)
+            .map(|content| gestalt_trace::run_manifest::compute_policy_fingerprint(&content))
+            .unwrap_or_default(),
         hook_contract_hash: {
             let hook_names = vec![
                 "VerificationToolHook".to_string(),
@@ -633,7 +631,8 @@ pub async fn run_session_action(
         event_tx.clone(),
         approval_override,
         Some(sink.clone() as Arc<dyn gestalt_core::trace::TraceSink>),
-    ).await?;
+    )
+    .await?;
 
     let mode = config.selected_mode()?;
     let max_turns = config.max_turns();

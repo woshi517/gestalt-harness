@@ -258,7 +258,10 @@ pub struct ToolExecutionResult {
 impl ToolExecutionResult {
     pub fn error(message: impl Into<String>) -> Self {
         let message = message.into();
-        let failure = ToolErrorReport::new(crate::tool_failure::ToolFailureKind::ExecutionFailed, message.clone());
+        let failure = ToolErrorReport::new(
+            crate::tool_failure::ToolFailureKind::ExecutionFailed,
+            message.clone(),
+        );
         let rendered = failure.render_for_model();
         Self {
             content: rendered,

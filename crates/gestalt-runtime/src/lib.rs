@@ -32,7 +32,7 @@ pub use context::{ContextContributor, RuntimeContextPipeline};
 pub use discovery::{DiscoveredExtension, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};
-pub use extension::{GestaltExtension};
+pub use extension::GestaltExtension;
 pub use extension_trust::build_extension_tool_descriptor;
 pub use inspect::{
     compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
