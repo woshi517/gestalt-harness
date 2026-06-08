@@ -151,7 +151,7 @@ Mapping of the high-traffic kinds:
 | Trigger | `kind` | `repair_guidance` (excerpt) |
 |---|---|---|---|
 | User denied an approval | `approval_denied` | "Adjust the request or ask before retrying." |
-| `policies.toml` denied | `policy_denied` | echoes the policy reason |
+| Policy config denied | `policy_denied` | echoes the policy reason |
 | Schema mismatch (basic or strict pass) | `schema_mismatch` | "Expected schema: …" |
 | Malformed JSON arguments | `invalid_arguments` | "The arguments could not be parsed as JSON." |
 | Tool not in catalog | `tool_not_found` | "Check spelling or ensure the tool is loaded." |
@@ -204,18 +204,15 @@ The model prevents _accidental_ policy violations and provides an audit trail. I
 
 ## Configuration
 
-Users control which extensions run via `config.toml` under `[extensions]`:
+Users control which extensions run via `gestalt.json` under `extensions`:
 
-```toml
-[extensions]
-# Extension IDs to trust unconditionally
-trusted = ["my-editor-ext", "formatter-v2"]
-# Allow all project-local extensions (unsafe — use trusted list instead)
-allow_untrusted = false
-# Explicit paths to extension manifest directories
-explicit_loads = ["./vendor/exts/linter"]
-# Extension IDs to disable without removing
-disabled = ["beta-ext-needs-work"]
+```json
+"extensions": {
+  "trusted": ["my-editor-ext", "formatter-v2"],
+  "allow_untrusted": false,
+  "explicit_loads": ["./vendor/exts/linter"],
+  "disabled": ["beta-ext-needs-work"]
+}
 ```
 
 - **`trusted`**: Extensions in this list bypass the trust gate. Loaded even if they're project-local.

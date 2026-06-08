@@ -930,7 +930,7 @@ pub struct SessionConfig {
 pub enum ExecutionMode {
     /// High-risk actions suspend for user approval before executing.
     Confirm,
-    /// Tool calls are evaluated against policies.toml allow-lists. Auto-executes safe calls.
+    /// Tool calls are evaluated against gestalt.json policy allow-lists. Auto-executes safe calls.
     Yolo,
     /// The agent proposes tool calls but does not execute them. User runs manually.
     Human,
@@ -1837,7 +1837,7 @@ pub trait PolicyEngine: Send + Sync {
 }
 
 /// All inputs to a policy decision. The engine consults risk, mode,
-/// workspace paths, and policies.toml together.
+/// workspace paths, and policy config together.
 #[derive(Debug, Clone)]
 pub struct PolicyRequest {
     pub tool_name: String,
@@ -1855,7 +1855,7 @@ pub struct PolicyRequest {
 pub struct PolicyDecision {
     pub status: PolicyStatus,
     pub reason: Option<String>,
-    pub policy_source: String, // e.g. "policies.toml:tools.bash.always_confirm"
+    pub policy_source: String, // e.g. "gestalt.json:policies.bash.always_confirm"
 }
 
 impl PolicyDecision {
@@ -1943,7 +1943,7 @@ impl ApprovalProvider for DenyApprovalProvider {
 ```mermaid
 flowchart LR
     Call["PolicyRequest<br>{tool, input, risk, mode}"]
-    Lookup["policies.toml lookup"]
+    Lookup["policy config lookup"]
     RiskMap["risk × mode matrix"]
     Decision{"Decision"}
 
@@ -2235,7 +2235,7 @@ Request construction happens after provider, model, auth, policy, and context re
 
 Provider adapters receive non-secret behavioral configuration plus a credential-resolution boundary. In v0.1, adapters keep `ProviderAuthConfig` and a `CredentialResolver`, then resolve secrets from the environment when a request is made.
 
-Secrets must not be stored in `workspace.md`, `models.toml`, or provider config files.
+Secrets must not be stored in `workspace.md`, `gestalt.json`, or provider config files.
 
 Shipped in v0.2:
 
@@ -2605,7 +2605,7 @@ pub enum ToolNamespace {
 pub enum McpTrustLevel {
     /// Verified local server started by gestalt itself.
     LocalStdio,
-    /// Remote HTTP server, explicitly configured in config.toml.
+    /// Remote HTTP server, explicitly configured in gestalt.json.
     RemoteHttp,
 }
 ```
@@ -3165,7 +3165,7 @@ This enables embedding in the Gestalt frontend for local context compilation and
 **Status:** Accepted  
 **Context:** The PRD listed the policy engine as a v0.2 non-goal, but shipped BashTool, WriteTool, and WebFetchTool in v0.1. This is unsafe.  
 **Decision:** v0.1 includes a minimal policy engine covering: workspace path allow/deny, network on/off, bash command allow/confirm/deny, medium/high-risk confirmation, output size cap, and execution timeout.  
-**Consequences:** v0.1 is safe to use. The complete `policies.toml` grammar and advanced MCP/skill permissions are v0.2.
+**Consequences:** v0.1 is safe to use. The complete policy grammar and advanced MCP/skill permissions are v0.2.
 
 ---
 
@@ -3281,7 +3281,7 @@ This enables embedding in the Gestalt frontend for local context compilation and
 
 **Status:** Accepted  
 **Context:** The harness lacked a default system prompt for provider routing. Having to define a full prompt from scratch in every client workspace or fork core to update instructions was inefficient.  
-**Decision:** Inject a sane, built-in system prompt (covering identity, environment, tool policy, and output formatting) as the first system message. Support local overrides from `.gestalt/policies.toml` or custom files.  
+**Decision:** Inject a sane, built-in system prompt (covering identity, environment, tool policy, and output formatting) as the first system message. Support local overrides from `gestalt.json` `prompt.override` / `prompt.override_file` or custom files.  
 **Consequences:** Immediate out-of-the-box utility for CLI agents. Users can customize instructions per workspace without altering the core framework code.
 
 ---

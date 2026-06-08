@@ -106,7 +106,20 @@ gestalt --workspace tests/fixtures/workspaces/minimal config validate
 
 ---
 
-## Provider Connections and Profiles
+## Configuration
+
+All harness settings live in a single `gestalt.json` file. Two scopes are supported:
+
+| Scope | Path | Purpose |
+|-------|------|---------|
+| Global | `~/.config/gestalt/gestalt.json` | System-wide defaults (providers, profiles) |
+| Workspace | `<project-root>/gestalt.json` | Per-project overrides (policy, context, tools) |
+
+Precedence (lowest to highest): built-in defaults < global `gestalt.json` < workspace `gestalt.json` < `GESTALT_*` env vars < CLI flags. The global file is created automatically on first config-aware CLI use. Use `gestalt config explain` to see which source provides each value.
+
+The JSON Schema is available at `docs/schemas/gestalt.schema.json`.
+
+### Provider Connections and Profiles
 
 `gestalt-harness` features a provider connection and credential-backed profile system to securely manage API keys and switch between model environments without storing raw secrets in config files.
 
@@ -116,7 +129,7 @@ gestalt --workspace tests/fixtures/workspaces/minimal config validate
   # Or connect non-interactively:
   gestalt connect openrouter --api-key <key> --set-default
   ```
-  This creates a provider connection entry under `~/.config/gestalt/config.toml` referencing the OS keychain without persisting raw secrets.
+  This stores the provider configuration in `~/.config/gestalt/gestalt.json` and the API key in your OS keychain (never written to plaintext config). The config file stores only an `auth_ref: "secret:provider/<name>"` pointer.
 
 - **List Profiles:**
   ```bash
@@ -128,7 +141,7 @@ gestalt --workspace tests/fixtures/workspaces/minimal config validate
   ```bash
   gestalt profiles use <profile-name>
   ```
-  Switches the active profile for the workspace (stored in `.gestalt/config.toml`).
+  Sets the active profile in `gestalt.json` (workspace if one exists, otherwise global).
 
 - **Search Discovered Models:**
   ```bash
@@ -148,7 +161,13 @@ Manage and inspect your agent workspace with the following CLI commands:
   # Or force overwrite existing files:
   gestalt init --force
   ```
-  Scaffolds a new workspace containing default `.gestalt/config.toml`, `policies.toml`, `workspace.md`, and `memory.md` templates.
+  Scaffolds a new workspace containing `gestalt.json` (unified config with defaults, profiles, and policies), plus `.gestalt/workspace.md` and `.gestalt/memory.md` content files.
+
+- **Check Workspace Status:**
+  ```bash
+  gestalt status
+  ```
+  Provides a top-level summary of active options, configuration health, recent runs count, and provider credential warnings.
 
 - **Check Workspace Status:**
   ```bash
@@ -226,6 +245,7 @@ Manage and diagnose extensions with the following CLI commands:
 | [Product Requirements Document](docs/gestalt-harness-prd.md) | Goals, scope, and requirements |
 | [Architecture Document](docs/gestalt-harness-architecture.md) | System design and crate layout |
 | [Implementation Roadmap](docs/gestalt-harnes-implementation-roadmap.md) | Milestones and planned work |
+| [Config JSON Schema](docs/schemas/gestalt.schema.json) | Machine-readable schema for `gestalt.json` |
 | [Release Checklist](docs/release-checklist.md) | Steps to cut a release |
 | [Changelog](CHANGELOG.md) | Version history |
 | [Architecture Decision Records](docs/adrs/README.md) | ADR index |

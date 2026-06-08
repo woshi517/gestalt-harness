@@ -240,12 +240,12 @@ The execution mode controls how the policy engine routes tool calls and how the 
 |Mode|Behavior|
 |---|---|
 |`confirm`|**Default.** High-risk actions suspend execution and prompt the user for approval, skip, or edit before proceeding. Medium-risk writes show a diff. Low-risk reads auto-execute.|
-|`yolo`|Evaluates tool calls strictly against the `policies.toml` allow-lists. Commands on the allow-list execute automatically. Unlisted or high-risk commands still require confirmation.|
+|`yolo`|Evaluates tool calls strictly against the policy allow-lists. Commands on the allow-list execute automatically. Unlisted or high-risk commands still require confirmation.|
 |`human`|The agent proposes tool calls but does not execute them. The user runs tools manually and pastes results back. Useful for auditing proposed actions before delegating.|
 |`dry-run`|Generates tool invocation payloads and tracks planned file changes without executing any side effects. Produces a plan that can be reviewed before running for real.|
 |`replay`|Reads a JSONL run log and reproduces the session display offline without making any provider calls or executing tools.|
 
-Mode can be set in `config.toml`, in `workspace.md` front matter, via a CLI flag, or toggled mid-session with `/mode`.
+Mode can be set in `gestalt.json`, in `workspace.md` front matter, via a CLI flag, via `GESTALT_MODE` env var, or toggled mid-session with `/mode`.
 
 ---
 
@@ -255,7 +255,7 @@ Mode can be set in `config.toml`, in `workspace.md` front matter, via a CLI flag
 
 On startup, `gestalt` assembles initial workspace state from the project directory:
 
-1. **`.gestalt/workspace.md`** — Prepended as the system prompt prefix. Defines the project's operating goals, output standards, and tone. Treated as a trusted instruction. If absent, gestalt starts with a default system prompt (defining identity, environment, tool-use policy, and output rules) which can be overridden in `.gestalt/policies.toml` via `prompt.override` or `prompt.override_file`.
+1. **`.gestalt/workspace.md`** — Prepended as the system prompt prefix. Defines the project's operating goals, output standards, and tone. Treated as a trusted instruction. If absent, gestalt starts with a default system prompt (defining identity, environment, tool-use policy, and output rules) which can be overridden in `gestalt.json` via `prompt.override` or `prompt.override_file`.
 2. **`.gestalt/memory.md`** — Prepended as persistent context. Contains accumulated facts from prior sessions that the user has approved.
 3. **`/sources/`** — Enumerated to build a file index (names, sizes, types) for token-budget-aware loading.
 4. **`/docs/`** — Enumerated as the deliverables index.
@@ -381,20 +381,26 @@ Internally, however, MCP tools remain distinguishable. They carry a trust level 
 
 ### 11.1 MCP Configuration
 
-```toml
-# .gestalt/config.toml
-
-[mcp.servers.brave-search]
-transport = "stdio"
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-brave-search"]
-env = { BRAVE_API_KEY = "${BRAVE_API_KEY}" }
-permissions = ["network", "search"]
-
-[mcp.servers.google-drive]
-transport = "http"
-url = "https://drivemcp.googleapis.com/mcp/v1"
-permissions = ["drive-read"]
+```json
+// Inside the "mcp" key of gestalt.json
+{
+  "mcp": {
+    "servers": {
+      "brave-search": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+        "env": { "BRAVE_API_KEY": "${BRAVE_API_KEY}" },
+        "permissions": ["network", "search"]
+      },
+      "google-drive": {
+        "transport": "http",
+        "url": "https://drivemcp.googleapis.com/mcp/v1",
+        "permissions": ["drive-read"]
+      }
+    }
+  }
+}
 ```
 
 ### 11.2 MCP Safety Defaults
@@ -577,12 +583,18 @@ Provider authentication is a first-class harness concern because model execution
 
 Configuration files describe behavior:
 
-```toml
-[providers.anthropic]
-type = "anthropic"
-auth = "anthropic/default"
-base_url = "https://api.anthropic.com"
-default_model = "claude-sonnet-4-6"
+```json
+// Inside the "providers" key of gestalt.json
+{
+  "providers": {
+    "anthropic": {
+      "kind": "anthropic",
+      "auth_ref": "secret:provider/anthropic",
+      "base_url": "https://api.anthropic.com",
+      "default_model": "claude-sonnet-4-6"
+    }
+  }
+}
 ```
 
 Secrets are resolved from credential sources.
@@ -597,7 +609,7 @@ Planned after v0.1:
 2. Encrypted local credential vault.
 3. Session-only credentials.
 
-Secrets must not be stored directly in `config.toml`, `workspace.md`, `models.toml`, or model catalog files.
+Secrets must not be stored directly in `gestalt.json`, `workspace.md`, or model catalog files.
 
 Gestalt provides authentication commands:
 
@@ -683,20 +695,24 @@ Catalog entries include a `last_updated` field. Users should refresh periodicall
 
 Different tasks within a session may be routed to different models. Expensive frontier models can handle planning and final synthesis, while cheaper or local models can handle extraction, summarization, search expansion, and mechanical transformations.
 
-```toml
-# .gestalt/models.toml
-
-[models.default]
-provider = "anthropic"
-model = "claude-sonnet-4-6"
-
-[models.tasks.document_extraction]
-provider = "ollama"
-model = "qwen2.5-coder:7b"
-
-[models.tasks.fast_search]
-provider = "groq"
-model = "llama-3.1-8b-instant"
+```json
+// Example model routing in gestalt.json profiles
+{
+  "profiles": {
+    "default": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    },
+    "extraction": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:7b"
+    },
+    "fast-search": {
+      "provider": "groq",
+      "model": "llama-3.1-8b-instant"
+    }
+  }
+}
 ```
 
 Routing is advisory. CLI flags, workspace config, and explicit session config always override task-based routing.
@@ -917,71 +933,115 @@ Produce an updated competitor brief from recent sources and prior workspace note
 
 ## 17. Configuration
 
-Configuration is explicit, layered, and safe by default. Secrets are never stored in config files.
+Configuration is explicit, layered, and safe by default. All harness settings live in a single `gestalt.json` per scope. Secrets are never stored in config files.
 
 ### 17.1 Configuration Hierarchy
 
-Configuration is resolved in this order, from highest to lowest priority:
+Configuration is resolved in this order, from lowest to highest priority:
 
 ```
-1. CLI flags
-2. Environment variables
-3. Workspace config:  .gestalt/config.toml
-4. Global config:     ~/.config/gestalt/config.toml
-5. Built-in defaults
+1. Built-in defaults
+2. Global config:     ~/.config/gestalt/gestalt.json
+3. Workspace config:  <project-root>/gestalt.json
+4. Environment variables (GESTALT_*)
+5. CLI flags
 ```
 
-### 17.2 `config.toml` Schema
+The global file is created automatically on first config-aware CLI use (`{"version": 1}`). Use `gestalt config explain` to see which source provides each value.
 
-```toml
-[defaults]
-provider = "anthropic"
-model = "claude-sonnet-4-6"
-mode = "confirm"
-max_turns = 50
+### 17.2 `gestalt.json` Schema
 
-[providers.anthropic]
-api_key_env = "ANTHROPIC_API_KEY"
-base_url = "https://api.anthropic.com"
-
-[providers.openai]
-api_key_env = "OPENAI_API_KEY"
-org_id_env = "OPENAI_ORG_ID"
-
-[providers.ollama]
-base_url = "http://localhost:11434"
-
-[tools]
-bash_timeout_secs = 60
-max_output_tokens = 4000
-sandbox_type = "none"   # none | bubblewrap | docker (bubblewrap/docker: Phase 3)
-
-[context]
-max_context_window = 120000
-reserved_output_tokens = 8000
-summary_threshold_tokens = 8000
-
-[observe]
-run_log_dir = ".gestalt/runs"
-log_format = "jsonl"
-token_alert_threshold = 100000
-
-[extensions]
-# Extension IDs to skip during loading
-disabled = ["old-ext"]
-# Extension IDs trusted to run from project-local directories
-trusted = ["my-custom-ext"]
-# Allow all extensions regardless of trust (use with caution)
-allow_untrusted = false
-# Explicit paths to extension manifests or directories
-explicit_loads = ["/path/to/custom-ext/gestalt.extension.toml"]
+```json
+{
+  "$schema": "docs/schemas/gestalt.schema.json",
+  "version": 1,
+  "defaults": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "mode": "confirm",
+    "max_turns": 50,
+    "profile": "default"
+  },
+  "profiles": {
+    "default": {
+      "provider": "openrouter",
+      "model": "openrouter/free"
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "kind": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "base_url": "https://api.anthropic.com"
+    },
+    "openai": {
+      "kind": "openai",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "ollama": {
+      "kind": "ollama",
+      "base_url": "http://localhost:11434"
+    }
+  },
+  "tools": {
+    "bash_timeout_secs": 60,
+    "max_output_tokens": 4000,
+    "sandbox_type": "none"
+  },
+  "context": {
+    "max_context_window": 120000,
+    "reserved_output_tokens": 8000,
+    "workspace_file": ".gestalt/workspace.md",
+    "memory_file": ".gestalt/memory.md"
+  },
+  "observe": {
+    "run_log_dir": ".gestalt/runs",
+    "log_format": "jsonl"
+  },
+  "prompt": {
+    "override": null,
+    "override_file": null
+  },
+  "policies": {
+    "paths": {
+      "allow_read": ["."],
+      "allow_write": ["docs/", ".gestalt/"],
+      "deny_write": [".git/", "secrets/", ".env", "*.key"],
+      "deny_read": [".env", ".env.*", "*.key", "*.pem", "*secret*", "*credential*", ".git/", "secrets/"]
+    },
+    "bash": {
+      "default": "confirm",
+      "yolo_allow": ["cargo test", "cargo check", "cargo build", "ls", "grep", "rg", "find", "cat"],
+      "always_confirm": ["rm", "sudo", "docker", "git push", "git reset", "ssh", "curl", "wget"],
+      "always_deny": ["dd", "mkfs", "fdisk", "chmod 777"]
+    },
+    "network": {
+      "default": "confirm",
+      "allow_domains": [],
+      "deny_domains": []
+    }
+  },
+  "extensions": {
+    "explicit_loads": [],
+    "disabled": [],
+    "trusted": [],
+    "allow_untrusted": false
+  },
+  "tui": {
+    "diagnostics": {
+      "max_log_lines": 1000
+    }
+  }
+}
 ```
 
-In v0.1, API keys and secrets come from environment variables. Configuration files define behavior, not credentials. Later auth backends may satisfy the same credential boundary without changing config semantics.
+A machine-readable JSON Schema is generated from the Rust types and checked in at `docs/schemas/gestalt.schema.json`.
+
+In v0.1, API keys and secrets come from environment variables or the OS keychain. Configuration files define behavior and contain `auth_ref` pointers, not raw credentials.
 
 ### 17.3 `workspace.md` Front Matter
 
-A workspace may override session defaults in TOML front matter:
+A workspace may override session defaults in YAML/TOML front matter:
 
 ```markdown
 ---
@@ -1017,32 +1077,31 @@ In v0.1, `config validate` checks config parsing and schema correctness. `config
 
 The policy engine runs before any tool executes. The agent proposes actions; the policy layer decides whether those actions are allowed, need confirmation, or are denied outright. Policy evaluation is deterministic, logged, and replayable.
 
-### 18.1 Declarative Policy File
+### 18.1 Declarative Policy
 
-```toml
-# .gestalt/policies.toml
+The policy rules live in the `policies` key of `gestalt.json`:
 
-[paths]
-allow_read  = [".", "sources/", "docs/", "src/"]
-allow_write = ["docs/", "reports/", "src/", ".gestalt/"]
-deny_write  = [".git/", "secrets/", ".env", "*.key"]
-
-[tools.bash]
-default      = "confirm"
-yolo_allow   = ["cargo test", "cargo check", "cargo build",
-                "ls", "grep", "rg", "find", "cat"]
-always_confirm = ["rm", "sudo", "docker", "git push",
-                  "git reset", "ssh", "curl", "wget"]
-always_deny  = ["dd", "mkfs", "fdisk", "chmod 777"]
-
-[network]
-default        = "confirm"
-allow_domains  = ["arxiv.org", "github.com", "crates.io", "docs.rs"]
-deny_domains   = []
-
-[mcp]
-default     = "confirm"
-yolo_allow  = ["brave-search"]
+```json
+"policies": {
+  "paths": {
+    "allow_read": [".", "sources/", "docs/", "src/"],
+    "allow_write": ["docs/", "reports/", "src/", ".gestalt/"],
+    "deny_write": [".git/", "secrets/", ".env", "*.key"]
+  },
+  "bash": {
+    "default": "confirm",
+    "yolo_allow": ["cargo test", "cargo check", "cargo build",
+                    "ls", "grep", "rg", "find", "cat"],
+    "always_confirm": ["rm", "sudo", "docker", "git push",
+                       "git reset", "ssh", "curl", "wget"],
+    "always_deny": ["dd", "mkfs", "fdisk", "chmod 777"]
+  },
+  "network": {
+    "default": "confirm",
+    "allow_domains": ["arxiv.org", "github.com", "crates.io", "docs.rs"],
+    "deny_domains": []
+  }
+}
 ```
 
 The policy file is conservative by default. Project teams loosen permissions only where they understand and accept the risk.
@@ -1188,7 +1247,7 @@ The foundational layer is complete:
 - `gestalt-core`: agent loop, provider trait, tool trait, event model, session types, policy trait
 - `gestalt-models`: Anthropic, OpenAI, OpenAI-compatible, Ollama, Mistral, Groq provider adapters; model catalog
 - `gestalt-tools`: `BashTool`, `ReadTool`, `WriteTool`, `PatchTool`, `SearchTool`, `WebFetchTool`
-- `gestalt-policy`: path/network/bash policy, confirm/yolo/deny routing, `policies.toml` parser
+- `gestalt-policy`: path/network/bash policy, confirm/yolo/deny routing, policy config parser
 - `gestalt-exec`: `NoSandbox` (unconfined host subprocess + timeout + output cap + env allowlist)
 - `gestalt-trace`: JSONL writer, replay (display mode), inspect, validate
 - `gestalt-cli`: `run`, `chat`, `tui`, `replay`, `cost`, `config`, `auth`, `providers`, `models`, `init`, `status`, `workspace`, `doctor` commands
@@ -1290,7 +1349,7 @@ This file governs how AI agents and human contributors work in this repository.
 1. Add the implementation to `gestalt-models/src/`.
 2. Implement the `Provider` trait — specifically `stream()`, mapping to the unified `AgentEvent` stream.
 3. Register in `registry.rs` via a factory closure (lazy, never eagerly instantiated).
-4. Add to the `models.toml` generation script and the model catalog.
+4. Add to the model catalog in the `gestalt-models` crate.
 5. Add an integration test with a recorded HTTP cassette (no live API calls in CI).
 6. Pass the provider normalization test matrix (see architecture §11.4).
 
@@ -1300,7 +1359,7 @@ This file governs how AI agents and human contributors work in this repository.
 
 1. Write a `gestalt.extension.toml` manifest with name, version, entrypoint, capabilities (tools, hooks, context injectors), and required permissions.
 2. Implement the JSON-RPC 2.0 protocol over stdio — handle `initialize`, tool/hook/injector method calls, and `shutdown`.
-3. Place the extension directory in `.gestalt/extensions/` or point to it via `config.toml` `[extensions] explicit_loads`.
+3. Place the extension directory in `.gestalt/extensions/` or point to it via `gestalt.json` `extensions.explicit_loads`.
 4. Run `gestalt extension list` to verify discovery.
 5. Run `gestalt extension validate <path>` to check the manifest.
 6. Extensions run as child processes with `env_clear()`, strict permission gating, and automatic stderr capture.

@@ -156,12 +156,12 @@ pub async fn build_cli_runtime(
 
 This assembles:
 - Tool registry (`gestalt_tools::default_registry()`)
-- Provider adapter (resolved from `providers.toml` and model catalog)
+- Provider adapter (resolved from `gestalt.json` providers and model catalog)
 - Context pipeline (`gestalt-context`)
-- Policy engine (`gestalt-policy`, with optional `policies.toml`)
+- Policy engine (`gestalt-policy`, driven from the `policies` key in `gestalt.json`)
 - Approval provider (CLI interactive or yolo auto-approve)
 - Trace sink (filesystem JSONL writer)
 - Extension discovery and loading
 - Verification hooks
 
-Extension trust is configured via `[extensions].trusted` in `config.toml`. Trusted extension IDs are wired to `extension_trust::set_trusted_extension_ids()` before extension descriptors are built, ensuring the trust gate is active before any tool is registered.
+Extension trust is configured via `extensions.trusted` in `gestalt.json`. Trusted extension IDs are wired to `extension_trust::set_trusted_extension_ids()` before extension descriptors are built, ensuring the trust gate is active before any tool is registered.
