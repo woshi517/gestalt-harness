@@ -3,10 +3,15 @@ use crate::error::Result;
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use async_trait::async_trait;
 use gestalt_core::{
-    context::ContextPacket, event::AgentEvent, message::Message, session::Session,
+    context::{ContextPacket, PromptSnapshot},
+    event::AgentEvent,
+    message::Message,
+    session::Session,
     tool::ToolExecutionResult,
+    ContextStability,
 };
 use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HookOutcome {
@@ -19,12 +24,14 @@ pub enum HookOutcome {
 pub struct BeforeContextBuildCtx {
     pub session_id: String,
     pub history: Vec<Message>,
+    pub artifact_dir: Option<PathBuf>,
 }
 
 pub struct AfterContextBuildCtx {
     pub session_id: String,
     pub history: Vec<Message>,
     pub packet: ContextPacket,
+    pub artifact_dir: Option<PathBuf>,
 }
 
 pub struct BeforeToolPolicyCtx {
@@ -55,11 +62,12 @@ pub trait CompositionHooks: Send + Sync {
 
 pub struct RuntimeContextHookAdapter {
     pub hooks: Arc<dyn CompositionHooks>,
-    pub patch_store: Arc<Mutex<Vec<Message>>>,
+    pub patch_store: Arc<Mutex<Vec<crate::context::ContextPatch>>>,
     pub contributors: Vec<Arc<dyn ContextContributor>>,
     pub workspace_root: std::path::PathBuf,
     pub block_reason: Option<Arc<Mutex<Option<String>>>>,
     pub event_bus: RuntimeEventBus,
+    pub prompt_snapshot_state: Arc<Mutex<Option<String>>>,
 }
 
 #[async_trait]
@@ -79,6 +87,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
         let ctx = BeforeContextBuildCtx {
             session_id: session.id.clone(),
             history: session.history.clone(),
+            artifact_dir: session.tool_ctx.artifact_dir.clone(),
         };
         match self.hooks.before_context_build(&ctx).await {
             Ok(outcome) => {
@@ -90,7 +99,10 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                 match outcome {
                     HookOutcome::AddContext { message } => {
                         let mut store = self.patch_store.lock().unwrap();
-                        store.push(message);
+                        store.push(crate::context::ContextPatch::new(
+                            message,
+                            ContextStability::TurnDynamic,
+                        ));
                     }
                     HookOutcome::Block { reason } => {
                         if let Some(ref br) = self.block_reason {
@@ -115,7 +127,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
             match contributor.contribute(&self.workspace_root).await {
                 Ok(msg) => {
                     let mut store = self.patch_store.lock().unwrap();
-                    store.push(msg);
+                    store.push(crate::context::ContextPatch::new(msg, contributor.stability()));
                 }
                 Err(err) => {
                     events.push(AgentEvent::Error {
@@ -151,6 +163,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
             session_id: session.id.clone(),
             history: session.history.clone(),
             packet: packet.clone(),
+            artifact_dir: session.tool_ctx.artifact_dir.clone(),
         };
         let events = Vec::new();
         match self.hooks.after_context_build(&ctx).await {
@@ -163,7 +176,10 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                 match outcome {
                     HookOutcome::AddContext { message } => {
                         let mut store = self.patch_store.lock().unwrap();
-                        store.push(message);
+                        store.push(crate::context::ContextPatch::new(
+                            message,
+                            ContextStability::TurnDynamic,
+                        ));
                     }
                     HookOutcome::Block { reason } => {
                         if let Some(ref br) = self.block_reason {
@@ -181,6 +197,47 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                     error: err.to_string(),
                 });
             }
+        }
+
+        if let Some(cache_plan) = packet.cache_plan.as_ref() {
+            let snapshot_path = ctx
+                .artifact_dir
+                .as_ref()
+                .map(|dir| dir.join("prompt-snapshot.json"));
+            let snapshot_messages = packet
+                .messages
+                .iter()
+                .take(cache_plan.prefix_message_count)
+                .cloned()
+                .collect::<Vec<_>>();
+            let snapshot = PromptSnapshot::new(snapshot_messages, 0);
+
+            if let Some(path) = snapshot_path.as_ref() {
+                let _ = gestalt_trace::write_prompt_snapshot(path, &snapshot);
+            }
+
+            let mut state = self.prompt_snapshot_state.lock().unwrap();
+            let event = if state.as_ref() == Some(&snapshot.snapshot_hash) {
+                AgentEvent::PromptSnapshotReused {
+                    snapshot_hash: snapshot.snapshot_hash.clone(),
+                    prefix_hash: snapshot.prefix_hash.clone(),
+                }
+            } else {
+                *state = Some(snapshot.snapshot_hash.clone());
+                AgentEvent::PromptSnapshotCreated {
+                    snapshot_hash: snapshot.snapshot_hash.clone(),
+                    prefix_hash: snapshot.prefix_hash.clone(),
+                    created_turn: session.history.len(),
+                }
+            };
+
+            let cache_event = AgentEvent::PromptCachePlanGenerated {
+                snapshot_hash: snapshot.snapshot_hash,
+                prefix_hash: snapshot.prefix_hash,
+                prefix_message_count: cache_plan.prefix_message_count,
+            };
+
+            return Ok(vec![event, cache_event]);
         }
         Ok(events)
     }

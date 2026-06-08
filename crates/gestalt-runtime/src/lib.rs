@@ -28,7 +28,7 @@ pub use composition_hooks::{
     RuntimeTraceHookAdapter,
 };
 pub use config::RuntimeConfig;
-pub use context::{ContextContributor, RuntimeContextPipeline};
+pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
 pub use discovery::{DiscoveredExtension, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};

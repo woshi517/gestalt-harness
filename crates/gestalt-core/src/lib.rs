@@ -45,7 +45,6 @@ pub use approval::{
     AutoApprovalProvider, DenyApprovalProvider, SessionGrant,
 };
 pub use cancel::CancelToken;
-pub use context::{ContextPipeline, TokenBudget};
 pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,
     ToolError, TraceError,
@@ -56,6 +55,10 @@ pub use event::{
 };
 pub use hook::{
     ContextHook, HookRegistry, ModelHook, SessionHook, ToolHook, TraceHook, VerificationHook,
+};
+pub use context::{
+    ContextStability, ContextPipeline, ContextPacket, PromptAssemblyStrategy,
+    PromptCachePlan, PromptSegment, PromptSegmentKind, PromptSnapshot, TokenBudget,
 };
 pub use message::{ContentBlock, ContentTrust, DocumentSource, ImageSource, Message};
 pub use model::{ModelInfo, ModelInfoSource};

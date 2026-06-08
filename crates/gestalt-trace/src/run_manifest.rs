@@ -4,6 +4,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+pub const PROMPT_SNAPSHOT_RELATIVE_PATH: &str = "artifacts/prompt-snapshot.json";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RunKind {
@@ -44,6 +46,10 @@ pub struct RunManifest {
     pub finalized_at: Option<DateTime<Utc>>,
     pub failure_kind: Option<String>,
     pub interrupted_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_snapshot_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_snapshot_path: Option<String>,
     pub compatibility_fingerprint: CompatibilityFingerprint,
 }
 

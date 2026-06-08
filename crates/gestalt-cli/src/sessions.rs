@@ -13,6 +13,7 @@ use gestalt_core::{
 use gestalt_tools::default_registry;
 use gestalt_trace::{
     aggregate_costs,
+    read_prompt_snapshot,
     resume::ResumeAnalyzer,
     run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
     write_cost_report, write_summary, JsonlTraceSink,
@@ -666,6 +667,19 @@ pub async fn run_session_action(
     // Seed the session with reconstructed history
     session.history = history;
 
+    if let Some(prompt_snapshot) = analysis.prompt_snapshot.as_ref() {
+        let loaded_event = AgentEvent::PromptSnapshotLoaded {
+            snapshot_hash: prompt_snapshot.snapshot_hash.clone(),
+            source: gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+        };
+        sink.emit(loaded_event.clone())?;
+        if let Some(ref tx) = event_tx {
+            let _ = tx.send(loaded_event);
+        } else if let Some(line) = render_event(&loaded_event) {
+            println!("{line}");
+        }
+    }
+
     // 5. Setup RunManifest
     let run_kind = match action {
         "continue" => RunKind::Continue,
@@ -686,6 +700,8 @@ pub async fn run_session_action(
         finalized_at: None,
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: expected_fingerprint.clone(),
     };
     initial_manifest
@@ -727,7 +743,15 @@ pub async fn run_session_action(
     });
 
     let loop_result = runtime
-        .run_session(&mut session, &cancel_token, Some(tx))
+        .run_session(
+            &mut session,
+            &cancel_token,
+            Some(tx),
+            analysis
+                .prompt_snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.snapshot_hash.clone()),
+        )
         .await;
 
     // Await rendering task to finish processing all events before completing
@@ -791,6 +815,16 @@ pub async fn run_session_action(
             }
         }
     };
+
+    let prompt_snapshot_path = run_paths
+        .root
+        .join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+    if let Ok(snapshot) = read_prompt_snapshot(&prompt_snapshot_path) {
+        manifest.prompt_snapshot_hash = Some(snapshot.snapshot_hash);
+        manifest.prompt_snapshot_path = Some(
+            gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+        );
+    }
 
     let _ = manifest.save_to(&run_manifest_path);
     final_status

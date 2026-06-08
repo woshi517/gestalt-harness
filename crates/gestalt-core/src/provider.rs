@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    error::HarnessError, event::AgentEvent, message::Message, model::ModelInfo, tool::ToolSchema,
+    context::PromptCachePlan, error::HarnessError, event::AgentEvent, message::Message,
+    model::ModelInfo, tool::ToolSchema,
 };
 
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<AgentEvent, HarnessError>> + Send>>;
@@ -148,6 +149,8 @@ pub struct ProviderRequest {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stop_sequences: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_plan: Option<PromptCachePlan>,
     pub metadata: Value,
 }
 
@@ -162,6 +165,7 @@ impl Default for ProviderRequest {
             temperature: None,
             top_p: None,
             stop_sequences: Vec::new(),
+            cache_plan: None,
             metadata: Value::Null,
         }
     }

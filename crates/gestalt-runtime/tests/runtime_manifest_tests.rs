@@ -36,6 +36,7 @@ lifecycle_point = "before_context_build"
 
 [[context_injectors]]
 name = "mock_injector"
+stability = "turn_dynamic"
 "#;
 
     let manifest = ExtensionManifest::parse(valid_toml).unwrap();
@@ -114,8 +115,36 @@ allow_shell = false
     let manifest = ExtensionManifest::parse(invalid_toml).unwrap();
     assert!(manifest.validate(true).is_err());
 
+    // Context injector without stability
+    let invalid_toml = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "bin"
+[capabilities]
+context = true
+[permissions]
+[[context_injectors]]
+name = "missing_stability"
+"#;
+    let manifest = ExtensionManifest::parse(invalid_toml).unwrap();
+    assert!(manifest.validate(true).is_err());
+
     // Shell command with allow_shell
-    let mut manifest = ExtensionManifest::parse(invalid_toml).unwrap();
+    let shell_ok_toml = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "bin arg1"
+[capabilities]
+[permissions]
+allow_shell = true
+"#;
+    let mut manifest = ExtensionManifest::parse(shell_ok_toml).unwrap();
     manifest.permissions.allow_shell = true;
     assert!(manifest.validate(true).is_ok());
 

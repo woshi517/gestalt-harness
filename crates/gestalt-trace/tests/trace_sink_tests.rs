@@ -142,3 +142,23 @@ fn test_summary_includes_snapshot_id() {
     let content = fs::read_to_string(summary_path).expect("read summary");
     assert!(content.contains("- Workspace snapshot: 123456789012"));
 }
+
+#[test]
+fn test_prompt_snapshot_round_trips_through_disk() {
+    use gestalt_core::{Message, PromptSnapshot};
+    use gestalt_trace::{read_prompt_snapshot, write_prompt_snapshot};
+
+    let dir = temp_dir("prompt-snapshot");
+    let path = dir.join("artifacts/prompt-snapshot.json");
+    let snapshot = PromptSnapshot::new(
+        vec![Message::System {
+            content: "stable prefix".to_string(),
+        }],
+        0,
+    );
+
+    write_prompt_snapshot(&path, &snapshot).expect("write prompt snapshot");
+    let loaded = read_prompt_snapshot(&path).expect("read prompt snapshot");
+
+    assert_eq!(loaded, snapshot);
+}

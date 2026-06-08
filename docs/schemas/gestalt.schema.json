@@ -416,6 +416,17 @@
             "string",
             "null"
           ]
+        },
+        "assembly_strategy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "dynamic",
+            "snapshot",
+            null
+          ]
         }
       },
       "additionalProperties": false

@@ -467,12 +467,17 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
 pub struct ProcessBackedContextContributor {
     broker: Arc<ProcessExtensionBroker>,
     name: String,
+    stability: gestalt_core::ContextStability,
 }
 
 #[async_trait::async_trait]
 impl crate::context::ContextContributor for ProcessBackedContextContributor {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn stability(&self) -> gestalt_core::ContextStability {
+        self.stability
     }
 
     async fn contribute(
@@ -575,9 +580,16 @@ impl GestaltExtension for ProcessExtension {
         }
 
         for injector in &self.manifest.context_injectors {
+            let stability = injector.stability.ok_or_else(|| {
+                RuntimeError::Extension(format!(
+                    "Context injector '{}' must declare stability",
+                    injector.name
+                ))
+            })?;
             let contributor = Arc::new(ProcessBackedContextContributor {
                 broker: self.broker.clone(),
                 name: injector.name.clone(),
+                stability,
             });
 
             registry.register_executable_context_contributor(

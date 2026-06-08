@@ -164,7 +164,12 @@ impl AgentRuntime {
             let _ = tx.send(user_msg_event);
         }
 
-        self.run_session(&mut session, &input.cancel_token, input.event_tx)
+        self.run_session(
+            &mut session,
+            &input.cancel_token,
+            input.event_tx,
+            None,
+        )
             .await
     }
 
@@ -173,6 +178,7 @@ impl AgentRuntime {
         session: &mut Session,
         cancel_token: &CancelToken,
         event_tx: Option<UnboundedSender<AgentEvent>>,
+        initial_prompt_snapshot_hash: Option<String>,
     ) -> Result<RunResult> {
         let mut core_hooks = self.hooks.clone();
         let mut middleware = self.middleware.clone();
@@ -250,6 +256,7 @@ impl AgentRuntime {
                 workspace_root: self.config.workspace_root.clone(),
                 block_reason: Some(block_reason),
                 event_bus: self.event_bus.clone(),
+                prompt_snapshot_state: Arc::new(Mutex::new(initial_prompt_snapshot_hash)),
             }));
 
             core_hooks.register_tool_hook(Arc::new(RuntimeToolHookAdapter {

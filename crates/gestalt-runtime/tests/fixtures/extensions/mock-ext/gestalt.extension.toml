@@ -26,3 +26,4 @@ input_schema = { type = "object" }
 
 [[context_injectors]]
 name = "bash_context"
+stability = "turn_dynamic"

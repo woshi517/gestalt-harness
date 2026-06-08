@@ -192,6 +192,11 @@ impl ContextPipeline for FixturePipeline {
             sources: vec![],
             omissions: vec![],
             message_hashes,
+            prompt_assembly_strategy: gestalt_core::PromptAssemblyStrategy::Dynamic,
+            snapshot_hash: None,
+            cache_prefix_hash: None,
+            segments: vec![],
+            cache_plan: None,
             prompt_source: Some("default".to_string()),
         };
         let mut guard = self.captured.lock().unwrap();
@@ -423,6 +428,11 @@ impl GoldenTraceRunner {
                     sources: vec![],
                     omissions: vec![],
                     message_hashes: vec![],
+                    prompt_assembly_strategy: gestalt_core::PromptAssemblyStrategy::Dynamic,
+                    snapshot_hash: None,
+                    cache_prefix_hash: None,
+                    segments: vec![],
+                    cache_plan: None,
                     prompt_source: Some("default".to_string()),
                 });
 

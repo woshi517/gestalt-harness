@@ -108,6 +108,8 @@ async fn test_slash_cost_calculation() {
         finalized_at: Some(chrono::Utc::now()),
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fp.clone(),
     };
     m1.save_to(&run1_dir.join("run.json")).unwrap();
@@ -127,6 +129,8 @@ async fn test_slash_cost_calculation() {
         finalized_at: Some(chrono::Utc::now()),
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fp,
     };
     m2.save_to(&run2_dir.join("run.json")).unwrap();

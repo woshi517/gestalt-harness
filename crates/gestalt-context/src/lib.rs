@@ -8,8 +8,12 @@
 pub mod default_prompt;
 
 use gestalt_core::{
-    context::{ContextOmission, ContextPacket, ContextPipeline, ContextSourceRef, TokenBudget},
+    context::{
+        ContextOmission, ContextPacket, ContextPipeline, ContextSourceRef, PromptAssemblyStrategy,
+        PromptCachePlan, PromptSegment, PromptSegmentKind, TokenBudget,
+    },
     message::{ContentBlock, ContentTrust, DocumentSource, Message},
+    ContextStability,
 };
 
 #[derive(Debug, Clone)]
@@ -23,6 +27,7 @@ pub struct MinimalContextPipeline {
     mode: Option<String>,
     max_turns: Option<usize>,
     available_tools: Option<Vec<String>>,
+    assembly_strategy: PromptAssemblyStrategy,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -46,7 +51,13 @@ impl MinimalContextPipeline {
             mode: None,
             max_turns: None,
             available_tools: None,
+            assembly_strategy: PromptAssemblyStrategy::Dynamic,
         }
+    }
+
+    pub fn with_prompt_assembly_strategy(mut self, strategy: PromptAssemblyStrategy) -> Self {
+        self.assembly_strategy = strategy;
+        self
     }
 
     pub fn with_workspace_root(mut self, root: std::path::PathBuf) -> Self {
@@ -362,6 +373,59 @@ impl ContextPipeline for MinimalContextPipeline {
             })
             .collect();
 
+        let stable_prefix_len = messages
+            .iter()
+            .take_while(|message| !is_budget_notice(message) && matches!(message, Message::System { .. }))
+            .count();
+
+        let (snapshot_hash, cache_prefix_hash, segments, cache_plan) =
+            if self.assembly_strategy == PromptAssemblyStrategy::Snapshot {
+                let stable_messages = messages[..stable_prefix_len].to_vec();
+                let snapshot = gestalt_core::PromptSnapshot::new(stable_messages.clone(), 0);
+                let mut segments = Vec::new();
+
+                if !stable_messages.is_empty() {
+                    segments.push(PromptSegment::from_messages(
+                        PromptSegmentKind::Snapshot,
+                        ContextStability::SessionStatic,
+                        &stable_messages,
+                    ));
+                }
+
+                if stable_prefix_len < messages.len() {
+                    let tail = &messages[stable_prefix_len..];
+                    let (conversation_messages, ephemeral_messages) = split_tail_messages(tail);
+
+                    if !conversation_messages.is_empty() {
+                        segments.push(PromptSegment::from_messages(
+                            PromptSegmentKind::Conversation,
+                            ContextStability::TurnDynamic,
+                            conversation_messages,
+                        ));
+                    }
+
+                    if !ephemeral_messages.is_empty() {
+                        segments.push(PromptSegment::from_messages(
+                            PromptSegmentKind::Ephemeral,
+                            ContextStability::Ephemeral,
+                            ephemeral_messages,
+                        ));
+                    }
+                }
+
+                let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot)
+                    .with_segments(segments.clone());
+
+                (
+                    Some(snapshot.snapshot_hash),
+                    Some(snapshot.prefix_hash),
+                    segments,
+                    Some(plan),
+                )
+            } else {
+                (None, None, Vec::new(), None)
+            };
+
         let is_default = self
             .prompt_override
             .as_ref()
@@ -385,6 +449,11 @@ impl ContextPipeline for MinimalContextPipeline {
             sources,
             omissions,
             message_hashes,
+            prompt_assembly_strategy: self.assembly_strategy,
+            snapshot_hash,
+            cache_prefix_hash,
+            segments,
+            cache_plan,
             prompt_source,
         }
     }
@@ -445,6 +514,18 @@ fn render_untrusted_document(source: &DocumentSource, title: Option<&str>) -> St
         "<source kind=\"document\" trust=\"external_untrusted\">\n{title_line}media_type=\"{}\"\n---\n{}\n</source>",
         source.media_type, escaped
     )
+}
+
+fn is_budget_notice(message: &Message) -> bool {
+    matches!(message, Message::System { content } if content.starts_with("context budget exhausted or truncated;"))
+}
+
+fn split_tail_messages(messages: &[Message]) -> (&[Message], &[Message]) {
+    if matches!(messages.last(), Some(Message::System { content }) if content.starts_with("context budget exhausted or truncated;")) {
+        messages.split_at(messages.len().saturating_sub(1))
+    } else {
+        (messages, &[])
+    }
 }
 
 #[cfg(test)]

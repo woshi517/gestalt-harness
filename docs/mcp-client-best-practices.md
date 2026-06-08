@@ -145,11 +145,16 @@ Most providers cache the prompt prefix, including the `tools` array. Adding or r
 definitions mid-conversation invalidates that cache, and the resulting miss can cost more tokens
 than the definitions you removed. To preserve caching:
 
-* Append newly discovered definitions after the cache breakpoint rather than re-sorting the
+* Appending newly discovered definitions after the cache breakpoint rather than re-sorting the
   `tools` array, or route every call through a single stable `call_tool({name, args})` meta-tool
   so the array never changes.
-* Treat server disconnection as a conversation-boundary operation rather than a per-turn one.
-* Consult your provider's caching documentation alongside the tool-search links above.
+* Treating server disconnection as a conversation-boundary operation rather than a per-turn one.
+* Consulting your provider's caching documentation alongside the tool-search links above.
+
+> [!TIP]
+> Gestalt's [cache-aware prompt assembly](adrs/ADR-026-cache-aware-prompt-assembly.md) (see
+> `prompt.assembly_strategy` in `gestalt.json`) automatically places stable context before the
+> cache breakpoint to preserve provider cache hit rates across turns.
 
 ## Programmatic Tool Calling / Code Mode
 

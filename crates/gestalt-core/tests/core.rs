@@ -1,4 +1,8 @@
 use gestalt_core::{
+    context::{
+        ContextPacket, ContextStability, PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
+        PromptSegmentKind, PromptSnapshot,
+    },
     error::ToolError,
     policy::PolicyRequest,
     provider::{ProviderRequest, ProviderToolSchema},
@@ -153,12 +157,119 @@ fn test_provider_request_with_provider_tool_schema() {
         temperature: None,
         top_p: None,
         stop_sequences: vec![],
+        cache_plan: None,
         metadata: serde_json::Value::Null,
     };
 
     assert_eq!(req.tools.len(), 1);
     assert_eq!(req.tools[0].name, "dummy_tool");
     assert_eq!(req.tools[0].strict, Some(true));
+}
+
+#[test]
+fn test_prompt_snapshot_hash_is_deterministic() {
+    let messages = vec![gestalt_core::Message::System {
+        content: "stable prefix".to_string(),
+    }];
+
+    let first = PromptSnapshot::new(messages.clone(), 3);
+    let second = PromptSnapshot::new(messages, 3);
+
+    assert_eq!(first.snapshot_hash, second.snapshot_hash);
+    assert_eq!(first.prefix_hash, second.prefix_hash);
+    assert_eq!(first.message_hashes, second.message_hashes);
+}
+
+#[test]
+fn test_prompt_cache_plan_round_trips_through_serde() {
+    let snapshot = PromptSnapshot::new(
+        vec![gestalt_core::Message::System {
+            content: "stable prefix".to_string(),
+        }],
+        7,
+    );
+    let segment = PromptSegment::from_messages(
+        PromptSegmentKind::Snapshot,
+        ContextStability::SessionStatic,
+        &snapshot.messages,
+    );
+    let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot)
+        .with_segments(vec![segment]);
+
+    let serialized = serde_json::to_value(&plan).unwrap();
+    let round_tripped: PromptCachePlan = serde_json::from_value(serialized).unwrap();
+
+    assert_eq!(plan, round_tripped);
+}
+
+#[test]
+fn test_context_packet_serializes_cache_metadata() {
+    let snapshot = PromptSnapshot::new(
+        vec![gestalt_core::Message::System {
+            content: "stable prefix".to_string(),
+        }],
+        11,
+    );
+    let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot);
+    let packet = ContextPacket {
+        messages: snapshot.messages.clone(),
+        packet_hash: "packet-hash".to_string(),
+        pipeline_version: "pipeline-v1".to_string(),
+        tokenizer_id: "default".to_string(),
+        token_estimate: 42,
+        sources: vec![],
+        omissions: vec![],
+        message_hashes: snapshot.message_hashes.clone(),
+        prompt_assembly_strategy: PromptAssemblyStrategy::Snapshot,
+        snapshot_hash: Some(snapshot.snapshot_hash.clone()),
+        cache_prefix_hash: Some(snapshot.prefix_hash.clone()),
+        segments: vec![PromptSegment::from_messages(
+            PromptSegmentKind::Snapshot,
+            ContextStability::SessionStatic,
+            &snapshot.messages,
+        )],
+        cache_plan: Some(plan),
+        prompt_source: Some("default".to_string()),
+    };
+
+    let serialized = serde_json::to_value(&packet).unwrap();
+    let round_tripped: ContextPacket = serde_json::from_value(serialized).unwrap();
+
+    assert_eq!(packet, round_tripped);
+}
+
+#[test]
+fn test_cache_events_round_trip_through_serde() {
+    let events = vec![
+        gestalt_core::AgentEvent::PromptSnapshotCreated {
+            snapshot_hash: "snapshot-hash".to_string(),
+            prefix_hash: "prefix-hash".to_string(),
+            created_turn: 4,
+        },
+        gestalt_core::AgentEvent::PromptSnapshotLoaded {
+            snapshot_hash: "snapshot-hash".to_string(),
+            source: "resume".to_string(),
+        },
+        gestalt_core::AgentEvent::PromptSnapshotReused {
+            snapshot_hash: "snapshot-hash".to_string(),
+            prefix_hash: "prefix-hash".to_string(),
+        },
+        gestalt_core::AgentEvent::PromptCachePlanGenerated {
+            snapshot_hash: "snapshot-hash".to_string(),
+            prefix_hash: "prefix-hash".to_string(),
+            prefix_message_count: 3,
+        },
+        gestalt_core::AgentEvent::EphemeralContextInjected {
+            source: "budget_exhaustion".to_string(),
+            token_estimate: 17,
+        },
+    ];
+
+    for event in events {
+        let serialized = serde_json::to_value(&event).unwrap();
+        let round_tripped: gestalt_core::AgentEvent = serde_json::from_value(serialized).unwrap();
+        assert_eq!(event, round_tripped);
+    }
 }
 
 #[test]
