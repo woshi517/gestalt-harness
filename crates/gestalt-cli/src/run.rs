@@ -293,7 +293,7 @@ pub(crate) fn emit_trace_event<S: TraceSink>(
 mod tests {
     use std::sync::Mutex;
 
-    use gestalt_core::{error::TraceError, trace::TraceSink, AgentEvent};
+    use gestalt_core::{AgentEvent, PromptAssemblyStrategy, error::TraceError, trace::TraceSink};
 
     use super::emit_trace_event;
 
