@@ -642,16 +642,17 @@ The runtime does **not** auto-restart crashed extensions in MVP.
 
 ## 8. Configuration & Trust
 
-### 8.1 Config.toml `[extensions]` Section
+### 8.1 `gestalt.json` `extensions` Section
 
 From `crates/gestalt-cli/src/config.rs`:
 
-```toml
-[extensions]
-explicit_loads = ["path/to/extension"]  # Explicit paths to extension directories/manifests
-disabled = ["some-ext"]                  # Extension IDs to disable
-trusted = ["trusted-ext"]                # Extension IDs to trust without approval
-allow_untrusted = true                   # Allow all discovered extensions to load (default: false)
+```json
+"extensions": {
+  "explicit_loads": ["path/to/extension"],
+  "disabled": ["some-ext"],
+  "trusted": ["trusted-ext"],
+  "allow_untrusted": true
+}
 ```
 
 - `explicit_loads` — load extensions from specific paths (can be a directory containing `gestalt.extension.toml`, or directly the manifest file)

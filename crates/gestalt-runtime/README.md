@@ -837,7 +837,7 @@ pub fn compute_policy_fingerprint(policies_content: &str) -> String;
 ```
 
 - `compute_hook_contract_hash` — SHA-256 of sorted hook names, delimited by `:`. Used to detect hook contract drift.
-- `compute_policy_fingerprint` — SHA-256 of the raw policy file content. Computed from `.gestalt/policies.toml` if it exists at the workspace root.
+- `compute_policy_fingerprint` — SHA-256 of the raw policy file content. Computed from the `policies` key of `gestalt.json` (or legacy `.gestalt/policies.toml` if `gestalt.json` is absent).
 
 ---
 

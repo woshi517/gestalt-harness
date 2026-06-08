@@ -143,7 +143,7 @@ flowchart TD
 ### P0.5 Test Fixtures Layout
 
 - [x] Create `tests/fixtures/` for provider streams, policy files, trace logs, sample workspaces, sample source documents, and CLI golden output.
-- [x] Add sample `.gestalt/config.toml`, `.gestalt/policies.toml`, `workspace.md`, and `memory.md` fixtures.
+- [x] Add sample `gestalt.json`, `workspace.md`, and `memory.md` fixtures plus legacy `.gestalt/` TOML fixtures for migration coverage.
 - [x] Add a convention for redacted provider HTTP cassettes once provider adapters are implemented.
 
 **Depends on:** P0.1.  
@@ -222,7 +222,7 @@ flowchart TD
 
 ### P1.5 Minimal Policy and Approval
 
-- [x] Parse `.gestalt/policies.toml` with minimal path, network, and bash sections.
+- [x] Parse policies from `gestalt.json` `policies` key with minimal path, network, and bash sections (legacy `.gestalt/policies.toml` fallback during migration window).
 - [x] Implement layered default policy behavior for `confirm`, `yolo`, `human`, `dry-run`, and `replay`.
 - [x] Implement bash risk classifier from PRD §10.3.
 - [x] Enforce read/write allow and deny path lists.
@@ -389,7 +389,7 @@ The minimal policy gate from v0.1 evolves into a complete runtime control layer.
 
 #### Deliverables
 
-- [ ] Full `policies.toml` grammar.
+- [ ] Full policy grammar.
 - [ ] Tool-level permissions.
 - [ ] Path-level permissions.
 - [ ] Network permissions.
@@ -898,6 +898,6 @@ Following a comprehensive v0.1 harness-engineering review, we hardened the primi
 - **Observable/Auditable Context:** Expanded `ContextBuilt`, `PolicyDecision`, and `ToolResult` schemas. Full truncated tool output is saved to `artifacts/`.
 - **Workspace State Correlation:** Added `WorkspaceSnapshot` capturing git state + tracked files hash, linking every session and trace run to a specific workspace state.
 - **Regression Verification:** Shipped `TraceFixture` / `GoldenTrace` registry and `GoldenTraceRunner` (asserting event ordering, policy decisions, and tool executions against canonical trace files) with `TraceEvaluator` hook.
-- **Default Overridable System Prompt:** Added a default system prompt coverage in `MinimalContextPipeline` with overrides via `prompt.override` or `prompt.override_file` in `.gestalt/policies.toml`.
+- **Default Overridable System Prompt:** Added a default system prompt coverage in `MinimalContextPipeline` with overrides via `prompt.override` or `prompt.override_file` in `gestalt.json`.
 
 For detailed analysis, refer to [Harness Engineering Review Learnings](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/docs/solutions/2026-06-01-001-v0-1-harness-engineering-review.md).
