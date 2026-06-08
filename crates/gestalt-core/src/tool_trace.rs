@@ -1,5 +1,5 @@
+use crate::tool_descriptor::{AnnotationSource, ToolNamespace};
 use serde::{Deserialize, Serialize};
-use crate::tool_descriptor::{ToolNamespace, AnnotationSource};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCallTraceMetadata {

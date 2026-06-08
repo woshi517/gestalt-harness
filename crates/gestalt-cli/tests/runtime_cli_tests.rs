@@ -7,6 +7,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     HarnessError,
 };
+use serde_json::{json, Value};
 use std::sync::Arc;
 
 struct MockProvider {
@@ -68,16 +69,9 @@ impl Provider for MockProvider {
 }
 
 fn copy_minimal_workspace(dest: &std::path::Path) {
-    let src = std::path::Path::new("tests/fixtures/workspaces/minimal");
-    if src.exists() {
-        copy_dir_recursive(src, dest);
-    } else {
-        // Fallback for different working directories in tests
-        let alt_src = std::path::Path::new("../../tests/fixtures/workspaces/minimal");
-        if alt_src.exists() {
-            copy_dir_recursive(alt_src, dest);
-        }
-    }
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/workspaces/minimal");
+    copy_dir_recursive(&src, dest);
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) {
@@ -94,6 +88,17 @@ fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) {
     }
 }
 
+fn update_workspace_config<F>(workspace: &std::path::Path, update: F)
+where
+    F: FnOnce(&mut Value),
+{
+    let path = workspace.join("gestalt.json");
+    let input = std::fs::read_to_string(&path).unwrap();
+    let mut json: Value = serde_json::from_str(&input).unwrap();
+    update(&mut json);
+    std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap()).unwrap();
+}
+
 #[tokio::test]
 async fn test_inspect_runtime_cli() {
     let _ = gestalt_models::registry::register(
@@ -105,21 +110,18 @@ async fn test_inspect_runtime_cli() {
         std::env::temp_dir().join(format!("gestalt-cli-inspect-{}", uuid::Uuid::new_v4()));
     copy_minimal_workspace(&temp_dir);
 
-    // Overwrite config.toml in the copied workspace to use our mock provider
-    let config_toml = r#"
-[defaults]
-profile = "mock-profile"
-provider = "mock-provider"
-model = "mock-model"
-mode = "confirm"
-max_turns = 12
-
-[profiles.mock-profile]
-provider = "mock-provider"
-model = "mock-model"
-"#;
-    std::fs::create_dir_all(temp_dir.join(".gestalt")).unwrap();
-    std::fs::write(temp_dir.join(".gestalt/config.toml"), config_toml).unwrap();
+    update_workspace_config(&temp_dir, |json| {
+        json["defaults"]["profile"] = json!("mock-profile");
+        json["defaults"]["provider"] = json!("mock-provider");
+        json["defaults"]["model"] = json!("mock-model");
+        json["defaults"]["max_turns"] = json!(12);
+        json["profiles"] = json!({
+            "mock-profile": {
+                "provider": "mock-provider",
+                "model": "mock-model"
+            }
+        });
+    });
 
     let overrides = CliOverrides {
         workspace: Some(temp_dir.clone()),
@@ -151,19 +153,15 @@ fn test_runtime_inspect_cli_subcommand() {
         std::env::temp_dir().join(format!("gestalt-cli-inspect-sub-{}", uuid::Uuid::new_v4()));
     copy_minimal_workspace(&temp_dir);
 
-    // Overwrite config.toml in the copied workspace to use a standard provider
-    let config_toml = r#"
-[defaults]
-profile = "openai-profile"
-provider = "openai"
-model = "gpt-4o"
-
-[profiles.openai-profile]
-provider = "openai"
-model = "gpt-4o"
-"#;
-    std::fs::create_dir_all(temp_dir.join(".gestalt")).unwrap();
-    std::fs::write(temp_dir.join(".gestalt/config.toml"), config_toml).unwrap();
+    update_workspace_config(&temp_dir, |json| {
+        json["defaults"]["profile"] = json!("openai-profile");
+        json["profiles"] = json!({
+            "openai-profile": {
+                "provider": "openai",
+                "model": "gpt-4o"
+            }
+        });
+    });
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_gestalt"))
         .arg("--workspace")
@@ -209,8 +207,8 @@ async fn test_build_cli_runtime_trust_gating() {
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
 
-    let temp_dir =
-        std::env::temp_dir().join(format!("gestalt-cli-trust-{}", uuid::Uuid::new_v4()));
+    let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-trust-{}", uuid::Uuid::new_v4()));
+    copy_minimal_workspace(&temp_dir);
     std::fs::create_dir_all(temp_dir.join(".gestalt/extensions/local-ext")).unwrap();
 
     // Write a dummy extension manifest in the local workspace directory
@@ -243,13 +241,15 @@ allowed_paths = []
     .unwrap();
 
     // 1. First scenario: Untrusted by default.
-    let config_toml_untrusted = r#"
-[defaults]
-provider = "mock-provider"
-model = "mock-model"
-mode = "confirm"
-"#;
-    std::fs::write(temp_dir.join(".gestalt/config.toml"), config_toml_untrusted).unwrap();
+    update_workspace_config(&temp_dir, |json| {
+        json["defaults"]["profile"] = json!("mock-profile");
+        json["profiles"] = json!({
+            "mock-profile": {
+                "provider": "mock-provider",
+                "model": "mock-model"
+            }
+        });
+    });
 
     let overrides = CliOverrides {
         workspace: Some(temp_dir.clone()),
@@ -261,88 +261,85 @@ mode = "confirm"
     };
     let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_cli::runtime::build_cli_runtime(
-        &config,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let runtime = gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None)
+        .await
+        .unwrap();
 
     let events = runtime.event_bus.history();
     let untrusted_rejected = events.iter().any(|e| match e {
-        gestalt_runtime::RuntimeEvent::ExtensionRejected { extension_id, reason } => {
-            extension_id == "local-ext" && reason.contains("Untrusted project extension ignored")
-        }
+        gestalt_runtime::RuntimeEvent::ExtensionRejected {
+            extension_id,
+            reason,
+        } => extension_id == "local-ext" && reason.contains("Untrusted project extension ignored"),
         _ => false,
     });
-    assert!(untrusted_rejected, "Local extension should be rejected as untrusted by default. Events: {:?}", events);
+    assert!(
+        untrusted_rejected,
+        "Local extension should be rejected as untrusted by default. Events: {:?}",
+        events
+    );
 
     // 2. Second scenario: Untrusted but allow_untrusted = true in config.
-    let config_toml_allow_untrusted = r#"
-[defaults]
-provider = "mock-provider"
-model = "mock-model"
-mode = "confirm"
-
-[extensions]
-allow_untrusted = true
-"#;
-    std::fs::write(temp_dir.join(".gestalt/config.toml"), config_toml_allow_untrusted).unwrap();
+    update_workspace_config(&temp_dir, |json| {
+        json["defaults"]["profile"] = json!("mock-profile");
+        json["profiles"] = json!({
+            "mock-profile": {
+                "provider": "mock-provider",
+                "model": "mock-model"
+            }
+        });
+        json["extensions"] = json!({"allow_untrusted": true});
+    });
     let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_cli::runtime::build_cli_runtime(
-        &config,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let runtime = gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None)
+        .await
+        .unwrap();
 
     let events = runtime.event_bus.history();
     let allowed_untrusted = events.iter().any(|e| match e {
-        gestalt_runtime::RuntimeEvent::ExtensionRejected { extension_id, reason } => {
-            extension_id == "local-ext" && reason.contains("Startup failure")
-        }
+        gestalt_runtime::RuntimeEvent::ExtensionRejected {
+            extension_id,
+            reason,
+        } => extension_id == "local-ext" && reason.contains("Startup failure"),
         _ => false,
     });
-    assert!(allowed_untrusted, "Local extension should bypass trust gate with allow_untrusted=true. Events: {:?}", events);
+    assert!(
+        allowed_untrusted,
+        "Local extension should bypass trust gate with allow_untrusted=true. Events: {:?}",
+        events
+    );
 
     // 3. Third scenario: Explicitly trusted via extensions.trusted list.
-    let config_toml_trusted = r#"
-[defaults]
-provider = "mock-provider"
-model = "mock-model"
-mode = "confirm"
-
-[extensions]
-trusted = ["local-ext"]
-"#;
-    std::fs::write(temp_dir.join(".gestalt/config.toml"), config_toml_trusted).unwrap();
+    update_workspace_config(&temp_dir, |json| {
+        json["defaults"]["profile"] = json!("mock-profile");
+        json["profiles"] = json!({
+            "mock-profile": {
+                "provider": "mock-provider",
+                "model": "mock-model"
+            }
+        });
+        json["extensions"] = json!({"trusted": ["local-ext"]});
+    });
     let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_cli::runtime::build_cli_runtime(
-        &config,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let runtime = gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None)
+        .await
+        .unwrap();
 
     let events = runtime.event_bus.history();
     let trusted_allowed = events.iter().any(|e| match e {
-        gestalt_runtime::RuntimeEvent::ExtensionRejected { extension_id, reason } => {
-            extension_id == "local-ext" && reason.contains("Startup failure")
-        }
+        gestalt_runtime::RuntimeEvent::ExtensionRejected {
+            extension_id,
+            reason,
+        } => extension_id == "local-ext" && reason.contains("Startup failure"),
         _ => false,
     });
-    assert!(trusted_allowed, "Local extension should bypass trust gate when in trusted list. Events: {:?}", events);
+    assert!(
+        trusted_allowed,
+        "Local extension should bypass trust gate when in trusted list. Events: {:?}",
+        events
+    );
 
     // Clean up
     let _ = std::fs::remove_dir_all(&temp_dir);

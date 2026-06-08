@@ -53,11 +53,11 @@ impl ProcessExtensionBroker {
         let mut cmd = Command::new(&manifest.entrypoint.command);
         cmd.args(&manifest.entrypoint.args);
         cmd.env_clear();
-        
+
         // Inherit only safe/non-sensitive env variables from parent
         let safe_envs = [
-            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG",
-            "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP"
+            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
+            "TMPDIR", "TEMP", "TMP",
         ];
         for var in &safe_envs {
             if let Ok(val) = std::env::var(var) {
@@ -349,11 +349,9 @@ fn check_input_permissions(
                         } else {
                             s.clone()
                         };
-                        if let Err(e) = crate::permissions::check_network_permission(
-                            manifest,
-                            &host,
-                            event_bus,
-                        ) {
+                        if let Err(e) =
+                            crate::permissions::check_network_permission(manifest, &host, event_bus)
+                        {
                             return Err(gestalt_core::error::ToolError::NetworkDenied(e));
                         }
                     }
@@ -413,7 +411,10 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
         // hand-rolled version here used `ToolAnnotations::default()`
         // and silently downgraded trust; routing through
         // `build_extension_tool_descriptor` closes that gap.
-        crate::extension_trust::build_extension_tool_descriptor(&self.broker.manifest, &self.tool_decl)
+        crate::extension_trust::build_extension_tool_descriptor(
+            &self.broker.manifest,
+            &self.tool_decl,
+        )
     }
 
     async fn execute(
@@ -421,11 +422,14 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
         input: serde_json::Value,
         ctx: &gestalt_core::tool::ToolContext,
     ) -> std::result::Result<gestalt_core::tool::ToolOutput, gestalt_core::error::ToolError> {
-        let workspace_root = ctx.workspace_root.as_deref().unwrap_or_else(|| std::path::Path::new("."));
+        let workspace_root = ctx
+            .workspace_root
+            .as_deref()
+            .unwrap_or_else(|| std::path::Path::new("."));
 
         if !self.broker.manifest.capabilities.tools {
             return Err(gestalt_core::error::ToolError::Denied(
-                "Tools capability is not enabled in manifest".to_string()
+                "Tools capability is not enabled in manifest".to_string(),
             ));
         }
 
@@ -476,7 +480,9 @@ impl crate::context::ContextContributor for ProcessBackedContextContributor {
         workspace_root: &std::path::Path,
     ) -> Result<gestalt_core::message::Message> {
         if !self.broker.manifest.capabilities.context {
-            return Err(RuntimeError::Extension("Context capability is not enabled in manifest".to_string()));
+            return Err(RuntimeError::Extension(
+                "Context capability is not enabled in manifest".to_string(),
+            ));
         }
 
         if let Err(e) = crate::permissions::check_path_permission(

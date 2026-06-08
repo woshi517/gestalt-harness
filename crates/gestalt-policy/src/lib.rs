@@ -269,8 +269,12 @@ impl PolicyEngine for MinimalPolicyEngine {
 impl MinimalPolicyEngine {
     fn evaluate_tool_policy(&self, request: &PolicyRequest) -> Option<PolicyDecision> {
         match request.tool_name.as_str() {
-            "read" | "builtin:read" | "search" | "builtin:search" => Some(self.evaluate_path_tool(request, PathAccess::Read)),
-            "write" | "builtin:write" | "patch" | "builtin:patch" => Some(self.evaluate_path_tool(request, PathAccess::Write)),
+            "read" | "builtin:read" | "search" | "builtin:search" => {
+                Some(self.evaluate_path_tool(request, PathAccess::Read))
+            }
+            "write" | "builtin:write" | "patch" | "builtin:patch" => {
+                Some(self.evaluate_path_tool(request, PathAccess::Write))
+            }
             "bash" | "builtin:bash" => Some(self.evaluate_bash(request)),
             "web_fetch" | "builtin:web_fetch" => Some(self.evaluate_network(request)),
             _ => None,

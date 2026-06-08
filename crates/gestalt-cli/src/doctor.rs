@@ -33,12 +33,15 @@ pub async fn diagnose_workspace(
             config_error = Some(err.to_string());
             crate::config::EffectiveConfig {
                 workspace_root: workspace_root.clone(),
+                config_path: workspace_root.join("gestalt.json"),
                 defaults: crate::config::DefaultsConfig::default(),
                 tools: crate::config::ToolsConfig::default(),
                 context: crate::config::ContextConfig::default(),
                 observe: crate::config::ObserveConfig::default(),
                 providers: std::collections::HashMap::new(),
                 profiles: std::collections::HashMap::new(),
+                prompt: crate::config::PromptConfig::default(),
+                policies: crate::config::PoliciesConfig::default(),
                 provider_override: None,
                 model_override: None,
                 tui: crate::config::TuiConfig::default(),
@@ -54,18 +57,19 @@ pub async fn diagnose_workspace(
             policies_valid = false;
             policies_error = Some(err.to_string());
         }
-    } else {
-        missing_files.push("policies.toml".to_string());
     }
 
     // 3. Required files check
-    if !gestalt_dir.join("config.toml").exists() {
-        missing_files.push("config.toml".to_string());
+    if !workspace_root.join("gestalt.json").exists()
+        && !gestalt_dir.join("config.toml").exists()
+        && !policies_path.exists()
+    {
+        missing_files.push("gestalt.json".to_string());
     }
-    if !gestalt_dir.join("workspace.md").exists() {
+    if !config.workspace_file("workspace.md").exists() {
         missing_files.push("workspace.md".to_string());
     }
-    if !gestalt_dir.join("memory.md").exists() {
+    if !config.workspace_file("memory.md").exists() {
         missing_files.push("memory.md".to_string());
     }
 

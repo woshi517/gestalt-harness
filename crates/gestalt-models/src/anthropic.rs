@@ -164,13 +164,17 @@ impl AnthropicProvider {
             body.insert("system".to_string(), Value::String(system));
         }
         if !request.tools.is_empty() {
-            let tools_val = request.tools.iter().map(|tool| {
-                json!({
-                    "name": tool.name,
-                    "description": tool.description,
-                    "input_schema": tool.input_schema
+            let tools_val = request
+                .tools
+                .iter()
+                .map(|tool| {
+                    json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "input_schema": tool.input_schema
+                    })
                 })
-            }).collect::<Vec<_>>();
+                .collect::<Vec<_>>();
             body.insert("tools".to_string(), json!(tools_val));
         }
         if let Some(temperature) = request.temperature {

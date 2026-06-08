@@ -117,7 +117,9 @@ impl ExtensionDiscovery {
                 for manifest_file in entries {
                     if let Ok(content) = std::fs::read_to_string(&manifest_file) {
                         if let Ok(manifest) = ExtensionManifest::parse(&content) {
-                            if manifest.validate(true).is_ok() && seen_ids.insert(manifest.id.clone()) {
+                            if manifest.validate(true).is_ok()
+                                && seen_ids.insert(manifest.id.clone())
+                            {
                                 let hash = compute_content_hash(&content);
                                 discovered.push(DiscoveredExtension {
                                     manifest_path: manifest_file,

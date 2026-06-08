@@ -12,15 +12,15 @@ fn test_workspace_init_report_contract() {
     let report = WorkspaceInitReport {
         workspace_root: PathBuf::from("/workspace"),
         created_files: vec![
-            ".gestalt/config.toml".to_string(),
-            ".gestalt/policies.toml".to_string(),
+            "gestalt.json".to_string(),
+            ".gestalt/workspace.md".to_string(),
         ],
     };
     assert_eq!(report.kind(), "workspace.init");
     assert!(report
         .render_text()
         .contains("initialized workspace=/workspace"));
-    assert!(report.render_text().contains("- .gestalt/config.toml"));
+    assert!(report.render_text().contains("- gestalt.json"));
 
     let envelope = JsonEnvelope {
         schema_version: 1,
@@ -64,15 +64,14 @@ fn test_workspace_status_report_contract() {
 fn test_workspace_info_report_contract() {
     let report = WorkspaceInfoReport {
         workspace_root: PathBuf::from("/workspace"),
-        config_path: PathBuf::from("/workspace/.gestalt/config.toml"),
-        policies_path: PathBuf::from("/workspace/.gestalt/policies.toml"),
+        config_path: PathBuf::from("/workspace/gestalt.json"),
         workspace_md_path: PathBuf::from("/workspace/.gestalt/workspace.md"),
         memory_md_path: PathBuf::from("/workspace/.gestalt/memory.md"),
     };
     assert_eq!(report.kind(), "workspace.info");
     assert!(report
         .render_text()
-        .contains("config_path=/workspace/.gestalt/config.toml"));
+        .contains("config_path=/workspace/gestalt.json"));
 
     let envelope = JsonEnvelope {
         schema_version: 1,

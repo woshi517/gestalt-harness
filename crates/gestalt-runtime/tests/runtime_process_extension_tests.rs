@@ -63,8 +63,16 @@ async fn test_process_extension_lifecycle_and_execution() {
     std::env::set_var("TEST_SECRET", "super_secret");
     let output = tool.execute(serde_json::json!({}), &ctx).await.unwrap();
     if let gestalt_core::tool::ToolOutput::Text { content } = output {
-        assert!(content.contains("TEST_SECRET=unset"), "TEST_SECRET should be filtered out: {}", content);
-        assert!(content.contains("PATH="), "PATH should be present: {}", content);
+        assert!(
+            content.contains("TEST_SECRET=unset"),
+            "TEST_SECRET should be filtered out: {}",
+            content
+        );
+        assert!(
+            content.contains("PATH="),
+            "PATH should be present: {}",
+            content
+        );
         assert!(!content.contains("PATH=unset"), "PATH should not be unset");
     } else {
         panic!("Expected text output");
@@ -144,7 +152,11 @@ async fn test_process_extension_host_filesystem_permissions() {
     let result = tool.execute(tool_input, &ctx).await;
     assert!(result.is_err());
     let err_str = format!("{:?}", result.err().unwrap());
-    assert!(err_str.contains("PathNotAllowed"), "Expected PathNotAllowed error, got: {}", err_str);
+    assert!(
+        err_str.contains("PathNotAllowed"),
+        "Expected PathNotAllowed error, got: {}",
+        err_str
+    );
 
     broker.shutdown().await;
 }
@@ -193,19 +205,23 @@ async fn test_process_extension_host_network_permissions() {
     let result = tool.execute(tool_input, &ctx).await;
     assert!(result.is_err());
     let err_str = format!("{:?}", result.err().unwrap());
-    assert!(err_str.contains("NetworkDenied"), "Expected NetworkDenied error, got: {}", err_str);
+    assert!(
+        err_str.contains("NetworkDenied"),
+        "Expected NetworkDenied error, got: {}",
+        err_str
+    );
 
     broker.shutdown().await;
 }
 
 #[tokio::test]
 async fn test_process_extension_hooks_dispatch() {
-    use gestalt_runtime::{BeforeContextBuildCtx, HookOutcome, CompositionHooks};
+    use gestalt_runtime::{BeforeContextBuildCtx, CompositionHooks, HookOutcome};
     let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
     let content = std::fs::read_to_string(&manifest_path).unwrap();
     let mut manifest = ExtensionManifest::parse(&content).unwrap();
-    
+
     // Enable hooks capability and register a hook
     manifest.capabilities.hooks = true;
     manifest.hooks = vec![gestalt_runtime::manifest::HookDeclaration {

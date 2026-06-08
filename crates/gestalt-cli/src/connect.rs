@@ -1,9 +1,11 @@
 use crate::auth::{delete_keychain_secret, set_keychain_secret};
-use crate::config::{EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig};
+use crate::config::{
+    global_config_path, legacy_global_config_path, mutate_workspace_config_file,
+    write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig,
+};
 use crate::output::{ConnectReport, DisconnectReport};
 use gestalt_core::{ConfigError, HarnessError};
 use std::io::IsTerminal;
-use std::path::PathBuf;
 
 pub fn connect_provider(
     _config: &EffectiveConfig,
@@ -181,67 +183,40 @@ pub fn connect_provider(
         }
     }
 
-    let global_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("gestalt/config.toml");
-    let mut ws_cfg = if global_path.exists() {
-        WorkspaceConfig::from_file(&global_path)?
-    } else {
-        WorkspaceConfig::default()
-    };
-
-    let prov_config = ProviderConfig {
-        id: Some(conn_name.clone()),
-        display_name: Some(conn_name.clone()),
-        protocol: None,
-        base_url: Some(base_url),
-        default_model: Some(default_model),
-        api_key_env: api_key_env.clone(),
-        auth_ref,
-        kind: Some(kind),
-        models_endpoint,
-        headers,
-    };
-    ws_cfg.providers.insert(conn_name.clone(), prov_config);
-
+    let global_path = global_config_path();
     let mut profile_created = None;
-    if set_default {
-        let profile_name = if conn_name == "openrouter" {
-            "default".to_string()
-        } else {
-            conn_name.clone()
+    mutate_workspace_config_file(&global_path, |ws_cfg| {
+        let prov_config = ProviderConfig {
+            id: Some(conn_name.clone()),
+            display_name: Some(conn_name.clone()),
+            protocol: None,
+            base_url: Some(base_url),
+            default_model: Some(default_model),
+            api_key_env: api_key_env.clone(),
+            auth_ref,
+            kind: Some(kind),
+            models_endpoint,
+            headers,
         };
-        let mut defaults = ws_cfg.defaults.unwrap_or_default();
-        defaults.profile = Some(profile_name.clone());
-        ws_cfg.defaults = Some(defaults);
+        ws_cfg.providers.insert(conn_name.clone(), prov_config);
 
-        let profile_cfg = ProfileConfig {
-            provider: Some(conn_name.clone()),
-            model: None,
-        };
-        ws_cfg.profiles.insert(profile_name.clone(), profile_cfg);
-        profile_created = Some(profile_name);
-    }
+        if set_default {
+            let profile_name = if conn_name == "openrouter" {
+                "default".to_string()
+            } else {
+                conn_name.clone()
+            };
+            let mut defaults = ws_cfg.defaults.clone().unwrap_or_default();
+            defaults.profile = Some(profile_name.clone());
+            ws_cfg.defaults = Some(defaults);
 
-    if let Some(parent) = global_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: global_path.display().to_string(),
-                reason: err.to_string(),
-            })
-        })?;
-    }
-    let serialized = toml::to_string_pretty(&ws_cfg).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: global_path.display().to_string(),
-            reason: err.to_string(),
-        })
-    })?;
-    std::fs::write(&global_path, serialized).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: global_path.display().to_string(),
-            reason: err.to_string(),
-        })
+            let profile_cfg = ProfileConfig {
+                provider: Some(conn_name.clone()),
+                model: None,
+            };
+            ws_cfg.profiles.insert(profile_name.clone(), profile_cfg);
+            profile_created = Some(profile_name);
+        }
     })?;
 
     Ok(ConnectReport {
@@ -275,17 +250,20 @@ pub fn disconnect_provider(
         }));
     }
 
-    let global_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("gestalt/config.toml");
-    if !global_path.exists() {
+    let global_path = global_config_path();
+    let legacy_global_path = legacy_global_config_path();
+    if !global_path.exists() && !legacy_global_path.exists() {
         return Err(HarnessError::Config(ConfigError::InvalidValue {
             field: "global_config".to_string(),
             reason: "global configuration file does not exist".to_string(),
         }));
     }
 
-    let mut ws_cfg = WorkspaceConfig::from_file(&global_path)?;
+    let mut ws_cfg = if global_path.exists() {
+        WorkspaceConfig::from_file(&global_path)?
+    } else {
+        WorkspaceConfig::from_file(&legacy_global_path)?
+    };
     ws_cfg.providers.remove(provider);
 
     let mut profile_removed = None;
@@ -311,18 +289,7 @@ pub fn disconnect_provider(
     let account = format!("provider/{provider}");
     let keychain_cleared = delete_keychain_secret(&account).is_ok();
 
-    let serialized = toml::to_string_pretty(&ws_cfg).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: global_path.display().to_string(),
-            reason: err.to_string(),
-        })
-    })?;
-    std::fs::write(&global_path, serialized).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: global_path.display().to_string(),
-            reason: err.to_string(),
-        })
-    })?;
+    write_workspace_config_file(&global_path, &ws_cfg)?;
 
     Ok(DisconnectReport {
         provider: provider.to_string(),

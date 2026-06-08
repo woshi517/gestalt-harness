@@ -141,7 +141,10 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             if let Some(failure) = failure {
                 extra.push_str(&format!(" failure={}", failure.kind));
                 if let Some(guidance) = &failure.repair_guidance {
-                    extra.push_str(&format!(" repair={}", guidance.chars().take(60).collect::<String>()));
+                    extra.push_str(&format!(
+                        " repair={}",
+                        guidance.chars().take(60).collect::<String>()
+                    ));
                 }
             }
             Some(format!(
@@ -548,7 +551,6 @@ impl CliReport for WorkspaceStatusReport {
 pub struct WorkspaceInfoReport {
     pub workspace_root: PathBuf,
     pub config_path: PathBuf,
-    pub policies_path: PathBuf,
     pub workspace_md_path: PathBuf,
     pub memory_md_path: PathBuf,
 }
@@ -559,10 +561,9 @@ impl CliReport for WorkspaceInfoReport {
     }
     fn render_text(&self) -> String {
         format!(
-            "workspace_root={}\nconfig_path={}\npolicies_path={}\nworkspace_md_path={}\nmemory_md_path={}",
+            "workspace_root={}\nconfig_path={}\nworkspace_md_path={}\nmemory_md_path={}",
             self.workspace_root.display(),
             self.config_path.display(),
-            self.policies_path.display(),
             self.workspace_md_path.display(),
             self.memory_md_path.display()
         )
@@ -669,7 +670,7 @@ impl CliReport for GlobalDoctorReport {
 
         // 3. Workspace Files Check
         if self.workspace_doctor.missing_files.is_empty() {
-            passes.push("Workspace files: all required files (.gestalt/config.toml, workspace.md, memory.md, policies.toml) present".to_string());
+            passes.push("Workspace files: all required files (gestalt.json, workspace.md, memory.md) present".to_string());
         } else {
             warnings.push(format!(
                 "Workspace files: missing files: {}",
@@ -1171,28 +1172,66 @@ impl CliReport for TraceAnalyzeReport {
         let lines: Vec<String> = vec![
             format!("Analysis Path: {}", self.path.display()),
             "Tool Metrics Summary:".to_string(),
-            format!("  Total Proposed Calls:          {}", m.total_proposed_calls),
-            format!("  Total Validation Failures:     {}", m.total_validation_failures),
-            format!("  Invalid Tool Call Rate:        {:.2}%", m.invalid_tool_call_rate * 100.0),
-            format!("  Total Policy Decisions:        {}", m.total_policy_decisions),
-            format!("  Total Policy Denials:          {}", m.total_policy_denials),
-            format!("  Policy Denied Rate:            {:.2}%", m.policy_denied_rate * 100.0),
+            format!(
+                "  Total Proposed Calls:          {}",
+                m.total_proposed_calls
+            ),
+            format!(
+                "  Total Validation Failures:     {}",
+                m.total_validation_failures
+            ),
+            format!(
+                "  Invalid Tool Call Rate:        {:.2}%",
+                m.invalid_tool_call_rate * 100.0
+            ),
+            format!(
+                "  Total Policy Decisions:        {}",
+                m.total_policy_decisions
+            ),
+            format!(
+                "  Total Policy Denials:          {}",
+                m.total_policy_denials
+            ),
+            format!(
+                "  Policy Denied Rate:            {:.2}%",
+                m.policy_denied_rate * 100.0
+            ),
             format!("  Total Tool Results:            {}", m.total_tool_results),
-            format!("  Total Truncated Results:       {}", m.total_truncated_results),
-            format!("  Truncation Rate:               {:.2}%", m.truncation_rate * 100.0),
-            format!("  Total Executed Calls:          {}", m.total_executed_calls),
-            format!("  First-call Success Count:      {}", m.first_call_success_count),
-            format!("  First-call Success Rate:       {:.2}%", m.first_call_success_rate * 100.0),
+            format!(
+                "  Total Truncated Results:       {}",
+                m.total_truncated_results
+            ),
+            format!(
+                "  Truncation Rate:               {:.2}%",
+                m.truncation_rate * 100.0
+            ),
+            format!(
+                "  Total Executed Calls:          {}",
+                m.total_executed_calls
+            ),
+            format!(
+                "  First-call Success Count:      {}",
+                m.first_call_success_count
+            ),
+            format!(
+                "  First-call Success Rate:       {:.2}%",
+                m.first_call_success_rate * 100.0
+            ),
             format!("  Total Input Tokens:            {}", m.total_input_tokens),
             format!("  Total Output Tokens:           {}", m.total_output_tokens),
             format!("  Estimated Cost:                {}", cost_str),
-            format!("  Total Turns with Tool Catalog:  {}", m.total_turns_with_tool_selection),
-            format!("  Exposed Tool Catalog Size/Turn: {:.2}", m.tool_exposure_count_per_turn),
+            format!(
+                "  Total Turns with Tool Catalog:  {}",
+                m.total_turns_with_tool_selection
+            ),
+            format!(
+                "  Exposed Tool Catalog Size/Turn: {:.2}",
+                m.tool_exposure_count_per_turn
+            ),
         ];
         lines.join("\n")
     }
 }
-
 
 /// Export format wrapper for printing export outputs.
 #[derive(Debug, Clone, Serialize)]

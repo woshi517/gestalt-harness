@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::tool_descriptor::{CanonicalToolId, ToolNamespace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::tool_descriptor::{CanonicalToolId, ToolNamespace};
 
 /// Maximum length of a provider-facing alias. Common provider limits
 /// (Anthropic 64, OpenAI 64) sit at or below this value, so we cap here
@@ -71,7 +71,13 @@ impl ToolNameMapping {
 
         let sanitized: String = raw
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
 
         if sanitized.len() <= MAX_PROVIDER_NAME_LEN {
@@ -99,7 +105,9 @@ impl ToolNameMapping {
     /// same canonical ID twice — the resolver just defends against
     /// the degenerate case so it never silently collapses two
     /// distinct identities into one alias.
-    pub fn resolve_provider_names(internal_ids: &[CanonicalToolId]) -> Vec<(CanonicalToolId, String)> {
+    pub fn resolve_provider_names(
+        internal_ids: &[CanonicalToolId],
+    ) -> Vec<(CanonicalToolId, String)> {
         // First, build a count of base-name collisions so we can
         // allocate suffixes deterministically. The order of the input
         // slice defines which tool keeps the un-suffixed name; tools
@@ -162,7 +170,11 @@ impl ToolNameMapping {
         out
     }
 
-    pub fn new(internal_id: CanonicalToolId, display_name: String, descriptor_hash: String) -> Self {
+    pub fn new(
+        internal_id: CanonicalToolId,
+        display_name: String,
+        descriptor_hash: String,
+    ) -> Self {
         // Single-ID construction is best-effort: the caller is opting
         // out of catalog-wide uniqueness guarantees. Downstream code
         // that builds a full mapping should prefer
@@ -192,7 +204,9 @@ impl ToolNameMapping {
         tools
             .iter()
             .map(|(id, display_name, descriptor_hash)| {
-                let provider_name = by_id.remove(id).unwrap_or_else(|| Self::generate_provider_name(id));
+                let provider_name = by_id
+                    .remove(id)
+                    .unwrap_or_else(|| Self::generate_provider_name(id));
                 ToolNameMapping {
                     internal_id: id.clone(),
                     provider_name,
@@ -239,7 +253,10 @@ mod tests {
 
     #[test]
     fn base_names_match_documented_format() {
-        assert_eq!(ToolNameMapping::generate_provider_name(&builtin("read")), "read");
+        assert_eq!(
+            ToolNameMapping::generate_provider_name(&builtin("read")),
+            "read"
+        );
         assert_eq!(
             ToolNameMapping::generate_provider_name(&extension("mock-ext", "convert_pdf")),
             "ext_mock_ext_convert_pdf"

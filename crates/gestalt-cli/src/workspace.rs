@@ -10,7 +10,7 @@ use crate::output::{
     WorkspaceStatusReport,
 };
 
-// Templates
+#[allow(dead_code)]
 const DEFAULT_CONFIG: &str = r#"[defaults]
 profile = "default"
 mode = "confirm"
@@ -34,6 +34,7 @@ run_log_dir = ".gestalt/runs"
 log_format = "jsonl"
 "#;
 
+#[allow(dead_code)]
 const DEFAULT_POLICIES: &str = r#"[paths]
 allow_read  = [".", "sources/", "docs/", "src/"]
 allow_write = ["docs/", ".gestalt/"]
@@ -62,24 +63,26 @@ const DEFAULT_MEMORY_MD: &str = r"# Memory
 
 pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, HarnessError> {
     let gestalt_dir = root.join(".gestalt");
-    let config_path = gestalt_dir.join("config.toml");
-    let policies_path = gestalt_dir.join("policies.toml");
+    let config_path = root.join("gestalt.json");
     let workspace_md = gestalt_dir.join("workspace.md");
     let memory_md = gestalt_dir.join("memory.md");
 
     // Pre-flight check
     let mut existing = Vec::new();
     if config_path.exists() {
-        existing.push("config.toml");
+        existing.push("gestalt.json");
     }
-    if policies_path.exists() {
-        existing.push("policies.toml");
+    if root.join(".gestalt/config.toml").exists() {
+        existing.push(".gestalt/config.toml");
+    }
+    if root.join(".gestalt/policies.toml").exists() {
+        existing.push(".gestalt/policies.toml");
     }
     if workspace_md.exists() {
-        existing.push("workspace.md");
+        existing.push(".gestalt/workspace.md");
     }
     if memory_md.exists() {
-        existing.push("memory.md");
+        existing.push(".gestalt/memory.md");
     }
 
     if !existing.is_empty() && !force {
@@ -100,30 +103,21 @@ pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, H
         })
     })?;
 
-    fs::write(&config_path, DEFAULT_CONFIG).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: "config.toml".to_string(),
-            reason: err.to_string(),
-        })
-    })?;
-
-    fs::write(&policies_path, DEFAULT_POLICIES).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: "policies.toml".to_string(),
-            reason: err.to_string(),
-        })
-    })?;
+    crate::config::write_workspace_config_file(
+        &config_path,
+        &crate::config::default_workspace_config(),
+    )?;
 
     fs::write(&workspace_md, DEFAULT_WORKSPACE_MD).map_err(|err| {
         HarnessError::Config(ConfigError::InvalidValue {
-            field: "workspace.md".to_string(),
+            field: ".gestalt/workspace.md".to_string(),
             reason: err.to_string(),
         })
     })?;
 
     fs::write(&memory_md, DEFAULT_MEMORY_MD).map_err(|err| {
         HarnessError::Config(ConfigError::InvalidValue {
-            field: "memory.md".to_string(),
+            field: ".gestalt/memory.md".to_string(),
             reason: err.to_string(),
         })
     })?;
@@ -131,8 +125,7 @@ pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, H
     Ok(WorkspaceInitReport {
         workspace_root: root.to_path_buf(),
         created_files: vec![
-            ".gestalt/config.toml".to_string(),
-            ".gestalt/policies.toml".to_string(),
+            "gestalt.json".to_string(),
             ".gestalt/workspace.md".to_string(),
             ".gestalt/memory.md".to_string(),
         ],
@@ -157,13 +150,16 @@ pub fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusRepor
 
             // Check files presence
             let gestalt_dir = workspace_root.join(".gestalt");
-            if !gestalt_dir.join("policies.toml").exists() {
-                warnings.push("policies.toml is missing".to_string());
+            if !workspace_root.join("gestalt.json").exists()
+                && !gestalt_dir.join("config.toml").exists()
+                && !gestalt_dir.join("policies.toml").exists()
+            {
+                warnings.push("gestalt.json is missing".to_string());
             }
-            if !gestalt_dir.join("workspace.md").exists() {
+            if !config.workspace_file("workspace.md").exists() {
                 warnings.push("workspace.md is missing".to_string());
             }
-            if !gestalt_dir.join("memory.md").exists() {
+            if !config.workspace_file("memory.md").exists() {
                 warnings.push("memory.md is missing".to_string());
             }
 
@@ -230,13 +226,12 @@ pub fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusRepor
 
 pub fn info_workspace(overrides: &CliOverrides) -> Result<WorkspaceInfoReport, HarnessError> {
     let config = load_effective_config(overrides)?;
-    let gestalt_dir = config.workspace_root.join(".gestalt");
+    let workspace_root = config.workspace_root.clone();
     Ok(WorkspaceInfoReport {
-        workspace_root: config.workspace_root,
-        config_path: gestalt_dir.join("config.toml"),
-        policies_path: gestalt_dir.join("policies.toml"),
-        workspace_md_path: gestalt_dir.join("workspace.md"),
-        memory_md_path: gestalt_dir.join("memory.md"),
+        workspace_root,
+        config_path: config.config_file(),
+        workspace_md_path: config.workspace_markdown_path(),
+        memory_md_path: config.memory_markdown_path(),
     })
 }
 
@@ -275,12 +270,15 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
             // Create dummy config for downstream fallback where needed
             crate::config::EffectiveConfig {
                 workspace_root: workspace_root.clone(),
+                config_path: workspace_root.join("gestalt.json"),
                 defaults: crate::config::DefaultsConfig::default(),
                 tools: crate::config::ToolsConfig::default(),
                 context: crate::config::ContextConfig::default(),
                 observe: crate::config::ObserveConfig::default(),
                 providers: std::collections::HashMap::new(),
                 profiles: std::collections::HashMap::new(),
+                prompt: crate::config::PromptConfig::default(),
+                policies: crate::config::PoliciesConfig::default(),
                 provider_override: None,
                 model_override: None,
                 tui: crate::config::TuiConfig::default(),
@@ -296,18 +294,19 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
             policies_valid = false;
             policies_error = Some(err.to_string());
         }
-    } else {
-        missing_files.push("policies.toml".to_string());
     }
 
     // 3. Required files check
-    if !gestalt_dir.join("config.toml").exists() {
-        missing_files.push("config.toml".to_string());
+    if !workspace_root.join("gestalt.json").exists()
+        && !gestalt_dir.join("config.toml").exists()
+        && !policies_path.exists()
+    {
+        missing_files.push("gestalt.json".to_string());
     }
-    if !gestalt_dir.join("workspace.md").exists() {
+    if !config.workspace_file("workspace.md").exists() {
         missing_files.push("workspace.md".to_string());
     }
-    if !gestalt_dir.join("memory.md").exists() {
+    if !config.workspace_file("memory.md").exists() {
         missing_files.push("memory.md".to_string());
     }
 

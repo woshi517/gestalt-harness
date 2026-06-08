@@ -1,7 +1,8 @@
-use crate::config::{EffectiveConfig, WorkspaceConfig};
+use crate::config::{
+    global_config_path, mutate_workspace_config_file, workspace_config_path, EffectiveConfig,
+};
 use crate::output::{ProfilesInspectReport, ProfilesListReport, ProfilesUseReport};
 use gestalt_core::{ConfigError, HarnessError};
-use std::path::PathBuf;
 
 pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, HarnessError> {
     let active_profile = config.resolve_provider().ok().and_then(|r| r.profile_name);
@@ -118,47 +119,22 @@ pub fn use_profile(
         }));
     }
 
-    let workspace_path = config.workspace_root.join(".gestalt/config.toml");
-    let (file_path, _) = if workspace_path.exists() {
-        (workspace_path, true)
+    let workspace_path = workspace_config_path(&config.workspace_root);
+    let legacy_workspace_path = config.workspace_root.join(".gestalt/config.toml");
+    let legacy_workspace_policies = config.workspace_root.join(".gestalt/policies.toml");
+    let file_path = if workspace_path.exists()
+        || legacy_workspace_path.exists()
+        || legacy_workspace_policies.exists()
+    {
+        workspace_path
     } else {
-        let global_path = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("gestalt/config.toml");
-        (global_path, false)
+        global_config_path()
     };
 
-    let mut ws_cfg = if file_path.exists() {
-        WorkspaceConfig::from_file(&file_path)?
-    } else {
-        WorkspaceConfig::default()
-    };
-
-    let mut defaults = ws_cfg.defaults.unwrap_or_default();
-    defaults.profile = Some(name.to_string());
-    ws_cfg.defaults = Some(defaults);
-
-    if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: file_path.display().to_string(),
-                reason: err.to_string(),
-            })
-        })?;
-    }
-
-    let serialized = toml::to_string_pretty(&ws_cfg).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: file_path.display().to_string(),
-            reason: err.to_string(),
-        })
-    })?;
-
-    std::fs::write(&file_path, serialized).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: file_path.display().to_string(),
-            reason: err.to_string(),
-        })
+    mutate_workspace_config_file(&file_path, |ws_cfg| {
+        let mut defaults = ws_cfg.defaults.clone().unwrap_or_default();
+        defaults.profile = Some(name.to_string());
+        ws_cfg.defaults = Some(defaults);
     })?;
 
     Ok(ProfilesUseReport {

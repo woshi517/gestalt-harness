@@ -151,10 +151,13 @@ impl AgentRuntimeBuilder {
             }
         }
 
-        let mut composed_tools = crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
+        let mut composed_tools =
+            crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
                 .map_err(RuntimeError::Registry)?;
         if let Some(ref profile) = self.config.tool_profile {
-            composed_tools = composed_tools.with_planner(crate::tool_catalog_planner::ToolCatalogPlanner::new(profile.clone()));
+            composed_tools = composed_tools.with_planner(
+                crate::tool_catalog_planner::ToolCatalogPlanner::new(profile.clone()),
+            );
         }
         let composed_tools = Arc::new(composed_tools);
 
@@ -169,10 +172,11 @@ impl AgentRuntimeBuilder {
             .ok_or_else(|| RuntimeError::Builder("Missing approval provider".to_string()))?;
 
         let user_hooks = self.composition_hooks.take();
-        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> = Arc::new(crate::composition_hooks::ComposedCompositionHooks {
-            user_hooks,
-            extensions: self.extensions.clone(),
-        });
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
+            Arc::new(crate::composition_hooks::ComposedCompositionHooks {
+                user_hooks,
+                extensions: self.extensions.clone(),
+            });
 
         Ok(AgentRuntime::new(
             provider,

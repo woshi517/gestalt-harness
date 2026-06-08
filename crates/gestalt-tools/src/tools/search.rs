@@ -45,8 +45,8 @@ impl Tool for SearchTool {
     fn descriptor(&self) -> gestalt_core::tool_descriptor::ToolDescriptor {
         crate::builtin_descriptors::make_builtin_descriptor(
             self,
-            true,  // read_only
-            true,  // idempotent
+            true, // read_only
+            true, // idempotent
             Some(gestalt_core::tool_descriptor::ToolRetryPolicy {
                 max_retries: 2,
                 backoff_ms: 100,

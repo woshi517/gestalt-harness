@@ -7,7 +7,10 @@ use gestalt_core::AgentEvent;
 use gestalt_trace::{aggregate_costs, analyze_tool_metrics, read_trace};
 
 use crate::config::EffectiveConfig;
-use crate::output::{PolicyOutcomesSummary, ReplayReport, TraceAnalyzeReport, TraceInspectReport, TraceValidateReport};
+use crate::output::{
+    PolicyOutcomesSummary, ReplayReport, TraceAnalyzeReport, TraceInspectReport,
+    TraceValidateReport,
+};
 use crate::replay::replay_display;
 use crate::runs;
 
