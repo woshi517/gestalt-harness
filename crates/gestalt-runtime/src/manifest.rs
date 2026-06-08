@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use gestalt_core::ContextStability;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExtensionManifest {
     pub id: String,
@@ -78,6 +80,8 @@ pub struct HookDeclaration {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContextInjectorDeclaration {
     pub name: String,
+    #[serde(default)]
+    pub stability: Option<ContextStability>,
 }
 
 impl ExtensionManifest {
@@ -118,6 +122,17 @@ impl ExtensionManifest {
                 "Extension declares context injectors but capabilities.context is false"
                     .to_string(),
             );
+        }
+
+        if let Some(injector) = self
+            .context_injectors
+            .iter()
+            .find(|injector| injector.stability.is_none())
+        {
+            return Err(format!(
+                "Context injector '{}' must declare stability",
+                injector.name
+            ));
         }
 
         // Shell check: if allow_shell is false, command cannot have spaces or special characters,

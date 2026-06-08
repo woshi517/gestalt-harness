@@ -1,9 +1,9 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use gestalt_context::MinimalContextPipeline;
-use gestalt_core::{trace::TraceSink, ExecutionMode, WorkspaceSnapshotter};
+use gestalt_core::{trace::TraceSink, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter};
 use gestalt_policy::MinimalPolicyEngine;
-use gestalt_trace::{aggregate_costs, write_cost_report, write_summary, JsonlTraceSink};
+use gestalt_trace::{aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink};
 
 use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::render_event};
 
@@ -54,6 +54,8 @@ pub async fn run_prompt(
         finalized_at: None,
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: gestalt_trace::run_manifest::CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
             tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
@@ -160,6 +162,16 @@ pub async fn run_prompt(
         }
     };
 
+    let prompt_snapshot_path = run_paths
+        .root
+        .join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+    if let Ok(snapshot) = read_prompt_snapshot(&prompt_snapshot_path) {
+        manifest.prompt_snapshot_hash = Some(snapshot.snapshot_hash);
+        manifest.prompt_snapshot_path = Some(
+            gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+        );
+    }
+
     let _ = manifest.save_to(&run_manifest_path);
     final_status
 }
@@ -186,6 +198,12 @@ pub fn build_pipeline(
         .with_mode(format!("{mode:?}"))
         .with_max_turns(max_turns)
         .with_available_tools(tools.to_vec());
+
+    let assembly_strategy = config
+        .prompt
+        .assembly_strategy
+        .unwrap_or(PromptAssemblyStrategy::Snapshot);
+    pipeline = pipeline.with_prompt_assembly_strategy(assembly_strategy);
 
     if let Some(prompt_cfg) = &config.prompt.r#override {
         pipeline = pipeline.with_prompt_override(prompt_cfg);
@@ -400,6 +418,8 @@ mod tests {
         use gestalt_core::context::ContextPipeline as _;
         let packet = pipeline.build_packet(&[], &budget);
         assert_eq!(packet.prompt_source.as_deref(), Some("default"));
+        assert_eq!(packet.prompt_assembly_strategy, PromptAssemblyStrategy::Snapshot);
+        assert!(packet.cache_plan.is_some());
 
         // Scenario 2: inline prompt.override wins
         let mut config = config.clone();
@@ -419,6 +439,7 @@ mod tests {
         config.prompt = crate::config::PromptConfig {
             r#override: None,
             override_file: Some(".gestalt/custom_prompt.md".to_string()),
+            assembly_strategy: None,
         };
         fs::write(
             temp_dir.join(".gestalt/custom_prompt.md"),
@@ -443,6 +464,7 @@ mod tests {
         config.prompt = crate::config::PromptConfig {
             r#override: None,
             override_file: Some(".gestalt/nonexistent_prompt.md".to_string()),
+            assembly_strategy: None,
         };
         let result = super::build_pipeline(
             &config,
@@ -466,6 +488,7 @@ mod tests {
         config.prompt = crate::config::PromptConfig {
             r#override: None,
             override_file: Some("../../../etc/passwd".to_string()),
+            assembly_strategy: None,
         };
         let result = super::build_pipeline(
             &config,

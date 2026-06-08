@@ -23,6 +23,28 @@ pub enum AgentEvent {
         #[serde(default)]
         prompt_source: Option<String>,
     },
+    PromptSnapshotCreated {
+        snapshot_hash: String,
+        prefix_hash: String,
+        created_turn: usize,
+    },
+    PromptSnapshotLoaded {
+        snapshot_hash: String,
+        source: String,
+    },
+    PromptSnapshotReused {
+        snapshot_hash: String,
+        prefix_hash: String,
+    },
+    PromptCachePlanGenerated {
+        snapshot_hash: String,
+        prefix_hash: String,
+        prefix_message_count: usize,
+    },
+    EphemeralContextInjected {
+        source: String,
+        token_estimate: usize,
+    },
     ModelRequest {
         provider: String,
         model: String,

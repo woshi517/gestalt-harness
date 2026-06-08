@@ -23,7 +23,8 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use gestalt_core::{
-    model::ModelInfo, trace::TraceSink, AgentEvent, RunResult, StopReason, TraceError,
+    model::ModelInfo, trace::TraceSink, AgentEvent, PromptSnapshot, RunResult, StopReason,
+    TraceError,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -217,6 +218,27 @@ pub fn create_run_paths(base_dir: impl AsRef<Path>, run_id: &str) -> Result<RunP
     })
 }
 
+pub fn write_prompt_snapshot(
+    path: impl AsRef<Path>,
+    snapshot: &PromptSnapshot,
+) -> Result<(), TraceError> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(TraceError::WriteFailed)?;
+    }
+    let bytes = serde_json::to_vec_pretty(snapshot)
+        .map_err(|err| TraceError::WriteFailed(std::io::Error::other(err)))?;
+    fs::write(path, bytes).map_err(TraceError::WriteFailed)
+}
+
+pub fn read_prompt_snapshot(path: impl AsRef<Path>) -> Result<PromptSnapshot, TraceError> {
+    let file = File::open(path).map_err(TraceError::WriteFailed)?;
+    serde_json::from_reader(file).map_err(|err| TraceError::InvalidFormat {
+        line: 0,
+        reason: err.to_string(),
+    })
+}
+
 pub fn read_trace(path: impl AsRef<Path>) -> Result<Vec<EventEnvelope>, TraceError> {
     let file = File::open(path).map_err(TraceError::WriteFailed)?;
     let reader = BufReader::new(file);
@@ -257,6 +279,43 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                     "context> {packet_id} ({token_estimate} tokens){extra}"
                 ));
             }
+            AgentEvent::PromptSnapshotCreated {
+                snapshot_hash,
+                prefix_hash,
+                created_turn,
+            } => lines.push(format!(
+                "snapshot-created> {} prefix={} turn={created_turn}",
+                &snapshot_hash[..8.min(snapshot_hash.len())],
+                &prefix_hash[..8.min(prefix_hash.len())]
+            )),
+            AgentEvent::PromptSnapshotLoaded {
+                snapshot_hash,
+                source,
+            } => lines.push(format!(
+                "snapshot-loaded> {} source={source}",
+                &snapshot_hash[..8.min(snapshot_hash.len())]
+            )),
+            AgentEvent::PromptSnapshotReused {
+                snapshot_hash,
+                prefix_hash,
+            } => lines.push(format!(
+                "snapshot-reused> {} prefix={}",
+                &snapshot_hash[..8.min(snapshot_hash.len())],
+                &prefix_hash[..8.min(prefix_hash.len())]
+            )),
+            AgentEvent::PromptCachePlanGenerated {
+                snapshot_hash,
+                prefix_hash,
+                prefix_message_count,
+            } => lines.push(format!(
+                "cache-plan> {} prefix={} messages={prefix_message_count}",
+                &snapshot_hash[..8.min(snapshot_hash.len())],
+                &prefix_hash[..8.min(prefix_hash.len())]
+            )),
+            AgentEvent::EphemeralContextInjected {
+                source,
+                token_estimate,
+            } => lines.push(format!("ephemeral> {source} ({token_estimate} tokens)")),
             AgentEvent::ModelRequest {
                 provider,
                 model,

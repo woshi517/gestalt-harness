@@ -1,6 +1,7 @@
 use crate::context::ContextContributor;
 use crate::error::{Result, RuntimeError};
 use gestalt_core::tool::{Tool, ToolSchema};
+use gestalt_core::ContextStability;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -40,6 +41,7 @@ impl Clone for ProviderMetadata {
 pub struct ContextContributorMetadata {
     pub name: String,
     pub contributor: Arc<dyn ContextContributor>,
+    pub stability: ContextStability,
     pub extension_id: Option<String>,
 }
 
@@ -48,6 +50,7 @@ impl Clone for ContextContributorMetadata {
         Self {
             name: self.name.clone(),
             contributor: self.contributor.clone(),
+            stability: self.stability,
             extension_id: self.extension_id.clone(),
         }
     }
@@ -152,11 +155,13 @@ impl RuntimeRegistry {
                 name
             )));
         }
+        let stability = contributor.stability();
         self.context_contributors.insert(
             name.clone(),
             ContextContributorMetadata {
                 name: name.clone(),
                 contributor,
+                stability,
                 extension_id: None,
             },
         );
@@ -175,11 +180,13 @@ impl RuntimeRegistry {
                 name
             )));
         }
+        let stability = contributor.stability();
         self.context_contributors.insert(
             name.clone(),
             ContextContributorMetadata {
                 name: name.clone(),
                 contributor,
+                stability,
                 extension_id,
             },
         );

@@ -147,7 +147,6 @@ impl AnthropicProvider {
     }
 
     fn body(&self, request: &ProviderRequest) -> Value {
-        let (system, messages) = split_anthropic_messages(&request.messages);
         let model = if request.model.is_empty() {
             &self.default_model
         } else {
@@ -158,10 +157,21 @@ impl AnthropicProvider {
         body.insert("model".to_string(), json!(model));
         body.insert("max_tokens".to_string(), json!(request.max_tokens));
         body.insert("stream".to_string(), Value::Bool(true));
-        body.insert("messages".to_string(), Value::Array(messages));
+        if let Some(cache_plan) = request.cache_plan.as_ref() {
+            let prefix_count = cache_plan.prefix_message_count.min(request.messages.len());
+            let (system, messages) = split_anthropic_messages_with_cache(&request.messages, prefix_count);
 
-        if !system.is_empty() {
-            body.insert("system".to_string(), Value::String(system));
+            if !system.is_empty() {
+                body.insert("system".to_string(), Value::Array(system));
+            }
+            body.insert("messages".to_string(), Value::Array(messages));
+        } else {
+            let (system, messages) = split_anthropic_messages(&request.messages);
+            body.insert("messages".to_string(), Value::Array(messages));
+
+            if !system.is_empty() {
+                body.insert("system".to_string(), Value::String(system));
+            }
         }
         if !request.tools.is_empty() {
             let tools_val = request
@@ -425,32 +435,90 @@ fn split_anthropic_messages(messages: &[Message]) -> (String, Vec<Value>) {
     for message in messages {
         match message {
             Message::System { content } => system.push(content.clone()),
-            Message::User { content } => output.push(json!({
-                "role": "user",
-                "content": blocks(content)
-            })),
-            Message::Assistant { content } => output.push(json!({
-                "role": "assistant",
-                "content": blocks(content)
-            })),
-            Message::ToolResult {
-                tool_use_id,
-                content,
-                is_error,
-                ..
-            } => output.push(json!({
-                "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": content,
-                    "is_error": is_error
-                }]
-            })),
+            other => output.push(message_to_anthropic_message(other, false)),
         }
     }
 
     (system.join("\n\n"), output)
+}
+
+fn split_anthropic_messages_with_cache(
+    messages: &[Message],
+    prefix_message_count: usize,
+) -> (Vec<Value>, Vec<Value>) {
+    let mut system = Vec::new();
+    let mut output = Vec::new();
+
+    for (index, message) in messages.iter().enumerate() {
+        if index < prefix_message_count {
+            let cache_last = index + 1 == prefix_message_count;
+            system.push(message_to_system_block(message, cache_last));
+        } else {
+            output.push(message_to_anthropic_message(message, false));
+        }
+    }
+
+    (system, output)
+}
+
+fn message_to_anthropic_message(message: &Message, allow_system_role: bool) -> Value {
+    match message {
+        Message::System { content } if allow_system_role => json!({
+            "role": "system",
+            "content": blocks_from_text(content)
+        }),
+        Message::System { content } => json!({
+            "role": "user",
+            "content": blocks_from_text(content)
+        }),
+        Message::User { content } => json!({
+            "role": "user",
+            "content": blocks(content)
+        }),
+        Message::Assistant { content } => json!({
+            "role": "assistant",
+            "content": blocks(content)
+        }),
+        Message::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+            ..
+        } => json!({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": content,
+                "is_error": is_error
+            }]
+        }),
+    }
+}
+
+fn message_to_system_block(message: &Message, cache_last: bool) -> Value {
+    let mut block = match message {
+        Message::System { content } => json!({
+            "type": "text",
+            "text": content
+        }),
+        other => json!({
+            "type": "text",
+            "text": serde_json::to_string(other).unwrap_or_default()
+        }),
+    };
+
+    if cache_last {
+        if let Some(map) = block.as_object_mut() {
+            map.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
+        }
+    }
+
+    block
+}
+
+fn blocks_from_text(text: &str) -> Vec<Value> {
+    vec![json!({"type": "text", "text": text})]
 }
 
 fn blocks(blocks: &[ContentBlock]) -> Vec<Value> {
@@ -486,4 +554,96 @@ fn poisoned() -> HarnessError {
 
 fn u64_to_usize(value: u64) -> usize {
     usize::try_from(value).map_or(usize::MAX, |value| value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gestalt_core::context::{
+        ContextStability, PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
+        PromptSegmentKind, PromptSnapshot,
+    };
+
+    fn request_with_cache_plan() -> ProviderRequest {
+        let snapshot = PromptSnapshot::new(
+            vec![Message::System {
+                content: "stable prefix".to_string(),
+            }],
+            0,
+        );
+
+        let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot)
+            .with_segments(vec![PromptSegment::from_messages(
+                PromptSegmentKind::Snapshot,
+                ContextStability::SessionStatic,
+                &snapshot.messages,
+            )]);
+
+        ProviderRequest {
+            model: "claude-3-5-sonnet-20241022".to_string(),
+            messages: vec![
+                Message::System {
+                    content: "stable prefix".to_string(),
+                },
+                Message::User {
+                    content: vec![ContentBlock::Text {
+                        text: "hello".to_string(),
+                    }],
+                },
+            ],
+            tools: vec![],
+            tool_name_map: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            top_p: None,
+            stop_sequences: vec![],
+            cache_plan: Some(plan),
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn body_uses_cached_system_prefix_when_cache_plan_is_present() {
+        let provider = AnthropicProvider::default();
+        let body = provider.body(&request_with_cache_plan());
+
+        assert!(body.get("system").is_some());
+        assert!(body.get("cache_control").is_none());
+
+        let system = body.get("system").and_then(Value::as_array).unwrap();
+        assert_eq!(system.len(), 1);
+        assert_eq!(system[0].get("cache_control").and_then(Value::as_object).is_some(), true);
+        assert_eq!(system[0].get("text").and_then(Value::as_str), Some("stable prefix"));
+    }
+
+    #[test]
+    fn body_preserves_current_shape_without_cache_plan() {
+        let provider = AnthropicProvider::default();
+        let request = ProviderRequest {
+            cache_plan: None,
+            ..request_with_cache_plan()
+        };
+
+        let body = provider.body(&request);
+        assert!(body.get("system").map(Value::is_string).unwrap_or(false));
+    }
+
+    #[test]
+    fn body_serializes_tail_system_messages_as_user_messages_when_cached() {
+        let provider = AnthropicProvider::default();
+        let mut request = request_with_cache_plan();
+        request.messages.push(Message::System {
+            content: "context budget exhausted or truncated; keep working with the available context"
+                .to_string(),
+        });
+
+        let body = provider.body(&request);
+        let messages = body.get("messages").and_then(Value::as_array).unwrap();
+        let last_role = messages
+            .last()
+            .and_then(|message| message.get("role"))
+            .and_then(Value::as_str);
+
+        assert_eq!(last_role, Some("user"));
+    }
 }

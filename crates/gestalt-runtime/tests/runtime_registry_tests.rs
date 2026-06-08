@@ -1,5 +1,29 @@
+use gestalt_core::ContextStability;
 use gestalt_runtime::{compute_schema_hash, compute_tool_schema_hash, RuntimeRegistry};
 use serde_json::json;
+use std::sync::Arc;
+
+struct DummyContributor;
+
+#[async_trait::async_trait]
+impl gestalt_runtime::ContextContributor for DummyContributor {
+    fn name(&self) -> &str {
+        "dummy"
+    }
+
+    fn stability(&self) -> ContextStability {
+        ContextStability::ActivationStatic
+    }
+
+    async fn contribute(
+        &self,
+        _workspace_root: &std::path::Path,
+    ) -> Result<gestalt_core::message::Message, gestalt_runtime::RuntimeError> {
+        Ok(gestalt_core::message::Message::System {
+            content: "dummy".to_string(),
+        })
+    }
+}
 
 #[test]
 fn test_registry_duplicate_checks() {
@@ -31,6 +55,19 @@ fn test_schema_hashes() {
     let schemas = vec![schema1];
     let hash_all = compute_tool_schema_hash(&schemas);
     assert!(!hash_all.is_empty());
+}
+
+#[test]
+fn test_context_contributor_stability_is_recorded() {
+    let mut reg = RuntimeRegistry::new();
+    reg.register_context_contributor("dummy".to_string(), Arc::new(DummyContributor))
+        .unwrap();
+
+    let metadata = reg.context_contributors.get("dummy").unwrap();
+    assert_eq!(metadata.stability, ContextStability::ActivationStatic);
+
+    let clone = metadata.clone();
+    assert_eq!(clone.stability, ContextStability::ActivationStatic);
 }
 
 #[test]

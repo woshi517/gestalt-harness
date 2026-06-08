@@ -87,6 +87,8 @@ async fn test_chat_rejects_resume_unsafe_unfinalized() {
         finalized_at: None,
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fingerprint,
     };
     manifest.save_to(&run_dir.join("run.json")).unwrap();

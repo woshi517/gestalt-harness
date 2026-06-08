@@ -20,9 +20,12 @@ fn test_trace_replay_and_inspect() {
 
     let trace_content = r#"{"v":1,"session_id":"session-123","turn_id":1,"seq":1,"ts":"2026-06-03T10:00:00Z","event":{"type":"user_message","content":"hello world"},"redacted":false}
 {"v":1,"session_id":"session-123","turn_id":1,"seq":2,"ts":"2026-06-03T10:00:01Z","event":{"type":"model_request","provider":"anthropic","model":"claude-3-5-sonnet-20241022"},"redacted":false}
-{"v":1,"session_id":"session-123","turn_id":1,"seq":3,"ts":"2026-06-03T10:00:02Z","event":{"type":"usage","input_tokens":15,"output_tokens":8},"redacted":false}
-{"v":1,"session_id":"session-123","turn_id":1,"seq":4,"ts":"2026-06-03T10:00:03Z","event":{"type":"artifact_created","path":"artifacts/output.txt","size_bytes":12,"mime_type":"text/plain","hash":"abc123xyz"},"redacted":true}
-{"v":1,"session_id":"session-123","turn_id":1,"seq":5,"ts":"2026-06-03T10:00:04Z","event":{"type":"stop","reason":"end_turn"},"redacted":false}"#;
+{"v":1,"session_id":"session-123","turn_id":1,"seq":3,"ts":"2026-06-03T10:00:02Z","event":{"type":"prompt_snapshot_created","snapshot_hash":"snapshot-hash","prefix_hash":"prefix-hash","created_turn":1},"redacted":false}
+{"v":1,"session_id":"session-123","turn_id":1,"seq":4,"ts":"2026-06-03T10:00:03Z","event":{"type":"prompt_cache_plan_generated","snapshot_hash":"snapshot-hash","prefix_hash":"prefix-hash","prefix_message_count":2},"redacted":false}
+{"v":1,"session_id":"session-123","turn_id":1,"seq":5,"ts":"2026-06-03T10:00:04Z","event":{"type":"prompt_snapshot_reused","snapshot_hash":"snapshot-hash","prefix_hash":"prefix-hash"},"redacted":false}
+{"v":1,"session_id":"session-123","turn_id":1,"seq":6,"ts":"2026-06-03T10:00:05Z","event":{"type":"usage","input_tokens":15,"output_tokens":8},"redacted":false}
+{"v":1,"session_id":"session-123","turn_id":1,"seq":7,"ts":"2026-06-03T10:00:06Z","event":{"type":"artifact_created","path":"artifacts/output.txt","size_bytes":12,"mime_type":"text/plain","hash":"abc123xyz"},"redacted":true}
+{"v":1,"session_id":"session-123","turn_id":1,"seq":8,"ts":"2026-06-03T10:00:07Z","event":{"type":"stop","reason":"end_turn"},"redacted":false}"#;
 
     fs::write(run_dir.join("trace.jsonl"), trace_content).unwrap();
 
@@ -41,14 +44,26 @@ fn test_trace_replay_and_inspect() {
     assert!(replay_rep
         .rendered
         .contains("artifact-created> artifacts/output.txt size=12 mime=text/plain hash=abc123xy"));
+    assert!(replay_rep
+        .rendered
+        .contains("snapshot-created> snapshot prefix=prefix-h"));
+    assert!(replay_rep
+        .rendered
+        .contains("cache-plan> snapshot prefix=prefix-h messages=2"));
+    assert!(replay_rep
+        .rendered
+        .contains("snapshot-reused> snapshot prefix=prefix-h"));
 
     // 2. Test Inspect
     let inspect_rep = inspect_trace(&config, "20260603T100000Z-session-123").unwrap();
     assert_eq!(inspect_rep.run_id, "20260603T100000Z-session-123");
-    assert_eq!(inspect_rep.total_events, 5);
+    assert_eq!(inspect_rep.total_events, 8);
     assert_eq!(inspect_rep.turns, 1);
     assert_eq!(inspect_rep.total_input_tokens, 15);
     assert_eq!(inspect_rep.total_output_tokens, 8);
+    assert_eq!(inspect_rep.prompt_snapshots_created, 1);
+    assert_eq!(inspect_rep.prompt_cache_plans, 1);
+    assert_eq!(inspect_rep.prompt_snapshots_reused, 1);
     assert!(inspect_rep.redacted);
     assert_eq!(
         inspect_rep.artifacts,

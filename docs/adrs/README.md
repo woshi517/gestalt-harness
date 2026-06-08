@@ -30,10 +30,13 @@ ADRs 001–022 are documented in the [architecture document](../gestalt-harness-
 | [ADR-023](./ADR-023-runtime-composition-layer.md) | Runtime Composition Layer | Accepted |
 | [ADR-024](./ADR-024-process-extensions.md) | Process-Backed Extensions over Stdio JSON-RPC | Accepted |
 | [ADR-025](./ADR-025-unified-gestalt-json-config.md) | Unified `gestalt.json` Configuration | Accepted |
+| [ADR-026](./ADR-026-cache-aware-prompt-assembly.md) | Cache-Aware Prompt Assembly | Accepted |
 
 ADR-023: Introduces the gestalt-runtime crate as the primary orchestration and composition shell above the pure kernel (gestalt-core).
 
 ADR-024: Implements process-backed extensions executed in separate child processes over stdio using newline-delimited JSON-RPC 2.0 protocol.
 
 ADR-025: Consolidates workspace-scoped and global harness configuration into a single `gestalt.json` per scope, with JSON-first loading, legacy TOML fallback, and transparent migration seeding.
+
+ADR-026: Introduces `PromptAssemblyStrategy` (Snapshot/Dynamic), `ContextStability` classification, and cache-aware context compilation that preserves provider prompt-cache hit rates by separating stable session context from turn-specific context.
 

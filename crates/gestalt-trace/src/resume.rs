@@ -1,8 +1,9 @@
 use crate::{
+    read_prompt_snapshot,
     read_trace,
     run_manifest::{LifecycleState, RunManifest},
 };
-use gestalt_core::{context::TokenBudget, snapshot::WorkspaceSnapshot, Message};
+use gestalt_core::{context::TokenBudget, snapshot::WorkspaceSnapshot, Message, PromptSnapshot};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -34,6 +35,7 @@ pub struct ResumeAnalysis {
     pub token_budget: TokenBudget,
     pub last_checkpoint_seq: Option<u64>,
     pub snapshot_hash: Option<String>,
+    pub prompt_snapshot: Option<PromptSnapshot>,
 }
 
 impl ResumeAnalysis {
@@ -73,6 +75,7 @@ impl ResumeAnalyzer {
                 token_budget: TokenBudget::default(),
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
+                prompt_snapshot: None,
             };
         }
 
@@ -87,6 +90,7 @@ impl ResumeAnalyzer {
                     token_budget: TokenBudget::default(),
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
+                    prompt_snapshot: None,
                 };
             }
         };
@@ -101,6 +105,7 @@ impl ResumeAnalyzer {
                     token_budget: TokenBudget::default(),
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
+                    prompt_snapshot: None,
                 };
             }
         }
@@ -114,6 +119,7 @@ impl ResumeAnalyzer {
                 token_budget: TokenBudget::default(),
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
+                prompt_snapshot: None,
             };
         }
 
@@ -128,6 +134,84 @@ impl ResumeAnalyzer {
                     token_budget: TokenBudget::default(),
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
+                    prompt_snapshot: None,
+                };
+            }
+        };
+
+        let trace_has_prompt_snapshot_events = envelopes.iter().any(|env| {
+            matches!(
+                env.event,
+                gestalt_core::AgentEvent::PromptSnapshotCreated { .. }
+                    | gestalt_core::AgentEvent::PromptSnapshotLoaded { .. }
+                    | gestalt_core::AgentEvent::PromptSnapshotReused { .. }
+                    | gestalt_core::AgentEvent::PromptCachePlanGenerated { .. }
+            )
+        });
+
+        if trace_has_prompt_snapshot_events
+            && (manifest.prompt_snapshot_hash.is_none() || manifest.prompt_snapshot_path.is_none())
+        {
+            return ResumeAnalysis {
+                status: RecoveryStatus::IncompatibleTrace,
+                session_id: manifest.session_id.clone(),
+                run_id: manifest.run_id.clone(),
+                history: Vec::new(),
+                token_budget: TokenBudget::default(),
+                last_checkpoint_seq: None,
+                snapshot_hash: None,
+                prompt_snapshot: None,
+            };
+        }
+
+        let prompt_snapshot = match (
+            manifest.prompt_snapshot_hash.as_ref(),
+            manifest.prompt_snapshot_path.as_ref(),
+        ) {
+            (Some(expected_hash), Some(relative_path)) => {
+                let snapshot_path = run_dir.join(relative_path);
+                let snapshot = match read_prompt_snapshot(&snapshot_path) {
+                    Ok(snapshot) => snapshot,
+                    Err(_) => {
+                        return ResumeAnalysis {
+                            status: RecoveryStatus::IncompatibleTrace,
+                            session_id: manifest.session_id.clone(),
+                            run_id: manifest.run_id.clone(),
+                            history: Vec::new(),
+                            token_budget: TokenBudget::default(),
+                            last_checkpoint_seq: None,
+                            snapshot_hash: None,
+                            prompt_snapshot: None,
+                        };
+                    }
+                };
+
+                if snapshot.snapshot_hash != *expected_hash {
+                    return ResumeAnalysis {
+                        status: RecoveryStatus::IncompatibleTrace,
+                        session_id: manifest.session_id.clone(),
+                        run_id: manifest.run_id.clone(),
+                        history: Vec::new(),
+                        token_budget: TokenBudget::default(),
+                        last_checkpoint_seq: None,
+                        snapshot_hash: None,
+                        prompt_snapshot: None,
+                    };
+                }
+
+                Some(snapshot)
+            }
+            (None, None) => None,
+            _ => {
+                return ResumeAnalysis {
+                    status: RecoveryStatus::IncompatibleTrace,
+                    session_id: manifest.session_id.clone(),
+                    run_id: manifest.run_id.clone(),
+                    history: Vec::new(),
+                    token_budget: TokenBudget::default(),
+                    last_checkpoint_seq: None,
+                    snapshot_hash: None,
+                    prompt_snapshot: None,
                 };
             }
         };
@@ -162,6 +246,7 @@ impl ResumeAnalyzer {
                 token_budget,
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
+                prompt_snapshot: prompt_snapshot.clone(),
             };
         }
 
@@ -197,6 +282,7 @@ impl ResumeAnalyzer {
                 token_budget,
                 last_checkpoint_seq: last_checkpoint.map(|e| e.seq),
                 snapshot_hash: recorded_snapshot_hash,
+                prompt_snapshot: prompt_snapshot.clone(),
             };
         }
 
@@ -291,6 +377,7 @@ impl ResumeAnalyzer {
             token_budget,
             last_checkpoint_seq: last_checkpoint.map(|e| e.seq),
             snapshot_hash: recorded_snapshot_hash,
+            prompt_snapshot,
         }
     }
 }
@@ -298,10 +385,13 @@ impl ResumeAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
-    use crate::EventEnvelope;
+    use crate::run_manifest::{
+        CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
+        PROMPT_SNAPSHOT_RELATIVE_PATH,
+    };
+    use crate::{EventEnvelope, write_prompt_snapshot};
     use gestalt_core::snapshot::WorkspaceSnapshot;
-    use gestalt_core::AgentEvent;
+    use gestalt_core::{AgentEvent, Message, PromptSnapshot};
     use std::fs;
     use std::path::PathBuf;
 
@@ -350,6 +440,33 @@ mod tests {
             finalized_at: None,
             failure_kind: None,
             interrupted_phase: None,
+            prompt_snapshot_hash: None,
+            prompt_snapshot_path: None,
+            compatibility_fingerprint: fp,
+        };
+        manifest.save_to(&dir.join("run.json")).unwrap();
+    }
+
+    fn write_manifest_with_snapshot(
+        dir: &std::path::Path,
+        lifecycle: LifecycleState,
+        fp: CompatibilityFingerprint,
+        snapshot_hash: String,
+    ) {
+        let manifest = RunManifest {
+            v: 1,
+            session_id: "session-1".to_string(),
+            run_id: "run-1".to_string(),
+            parent_run_id: None,
+            base_checkpoint: None,
+            run_kind: RunKind::New,
+            created_at: chrono::Utc::now(),
+            lifecycle_state: lifecycle,
+            finalized_at: None,
+            failure_kind: None,
+            interrupted_phase: None,
+            prompt_snapshot_hash: Some(snapshot_hash),
+            prompt_snapshot_path: Some(PROMPT_SNAPSHOT_RELATIVE_PATH.to_string()),
             compatibility_fingerprint: fp,
         };
         manifest.save_to(&dir.join("run.json")).unwrap();
@@ -550,6 +667,51 @@ mod tests {
         let analysis = ResumeAnalyzer::analyze(&dir, None, None);
         assert_eq!(analysis.status, RecoveryStatus::InterruptedPendingApproval);
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_resume_loads_prompt_snapshot() {
+        let dir = temp_run_dir();
+        let snapshot = PromptSnapshot::new(
+            vec![Message::System {
+                content: "stable prefix".to_string(),
+            }],
+            0,
+        );
+        write_manifest_with_snapshot(
+            &dir,
+            LifecycleState::Completed,
+            default_fingerprint(),
+            snapshot.snapshot_hash.clone(),
+        );
+        write_prompt_snapshot(
+            dir.join(PROMPT_SNAPSHOT_RELATIVE_PATH),
+            &snapshot,
+        )
+        .unwrap();
+        write_trace(&dir, vec![]);
+
+        let analysis = ResumeAnalyzer::analyze(&dir, None, None);
+        assert_eq!(analysis.status, RecoveryStatus::CompletedHead);
+        assert_eq!(analysis.prompt_snapshot, Some(snapshot));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_resume_rejects_missing_prompt_snapshot_file() {
+        let dir = temp_run_dir();
+        write_manifest_with_snapshot(
+            &dir,
+            LifecycleState::Completed,
+            default_fingerprint(),
+            "missing-hash".to_string(),
+        );
+        write_trace(&dir, vec![]);
+
+        let analysis = ResumeAnalyzer::analyze(&dir, None, None);
+        assert_eq!(analysis.status, RecoveryStatus::IncompatibleTrace);
+        assert!(analysis.prompt_snapshot.is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 }

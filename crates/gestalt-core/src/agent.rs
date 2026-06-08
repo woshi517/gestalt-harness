@@ -387,6 +387,7 @@ impl AgentLoop {
             temperature: session.config.temperature,
             top_p: None,
             stop_sequences: Vec::new(),
+            cache_plan: packet.cache_plan.clone(),
             metadata: serde_json::Value::Null,
         };
 

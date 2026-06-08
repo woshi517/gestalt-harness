@@ -19,6 +19,43 @@ pub fn render_event(event: &AgentEvent) -> Option<String> {
             }
             Some(format!("context> {token_estimate} tokens{extra}"))
         }
+        AgentEvent::PromptSnapshotCreated {
+            snapshot_hash,
+            prefix_hash,
+            created_turn,
+        } => Some(format!(
+            "snapshot-created> {} prefix={} turn={created_turn}",
+            &snapshot_hash[..8.min(snapshot_hash.len())],
+            &prefix_hash[..8.min(prefix_hash.len())]
+        )),
+        AgentEvent::PromptSnapshotLoaded {
+            snapshot_hash,
+            source,
+        } => Some(format!(
+            "snapshot-loaded> {} source={source}",
+            &snapshot_hash[..8.min(snapshot_hash.len())]
+        )),
+        AgentEvent::PromptSnapshotReused {
+            snapshot_hash,
+            prefix_hash,
+        } => Some(format!(
+            "snapshot-reused> {} prefix={}",
+            &snapshot_hash[..8.min(snapshot_hash.len())],
+            &prefix_hash[..8.min(prefix_hash.len())]
+        )),
+        AgentEvent::PromptCachePlanGenerated {
+            snapshot_hash,
+            prefix_hash,
+            prefix_message_count,
+        } => Some(format!(
+            "cache-plan> {} prefix={} messages={prefix_message_count}",
+            &snapshot_hash[..8.min(snapshot_hash.len())],
+            &prefix_hash[..8.min(prefix_hash.len())]
+        )),
+        AgentEvent::EphemeralContextInjected {
+            source,
+            token_estimate,
+        } => Some(format!("ephemeral> {source} ({token_estimate} tokens)")),
         AgentEvent::ModelRequest {
             provider,
             model,
@@ -1054,6 +1091,11 @@ pub struct TraceInspectReport {
     pub total_input_tokens: usize,
     pub total_output_tokens: usize,
     pub estimated_cost_usd: Option<f64>,
+    pub prompt_snapshots_created: usize,
+    pub prompt_snapshots_loaded: usize,
+    pub prompt_snapshots_reused: usize,
+    pub prompt_cache_plans: usize,
+    pub ephemeral_context_injections: usize,
     pub redacted: bool,
     pub warnings: Vec<String>,
 }
@@ -1097,6 +1139,14 @@ impl CliReport for TraceInspectReport {
                 self.estimated_cost_usd
                     .map(|c| format!("${c:.6}"))
                     .unwrap_or_else(|| "unknown".to_string())
+            ),
+            format!(
+                "Snapshot/Cache: created={} loaded={} reused={} cache_plans={} ephemeral_injections={}",
+                self.prompt_snapshots_created,
+                self.prompt_snapshots_loaded,
+                self.prompt_snapshots_reused,
+                self.prompt_cache_plans,
+                self.ephemeral_context_injections
             ),
             format!("Redacted: {}", self.redacted),
             format!("Artifacts: {} artifacts", self.artifacts.len()),

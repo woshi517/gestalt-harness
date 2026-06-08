@@ -4,7 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use gestalt_core::{ConfigError, ExecutionMode, HarnessError, ProviderError};
+use gestalt_core::{
+    ConfigError, ExecutionMode, HarnessError, PromptAssemblyStrategy, ProviderError,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -58,6 +60,8 @@ pub struct PromptConfig {
     pub r#override: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assembly_strategy: Option<PromptAssemblyStrategy>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -615,6 +619,9 @@ impl WorkspaceConfig {
             let mut self_prompt = self.prompt.unwrap_or_default();
             self_prompt.r#override = other_prompt.r#override.or(self_prompt.r#override);
             self_prompt.override_file = other_prompt.override_file.or(self_prompt.override_file);
+            self_prompt.assembly_strategy = other_prompt
+                .assembly_strategy
+                .or(self_prompt.assembly_strategy);
             self.prompt = Some(self_prompt);
         }
 

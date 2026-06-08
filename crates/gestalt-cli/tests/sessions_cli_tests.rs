@@ -43,6 +43,8 @@ async fn test_sessions_list_inspect_history() {
         finalized_at: Some(chrono::Utc::now() - chrono::Duration::hours(2)),
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     manifest1.save_to(&run1_dir.join("run.json")).unwrap();
@@ -70,6 +72,8 @@ async fn test_sessions_list_inspect_history() {
         finalized_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
         failure_kind: None,
         interrupted_phase: Some("agent_loop".to_string()),
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     manifest2.save_to(&run2_dir.join("run.json")).unwrap();
@@ -240,12 +244,17 @@ model = "mock-model"
     let run_root_dir = runs_dir.join(format!("20260602T100000Z-{}", run_root_id));
     fs::create_dir_all(&run_root_dir).unwrap();
 
+    let tool_registry = gestalt_tools::default_registry().unwrap();
+    let tool_names: Vec<String> = tool_registry
+        .schemas()
+        .iter()
+        .filter_map(|schema| schema.get("name").and_then(|value| value.as_str()).map(String::from))
+        .collect();
+
     // Fingerprint matching what run_session_action generates
     let fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
-        tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
-            &gestalt_tools::default_registry().unwrap().schemas(),
-        ),
+        tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&tool_registry.schemas()),
         policy_fingerprint: serde_json::to_string(&config.policies)
             .map(|content| gestalt_trace::run_manifest::compute_policy_fingerprint(&content))
             .unwrap(),
@@ -271,18 +280,52 @@ model = "mock-model"
         finalized_at: Some(chrono::Utc::now() - chrono::Duration::hours(2)),
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
-    manifest_root
-        .save_to(&run_root_dir.join("run.json"))
-        .unwrap();
 
-    // Write trace with a Checkpoint event containing some history
     let history_msg = Message::Assistant {
         content: vec![ContentBlock::Text {
             text: "Final assistant message response".to_string(),
         }],
     };
+
+    let pipeline = gestalt_cli::run::build_pipeline(
+        &config,
+        gestalt_core::session::ExecutionMode::Yolo,
+        config.max_turns(),
+        &tool_names,
+    )
+    .unwrap();
+    let resume_history = vec![
+        history_msg.clone(),
+        Message::User {
+            content: vec![ContentBlock::Text {
+                text: "next prompt".to_string(),
+            }],
+        },
+    ];
+    use gestalt_core::context::ContextPipeline as _;
+    let packet = pipeline.build_packet(&resume_history, &gestalt_core::context::TokenBudget::default());
+    let cache_plan = packet.cache_plan.as_ref().unwrap();
+    let prompt_snapshot = gestalt_core::context::PromptSnapshot::new(
+        packet.messages[..cache_plan.prefix_message_count].to_vec(),
+        0,
+    );
+    let prompt_snapshot_path = run_root_dir.join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+    gestalt_trace::write_prompt_snapshot(&prompt_snapshot_path, &prompt_snapshot).unwrap();
+
+    let mut manifest_root = manifest_root;
+    manifest_root.prompt_snapshot_hash = Some(prompt_snapshot.snapshot_hash.clone());
+    manifest_root.prompt_snapshot_path = Some(
+        gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+    );
+    manifest_root
+        .save_to(&run_root_dir.join("run.json"))
+        .unwrap();
+
+    // Write trace with a Checkpoint event containing some history
     let trace_data = format!(
         "{}\n{}\n",
         r#"{"v":1,"session_id":"session-resume-test","run_id":"run-root","turn_id":1,"seq":1,"ts":"2026-06-02T10:00:00Z","event":{"type":"checkpoint","history":[],"token_budget":{"model_limit":100,"reserved_output":10,"used_system":0,"used_history":0,"used_sources":0,"used_tools":0,"used_memory":0,"minimum_turn_budget":16}},"redacted":false}"#,
@@ -331,20 +374,27 @@ model = "mock-model"
     // Verify that history is preserved including the final assistant turn from the checkpoint!
     let new_trace_content = fs::read_to_string(new_run_path.join("trace.jsonl")).unwrap();
     let mut reconstructed_has_history = false;
+    let mut saw_loaded_snapshot = false;
+    let mut saw_reused_snapshot = false;
     for line in new_trace_content.lines() {
         if let Ok(env) = serde_json::from_str::<gestalt_trace::EventEnvelope>(line) {
-            if let AgentEvent::Checkpoint { history, .. } = env.event {
-                for msg in history {
-                    if let Message::Assistant { content } = msg {
-                        for block in content {
-                            if let ContentBlock::Text { text } = block {
-                                if text == "Final assistant message response" {
-                                    reconstructed_has_history = true;
+            match env.event {
+                AgentEvent::Checkpoint { history, .. } => {
+                    for msg in history {
+                        if let Message::Assistant { content } = msg {
+                            for block in content {
+                                if let ContentBlock::Text { text } = block {
+                                    if text == "Final assistant message response" {
+                                        reconstructed_has_history = true;
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                AgentEvent::PromptSnapshotLoaded { .. } => saw_loaded_snapshot = true,
+                AgentEvent::PromptSnapshotReused { .. } => saw_reused_snapshot = true,
+                _ => {}
             }
         }
     }
@@ -352,6 +402,8 @@ model = "mock-model"
         reconstructed_has_history,
         "Reconstructed run did not preserve final assistant turn history!"
     );
+    assert!(saw_loaded_snapshot, "Resume should log PromptSnapshotLoaded");
+    assert!(saw_reused_snapshot, "Resume should reuse the loaded prompt snapshot");
 
     // 2. Test BRANCHing from a specific checkpoint sequence
     let cancel_branch = gestalt_core::CancelToken::new();

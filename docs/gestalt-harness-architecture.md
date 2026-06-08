@@ -255,6 +255,8 @@ Hook outcomes: `Continue`, `Block { reason }`, `AddContext { message }`, `Annota
 
 Fail-closed: errors in `before_tool_policy` result in policy denial. Context additions from hooks are cached in a patch store and applied to the next turn.
 
+The `Snapshot` assembly strategy (see [ADR-026](adrs/ADR-026-cache-aware-prompt-assembly.md)) classifies each context patch by `ContextStability`. Stable patches (`SessionStatic`, `ActivationStatic`) are placed in a cacheable prefix before the provider cache breakpoint; dynamic and ephemeral patches follow in an uncached tail. This preserves provider prompt-cache hit rates across turns.
+
 Hooks are chained via `ComposedCompositionHooks` which runs user-registered hooks first, then extension hooks.
 
 #### 4.4.3 Tool Composition
@@ -3043,7 +3045,9 @@ To support accurate replay and cache reuse, all context compilation artifacts mu
   "tokenizer_id": "cl100k_base",
   "source_hash": "sha256:...",
   "summary_hash": "sha256:...",
-  "chunker_version": "recursive-0.1"
+  "chunker_version": "recursive-0.1",
+  "prompt_snapshot_hash": "sha256:...",
+  "assembly_strategy": "snapshot"
 }
 ```
 

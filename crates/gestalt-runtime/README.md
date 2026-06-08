@@ -873,6 +873,8 @@ This policy engine is instantiated per-session by `AgentRuntime::run_session`, s
 ### 2. Turn-to-Turn Context Accumulation
 Context additions (`HookOutcome::AddContext`) returned by `after_context_build` on turn *N* are cached in the runtime's patch store and prepended to the system prompt on turn *N+1*.
 
+When the `Snapshot` assembly strategy is active (see [ADR-026](../../docs/adrs/ADR-026-cache-aware-prompt-assembly.md)), each context addition carries a `ContextStability` tag. Stable patches (`SessionStatic`, `ActivationStatic`) are placed in the cacheable prefix before the provider cache breakpoint; dynamic and ephemeral patches (`TurnDynamic`, `Ephemeral`) follow in the uncached tail.
+
 > [!NOTE]
 > The patch store is cleared at the beginning of each turn's `after_context_build` phase. Context injected in one turn is applied to the next turn, but does not duplicate indefinitely.
 

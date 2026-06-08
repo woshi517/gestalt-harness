@@ -128,9 +128,9 @@ pub enum HookOutcome {
 
 ## Patch Store & Turn-to-Turn Context
 
-The `patch_store` is an `Arc<Mutex<Vec<Message>>>` shared between `RuntimeContextHookAdapter` and `RuntimeContextPipeline`. Its lifecycle:
+The `patch_store` is an `Arc<Mutex<Vec<ContextPatch>>>` shared between `RuntimeContextHookAdapter` and `RuntimeContextPipeline`. Its lifecycle:
 
-1. **Turn N, `before_context_build`:** Any `AddContext` message is pushed into the patch store. `RuntimeContextPipeline` reads the patch store and injects messages into the assembled context packet.
+1. **Turn N, `before_context_build`:** Any `AddContext` message is pushed into the patch store as a `ContextPatch` with a `ContextStability` tag. `RuntimeContextPipeline` reads the patch store and injects messages into the assembled context packet.
 2. **Turn N, `after_context_build`:** The patch store is **cleared first**, then any new `AddContext` from this hook is pushed. This ensures the previous turn's context injection is consumed (by the pipeline) and the new injection is cached for turn N+1.
 3. **Turn N+1, `before_context_build`:** The cached message from turn N's `after_context_build` is in the patch store, gets injected by the pipeline, and the cycle repeats.
 
@@ -138,6 +138,21 @@ This means:
 - `before_context_build` `AddContext` → injected into the **current** turn
 - `after_context_build` `AddContext` → cached and applied to the **next** turn
 - No indefinite duplication — the store is cleared each turn
+
+### Context Stability & Cache-Aware Placement
+
+When the pipeline uses the `Snapshot` assembly strategy (see [ADR-026](adrs/ADR-026-cache-aware-prompt-assembly.md)), messages are placed based on their `ContextStability` tag:
+
+| Stability | Placement | Rationale |
+|-----------|-----------|-----------|
+| `SessionStatic` | Stable prefix | System prompt, tool definitions, workspace description — never changes mid-session |
+| `ActivationStatic` | Stable prefix | MCP tool schemas, extension-registered tools — stable until a toolset activation changes |
+| `TurnDynamic` | Dynamic tail | User/assistant messages, tool results — changes every turn |
+| `Ephemeral` | Dynamic tail | Budget exhaustion notices, one-shot annotations — single-turn lifetime |
+
+The stable prefix is grouped before the cache breakpoint so provider caches can recognize it across turns. The dynamic tail varies freely without affecting cache hit rates.
+
+When `ContextStability` is not explicitly set by a `ContextContributor`, it defaults to `TurnDynamic`.
 
 ---
 
@@ -150,11 +165,12 @@ The runtime wires composition hooks into the core `AgentLoop` through three adap
 ```rust
 pub struct RuntimeContextHookAdapter {
     pub hooks: Arc<dyn CompositionHooks>,
-    pub patch_store: Arc<Mutex<Vec<Message>>>,
+    pub patch_store: Arc<Mutex<Vec<ContextPatch>>>,
     pub contributors: Vec<Arc<dyn ContextContributor>>,
     pub workspace_root: std::path::PathBuf,
     pub block_reason: Option<Arc<Mutex<Option<String>>>>,
     pub event_bus: RuntimeEventBus,
+    pub initial_prompt_snapshot_hash: Option<String>,
 }
 ```
 

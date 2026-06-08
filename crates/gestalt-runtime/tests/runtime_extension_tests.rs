@@ -1,3 +1,4 @@
+use gestalt_core::ContextStability;
 use gestalt_runtime::{AgentRuntimeBuilder, GestaltExtension, RuntimeError, RuntimeRegistry};
 use std::sync::Arc;
 
@@ -33,4 +34,27 @@ fn test_duplicate_extension_fails() {
     let res = builder.build();
     assert!(res.is_err());
     assert!(format!("{:?}", res.err().unwrap()).contains("Duplicate extension name"));
+}
+
+#[tokio::test]
+async fn test_context_contributor_stability_is_exposed() {
+    let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
+    let content = std::fs::read_to_string(&manifest_path).unwrap();
+    let manifest = gestalt_runtime::ExtensionManifest::parse(&content).unwrap();
+
+    let event_bus = gestalt_runtime::RuntimeEventBus::new();
+    let broker = std::sync::Arc::new(
+        gestalt_runtime::ProcessExtensionBroker::spawn(manifest.clone(), event_bus)
+            .await
+            .unwrap(),
+    );
+
+    let mut registry = RuntimeRegistry::new();
+    gestalt_runtime::ProcessExtension::new(manifest, broker)
+        .register(&mut registry)
+        .unwrap();
+
+    let metadata = registry.context_contributors.get("bash_context").unwrap();
+    assert_eq!(metadata.stability, ContextStability::TurnDynamic);
 }

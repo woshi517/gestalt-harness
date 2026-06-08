@@ -88,6 +88,11 @@ pub fn inspect_trace(
     let mut artifacts = Vec::new();
     let mut total_input_tokens = 0;
     let mut total_output_tokens = 0;
+    let mut prompt_snapshots_created = 0;
+    let mut prompt_snapshots_loaded = 0;
+    let mut prompt_snapshots_reused = 0;
+    let mut prompt_cache_plans = 0;
+    let mut ephemeral_context_injections = 0;
     let mut redacted = false;
     let mut warnings = Vec::new();
 
@@ -95,6 +100,11 @@ pub fn inspect_trace(
         let variant_name = match &env.event {
             AgentEvent::UserMessage { .. } => "user_message",
             AgentEvent::ContextBuilt { .. } => "context_built",
+            AgentEvent::PromptSnapshotCreated { .. } => "prompt_snapshot_created",
+            AgentEvent::PromptSnapshotLoaded { .. } => "prompt_snapshot_loaded",
+            AgentEvent::PromptSnapshotReused { .. } => "prompt_snapshot_reused",
+            AgentEvent::PromptCachePlanGenerated { .. } => "prompt_cache_plan_generated",
+            AgentEvent::EphemeralContextInjected { .. } => "ephemeral_context_injected",
             AgentEvent::ModelRequest { .. } => "model_request",
             AgentEvent::Text { .. } => "text",
             AgentEvent::Thinking { .. } => "thinking",
@@ -172,6 +182,11 @@ pub fn inspect_trace(
                 total_input_tokens += input_tokens;
                 total_output_tokens += output_tokens;
             }
+            AgentEvent::PromptSnapshotCreated { .. } => prompt_snapshots_created += 1,
+            AgentEvent::PromptSnapshotLoaded { .. } => prompt_snapshots_loaded += 1,
+            AgentEvent::PromptSnapshotReused { .. } => prompt_snapshots_reused += 1,
+            AgentEvent::PromptCachePlanGenerated { .. } => prompt_cache_plans += 1,
+            AgentEvent::EphemeralContextInjected { .. } => ephemeral_context_injections += 1,
             AgentEvent::Error { message, .. } => {
                 warnings.push(format!("Error event in trace: {message}"));
             }
@@ -185,11 +200,11 @@ pub fn inspect_trace(
     let cost_rep = aggregate_costs(&trace_path, resolver).ok();
     let estimated_cost_usd = cost_rep.and_then(|c| c.estimated_cost_usd);
 
-    Ok(TraceInspectReport {
-        run_id,
-        path: trace_path,
-        total_events: envelopes.len(),
-        event_types,
+        Ok(TraceInspectReport {
+            run_id,
+            path: trace_path,
+            total_events: envelopes.len(),
+            event_types,
         turns,
         tool_calls,
         policy_decisions,
@@ -197,12 +212,17 @@ pub fn inspect_trace(
         verification_results,
         verification_status,
         artifacts,
-        total_input_tokens,
-        total_output_tokens,
-        estimated_cost_usd,
-        redacted,
-        warnings,
-    })
+            total_input_tokens,
+            total_output_tokens,
+            estimated_cost_usd,
+            prompt_snapshots_created,
+            prompt_snapshots_loaded,
+            prompt_snapshots_reused,
+            prompt_cache_plans,
+            ephemeral_context_injections,
+            redacted,
+            warnings,
+        })
 }
 
 /// Validates trace envelope schemas, monotonic sequence ordering, and artifact presence.

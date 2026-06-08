@@ -366,6 +366,8 @@ fn test_runs_descendant_aware_prune_and_delete() {
         finalized_at: Some(chrono::Utc::now() - chrono::Duration::hours(2)),
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     parent_manifest
@@ -384,6 +386,8 @@ fn test_runs_descendant_aware_prune_and_delete() {
         finalized_at: Some(chrono::Utc::now()),
         failure_kind: None,
         interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     child_manifest.save_to(&child_dir.join("run.json")).unwrap();

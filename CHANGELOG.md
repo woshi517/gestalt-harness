@@ -11,6 +11,7 @@ Initial Phase 1 release candidate for `gestalt-harness`.
 - Replayable JSONL traces with replay and cost commands.
 - Provider, model, and workspace configuration validation paths that work without live credentials in CI.
 - Linux and macOS release-readiness checks covering install smoke, dependency budgets, and binary-size auditing.
+- **Cache-aware prompt assembly** — separates stable session context from turn-specific context to preserve provider prompt-cache hit rates across turns. Configurable via `prompt.assembly_strategy` in `gestalt.json` (`"snapshot"` / `"dynamic"`). See [ADR-026](docs/adrs/ADR-026-cache-aware-prompt-assembly.md).
 
 ### Install and Platform Notes
 

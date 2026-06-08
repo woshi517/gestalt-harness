@@ -564,3 +564,54 @@ fn poisoned() -> HarnessError {
 fn u64_to_usize(value: u64) -> usize {
     usize::try_from(value).map_or(usize::MAX, |value| value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gestalt_core::context::{
+        ContextStability, PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
+        PromptSegmentKind, PromptSnapshot,
+    };
+
+    fn request_with_cache_plan() -> ProviderRequest {
+        let snapshot = PromptSnapshot::new(
+            vec![Message::System {
+                content: "stable prefix".to_string(),
+            }],
+            0,
+        );
+        let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot)
+            .with_segments(vec![PromptSegment::from_messages(
+                PromptSegmentKind::Snapshot,
+                ContextStability::SessionStatic,
+                &snapshot.messages,
+            )]);
+
+        ProviderRequest {
+            model: "gpt-4o-mini".to_string(),
+            messages: vec![Message::User {
+                content: vec![ContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+            }],
+            tools: vec![],
+            tool_name_map: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            top_p: None,
+            stop_sequences: vec![],
+            cache_plan: Some(plan),
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn body_ignores_cache_plan_metadata() {
+        let provider = OpenAiProvider::default();
+        let body = provider.body(&request_with_cache_plan());
+
+        assert!(body.get("cache_control").is_none());
+        assert!(body.get("messages").is_some());
+        assert!(body.get("system").is_none());
+    }
+}
