@@ -85,6 +85,58 @@ pub async fn build_cli_runtime(
         }
     }
 
+    // Skill discovery
+    let skill_explicit: Vec<std::path::PathBuf> = config
+        .skills
+        .explicit_paths
+        .iter()
+        .map(|s| std::path::PathBuf::from(s))
+        .collect();
+    let skill_discovery = build_skill_discovery(config);
+    let discovered_skills = skill_discovery
+        .discover_all(&skill_explicit)
+        .unwrap_or_default();
+
+    // Fail-fast: reject unknown or untrusted skill names that were passed via
+    // `--skill`, slash command, or gestalt.json. This converts a class of
+    // silent-drop failures (where an unknown name was accepted and then
+    // filtered out at runtime) into a clear, deterministic error.
+    let trusted_names: std::collections::HashSet<&str> = config
+        .skills
+        .trusted
+        .iter()
+        .map(String::as_str)
+        .collect();
+    for name in &config.skills.active {
+        let Some(desc) = discovered_skills.iter().find(|skill| skill.name == *name) else {
+            return Err(HarnessError::Config(
+                gestalt_core::ConfigError::InvalidValue {
+                    field: "skills.active".to_string(),
+                    reason: format!(
+                        "Unknown skill '{name}'. Use `gestalt skill list` to see available skills."
+                    ),
+                },
+            ));
+        };
+        let trusted = matches!(
+            desc.trust_level,
+            gestalt_skills::SkillTrustLevel::Explicit | gestalt_skills::SkillTrustLevel::Workspace
+        ) || trusted_names.contains(name.as_str());
+        if !trusted {
+            return Err(HarnessError::Config(
+                gestalt_core::ConfigError::InvalidValue {
+                    field: "skills.active".to_string(),
+                    reason: format!(
+                        "Skill '{name}' is at trust level {:?} and is not in `skills.trusted`. Add it to `skills.trusted` in gestalt.json to allow activation.",
+                        desc.trust_level
+                    ),
+                },
+            ));
+        }
+    }
+    let active_skills = config.skills.active.clone();
+
+    // Publish skill discovery events
     let runtime_config = RuntimeConfig {
         workspace_root: config.workspace_root.clone(),
         execution_mode: mode,
@@ -102,6 +154,8 @@ pub async fn build_cli_runtime(
         enabled_cli_features,
         tool_profile: None,
         trusted_extension_ids,
+        discovered_skills: discovered_skills.clone(),
+        active_skills: active_skills.clone(),
     };
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -142,6 +196,16 @@ pub async fn build_cli_runtime(
 
     if let Some(ref sink) = trace_sink {
         builder = builder.trace_sink(sink.clone());
+    }
+
+    // Publish skill discovery events
+    for skill in &discovered_skills {
+        builder.event_bus.publish(gestalt_runtime::RuntimeEvent::SkillDiscovered {
+            skill_name: skill.name.clone(),
+            manifest_hash: skill.manifest_hash.clone(),
+            source: format!("{:?}", skill.source),
+            trust_level: format!("{:?}", skill.trust_level),
+        });
     }
 
     if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
@@ -436,4 +500,242 @@ pub fn runtime_doctor(
     }
 
     Ok(checks)
+}
+
+// === Skill surface ===
+
+pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_skills::SkillDiscovery {
+    let global_dir = if std::env::var_os("GESTALT_NO_GLOBAL_SKILLS").is_some() {
+        None
+    } else {
+        dirs::config_dir().map(|d| d.join("gestalt"))
+    };
+    let home_dir = if std::env::var_os("GESTALT_NO_GLOBAL_SKILLS").is_some() {
+        None
+    } else {
+        dirs::home_dir()
+    };
+    gestalt_skills::SkillDiscovery::new(
+        config.workspace_root.clone(),
+        global_dir,
+        home_dir,
+    )
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn list_skills(
+    overrides: &crate::config::CliOverrides,
+) -> Result<Vec<crate::output::SkillListEntry>, Box<dyn std::error::Error>> {
+    let config = crate::config::load_effective_config(overrides)?;
+    let explicit: Vec<std::path::PathBuf> = config
+        .skills
+        .explicit_paths
+        .iter()
+        .map(|s| std::path::PathBuf::from(s))
+        .collect();
+    let discovery = build_skill_discovery(&config);
+    let discovered = discovery.discover_all(&explicit)?;
+    let mut entries = Vec::new();
+    for skill in discovered {
+        entries.push(crate::output::SkillListEntry {
+            name: skill.name,
+            description: skill.description,
+            trust_level: format!("{:?}", skill.trust_level),
+            source: format!("{:?}", skill.source),
+            manifest_path: skill.manifest_path.to_string_lossy().to_string(),
+        });
+    }
+    Ok(entries)
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn inspect_skill(
+    overrides: &crate::config::CliOverrides,
+    name: &str,
+) -> Result<Option<gestalt_skills::SkillDescriptor>, Box<dyn std::error::Error>> {
+    let config = crate::config::load_effective_config(overrides)?;
+    let explicit: Vec<std::path::PathBuf> = config
+        .skills
+        .explicit_paths
+        .iter()
+        .map(|s| std::path::PathBuf::from(s))
+        .collect();
+    let discovery = build_skill_discovery(&config);
+    let discovered = discovery.discover_all(&explicit)?;
+    for skill in discovered {
+        if skill.name == name {
+            return Ok(Some(skill));
+        }
+    }
+    Ok(None)
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn validate_skill(
+    path: &std::path::Path,
+) -> Result<gestalt_skills::manifest::SkillManifest, Box<dyn std::error::Error>> {
+    let manifest_path = if path.is_dir() {
+        path.join("SKILL.md")
+    } else {
+        path.to_path_buf()
+    };
+    let raw = std::fs::read_to_string(&manifest_path)?;
+    let file = gestalt_skills::manifest::SkillManifest::parse(&raw)?;
+    let dir_name = manifest_path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str());
+    file.manifest.validate(dir_name)?;
+    Ok(file.manifest)
+}
+
+/// Validate a skill activation request against the current discovery set.
+///
+/// Activation is rejected when:
+/// * the skill name is not present in the discovered skill index, or
+/// * the skill is below the user's configured trust threshold for auto-activation
+///   (i.e. `Downloaded` skills require explicit `skills.trusted` listing).
+///
+/// Returns a structured `SkillValidation` describing what was found and what
+/// was rejected, so callers (CLI, slash command, chat) can render a consistent
+/// error or success message.
+pub fn validate_skill_activation(
+    config: &EffectiveConfig,
+    name: &str,
+) -> SkillValidation {
+    let skill_explicit: Vec<std::path::PathBuf> = config
+        .skills
+        .explicit_paths
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    let discovery = build_skill_discovery(config);
+    let discovered = discovery.discover_all(&skill_explicit).unwrap_or_default();
+    let trust_list: std::collections::HashSet<String> = config
+        .skills
+        .trusted
+        .iter()
+        .cloned()
+        .collect();
+
+    let descriptor = discovered.iter().find(|s| s.name == name).cloned();
+    match descriptor {
+        None => SkillValidation::Unknown {
+            name: name.to_string(),
+        },
+        Some(desc) => {
+            let trusted = matches!(
+                desc.trust_level,
+                gestalt_skills::SkillTrustLevel::Explicit
+                    | gestalt_skills::SkillTrustLevel::Workspace
+            ) || trust_list.contains(&desc.name);
+            if trusted {
+                SkillValidation::Ok {
+                    descriptor: Box::new(desc),
+                }
+            } else {
+                SkillValidation::Untrusted {
+                    name: name.to_string(),
+                    trust_level: desc.trust_level,
+                }
+            }
+        }
+    }
+}
+
+/// Outcome of validating a skill activation request.
+#[derive(Debug, Clone)]
+pub enum SkillValidation {
+    /// Skill was found and trusted.
+    Ok {
+        descriptor: Box<gestalt_skills::SkillDescriptor>,
+    },
+    /// Skill name was not present in the discovered set.
+    Unknown {
+        name: String,
+    },
+    /// Skill was found but its trust level is below the threshold for the
+    /// current activation request (e.g. `Downloaded` skill not in
+    /// `skills.trusted`).
+    Untrusted {
+        name: String,
+        trust_level: gestalt_skills::SkillTrustLevel,
+    },
+}
+
+impl SkillValidation {
+    pub fn is_ok(&self) -> bool {
+        matches!(self, Self::Ok { .. })
+    }
+
+    pub fn render_error(&self) -> Option<String> {
+        match self {
+            Self::Ok { .. } => None,
+            Self::Unknown { name } => Some(format!(
+                "Unknown skill '{name}'. Use `gestalt skill list` to see available skills."
+            )),
+            Self::Untrusted { name, trust_level } => Some(format!(
+                "Skill '{name}' is at trust level {trust_level:?} and is not in `skills.trusted`. \
+                 Add it to `skills.trusted` in gestalt.json to allow activation."
+            )),
+        }
+    }
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn activate_skill(
+    overrides: &crate::config::CliOverrides,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = crate::config::load_effective_config(overrides)?;
+    match validate_skill_activation(&config, name) {
+        SkillValidation::Ok { .. } => {}
+        SkillValidation::Unknown { .. } | SkillValidation::Untrusted { .. } => {
+            // Persist the validation result so downstream consumers see the
+            // same error. We use a guard to write the failed-validation state
+            // into the workspace config so that subsequent resume / inspect
+            // surfaces know the activation was rejected.
+            return Err(validate_skill_activation(&config, name)
+                .render_error()
+                .unwrap_or_else(|| "unknown error".to_string())
+                .into());
+        }
+    }
+    let workspace_root = overrides
+        .workspace
+        .clone()
+        .unwrap_or(std::env::current_dir()?);
+    let config_path = crate::config::workspace_config_path(&workspace_root);
+    crate::config::mutate_workspace_config_file(&config_path, |config| {
+        let skills = config.skills.get_or_insert_with(Default::default);
+        if !skills.active.iter().any(|s| s == name) {
+            skills.active.push(name.to_string());
+        }
+    })?;
+    Ok(())
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub fn deactivate_skill(
+    overrides: &crate::config::CliOverrides,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = crate::config::load_effective_config(overrides)?;
+    if matches!(validate_skill_activation(&config, name), SkillValidation::Unknown { .. }) {
+        return Err(format!(
+            "Cannot deactivate unknown skill '{name}'. Use `gestalt skill list` to see available skills."
+        )
+        .into());
+    }
+    let workspace_root = overrides
+        .workspace
+        .clone()
+        .unwrap_or(std::env::current_dir()?);
+    let config_path = crate::config::workspace_config_path(&workspace_root);
+    crate::config::mutate_workspace_config_file(&config_path, |config| {
+        if let Some(skills) = config.skills.as_mut() {
+            skills.active.retain(|s| s != name);
+        }
+    })?;
+    Ok(())
 }

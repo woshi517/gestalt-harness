@@ -409,6 +409,7 @@ mod tests {
             policy_fingerprint: "policy".to_string(),
             hook_contract_hash: "hook".to_string(),
             execution_mode: "Yolo".to_string(),
+            skill_fingerprint: None,
         }
     }
 
@@ -557,6 +558,46 @@ mod tests {
 
         let analysis = ResumeAnalyzer::analyze(&dir, None, Some(&expected_fp));
         assert_eq!(analysis.status, RecoveryStatus::IncompatibleFingerprint);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_skill_fingerprint_mismatch_rejects_resume() {
+        // The original run had a skill fingerprint derived from manifest
+        // content "hash-pdf-v1". The user edited the skill's SKILL.md, so
+        // the current fingerprint is "hash-pdf-v2". Resume must be rejected
+        // even though every other fingerprint field matches, because the
+        // plan requires replay-safety against active-skill content drift.
+        let dir = temp_run_dir();
+        let mut original = default_fingerprint();
+        original.skill_fingerprint = Some("hash-pdf-v1".to_string());
+        write_manifest(&dir, LifecycleState::Interrupted, original);
+        write_trace(&dir, vec![]);
+
+        let mut expected = default_fingerprint();
+        expected.skill_fingerprint = Some("hash-pdf-v2".to_string());
+
+        let analysis = ResumeAnalyzer::analyze(&dir, None, Some(&expected));
+        assert_eq!(analysis.status, RecoveryStatus::IncompatibleFingerprint);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_skill_fingerprint_match_allows_resume() {
+        // Symmetric case: same active-skill manifest content on both sides
+        // must allow resume. This guards against the fingerprint accidentally
+        // being over-strict (e.g. including timestamps).
+        let dir = temp_run_dir();
+        let mut original = default_fingerprint();
+        original.skill_fingerprint = Some("hash-pdf-v1".to_string());
+        write_manifest(&dir, LifecycleState::Interrupted, original);
+        write_trace(&dir, vec![]);
+
+        let mut expected = default_fingerprint();
+        expected.skill_fingerprint = Some("hash-pdf-v1".to_string());
+
+        let analysis = ResumeAnalyzer::analyze(&dir, None, Some(&expected));
+        assert_ne!(analysis.status, RecoveryStatus::IncompatibleFingerprint);
         let _ = fs::remove_dir_all(&dir);
     }
 

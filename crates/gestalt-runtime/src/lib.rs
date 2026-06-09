@@ -17,6 +17,7 @@ pub mod policy;
 pub mod process_extension;
 pub mod registry;
 pub mod runtime;
+pub mod skill_contributor;
 pub mod tool_catalog;
 pub mod tool_catalog_planner;
 

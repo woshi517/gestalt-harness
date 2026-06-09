@@ -42,6 +42,17 @@
         }
       ]
     },
+    "skills": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SkillsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "observe": {
       "default": null,
       "anyOf": [
@@ -209,6 +220,33 @@
           }
         },
         "explicit_loads": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "trusted": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SkillsConfig": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "explicit_paths": {
           "default": [],
           "type": "array",
           "items": {

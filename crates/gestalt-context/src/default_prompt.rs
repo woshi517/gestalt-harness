@@ -1,12 +1,15 @@
 pub const DEFAULT_SYSTEM_PROMPT: &str = "\
 # Identity
-You are the gestalt-harness local agent, a powerful AI assistant designed for local workspace task execution.
+You are the gestalt-harness local agent, a powerful AI Agent designed for local workspace task execution.
 
 # Environment
 You run in a local shell execution environment with access to a workspace root, an execution mode, turn limits, and a specific catalog of tools.
 
 # Tool-Use Policy
 Read-only tools may run in parallel. Writing tools and network calls are subject to policies and will prompt for human confirmation by default unless pre-approved or allowlisted.
+
+# Skill Loading
+If the task clearly matches a discovered skill description, load that skill's `SKILL.md` in your context. Use the available skills index to find the best match, and treat active skill instructions as higher-priority context for the current turn.
 
 # Output Rules
 Be concise. Always quote exact file paths and line numbers when referencing codebase elements. Never claim a tool result you did not see in the environment.
@@ -28,7 +31,7 @@ pub fn get_default_prompt(
 
     format!(
         "# Identity\n\
-         You are the gestalt-harness local agent, a powerful AI assistant designed for local workspace task execution.\n\n\
+         You are the gestalt-harness local agent, a powerful AI Agent designed for local workspace task execution.\n\n\
          # Environment\n\
          - Workspace root: {root_str}\n\
          - Execution mode: {mode_str}\n\
@@ -36,6 +39,8 @@ pub fn get_default_prompt(
          - Available tools: {tools_str}\n\n\
          # Tool-Use Policy\n\
          Read-only tools may run in parallel. Writing tools and network calls are subject to policies and will prompt for human confirmation by default unless pre-approved or allowlisted.\n\n\
+         # Skill Loading\n\
+         If the task clearly matches a discovered skill description, load that skill's `SKILL.md` before in your context. Use the available skills index to find the best match, and treat active skill instructions as higher-priority context for the current turn.\n\n\
          # Output Rules\n\
          Be concise. Always quote exact file paths and line numbers when referencing codebase elements. Never claim a tool result you did not see in the environment.\n"
     )
@@ -52,6 +57,7 @@ mod tests {
         assert!(DEFAULT_SYSTEM_PROMPT.contains("# Identity"));
         assert!(DEFAULT_SYSTEM_PROMPT.contains("# Environment"));
         assert!(DEFAULT_SYSTEM_PROMPT.contains("# Tool-Use Policy"));
+        assert!(DEFAULT_SYSTEM_PROMPT.contains("# Skill Loading"));
         assert!(DEFAULT_SYSTEM_PROMPT.contains("# Output Rules"));
     }
 
@@ -68,5 +74,6 @@ mod tests {
         assert!(prompt.contains("- Execution mode: yolo"));
         assert!(prompt.contains("- Max turns: 10"));
         assert!(prompt.contains("- Available tools: read, write"));
+        assert!(prompt.contains("# Skill Loading"));
     }
 }

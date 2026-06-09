@@ -74,6 +74,7 @@ async fn test_chat_rejects_resume_unsafe_unfinalized() {
         policy_fingerprint: "policy".to_string(),
         hook_contract_hash: "hook".to_string(),
         execution_mode: "Yolo".to_string(),
+        skill_fingerprint: None,
     };
     let manifest = RunManifest {
         v: 1,

@@ -25,6 +25,12 @@ pub struct RuntimeConfig {
     /// `ExtensionDeclared` regardless of manifest claims.
     #[serde(default)]
     pub trusted_extension_ids: Vec<String>,
+    /// Discovered skill descriptors available at runtime startup.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub discovered_skills: Vec<gestalt_skills::SkillDescriptor>,
+    /// Names of skills explicitly activated for this session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub active_skills: Vec<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -46,6 +52,8 @@ impl Default for RuntimeConfig {
             enabled_cli_features: Vec::new(),
             tool_profile: None,
             trusted_extension_ids: Vec::new(),
+            discovered_skills: Vec::new(),
+            active_skills: Vec::new(),
         }
     }
 }

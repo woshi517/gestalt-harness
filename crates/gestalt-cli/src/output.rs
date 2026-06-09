@@ -2065,3 +2065,106 @@ impl CliReport for RuntimeDoctorReport {
         lines.join("\n")
     }
 }
+
+#[derive(Serialize)]
+pub struct SkillsListReport {
+    pub skills: Vec<SkillListEntry>,
+}
+
+#[derive(Serialize)]
+pub struct SkillListEntry {
+    pub name: String,
+    pub description: String,
+    pub trust_level: String,
+    pub source: String,
+    pub manifest_path: String,
+}
+
+impl CliReport for SkillsListReport {
+    fn kind(&self) -> &'static str {
+        "skills.list"
+    }
+
+    fn render_text(&self) -> String {
+        if self.skills.is_empty() {
+            return "No skills discovered.".to_string();
+        }
+        let mut lines = vec![
+            format!(
+                "{:<20} | {:<12} | {:<15} | {:<30}",
+                "Name", "Trust", "Source", "Description"
+            ),
+            "-".repeat(85),
+        ];
+        for s in &self.skills {
+            lines.push(format!(
+                "{:<20} | {:<12} | {:<15} | {:<30}",
+                s.name,
+                s.trust_level,
+                s.source,
+                s.description.chars().take(30).collect::<String>()
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct SkillInspectReport {
+    pub name: String,
+    pub description: String,
+    pub skill_root: String,
+    pub manifest_path: String,
+    pub manifest_hash: String,
+    pub trust_level: String,
+    pub source: String,
+    pub license: Option<String>,
+    pub compatibility: Option<String>,
+    pub allowed_tools: Option<String>,
+}
+
+impl CliReport for SkillInspectReport {
+    fn kind(&self) -> &'static str {
+        "skills.inspect"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            format!("Name:          {}", self.name),
+            format!("Description:   {}", self.description),
+            format!("Trust Level:   {}", self.trust_level),
+            format!("Source:        {}", self.source),
+            format!("Skill Root:    {}", self.skill_root),
+            format!("Manifest Path: {}", self.manifest_path),
+            format!("Manifest Hash: {}", self.manifest_hash),
+        ];
+        if let Some(ref license) = self.license {
+            lines.push(format!("License:       {}", license));
+        }
+        if let Some(ref compat) = self.compatibility {
+            lines.push(format!("Compatibility: {}", compat));
+        }
+        if let Some(ref tools) = self.allowed_tools {
+            lines.push(format!("Allowed Tools: {}", tools));
+        }
+        lines.join("\n")
+    }
+}
+
+#[derive(Serialize)]
+pub struct SkillActionReport {
+    pub action: String,
+    pub skill_name: String,
+    pub success: bool,
+    pub message: String,
+}
+
+impl CliReport for SkillActionReport {
+    fn kind(&self) -> &'static str {
+        "skills.action"
+    }
+
+    fn render_text(&self) -> String {
+        self.message.clone()
+    }
+}

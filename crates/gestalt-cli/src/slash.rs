@@ -3,10 +3,13 @@
 use crate::config::EffectiveConfig;
 use crate::output::CliReport;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum SlashOutcome {
     None,
     Quit,
     ChangeMode(String),
+    SkillActivated(String),
+    SkillDeactivated(String),
 }
 
 pub async fn handle_slash_command(
@@ -29,6 +32,8 @@ pub async fn handle_slash_command(
             println!("  /help                  Show this help message");
             println!("  /quit, /exit           Exit the chat session");
             println!("  /mode <mode>           Change the execution mode (confirm, yolo, human, dry-run, replay)");
+            println!("  /skill <name>          Activate a skill for this session");
+            println!("  /skill off <name>      Deactivate a skill for this session");
             println!(
                 "  /cost                  Show the aggregated cost of all runs in this session"
             );
@@ -116,6 +121,44 @@ pub async fn handle_slash_command(
                 println!("No runs have been executed in this session yet.");
             }
             Ok(SlashOutcome::None)
+        }
+        "/skill" => {
+            if parts.len() < 2 {
+                println!("Usage: /skill <name> | /skill off <name>");
+                return Ok(SlashOutcome::None);
+            }
+            if parts[1] == "off" {
+                if parts.len() < 3 {
+                    println!("Usage: /skill off <name>");
+                    return Ok(SlashOutcome::None);
+                }
+                let name = parts[2];
+                match crate::runtime::validate_skill_activation(config, name) {
+                    crate::runtime::SkillValidation::Unknown { .. } => {
+                        println!(
+                            "Cannot deactivate unknown skill '{name}'. Use `gestalt skill list` to see available skills."
+                        );
+                        return Ok(SlashOutcome::None);
+                    }
+                    _ => {
+                        println!("Deactivating skill '{name}'...");
+                        return Ok(SlashOutcome::SkillDeactivated(name.to_string()));
+                    }
+                }
+            }
+            let name = parts[1];
+            match crate::runtime::validate_skill_activation(config, name) {
+                crate::runtime::SkillValidation::Ok { .. } => {
+                    println!("Activating skill '{name}'...");
+                    Ok(SlashOutcome::SkillActivated(name.to_string()))
+                }
+                other => {
+                    if let Some(msg) = other.render_error() {
+                        println!("{msg}");
+                    }
+                    Ok(SlashOutcome::None)
+                }
+            }
         }
         _ => {
             println!("Unknown slash command: '{cmd}'. Type /help for a list of commands.");

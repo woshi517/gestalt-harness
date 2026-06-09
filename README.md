@@ -26,6 +26,7 @@
 - [Supported Platforms](#supported-platforms)
 - [Install](#install)
 - [Quick Start](#quick-start)
+- [Skills](#skills)
 - [Documentation](#documentation)
 - [Development Commands](#development-commands)
 - [License](#license)
@@ -235,6 +236,53 @@ Manage and diagnose extensions with the following CLI commands:
   gestalt runtime doctor
   ```
   Runs preflight checks on extensions, verifying executables, paths, and manifest safety.
+
+---
+
+## Skills
+
+Skills are passive instruction packages that progressively load task-specific workflows into the runtime. The harness discovers them, exposes only lightweight metadata at startup, and activates full instructions on demand. Skills can declare a tool allow-list to narrow the visible tool catalog while active.
+
+**Discovering skills.** Skills are discovered from explicit paths, the workspace-local `.gestalt/skills/` (and `.agents/skills/`) directory, and the global `~/.config/gestalt/skills/` directory. Manifests follow the [Agent Skills](https://agentskills.io) `SKILL.md` format (YAML frontmatter + Markdown body).
+
+**Managing skills:**
+
+- **List skills**:
+  ```bash
+  gestalt skill list
+  ```
+  Lists discovered skills with name, description, trust level, and source path.
+
+- **Inspect a skill**:
+  ```bash
+  gestalt skill inspect <name>
+  ```
+  Shows the manifest metadata, `allowed-tools` frontmatter, and the resolved skill root.
+
+- **Validate a skill package**:
+  ```bash
+  gestalt skill validate <path-to-skill-dir>
+  ```
+  Performs offline validation against the Agent Skills spec (frontmatter, naming, directory match).
+
+**Activating skills:**
+
+- **Activate for a single run**:
+  ```bash
+  gestalt run --skill pdf-processing
+  ```
+  Activates the named skill(s) for that run only.
+
+- **Activate in an interactive session**:
+  ```
+  /skill pdf-processing      # activate
+  /skill off pdf-processing  # deactivate
+  ```
+  Slash commands toggle the active skill set for the current chat session.
+
+**How it works.** Skill metadata (name, description, trust level, source) is loaded at startup and exposed to the model as a `SessionStatic` index. When a skill is activated — either explicitly, via CLI flag, via slash command, or via deterministic trigger matching on the current task — the full `SKILL.md` body is injected as `ActivationStatic` context, and the active skill set drives tool catalog filtering. Resources (`scripts/`, `references/`, `assets/`) are demand-loaded through ordinary file tools, never auto-injected. Resumes and replays reject runs whose active-skill state does not match the recorded fingerprint.
+
+Skill-declared `allowed-tools` is treated as a narrowing hint and intersected with the workspace policy. Off-skill tool calls are denied at policy time even if the provider emits them.
 
 ---
 

@@ -29,6 +29,7 @@ async fn test_sessions_list_inspect_history() {
         policy_fingerprint: "policy1".to_string(),
         hook_contract_hash: "hook1".to_string(),
         execution_mode: "Yolo".to_string(),
+        skill_fingerprint: None,
     };
 
     let manifest1 = RunManifest {
@@ -208,6 +209,7 @@ async fn test_sessions_successful_resume_and_branch() {
     );
 
     let temp_root = create_temp_workspace();
+    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
     let runs_dir = temp_root.join(".gestalt/runs");
     fs::create_dir_all(&runs_dir).unwrap();
 
@@ -266,6 +268,7 @@ model = "mock-model"
             gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
         },
         execution_mode: "Yolo".to_string(),
+        skill_fingerprint: None,
     };
 
     let manifest_root = RunManifest {

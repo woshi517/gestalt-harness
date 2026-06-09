@@ -93,6 +93,33 @@ pub enum RuntimeEvent {
     RuntimeError {
         message: String,
     },
+    SkillDiscovered {
+        skill_name: String,
+        manifest_hash: String,
+        source: String,
+        trust_level: String,
+    },
+    SkillActivated {
+        skill_name: String,
+        manifest_hash: String,
+        reason: String,
+    },
+    SkillDeactivated {
+        skill_name: String,
+        manifest_hash: String,
+    },
+    SkillRejected {
+        skill_name: String,
+        reason: String,
+    },
+    SkillPolicyApplied {
+        skill_name: String,
+        allowed_tools: Vec<String>,
+    },
+    SkillResourceAccessed {
+        skill_name: String,
+        resource_path: String,
+    },
 }
 
 #[derive(Clone)]

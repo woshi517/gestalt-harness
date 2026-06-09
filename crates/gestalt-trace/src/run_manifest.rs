@@ -31,6 +31,9 @@ pub struct CompatibilityFingerprint {
     pub policy_fingerprint: String,
     pub hook_contract_hash: String,
     pub execution_mode: String,
+    /// Skill state fingerprint: hash of active skill identifiers and manifest hashes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

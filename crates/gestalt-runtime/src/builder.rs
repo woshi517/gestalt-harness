@@ -137,6 +137,32 @@ impl AgentRuntimeBuilder {
             self.registry.register_extension(name)?;
         }
 
+        // Register skill context contributors if skills are configured
+        let skill_state_handle = if !self.config.discovered_skills.is_empty() {
+            let skill_state = Arc::new(std::sync::Mutex::new(
+                crate::skill_contributor::SkillContributorState::new(
+                    self.config.discovered_skills.clone(),
+                    self.config.active_skills.clone(),
+                )
+                .with_event_bus(self.event_bus.clone()),
+            ));
+            let _ = self.registry.register_context_contributor(
+                "available_skills".to_string(),
+                Arc::new(crate::skill_contributor::AvailableSkillsContributor::new(
+                    skill_state.clone(),
+                )),
+            );
+            let _ = self.registry.register_context_contributor(
+                "active_skills".to_string(),
+                Arc::new(crate::skill_contributor::ActiveSkillsContributor::new(
+                    skill_state.clone(),
+                )),
+            );
+            Some(skill_state)
+        } else {
+            None
+        };
+
         let provider = self
             .provider
             .ok_or_else(|| RuntimeError::Builder("Missing provider".to_string()))?;
@@ -154,10 +180,23 @@ impl AgentRuntimeBuilder {
         let mut composed_tools =
             crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
                 .map_err(RuntimeError::Registry)?;
-        if let Some(ref profile) = self.config.tool_profile {
-            composed_tools = composed_tools.with_planner(
-                crate::tool_catalog_planner::ToolCatalogPlanner::new(profile.clone()),
-            );
+        let mut planner = self
+            .config
+            .tool_profile
+            .clone()
+            .map(crate::tool_catalog_planner::ToolCatalogPlanner::new);
+        if let Some(ref state) = skill_state_handle {
+            planner = Some(match planner {
+                Some(p) => p.with_skill_state(state.clone()),
+                None => crate::tool_catalog_planner::ToolCatalogPlanner::new(
+                    crate::tool_catalog_planner::ToolProfile::All,
+                )
+                .with_skill_state(state.clone()),
+            });
+        }
+
+        if let Some(p) = planner {
+            composed_tools = composed_tools.with_planner(p);
         }
         let composed_tools = Arc::new(composed_tools);
 
@@ -178,7 +217,7 @@ impl AgentRuntimeBuilder {
                 extensions: self.extensions.clone(),
             });
 
-        Ok(AgentRuntime::new(
+        let runtime = AgentRuntime::new(
             provider,
             composed_tools,
             middleware,
@@ -190,6 +229,10 @@ impl AgentRuntimeBuilder {
             self.registry,
             Some(composed_hooks),
             self.event_bus,
-        ))
+        );
+        Ok(match skill_state_handle {
+            Some(state) => runtime.with_skill_state(state),
+            None => runtime,
+        })
     }
 }

@@ -51,6 +51,10 @@ pub struct AgentRuntime {
     pub hooks: gestalt_core::HookRegistry,
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
     pub event_bus: RuntimeEventBus,
+    /// Shared skill contributor state. Carried by the runtime so activation
+    /// can be resolved per-turn from `before_context_build`.
+    pub skill_state:
+        Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
 }
 
 impl AgentRuntime {
@@ -80,7 +84,31 @@ impl AgentRuntime {
             hooks,
             composition_hooks,
             event_bus,
+            skill_state: None,
         }
+    }
+
+    /// Attach the shared skill state to the runtime. Called by the builder
+    /// after the state has been registered with the contributor registry.
+    pub fn with_skill_state(
+        mut self,
+        state: Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>,
+    ) -> Self {
+        self.skill_state = Some(state);
+        self
+    }
+
+    /// Build a resource-access recorder that publishes
+    /// `RuntimeEvent::SkillResourceAccessed` on this runtime's event bus. Tools
+    /// can install this recorder so that any read against a skill's
+    /// `references/` or `scripts/` resources becomes observable in the trace.
+    pub fn skill_resource_recorder(
+        &self,
+    ) -> Option<gestalt_skills::ResourceAccessRecorder> {
+        self.skill_state
+            .as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|guard| guard.resource_recorder())
     }
 
     pub async fn run_prompt(&self, input: UserInput) -> Result<RunResult> {
@@ -240,6 +268,7 @@ impl AgentRuntime {
                 hooks: comp_hooks.clone(),
                 session_id: session.id.clone(),
                 event_bus: self.event_bus.clone(),
+                skill_state: self.skill_state.clone(),
             });
 
             let contributors: Vec<Arc<dyn ContextContributor>> = self
@@ -257,6 +286,7 @@ impl AgentRuntime {
                 block_reason: Some(block_reason),
                 event_bus: self.event_bus.clone(),
                 prompt_snapshot_state: Arc::new(Mutex::new(initial_prompt_snapshot_hash)),
+                skill_state: self.skill_state.clone(),
             }));
 
             core_hooks.register_tool_hook(Arc::new(RuntimeToolHookAdapter {
@@ -380,6 +410,45 @@ impl AgentRuntime {
 
         let enabled_cli_features = self.config.enabled_cli_features.clone();
 
+        let discovered_skills: Vec<crate::inspect::SkillInspectInfo> = self
+            .config
+            .discovered_skills
+            .iter()
+            .map(|s| crate::inspect::SkillInspectInfo {
+                name: s.name.clone(),
+                manifest_hash: s.manifest_hash.clone(),
+            })
+            .collect();
+
+        let active_descriptors = self
+            .skill_state
+            .as_ref()
+            .and_then(|state| state.lock().ok().map(|guard| guard.active_descriptors()))
+            .unwrap_or_else(|| {
+                self.config
+                    .discovered_skills
+                    .iter()
+                    .filter(|s| self.config.active_skills.contains(&s.name))
+                    .cloned()
+                    .collect()
+            });
+        let active_skills: Vec<String> = active_descriptors
+            .iter()
+            .map(|skill| skill.name.clone())
+            .collect();
+
+        let skill_fingerprint = if active_descriptors.is_empty() {
+            None
+        } else {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            for skill in &active_descriptors {
+                hasher.update(skill.name.as_bytes());
+                hasher.update(skill.manifest_hash.as_bytes());
+            }
+            Some(format!("{:x}", hasher.finalize()))
+        };
+
         RuntimeInspect {
             provider_name: self.config.provider.clone(),
             provider_model: self.config.model.clone(),
@@ -399,6 +468,9 @@ impl AgentRuntime {
             trace_run_dir: None,
             workspace_root: self.config.workspace_root.to_string_lossy().to_string(),
             enabled_cli_features,
+            discovered_skills,
+            active_skills,
+            skill_fingerprint,
         }
     }
 }
