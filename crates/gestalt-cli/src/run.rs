@@ -259,9 +259,9 @@ pub fn build_pipeline(
 
 pub(crate) fn build_policy(
     config: &EffectiveConfig,
-) -> Result<MinimalPolicyEngine, gestalt_core::HarnessError> {
+) -> MinimalPolicyEngine {
     let policy = config.policies.to_policy_config();
-    Ok(MinimalPolicyEngine::new(policy))
+    MinimalPolicyEngine::new(policy)
 }
 
 pub(crate) fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {

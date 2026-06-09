@@ -58,6 +58,15 @@ pub trait ToolHook: Send + Sync {
 }
 
 #[async_trait]
+pub trait NextTurnHook: Send + Sync {
+    async fn prepare_next_turn(
+        &self,
+        session: &Session,
+        current_turn: usize,
+    ) -> Result<Vec<AgentEvent>>;
+}
+
+#[async_trait]
 pub trait VerificationHook: Send + Sync {
     async fn after_verification(
         &self,
@@ -78,6 +87,7 @@ pub struct HookRegistry {
     pub tool_hooks: Vec<Arc<dyn ToolHook>>,
     pub verification_hooks: Vec<Arc<dyn VerificationHook>>,
     pub trace_hooks: Vec<Arc<dyn TraceHook>>,
+    pub next_turn_hooks: Vec<Arc<dyn NextTurnHook>>,
 }
 
 impl HookRegistry {
@@ -107,5 +117,9 @@ impl HookRegistry {
 
     pub fn register_trace_hook(&mut self, hook: Arc<dyn TraceHook>) {
         self.trace_hooks.push(hook);
+    }
+
+    pub fn register_next_turn_hook(&mut self, hook: Arc<dyn NextTurnHook>) {
+        self.next_turn_hooks.push(hook);
     }
 }

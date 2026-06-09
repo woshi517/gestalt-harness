@@ -12,7 +12,7 @@ use gestalt_core::{
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     session::{Session, SessionConfig},
-    tool::{ToolCatalog, ToolContext, ToolSchema},
+    tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
 use gestalt_runtime::{
     AfterContextBuildCtx, AgentRuntimeBuilder, CompositionHooks, ContextPatch, HookOutcome,
@@ -51,12 +51,451 @@ impl CompositionHooks for NoopCompositionHooks {
         Ok(HookOutcome::Continue)
     }
 
+    async fn prepare_next_turn(
+        &self,
+        _context: &gestalt_runtime::PrepareNextTurnCtx,
+    ) -> gestalt_runtime::Result<HookOutcome> {
+        Ok(HookOutcome::Continue)
+    }
+
     async fn on_event(
         &self,
         _context: &gestalt_runtime::OnEventCtx,
     ) -> gestalt_runtime::Result<()> {
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn test_prepare_next_turn_switch_model() {
+    struct SwitchModelCompositionHooks;
+
+    #[async_trait::async_trait]
+    impl CompositionHooks for SwitchModelCompositionHooks {
+        async fn before_context_build(
+            &self,
+            _context: &gestalt_runtime::BeforeContextBuildCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn after_context_build(
+            &self,
+            _context: &AfterContextBuildCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn before_tool_policy(
+            &self,
+            _context: &gestalt_runtime::BeforeToolPolicyCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn after_tool_result(
+            &self,
+            _context: &gestalt_runtime::AfterToolResultCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn prepare_next_turn(
+            &self,
+            _context: &gestalt_runtime::PrepareNextTurnCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::SwitchModel {
+                model: "cheaper-model".to_string(),
+                provider: None,
+            })
+        }
+
+        async fn on_event(
+            &self,
+            _context: &gestalt_runtime::OnEventCtx,
+        ) -> gestalt_runtime::Result<()> {
+            Ok(())
+        }
+    }
+
+    let turn1_request = Arc::new(std::sync::Mutex::new(None));
+    let turn2_request = Arc::new(std::sync::Mutex::new(None));
+
+    struct MultiTurnMockProvider {
+        turn1_request: Arc<std::sync::Mutex<Option<ProviderRequest>>>,
+        turn2_request: Arc<std::sync::Mutex<Option<ProviderRequest>>>,
+        turn: std::sync::Mutex<usize>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for MultiTurnMockProvider {
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn display_name(&self) -> &str {
+            "Mock"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+        fn capabilities(&self) -> &ProviderCapabilities {
+            static CAP: ProviderCapabilities = ProviderCapabilities {
+                supports_tools: true,
+                supports_parallel_tools: false,
+                supports_vision: false,
+                supports_documents: false,
+                supports_thinking: false,
+                supports_json_schema_tools: true,
+                supports_prompt_caching: false,
+                supports_usage_reporting: false,
+                supports_streaming: true,
+                supports_strict_schema: false,
+            };
+            &CAP
+        }
+        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+            None
+        }
+        fn count_tokens(
+            &self,
+            _model: &str,
+            _messages: &[Message],
+        ) -> Result<usize, gestalt_core::error::HarnessError> {
+            Ok(0)
+        }
+        async fn stream(
+            &self,
+            request: ProviderRequest,
+        ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+            let mut turn_lock = self.turn.lock().unwrap();
+            *turn_lock += 1;
+            let current_turn = *turn_lock;
+
+            let events = if current_turn == 1 {
+                *self.turn1_request.lock().unwrap() = Some(request);
+                vec![
+                    AgentEvent::ToolCallStreamed {
+                        id: "call-1".to_string(),
+                        name: "test-tool".to_string(),
+                        input_delta: "{}".to_string(),
+                    },
+                    AgentEvent::Stop {
+                        reason: StopReason::ToolUse,
+                    },
+                ]
+            } else {
+                *self.turn2_request.lock().unwrap() = Some(request);
+                vec![AgentEvent::Stop {
+                    reason: StopReason::EndTurn,
+                }]
+            };
+
+            let stream = futures::stream::iter(
+                events
+                    .into_iter()
+                    .map(Ok::<_, gestalt_core::error::HarnessError>),
+            );
+            Ok(Box::pin(stream))
+        }
+    }
+
+    let provider = Arc::new(MultiTurnMockProvider {
+        turn1_request: turn1_request.clone(),
+        turn2_request: turn2_request.clone(),
+        turn: std::sync::Mutex::new(0),
+    });
+
+    struct TestTool {
+        name: String,
+    }
+
+    #[async_trait::async_trait]
+    impl gestalt_core::tool::Tool for TestTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn description(&self) -> &str {
+            "test tool"
+        }
+        fn schema(&self) -> ToolSchema {
+            serde_json::from_value(serde_json::json!({
+                "name": self.name.clone(),
+                "description": "test tool",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }))
+            .unwrap()
+        }
+        fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
+            gestalt_core::tool::RiskLevel::Low
+        }
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _ctx: &ToolContext,
+        ) -> Result<ToolOutput, gestalt_core::error::ToolError> {
+            Ok(ToolOutput::Text {
+                content: "ok".to_string(),
+            })
+        }
+    }
+
+    struct TestToolCatalog {
+        tools: HashMap<String, Arc<dyn gestalt_core::tool::Tool>>,
+    }
+
+    impl ToolCatalog for TestToolCatalog {
+        fn schemas(&self) -> Vec<ToolSchema> {
+            self.tools.values().map(|t| t.schema()).collect()
+        }
+        fn get(&self, name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+            self.tools.get(name).cloned()
+        }
+    }
+
+    let mut tools = HashMap::new();
+    tools.insert(
+        "test-tool".to_string(),
+        Arc::new(TestTool {
+            name: "test-tool".to_string(),
+        }) as Arc<dyn gestalt_core::tool::Tool>,
+    );
+    let catalog = Arc::new(TestToolCatalog { tools });
+
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(provider)
+        .tools(catalog)
+        .middleware(Arc::new(MockContextPipeline))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(RuntimeConfig::default())
+        .composition_hooks(Arc::new(SwitchModelCompositionHooks))
+        .build()
+        .unwrap();
+
+    let input = UserInput {
+        prompt: "hi".to_string(),
+        session_id: None,
+        cancel_token: gestalt_core::cancel::CancelToken::new(),
+        event_tx: None,
+        artifact_dir: None,
+    };
+
+    let res = runtime.run_prompt(input).await;
+    assert!(res.is_ok());
+
+    let req1 = turn1_request.lock().unwrap().clone().unwrap();
+    assert_eq!(req1.model, "mock-model");
+
+    let req2 = turn2_request.lock().unwrap().clone().unwrap();
+    assert_eq!(req2.model, "cheaper-model");
+}
+
+#[tokio::test]
+async fn test_prepare_next_turn_block_stops_session() {
+    struct BlockCompositionHooks;
+
+    #[async_trait::async_trait]
+    impl CompositionHooks for BlockCompositionHooks {
+        async fn before_context_build(
+            &self,
+            _context: &gestalt_runtime::BeforeContextBuildCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn after_context_build(
+            &self,
+            _context: &AfterContextBuildCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn before_tool_policy(
+            &self,
+            _context: &gestalt_runtime::BeforeToolPolicyCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn after_tool_result(
+            &self,
+            _context: &gestalt_runtime::AfterToolResultCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Continue)
+        }
+
+        async fn prepare_next_turn(
+            &self,
+            _context: &gestalt_runtime::PrepareNextTurnCtx,
+        ) -> gestalt_runtime::Result<HookOutcome> {
+            Ok(HookOutcome::Block {
+                reason: "policy escalation blocked".to_string(),
+            })
+        }
+
+        async fn on_event(
+            &self,
+            _context: &gestalt_runtime::OnEventCtx,
+        ) -> gestalt_runtime::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct ToolThenEndTurnMockProvider(std::sync::Mutex<usize>);
+
+    #[async_trait::async_trait]
+    impl Provider for ToolThenEndTurnMockProvider {
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn display_name(&self) -> &str {
+            "Mock"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+        fn capabilities(&self) -> &ProviderCapabilities {
+            static CAP: ProviderCapabilities = ProviderCapabilities {
+                supports_tools: true,
+                supports_parallel_tools: false,
+                supports_vision: false,
+                supports_documents: false,
+                supports_thinking: false,
+                supports_json_schema_tools: true,
+                supports_prompt_caching: false,
+                supports_usage_reporting: false,
+                supports_streaming: true,
+                supports_strict_schema: false,
+            };
+            &CAP
+        }
+        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+            None
+        }
+        fn count_tokens(
+            &self,
+            _model: &str,
+            _messages: &[Message],
+        ) -> Result<usize, gestalt_core::error::HarnessError> {
+            Ok(0)
+        }
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+        ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+            let turn = *self.0.lock().unwrap();
+            *self.0.lock().unwrap() = turn + 1;
+
+            let events = if turn == 0 {
+                vec![
+                    AgentEvent::ToolCallStreamed {
+                        id: "call-1".to_string(),
+                        name: "noop-tool".to_string(),
+                        input_delta: "{}".to_string(),
+                    },
+                    AgentEvent::Stop {
+                        reason: StopReason::ToolUse,
+                    },
+                ]
+            } else {
+                vec![AgentEvent::Stop {
+                    reason: StopReason::EndTurn,
+                }]
+            };
+
+            let stream = futures::stream::iter(
+                events
+                    .into_iter()
+                    .map(Ok::<_, gestalt_core::error::HarnessError>),
+            );
+            Ok(Box::pin(stream))
+        }
+    }
+
+    impl ToolThenEndTurnMockProvider {
+        fn new() -> Self {
+            Self(std::sync::Mutex::new(0))
+        }
+    }
+
+    struct NoopTool;
+
+    #[async_trait::async_trait]
+    impl gestalt_core::tool::Tool for NoopTool {
+        fn name(&self) -> &str {
+            "noop-tool"
+        }
+        fn description(&self) -> &str {
+            "noop"
+        }
+        fn schema(&self) -> ToolSchema {
+            serde_json::from_value(serde_json::json!({
+                "name": "noop-tool",
+                "description": "noop",
+                "input_schema": { "type": "object", "properties": {} }
+            }))
+            .unwrap()
+        }
+        fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
+            gestalt_core::tool::RiskLevel::Low
+        }
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _ctx: &ToolContext,
+        ) -> Result<ToolOutput, gestalt_core::error::ToolError> {
+            Ok(ToolOutput::Text {
+                content: "ok".to_string(),
+            })
+        }
+    }
+
+    let mut tools = HashMap::new();
+    tools.insert(
+        "noop-tool".to_string(),
+        Arc::new(NoopTool) as Arc<dyn gestalt_core::tool::Tool>,
+    );
+    struct LocalToolCatalog {
+        tools: HashMap<String, Arc<dyn gestalt_core::tool::Tool>>,
+    }
+
+    impl ToolCatalog for LocalToolCatalog {
+        fn schemas(&self) -> Vec<ToolSchema> {
+            self.tools.values().map(|tool| tool.schema()).collect()
+        }
+        fn get(&self, name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+            self.tools.get(name).cloned()
+        }
+    }
+
+    let tool_catalog = Arc::new(LocalToolCatalog { tools });
+
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(Arc::new(ToolThenEndTurnMockProvider::new()))
+        .tools(tool_catalog)
+        .middleware(Arc::new(MockContextPipeline))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(RuntimeConfig::default())
+        .composition_hooks(Arc::new(BlockCompositionHooks))
+        .build()
+        .unwrap();
+
+    let input = UserInput {
+        prompt: "hi".to_string(),
+        session_id: None,
+        cancel_token: gestalt_core::cancel::CancelToken::new(),
+        event_tx: None,
+        artifact_dir: None,
+    };
+
+    let res = runtime.run_prompt(input).await;
+    assert!(res.is_ok());
+    let run_res = res.unwrap();
+    assert_eq!(run_res.stop_reason, StopReason::HookBlocked);
 }
 
 struct MockProvider;

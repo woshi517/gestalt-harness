@@ -116,10 +116,10 @@ The `input_schema` is a raw JSON Schema object. The `risk` field influences whet
 [[hooks]]
 name = "validate_before_tool"
 lifecycle_point = "before_context_build"  # One of: before_context_build, after_context_build,
-                                          # before_tool_policy, after_tool_result, on_event
+                                          # before_tool_policy, after_tool_result, prepare_next_turn, on_event
 ```
 
-Hooks receive lifecycle context and can return one of four outcomes: `continue`, `block`, `add_context`, or `annotate`. The runtime calls hooks via the `hooks/call` method.
+Hooks receive lifecycle context and can return one of five outcomes: `continue`, `block`, `add_context`, `annotate`, or `switch_model`. The runtime calls hooks via the `hooks/call` method.
 
 ### 3.7 Context Injector Declarations
 
@@ -283,6 +283,7 @@ Dispatched when a lifecycle hook point fires. The params describe the hook name 
 | `{"type":"block","reason":"..."}` | Block the lifecycle; the reason is surfaced to the agent |
 | `{"type":"add_context","message":{...}}` | Add a `Message` to the context |
 | `{"type":"annotate","metadata":{...}}` | Annotate the lifecycle with metadata |
+| `{"type":"switch_model","model":"...","provider":"..."}` | V1-only: override the next turn's model; provider override is accepted but not yet reliably honored unless it matches the active provider |
 
 **Full response examples:**
 
@@ -294,6 +295,9 @@ Dispatched when a lifecycle hook point fires. The params describe the hook name 
 ```
 ```json
 {"jsonrpc":"2.0","result":{"type":"add_context","message":{"role":"system","content":"Extra context"}},"id":"uuid-789"}
+```
+```json
+{"jsonrpc":"2.0","result":{"type":"switch_model","model":"claude-sonnet-4-20250514","provider":"anthropic"},"id":"uuid-789"}
 ```
 
 ### 4.6 Error Codes

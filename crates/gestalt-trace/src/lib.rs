@@ -902,5 +902,6 @@ pub fn stop_reason_label(reason: StopReason) -> &'static str {
         StopReason::BudgetExhausted => "budget_exhausted",
         StopReason::PolicyViolation => "policy_violation",
         StopReason::ProviderError => "provider_error",
+        StopReason::HookBlocked => "hook_blocked",
     }
 }

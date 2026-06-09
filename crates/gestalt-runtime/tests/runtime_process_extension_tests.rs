@@ -263,3 +263,96 @@ async fn test_process_extension_hooks_dispatch() {
 
     broker.shutdown().await;
 }
+
+#[tokio::test]
+async fn test_process_extension_prepare_next_turn_dispatch() {
+    use gestalt_runtime::{CompositionHooks, HookOutcome, PrepareNextTurnCtx};
+    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
+    let content = std::fs::read_to_string(&manifest_path).unwrap();
+    let mut manifest = ExtensionManifest::parse(&content).unwrap();
+
+    manifest.capabilities.hooks = true;
+    manifest.hooks = vec![gestalt_runtime::manifest::HookDeclaration {
+        name: "mock_hook".to_string(),
+        lifecycle_point: "prepare_next_turn".to_string(),
+    }];
+
+    let event_bus = RuntimeEventBus::new();
+    let broker = Arc::new(
+        ProcessExtensionBroker::spawn(manifest.clone(), event_bus.clone())
+            .await
+            .unwrap(),
+    );
+
+    let extension = Arc::new(ProcessExtension::new(manifest.clone(), broker.clone()));
+    let composed = gestalt_runtime::composition_hooks::ComposedCompositionHooks {
+        user_hooks: None,
+        extensions: vec![extension as Arc<dyn GestaltExtension>],
+    };
+
+    let ctx = PrepareNextTurnCtx {
+        session_id: "test-session-id".to_string(),
+        history: vec![],
+        turn_index: 0,
+        current_model: "mock-model".to_string(),
+        current_provider: "mock".to_string(),
+    };
+
+    let result = composed.prepare_next_turn(&ctx).await.unwrap();
+    match result {
+        HookOutcome::Block { reason } => {
+            assert_eq!(reason, "blocked by mock extension hook");
+        }
+        _ => panic!("Expected HookOutcome::Block, got: {:?}", result),
+    }
+
+    broker.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_process_extension_prepare_next_turn_switch_model_dispatch() {
+    use gestalt_runtime::{CompositionHooks, HookOutcome, PrepareNextTurnCtx};
+    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/extensions/mock-switch-model-ext/gestalt.extension.toml");
+    let content = std::fs::read_to_string(&manifest_path).unwrap();
+    let mut manifest = ExtensionManifest::parse(&content).unwrap();
+
+    manifest.capabilities.hooks = true;
+    manifest.hooks = vec![gestalt_runtime::manifest::HookDeclaration {
+        name: "mock_switch_model_hook".to_string(),
+        lifecycle_point: "prepare_next_turn".to_string(),
+    }];
+
+    let event_bus = RuntimeEventBus::new();
+    let broker = Arc::new(
+        ProcessExtensionBroker::spawn(manifest.clone(), event_bus.clone())
+            .await
+            .unwrap(),
+    );
+
+    let extension = Arc::new(ProcessExtension::new(manifest.clone(), broker.clone()));
+    let composed = gestalt_runtime::composition_hooks::ComposedCompositionHooks {
+        user_hooks: None,
+        extensions: vec![extension as Arc<dyn GestaltExtension>],
+    };
+
+    let ctx = PrepareNextTurnCtx {
+        session_id: "test-session-id".to_string(),
+        history: vec![],
+        turn_index: 1,
+        current_model: "mock-model".to_string(),
+        current_provider: "mock".to_string(),
+    };
+
+    let result = composed.prepare_next_turn(&ctx).await.unwrap();
+    match result {
+        HookOutcome::SwitchModel { model, provider } => {
+            assert_eq!(model, "cheaper-model");
+            assert_eq!(provider.as_deref(), Some("mock"));
+        }
+        other => panic!("Expected HookOutcome::SwitchModel, got: {:?}", other),
+    }
+
+    broker.shutdown().await;
+}

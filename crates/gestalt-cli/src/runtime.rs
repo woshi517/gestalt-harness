@@ -35,7 +35,7 @@ pub async fn build_cli_runtime(
         max_turns,
         &tool_names,
     )?);
-    let policy = Arc::new(crate::run::build_policy(config)?);
+    let policy = Arc::new(crate::run::build_policy(config));
     let approval = approval_override.unwrap_or_else(|| crate::run::approval_provider(mode));
 
     let model = if resolved_provider.model.is_empty() {

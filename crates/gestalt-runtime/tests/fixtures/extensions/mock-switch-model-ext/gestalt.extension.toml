@@ -1,0 +1,24 @@
+id = "mock-switch-model-ext"
+name = "Mock Switch Model Extension"
+version = "0.1.0"
+runtime = "stdio"
+
+[entrypoint]
+command = "/home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/tests/fixtures/extensions/mock-switch-model-ext/mock_ext.sh"
+
+[capabilities]
+tools = false
+hooks = true
+context = false
+
+[permissions]
+allow_network = []
+allow_workspace_read = false
+allow_workspace_write = false
+allow_shell = false
+allow_all_paths = false
+allowed_paths = []
+
+[[hooks]]
+name = "mock_switch_model_hook"
+lifecycle_point = "prepare_next_turn"

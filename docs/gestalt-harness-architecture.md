@@ -241,7 +241,7 @@ See [ADR-024](adrs/ADR-024-process-extensions.md) for the full rationale.
 
 #### 4.4.2 Composition Hooks
 
-The `CompositionHooks` trait provides five interception points in the agent loop lifecycle:
+The `CompositionHooks` trait provides six interception points in the agent loop lifecycle:
 
 | Hook | When | Returns |
 |------|------|---------|
@@ -249,6 +249,7 @@ The `CompositionHooks` trait provides five interception points in the agent loop
 | `after_context_build` | After prompt assembly, before LLM call | HookOutcome |
 | `before_tool_policy` | Before policy evaluation on a tool call | HookOutcome |
 | `after_tool_result` | After tool execution completes | HookOutcome |
+| `prepare_next_turn` | After tool execution completes and before the next request is built | HookOutcome |
 | `on_event` | On any AgentEvent (non-blocking) | () |
 
 Hook outcomes: `Continue`, `Block { reason }`, `AddContext { message }`, `Annotate { metadata }`.

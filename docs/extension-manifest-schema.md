@@ -99,7 +99,7 @@ idempotent = true
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `name` | `string` | yes | — | Hook name. |
-| `lifecycle_point` | `string` | yes | — | Lifecycle point the hook attaches to (e.g., `"before_context_build"`). |
+| `lifecycle_point` | `string` | yes | — | Lifecycle point the hook attaches to (e.g., `"before_context_build"`, `"prepare_next_turn"`). |
 
 ```toml
 [[hooks]]

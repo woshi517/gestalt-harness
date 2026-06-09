@@ -570,6 +570,7 @@ pub trait CompositionHooks: Send + Sync {
     async fn after_context_build(&self, context: &AfterContextBuildCtx) -> Result<HookOutcome>;
     async fn before_tool_policy(&self, context: &BeforeToolPolicyCtx) -> Result<HookOutcome>;
     async fn after_tool_result(&self, context: &AfterToolResultCtx) -> Result<HookOutcome>;
+    async fn prepare_next_turn(&self, context: &PrepareNextTurnCtx) -> Result<HookOutcome>;
     async fn on_event(&self, context: &OnEventCtx) -> Result<()>;
 }
 ```
@@ -582,6 +583,7 @@ pub trait CompositionHooks: Send + Sync {
 | `AfterContextBuildCtx` | `session_id: String`, `history: Vec<Message>`, `packet: ContextPacket` |
 | `BeforeToolPolicyCtx` | `session_id: String`, `tool_name: String`, `tool_input: serde_json::Value` |
 | `AfterToolResultCtx` | `session_id: String`, `tool_name: String`, `result: ToolExecutionResult` |
+| `PrepareNextTurnCtx` | `session_id: String`, `history: Vec<Message>`, `turn_index: usize`, `current_model: String`, `current_provider: String` |
 | `OnEventCtx` | `session_id: String`, `event: AgentEvent` |
 
 ### Hook Outcomes (`HookOutcome`)
@@ -592,6 +594,7 @@ pub enum HookOutcome {
     Block { reason: String },
     AddContext { message: Message },
     Annotate { metadata: serde_json::Value },
+    SwitchModel { model: String, provider: Option<String> },
 }
 ```
 
@@ -599,6 +602,7 @@ pub enum HookOutcome {
 - **`Block { reason }`** — Abort execution. In context hooks, aborts the entire turn. In tool policy hooks, blocks the specific tool call with `PolicyDecision::Denied`.
 - **`AddContext { message }`** — Injects a custom `Message` into the context packet (inserted after the first `Message::System`).
 - **`Annotate { metadata }`** — Adds custom metadata to the hook outcome (consumed by observers).
+- **`SwitchModel { model, provider? }`** — V1-only narrow override. Applies to the next request only and is then cleared automatically.
 
 ### Hook Adapters
 

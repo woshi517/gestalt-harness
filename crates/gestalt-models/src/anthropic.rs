@@ -612,7 +612,7 @@ mod tests {
 
         let system = body.get("system").and_then(Value::as_array).unwrap();
         assert_eq!(system.len(), 1);
-        assert_eq!(system[0].get("cache_control").and_then(Value::as_object).is_some(), true);
+        assert!(system[0].get("cache_control").and_then(Value::as_object).is_some());
         assert_eq!(system[0].get("text").and_then(Value::as_str), Some("stable prefix"));
     }
 

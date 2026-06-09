@@ -211,6 +211,13 @@ impl CompositionHooks for TestCompositionHooks {
         Ok(HookOutcome::Continue)
     }
 
+    async fn prepare_next_turn(
+        &self,
+        _context: &gestalt_runtime::PrepareNextTurnCtx,
+    ) -> gestalt_runtime::Result<HookOutcome> {
+        Ok(HookOutcome::Continue)
+    }
+
     async fn on_event(&self, context: &OnEventCtx) -> gestalt_runtime::Result<()> {
         self.events.lock().unwrap().push(context.event.clone());
         Ok(())
