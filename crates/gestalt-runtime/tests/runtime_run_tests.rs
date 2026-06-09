@@ -719,6 +719,7 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
         block_reason: None,
         event_bus: RuntimeEventBus::new(),
         prompt_snapshot_state: Arc::new(std::sync::Mutex::new(None)),
+        skill_state: None,
     };
 
     let session = Session::new(

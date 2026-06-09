@@ -517,6 +517,16 @@ pub async fn run_session_action(
     let current_snapshot = snapshotter.capture(&config.workspace_root).await?;
 
     let tools = Arc::new(default_registry()?);
+    let skill_explicit: Vec<std::path::PathBuf> = config
+        .skills
+        .explicit_paths
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    let skill_discovery = crate::runtime::build_skill_discovery(config);
+    let discovered_skills = skill_discovery
+        .discover_all(&skill_explicit)
+        .unwrap_or_default();
     let expected_fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
         tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&tools.schemas()),
@@ -531,6 +541,7 @@ pub async fn run_session_action(
             gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
         },
         execution_mode: format!("{:?}", config.selected_mode()?),
+        skill_fingerprint: crate::run::compute_skill_fingerprint(config, &discovered_skills, None),
     };
 
     let analysis = ResumeAnalyzer::analyze(

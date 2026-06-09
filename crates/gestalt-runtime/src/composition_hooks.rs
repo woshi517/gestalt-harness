@@ -81,6 +81,7 @@ pub struct RuntimeContextHookAdapter {
     pub block_reason: Option<Arc<Mutex<Option<String>>>>,
     pub event_bus: RuntimeEventBus,
     pub prompt_snapshot_state: Arc<Mutex<Option<String>>>,
+    pub skill_state: Option<Arc<Mutex<crate::skill_contributor::SkillContributorState>>>,
 }
 
 #[async_trait]
@@ -95,6 +96,17 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
             hook_name: "before_context_build".to_string(),
             lifecycle_point: "before_context_build".to_string(),
         });
+
+        // Resolve dynamic skill activation for this turn. Trigger matching uses
+        // the most recent user message as the task hint. The resulting diff is
+        // published on the event bus so consumers (inspect, traces, debug)
+        // can see what changed.
+        if let Some(state) = &self.skill_state {
+            let task_hint = last_user_text(&session.history);
+            let mut guard = state.lock().unwrap();
+            let (_resolved, diff) = guard.resolve_active(task_hint.as_deref());
+            guard.publish_diff(&diff);
+        }
 
         // Run composition hook before_context_build
         let ctx = BeforeContextBuildCtx {
@@ -759,4 +771,27 @@ impl CompositionHooks for ComposedCompositionHooks {
         }
         Ok(())
     }
+}
+
+/// Extract the most recent user-supplied text from session history. Used as
+/// the task hint passed to the deterministic skill activation engine. Returns
+/// `None` if no user text can be found.
+fn last_user_text(history: &[gestalt_core::message::Message]) -> Option<String> {
+    for msg in history.iter().rev() {
+        if let gestalt_core::message::Message::User { content } = msg {
+            let mut combined = String::new();
+            for block in content {
+                if let gestalt_core::message::ContentBlock::Text { text } = block {
+                    if !combined.is_empty() {
+                        combined.push('\n');
+                    }
+                    combined.push_str(text);
+                }
+            }
+            if !combined.is_empty() {
+                return Some(combined);
+            }
+        }
+    }
+    None
 }

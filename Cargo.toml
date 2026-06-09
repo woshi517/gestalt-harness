@@ -15,6 +15,7 @@ members = [
     "crates/gestalt-mcp",
     "crates/gestalt-verify",
     "crates/gestalt-runtime",
+    "crates/gestalt-skills",
 ]
 
 [workspace.package]
@@ -102,6 +103,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tiktoken-rs = "0.6"
 pulldown-cmark = "0.12"
 sha2 = "0.10"
+serde_yaml = "0.9"
 
 # === Trace ===
 chrono = { version = "0.4", features = ["serde"] }

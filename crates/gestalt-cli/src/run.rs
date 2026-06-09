@@ -42,7 +42,7 @@ pub async fn run_prompt(
 
     // Initial manifest setup and save
     let run_manifest_path = run_paths.root.join("run.json");
-    let initial_manifest = gestalt_trace::run_manifest::RunManifest {
+        let initial_manifest = gestalt_trace::run_manifest::RunManifest {
         v: 1,
         session_id: session_id.clone(),
         run_id: run_id.clone(),
@@ -72,6 +72,11 @@ pub async fn run_prompt(
                 gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
             },
             execution_mode: format!("{:?}", config.selected_mode()?),
+            skill_fingerprint: compute_skill_fingerprint(
+                config,
+                &runtime.config.discovered_skills,
+                Some(prompt),
+            ),
         },
     };
     initial_manifest
@@ -161,6 +166,8 @@ pub async fn run_prompt(
             }
         }
     };
+
+    manifest.compatibility_fingerprint.skill_fingerprint = runtime.inspect().skill_fingerprint;
 
     let prompt_snapshot_path = run_paths
         .root
@@ -395,6 +402,7 @@ mod tests {
             model_override: None,
             tui: crate::config::TuiConfig::default(),
             extensions: Default::default(),
+            skills: Default::default(),
         };
 
         // Scenario 1: No prompt override => default prompt source
@@ -511,5 +519,206 @@ mod tests {
 
         // Clean up
         fs::remove_dir_all(&temp_dir).unwrap();
+    }
+}
+
+pub fn compute_skill_fingerprint(
+    config: &EffectiveConfig,
+    discovered: &[gestalt_skills::SkillDescriptor],
+    current_task: Option<&str>,
+) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+
+    let active_descriptors: Vec<&gestalt_skills::SkillDescriptor> = if let Some(task) = current_task
+    {
+        let index = gestalt_skills::SkillIndex::new(discovered.to_vec());
+        let state = gestalt_skills::activation::ActivationState::new(config.skills.active.clone());
+        let resolved = gestalt_skills::ActivationEngine::resolve(&index, &state, Some(task));
+        resolved
+            .iter()
+            .filter_map(|name| discovered.iter().find(|skill| &skill.name == name))
+            .collect()
+    } else {
+        discovered
+            .iter()
+            .filter(|skill| config.skills.active.iter().any(|name| name == &skill.name))
+            .collect()
+    };
+
+    if active_descriptors.is_empty() && config.skills.explicit_paths.is_empty() {
+        return None;
+    }
+
+    // Hash every active skill by name AND its actual manifest content hash so
+    // that editing an active skill's SKILL.md invalidates the fingerprint
+    // and forces an explicit resume decision.
+    let mut active_pairs: Vec<(&str, &str)> = active_descriptors
+        .into_iter()
+        .map(|s| (s.name.as_str(), s.manifest_hash.as_str()))
+        .collect();
+    active_pairs.sort_by(|a, b| a.0.cmp(b.0));
+    for (name, manifest_hash) in &active_pairs {
+        hasher.update(name.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(manifest_hash.as_bytes());
+        hasher.update(b"\0");
+    }
+
+    // Also fold in explicit paths that are not in the discovered set (shouldn't
+    // normally happen, but catches the case where a path was provided but the
+    // skill could not be loaded).
+    let discovered_paths: std::collections::HashSet<String> = discovered
+        .iter()
+        .map(|s| s.manifest_path.to_string_lossy().into_owned())
+        .collect();
+    let mut explicit_paths: Vec<&str> = config
+        .skills
+        .explicit_paths
+        .iter()
+        .map(String::as_str)
+        .filter(|p| !discovered_paths.contains(*p))
+        .collect();
+    explicit_paths.sort_unstable();
+    for path in &explicit_paths {
+        hasher.update(path.as_bytes());
+    }
+
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::compute_skill_fingerprint;
+    use crate::config::{
+        ContextConfig, DefaultsConfig, EffectiveConfig, ObserveConfig, SkillsConfig, ToolsConfig,
+    };
+    use gestalt_skills::{SkillDescriptor, SkillSource, SkillTrustLevel};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn make_descriptor(name: &str, manifest_hash: &str) -> SkillDescriptor {
+        SkillDescriptor {
+            name: name.to_string(),
+            description: format!("Description for {name}"),
+            skill_root: PathBuf::from("/tmp"),
+            manifest_path: PathBuf::from("/tmp/SKILL.md"),
+            manifest_hash: manifest_hash.to_string(),
+            trust_level: SkillTrustLevel::Workspace,
+            source: SkillSource::WorkspaceLocal,
+            license: None,
+            compatibility: None,
+            metadata: HashMap::new(),
+            allowed_tools: None,
+        }
+    }
+
+    fn empty_config() -> EffectiveConfig {
+        use crate::config::{ExtensionsConfig, PoliciesConfig, PromptConfig, TuiConfig};
+        use std::collections::HashMap;
+        EffectiveConfig {
+            workspace_root: PathBuf::from("/tmp"),
+            config_path: PathBuf::from("/tmp/gestalt.json"),
+            defaults: DefaultsConfig::default(),
+            tools: ToolsConfig::default(),
+            context: ContextConfig::default(),
+            observe: ObserveConfig::default(),
+            providers: HashMap::new(),
+            profiles: HashMap::new(),
+            prompt: PromptConfig::default(),
+            policies: PoliciesConfig::default(),
+            provider_override: None,
+            model_override: None,
+            tui: TuiConfig::default(),
+            extensions: ExtensionsConfig::default(),
+            skills: SkillsConfig::default(),
+        }
+    }
+
+    #[test]
+    fn fingerprint_none_when_no_skills() {
+        let config = empty_config();
+        let fingerprint = compute_skill_fingerprint(&config, &[], None);
+        assert!(fingerprint.is_none());
+    }
+
+    #[test]
+    fn fingerprint_changes_when_manifest_content_changes() {
+        // Build a config with two active skills, and a discovered set whose
+        // manifest hashes differ from each other.
+        let mut config = empty_config();
+        config.skills.active = vec!["pdf".to_string(), "search".to_string()];
+        let discovered = vec![
+            make_descriptor("pdf", "hash-pdf-v1"),
+            make_descriptor("search", "hash-search-v1"),
+        ];
+        let f1 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+
+        // Mutate the manifest hash of "pdf" (simulating an in-place edit of
+        // SKILL.md) and re-compute. The fingerprint MUST change because the
+        // plan requires replay-safety on manifest content, not just names.
+        let discovered_v2 = vec![
+            make_descriptor("pdf", "hash-pdf-v2"),
+            make_descriptor("search", "hash-search-v1"),
+        ];
+        let f2 = compute_skill_fingerprint(&config, &discovered_v2, None).expect("fingerprint present");
+        assert_ne!(
+            f1, f2,
+            "skill_fingerprint must change when an active skill's manifest content changes"
+        );
+    }
+
+    #[test]
+    fn fingerprint_stable_when_manifest_unchanged() {
+        let mut config = empty_config();
+        config.skills.active = vec!["pdf".to_string()];
+        let discovered = vec![make_descriptor("pdf", "hash-pdf-v1")];
+        let f1 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        let f2 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        assert_eq!(f1, f2, "fingerprint must be deterministic for the same inputs");
+    }
+
+    #[test]
+    fn fingerprint_changes_when_active_set_changes() {
+        let mut config = empty_config();
+        config.skills.active = vec!["pdf".to_string()];
+        let discovered = vec![make_descriptor("pdf", "hash-pdf-v1")];
+        let f1 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+
+        config.skills.active = vec!["pdf".to_string(), "search".to_string()];
+        let discovered = vec![
+            make_descriptor("pdf", "hash-pdf-v1"),
+            make_descriptor("search", "hash-search-v1"),
+        ];
+        let f2 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        assert_ne!(f1, f2, "fingerprint must change when the active set changes");
+    }
+
+    #[test]
+    fn fingerprint_folds_in_unmatched_explicit_paths() {
+        // If a user provided an explicit path that didn't end up in the
+        // discovered set (e.g. a broken skill), the path itself should still
+        // be reflected in the fingerprint so the user can detect drift.
+        let mut config = empty_config();
+        config.skills.explicit_paths = vec!["/path/to/broken-skill".to_string()];
+        let f1 = compute_skill_fingerprint(&config, &[], None).expect("fingerprint present");
+        let mut config2 = config.clone();
+        config2.skills.explicit_paths = vec!["/path/to/different-skill".to_string()];
+        let f2 = compute_skill_fingerprint(&config2, &[], None).expect("fingerprint present");
+        assert_ne!(f1, f2);
+    }
+
+    #[test]
+    fn fingerprint_includes_trigger_activated_skill() {
+        let config = empty_config();
+        let discovered = vec![make_descriptor("pdf-processing", "Process PDF documents.")];
+        assert!(compute_skill_fingerprint(&config, &discovered, None).is_none());
+        let fingerprint = compute_skill_fingerprint(
+            &config,
+            &discovered,
+            Some("Please process this PDF"),
+        )
+        .expect("fingerprint present");
+        assert!(!fingerprint.is_empty());
     }
 }

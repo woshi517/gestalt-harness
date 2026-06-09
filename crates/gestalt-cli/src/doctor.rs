@@ -46,6 +46,7 @@ pub async fn diagnose_workspace(
                 model_override: None,
                 tui: crate::config::TuiConfig::default(),
                 extensions: Default::default(),
+                skills: Default::default(),
             }
         }
     };

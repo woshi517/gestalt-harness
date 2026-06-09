@@ -28,6 +28,7 @@ gestalt-policy = { path = "../gestalt-policy" }
 gestalt-trace = { path = "../gestalt-trace" }
 gestalt-verify = { path = "../gestalt-verify" }
 gestalt-runtime = { path = "../gestalt-runtime" }
+gestalt-skills = { path = "../gestalt-skills" }
 clap = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
@@ -39,6 +40,7 @@ async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
+sha2 = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 keyring = "2"

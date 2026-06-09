@@ -352,6 +352,7 @@ fn test_runs_descendant_aware_prune_and_delete() {
         policy_fingerprint: "policy".to_string(),
         hook_contract_hash: "hook".to_string(),
         execution_mode: "Yolo".to_string(),
+        skill_fingerprint: None,
     };
 
     let parent_manifest = RunManifest {

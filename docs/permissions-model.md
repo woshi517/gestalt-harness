@@ -221,3 +221,81 @@ Users control which extensions run via `gestalt.json` under `extensions`:
 - **`disabled`**: Extensions whose IDs match are loaded but immediately disabled.
 
 The trust gate works as follows: after discovery, each extension is marked as project-local if it lives under the project directory. Project-local extensions are rejected unless their ID is in `trusted` or `allow_untrusted` is `true`. Explicitly-loaded extensions are always trusted.
+
+## Skills
+
+Skills are passive instruction packages (not extensions) that progressively load into the runtime through the [Agent Skills](https://agentskills.io) `SKILL.md` format. They participate in the permission model through a **narrowing overlay** on the visible and executable tool surface.
+
+### What Skills Cannot Do
+
+Skills are not tools and do not register runtime capabilities. A skill cannot:
+
+- Spawn subprocesses or open network connections on its own.
+- Grant new permissions that the workspace policy has not already granted.
+- Bypass workspace policy or approval evaluation.
+- Self-attest trust — discovery source determines trust level, not skill content.
+
+### Skill Trust Levels
+
+A skill's trust level is assigned at discovery time and is derived from where it was found, not from anything in the manifest:
+
+| Trust Level | Source | Auto-Activated on Trigger? |
+|-------------|--------|-----------------------------|
+| `Explicit`  | User-provided path (CLI flag, config entry) | Yes (trusted) |
+| `Workspace` | `.gestalt/skills/` or `.agents/skills/` in the active workspace | Yes (trusted) |
+| `Global`    | `~/.config/gestalt/skills/` or `~/.agents/skills/` | No by default; trusted if name is in `skills.trusted` |
+| `Downloaded`| Untrusted or registry-fetched source | No by default; trusted if name is in `skills.trusted` |
+
+`Global` and `Downloaded` skills require an explicit user activation (e.g., `/skill <name>` or `gestalt run --skill <name>`) unless the skill's name appears in the `skills.trusted` allow-list in `gestalt.json`. Names in `skills.trusted` are treated as auto-activatable regardless of where they were discovered. Activation surfaces reject any unknown or untrusted name with a deterministic error before mutating state, so a typo or a misconfigured entry never silently drops at runtime.
+
+### Tool Filtering
+
+A skill may declare an `allowed-tools` frontmatter field as a space-separated list of tool names. When one or more skills with `allowed-tools` are active, the visible tool catalog becomes the **intersection** of the base catalog with the union of active-skill allowances:
+
+```text
+effective_visible_catalog = base_catalog
+                             ∩ (∪ allowed-tools of active skills, if any)
+                             ∩ policy-filter
+                             ∩ approval-filter
+```
+
+A skill with no `allowed-tools` field falls back to the base catalog rather than hiding everything. The narrowest-restrictive rule (intersection) means adding a second skill with `allowed-tools` can only restrict the visible catalog further; it cannot widen access.
+
+Tool filtering is **dynamic per turn**: the `ToolCatalogPlanner` holds a reference to the shared `Arc<Mutex<SkillContributorState>>` and queries `active_descriptors()` on every `plan_descriptors` call. A skill activated or deactivated mid-session through `/skill <name>` or `/skill off <name>` immediately affects the visible tool surface on the next turn without requiring a runtime restart.
+
+### Execution-Time Enforcement
+
+Visibility filtering is not a security boundary by itself — a determined provider could still emit a tool call to a filtered-out tool. The runtime policy engine therefore also enforces the skill overlay at **execution time** in `RuntimePolicyEngine::skill_policy`. If the provider emits a tool call to a tool that no active skill allows, the call is denied with a traceable reason and a `RuntimeEvent::SkillPolicyApplied` is emitted.
+
+The fail-closed semantics ensure that prompt shaping and runtime enforcement stay aligned. A skill cannot grant authority the workspace has not granted, and a tool the user expected to be hidden cannot be smuggled in by the provider.
+
+### Resource Access
+
+Skill resources under `scripts/`, `references/`, and `assets/` are loaded through ordinary file tools (`Read`, `Search`, `Bash`, etc.). The skill does not have its own executor. Resource reads still go through:
+
+1. The active skill's tool allow-list.
+2. Workspace policy (path, network, shell).
+3. Approval evaluation, if required by mode or risk.
+
+This preserves provenance — every file read is logged in the trace, attributable to a specific tool call, and gateable by the existing policy model.
+
+### Configuration
+
+Users control which skills load via `gestalt.json` under `skills`:
+
+```json
+"skills": {
+  "explicit_paths": ["./vendor/skills/pdf-processing"],
+  "active": ["pdf-processing"],
+  "trusted": ["my-internal-skills"]
+}
+```
+
+- **`explicit_paths`**: Paths to skill directories loaded as `Explicit` trust regardless of their on-disk location. Useful for vendored or registry-checked skills.
+- **`active`**: Skill names to activate by default for runs in this workspace. Each name is validated against the discovered set at startup; unknown names fail-fast with a clear error.
+- **`trusted`**: Skill names that should be considered auto-activatable even when discovered from `Global` or `Downloaded` sources. This widens activation for those skills but does not widen permission scope — the skill is still constrained by its `allowed-tools` and the existing workspace policy.
+
+To deactivate a skill for a single run, pass `--no-skill <name>` (or omit it from `--skill`). To deactivate permanently, remove it from the discovery path or the config.
+
+**Session deactivation.** In chat mode, `/skill off <name>` records the skill name with a `!` prefix in `CliOverrides::skills` (e.g., `!pdf-processing`). The config loader interprets `!`-prefixed entries as removals from the active set. This mechanism is session-local and does not mutate workspace config.
+

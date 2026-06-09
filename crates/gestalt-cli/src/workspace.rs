@@ -283,6 +283,7 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
                 model_override: None,
                 tui: crate::config::TuiConfig::default(),
                 extensions: Default::default(),
+                skills: Default::default(),
             }
         }
     };

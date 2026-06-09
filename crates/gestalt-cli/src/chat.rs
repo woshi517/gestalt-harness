@@ -53,6 +53,16 @@ pub async fn run_chat(
         let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
         let current_snapshot = snapshotter.capture(&config.workspace_root).await?;
         let tools = Arc::new(default_registry()?);
+        let skill_explicit: Vec<std::path::PathBuf> = config
+            .skills
+            .explicit_paths
+            .iter()
+            .map(std::path::PathBuf::from)
+            .collect();
+        let skill_discovery = crate::runtime::build_skill_discovery(&config);
+        let discovered_skills = skill_discovery
+            .discover_all(&skill_explicit)
+            .unwrap_or_default();
         let expected_fingerprint = CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
             tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
@@ -69,6 +79,7 @@ pub async fn run_chat(
                 gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
             },
             execution_mode: format!("{:?}", config.selected_mode()?),
+            skill_fingerprint: crate::run::compute_skill_fingerprint(&config, &discovered_skills, None),
         };
 
         let analysis = ResumeAnalyzer::analyze(
@@ -141,6 +152,22 @@ pub async fn run_chat(
                 Ok(SlashOutcome::ChangeMode(new_mode)) => {
                     overrides_clone.mode = Some(new_mode);
                     config = load_effective_config(&overrides_clone)?;
+                }
+                Ok(SlashOutcome::SkillActivated(name)) => {
+                    overrides_clone
+                        .skills
+                        .retain(|skill| skill != &name && skill != &format!("!{name}"));
+                    overrides_clone.skills.push(name.clone());
+                    config = load_effective_config(&overrides_clone)?;
+                    println!("Skill '{name}' activated for this session.");
+                }
+                Ok(SlashOutcome::SkillDeactivated(name)) => {
+                    overrides_clone
+                        .skills
+                        .retain(|skill| skill != &name && skill != &format!("!{name}"));
+                    overrides_clone.skills.push(format!("!{name}"));
+                    config = load_effective_config(&overrides_clone)?;
+                    println!("Skill '{name}' deactivated for this session.");
                 }
                 Ok(SlashOutcome::None) => {}
                 Err(e) => {

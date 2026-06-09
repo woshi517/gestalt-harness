@@ -2645,49 +2645,225 @@ sequenceDiagram
 
 ## 13. Skill Architecture
 
-### 13.1 Skill Trust Levels
+The skill system lets users bundle task-specific procedural instructions (`SKILL.md`) that the runtime loads progressively. Skills are **passive** — they are not tools, do not execute code on their own, and are never injected into `gestalt-core`. They integrate entirely through runtime composition: a dedicated `gestalt-skills` crate owns parsing and discovery, `gestalt-runtime` owns activation and context injection, and `gestalt-cli` owns configuration and command surfaces. The fingerprinting and inspect layers capture the resulting state for replay and diagnostics.
 
-```rust
-// gestalt-core or gestalt-context
+### 13.1 Crate Layout
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkillTrustLevel {
-    /// Authored in the local workspace by the workspace owner.
-    WorkspaceLocal,
-    /// Downloaded from a registry; not yet reviewed.
-    Downloaded,
-    /// Cryptographically signed by a trusted publisher.
-    Signed { verified: bool },
-}
+```text
+crates/
+├── gestalt-skills/      # Parsing, validation, discovery, indexing, policy types
+└── gestalt-runtime/     # Activation engine, context contributors, tool/policy overlay
 ```
 
-Only `WorkspaceLocal` skills are activated automatically on trigger match. `Downloaded` skills require explicit user activation or a review step.
+`gestalt-core` is skill-agnostic. Skill-specific code never crosses the `core` boundary.
 
-### 13.2 Skill Permissions Front Matter
+### 13.2 `SKILL.md` Format
+
+Skills follow the [Agent Skills](https://agentskills.io) on-disk format. Each skill is a directory containing a `SKILL.md` file with YAML frontmatter followed by a Markdown body:
 
 ```yaml
 ---
-name: literature-synthesis
-description: Synthesizes scientific literature PDFs.
-license: MIT
+name: pdf-processing
+description: Extract PDF text, fill forms, merge files. Use when handling PDFs.
+license: Apache-2.0
+compatibility: Requires pdftotext and pdfinfo on PATH
+allowed-tools: Read Search Bash
 metadata:
-  version: "1.0.0"
-triggers:
-  - "summarize papers"
-  - "literature review"
-permissions:
-  tools: ["read", "search", "pdf", "write"]
-  network: false
-  write_paths: ["/docs/"]
-  scripts: false
-  max_token_budget: 80000
-inputs:
-  - "/sources/*.pdf"
-output: "/docs/synthesis.md"
+  author: example-org
+  version: "1.0"
 ---
 ```
 
-The harness validates `permissions.tools` against the registered tool list and enforces `permissions.write_paths` via the policy engine during skill execution.
+Optional subdirectories (`scripts/`, `references/`, `assets/`) hold demand-loaded resources; they are never auto-injected into context.
+
+| Field           | Required | Notes |
+|-----------------|----------|-------|
+| `name`          | Yes      | 1–64 chars, lowercase, hyphens; must match the parent directory name. |
+| `description`   | Yes      | 1–1024 chars; describes what the skill does and when to use it. |
+| `license`       | No       | License name or reference. |
+| `compatibility` | No       | Max 500 chars; environment requirements. |
+| `metadata`      | No       | Arbitrary string-to-string map. |
+| `allowed-tools` | No       | Space-separated pre-approved tool names. |
+
+### 13.3 Trust Levels and Sources
+
+Skills are tagged with both a `SkillTrustLevel` and a `SkillSource` derived from where they were discovered:
+
+```rust
+// crates/gestalt-skills/src/lib.rs
+
+pub enum SkillTrustLevel {
+    /// Loaded from an explicit user-provided path (e.g., CLI flag or config).
+    Explicit,
+    /// Discovered from the workspace-local `.gestalt/skills/` or `.agents/skills/` directory.
+    Workspace,
+    /// Discovered from the global `~/.config/gestalt/skills/` or `~/.agents/skills/`.
+    Global,
+    /// Downloaded or from an untrusted source.
+    Downloaded,
+}
+
+pub enum SkillSource {
+    ExplicitPath,
+    WorkspaceLocal,
+    GlobalConfig,
+    Downloaded,
+}
+```
+
+Discovery order is deterministic: explicit paths first, then workspace-local, then global, with the workspace directory containing a `.gestalt/skills/` directory and a sibling `.agents/skills/` directory both checked. Within each source, results are sorted by name. Duplicate skill names are resolved first-come-first-served, so the precedence is well-defined and test-covered.
+
+`Explicit` and `Workspace` trust levels are auto-activatable. `Global` and `Downloaded` skills must be explicitly activated by the user. The `skills.trusted` config field lets a user widen auto-activation for specific skill names regardless of where they were discovered:
+
+```json
+"skills": {
+  "trusted": ["my-internal-skills", "downloaded-skill"]
+}
+```
+
+A skill is considered auto-activatable if its trust level is `Explicit` or `Workspace`, or if its name appears in `skills.trusted`. Activation surfaces (`gestalt skill activate`, `/skill`, `--skill`) all run their target name through this same check, so a `Global` or `Downloaded` skill not in `trusted` is rejected at activation time rather than silently dropped at runtime.
+
+### 13.4 Progressive Loading Model
+
+Skill loading has three phases, aligned with the Agent Skills "progressive disclosure" model and the harness's `ContextStability` taxonomy:
+
+| Phase | Stability Class | When | What is loaded |
+|-------|-----------------|------|----------------|
+| 1. Metadata discovery | `SessionStatic` | Startup | `name`, `description`, trust level, source path, manifest hash. Bodies are **not** read. |
+| 2. Activation | `ActivationStatic` | Per-turn, on demand | Full `SKILL.md` body of each newly active skill. |
+| 3. Resource access | `TurnDynamic` | On tool call | Files under `references/`, `scripts/`, `assets/` loaded through ordinary `Read`/`Bash` tools. |
+
+This classification is the key to cache efficiency: the available-skill index is `SessionStatic` (changes only when skills are added or removed), the active-skill instruction block is `ActivationStatic` (changes only when the active set changes), and resource reads remain `TurnDynamic`. A turn that does not change the active set reuses the same prefix hash and does not churn the provider's prompt cache.
+
+At discovery, each skill's `manifest_hash` is a SHA-256 of the raw `SKILL.md` content. This hash is the **content address** that the fingerprint layer uses to detect manifest drift, and it is folded into both the `RuntimeInspect` snapshot and the `CompatibilityFingerprint.skill_fingerprint`.
+
+### 13.5 Context Contributors
+
+Two `ContextContributor` implementations participate in prompt assembly:
+
+```rust
+// crates/gestalt-runtime/src/skill_contributor.rs
+
+/// Renders the available skills index as SessionStatic.
+pub struct AvailableSkillsContributor { /* ... */ }
+
+impl ContextContributor for AvailableSkillsContributor {
+    fn stability(&self) -> ContextStability { ContextStability::SessionStatic }
+    // Renders: <available_skills> name / description / trust level / source ... </available_skills>
+}
+
+/// Renders the active skill instruction block as ActivationStatic.
+pub struct ActiveSkillsContributor { /* ... */ }
+
+impl ContextContributor for ActiveSkillsContributor {
+    fn stability(&self) -> ContextStability { ContextStability::ActivationStatic }
+    // Renders: <active_skills> ## Skill: <name> <description> <body> ... </active_skills>
+}
+```
+
+The two contributors share state via `Arc<Mutex<SkillContributorState>>`. The available-skill index is computed once at discovery; the active-skill list is resolved per turn by the activation engine and re-rendered only when the set changes.
+
+`SkillContributorState` also carries a `deactivated: HashSet<String>` field populated from `CliOverrides::skills` entries prefixed with `!` (e.g., `!pdf-processing`). The `resolve_active` method seeds the `ActivationEngine`'s `ActivationState` with this set, ensuring that session-level deactivation overrides all auto-activation paths (explicit, CLI, and trigger matching). The `active_descriptors()` method returns the currently active skill descriptors sorted by name, and is the single source of truth that both the `ToolCatalogPlanner` and `RuntimePolicyEngine` query each turn to derive the effective tool surface and policy overlay.
+
+### 13.6 Activation Engine
+
+Activation precedence in V1 is fully deterministic (no model-assisted activation):
+
+1. **Explicit user activation** — `/skill <name>` in chat, or skills passed via the runtime config.
+2. **CLI-provided activation** — `gestalt run --skill <name>` populates the CLI-requested set for that run.
+3. **Deterministic trigger matching** — for trusted skills (`Explicit` or `Workspace` trust, or names in `skills.trusted`), the activation engine tokenizes the current task text and the skill's description/name and counts word matches. A non-zero score activates the skill. `Global` and `Downloaded` skills not in `skills.trusted` are never auto-activated.
+
+Explicit deactivation (`/skill off <name>` or the deactivation set in runtime config) overrides all auto-activation paths. The activation engine is implemented in `crates/gestalt-skills/src/activation.rs` and is shared between the runtime and CLI.
+
+The runtime wires the engine into the per-turn flow at `RuntimeContextHookAdapter::before_context_build`. Each turn:
+
+1. Extracts the most recent user message from the session history as the task hint.
+2. Calls `SkillContributorState::resolve_active(task_hint)`, which runs the engine and returns the new resolved set plus an `ActivationDiff` (newly active / newly inactive pairs of `(name, manifest_hash)`).
+3. Publishes `SkillActivated` and `SkillDeactivated` events for the diff.
+4. Clears any cached body for skills that have just become inactive, so the next activation re-reads the manifest.
+
+This is the only place in the runtime where the engine runs; CLI command paths (`gestalt run --skill`, `gestalt skill activate`) manipulate the `config.skills.active` set directly, and the engine reconciles that set against the live task on the first turn. Validation rejects unknown skill names **before** they reach the engine, so the engine never silently drops an entry.
+
+The engine is also fail-closed at body-load time: `build_active_instructions` emits a `SkillRejected` event with the load error and removes the skill from the active set if the manifest on disk becomes unreadable (file deleted, permissions changed, etc.). The previously-cached body is also dropped so we do not serve stale instructions for a manifest that is no longer loadable.
+
+### 13.7 Tool Catalog Filtering
+
+When a skill is active, its `allowed-tools` frontmatter (if present) contributes to tool catalog visibility. The effective catalog is the intersection of the base catalog with the union of active-skill allowances:
+
+```text
+effective_catalog = base_catalog
+                    ∩ (∪ allowed-tools of active skills, if any)
+                    ∩ policy-filter
+                    ∩ approval-filter
+```
+
+A skill with no `allowed-tools` field falls back to the base catalog. A skill with `allowed-tools: Read Search` causes the provider to see only those tool descriptors for the active set, reducing prompt noise. Catalog planning happens in `ToolCatalogPlanner::skill_allowed_names`.
+
+Filtering is **dynamic per turn**: `ToolCatalogPlanner` holds a reference to the shared `Arc<Mutex<SkillContributorState>>` and queries `active_descriptors()` on every `plan_descriptors` call. This means a skill activated or deactivated mid-session through `/skill <name>` or `/skill off <name>` immediately affects the visible tool surface on the next turn without requiring a runtime restart.
+
+### 13.8 Policy Overlay
+
+The runtime policy engine wraps the base policy with a skill-scoped overlay applied **before** workspace policy and approval:
+
+```rust
+// crates/gestalt-runtime/src/policy.rs
+
+impl RuntimePolicyEngine {
+    pub fn skill_policy(&self, tool_name: &str, active_skills: &[ActiveSkill]) -> SkillPolicyDecision {
+        // If any active skill declares allowed-tools and tool_name is not in
+        // the union, deny with a traceable reason. Fail-closed.
+    }
+}
+```
+
+This is enforced at **execution time**, not just at catalog time: even if the provider emits a tool call to a filtered-out tool, the policy overlay denies it. The decision is recorded as `RuntimeEvent::SkillPolicyApplied` for audit.
+
+The `RuntimePolicyEngine` holds a reference to the same shared `Arc<Mutex<SkillContributorState>>` as the `ToolCatalogPlanner`, so the effective skill policy is always derived from the **live** per-turn activation state rather than a static snapshot taken at startup. This ensures that mid-session activation or deactivation changes are reflected in execution-time policy decisions on the same turn.
+
+Skill restrictions are **narrowing** — they never widen access. The effective permission set is the intersection of the active-skill allowance and the existing workspace policy, so a skill cannot grant authority that the user has not already granted at the workspace level.
+
+### 13.9 Observability and Replay Safety
+
+Skill state participates in the same observability model as the rest of the runtime:
+
+- **Events.** `RuntimeEvent` has `SkillDiscovered`, `SkillActivated`, `SkillDeactivated`, `SkillRejected`, `SkillPolicyApplied`, and `SkillResourceAccessed` variants. They are emitted as follows:
+  - `SkillDiscovered` — once per skill at startup, from `build_cli_runtime`.
+  - `SkillActivated` / `SkillDeactivated` — per-turn, from `SkillContributorState::publish_diff`, which the runtime calls after `resolve_active`.
+  - `SkillRejected` — when `build_active_instructions` cannot read a skill's manifest, or when an activation request targets an unknown / untrusted name.
+  - `SkillPolicyApplied` — when `RuntimePolicyEngine` denies a tool call because it is outside the active skill's `allowed-tools`.
+  - `SkillResourceAccessed` — via `resolve_skill_resource_tracked`, which any skill-aware tool can wire to its file-reading path.
+- **Inspect.** `RuntimeInspect` reports `discovered_skills`, `active_skills`, and `skill_fingerprint` so the debug snapshot explains which skills shaped the run. The `active_skills` and `skill_fingerprint` fields are derived dynamically from the live `SkillContributorState` at inspect time, not from a static config snapshot, so they always reflect the actual activation state that was used during the run.
+- **Fingerprints.** `CompatibilityFingerprint.skill_fingerprint` is a SHA-256 over:
+  - Every active skill's `(name, manifest_hash)` pair, sorted by name.
+  - Plus any `skills.explicit_paths` that did not end up in the discovered set (e.g. a path that was provided but the skill could not be loaded).
+
+  The initial manifest computed during `gestalt run` pre-resolves trigger-activated skills by passing the current task text to `ActivationEngine::resolve` so that skills matched by description are included in the fingerprint before the first turn. The final manifest then overrides the fingerprint from `RuntimeInspect` to capture the runtime's actual activation state, ensuring that trigger-matched skills are always reflected in replay compatibility.
+
+  Because the manifest hash is content-addressed, editing an active skill's `SKILL.md` changes the fingerprint. `ResumeAnalyzer` rejects runs whose `skill_fingerprint` does not match the recorded one, preventing silent divergence when skills are added, removed, or modified between runs. The symmetric positive case (same active set, same content) is also tested so the fingerprint does not accidentally over-restrict.
+- **Test hermeticity.** `GESTALT_NO_GLOBAL_SKILLS=1` disables global skill discovery for tests so they do not depend on the host's `~/.config/gestalt/skills/` or `~/.agents/skills/` contents.
+
+### 13.10 CLI and Chat Surfaces
+
+The CLI exposes skills through a dedicated `gestalt skill` command tree and a chat-mode slash command:
+
+```bash
+gestalt skill list                           # List discovered skills
+gestalt skill inspect <name>                 # Show manifest details
+gestalt skill validate <path>                # Validate a skill package offline
+gestalt skill activate <name>                # Mark a skill as active (validates name + trust)
+gestalt skill deactivate <name>              # Remove a skill from the active set (validates name)
+gestalt run --skill <name>                   # Activate for a single run (validated at startup)
+/skill <name>                                # Activate in chat mode (validated against discovery)
+/skill off <name>                            # Deactivate in chat mode (validated against discovery)
+```
+
+Every activation surface runs the requested name through `validate_skill_activation` and rejects unknown or untrusted names with a clear error before persisting state. The chat-mode slash command prints the validation error to the user but does not modify the session state. `build_cli_runtime` performs a final fail-fast check on the merged `config.skills.active` set so an unknown name passed through gestalt.json or `--skill` cannot silently pass through to runtime filtering. This trust gate validates that each active skill name exists in the discovered set AND has trust level `Explicit` or `Workspace`, or is listed in `skills.trusted`.
+
+**Session deactivation.** `/skill off <name>` in chat mode records the skill name with a `!` prefix in `CliOverrides::skills` (e.g., `!pdf-processing`). The `load_effective_config` function interprets entries starting with `!` as removals from the `config.skills.active` set, while plain entries are appended if not already present. The `SkillActivated` handler in chat removes both `name` and `!name` from overrides before pushing `name`; the `SkillDeactivated` handler removes both and pushes `!name`. This ensures that session-level deactivation persists across in-memory chat turns and is never written to workspace config.
+
+**Agent self-loading.** The default system prompt includes a `# Skill Loading` section that instructs the agent to load a skill's `SKILL.md` when the task clearly matches a discovered skill description. This enables the agent to progressively load full instructions on demand without requiring explicit activation commands.
+
+Skill state for a run or session is session-local; explicit activation does not mutate workspace `gestalt.json` by default. To persist a skill preference, add it to the `skills` section of workspace config.
 
 ---
 

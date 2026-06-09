@@ -130,6 +130,7 @@ async fn test_inspect_runtime_cli() {
         max_turns: None,
         provider: None,
         profile: Some("mock-profile".to_string()),
+        skills: Vec::new(),
     };
 
     let inspect = inspect_runtime(&overrides, None).await.unwrap();
@@ -258,6 +259,7 @@ allowed_paths = []
         max_turns: None,
         provider: None,
         profile: None,
+        skills: Vec::new(),
     };
     let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
 

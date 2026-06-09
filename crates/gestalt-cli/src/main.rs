@@ -17,7 +17,8 @@ use gestalt_cli::{
         ModelsSearchReport, ModelsSelectReport, OutputFormat, PolicyExplainReport,
         PolicyTestReport, PolicyValidateReport, ProvidersDoctorReport, ProvidersInspectReport,
         ProvidersListReport, ReplayReport, RunReport, RuntimeDoctorReport, RuntimeEventsReport,
-        RuntimeInspectReport, WorkspaceSnapshotReport,
+        RuntimeInspectReport, SkillActionReport, SkillInspectReport, SkillsListReport,
+        WorkspaceSnapshotReport,
     },
     policy,
     providers::{doctor_provider, inspect_provider, list_providers},
@@ -68,6 +69,8 @@ enum Command {
         yes: bool,
         #[arg(long)]
         tui: bool,
+        #[arg(long)]
+        skill: Vec<String>,
     },
     Chat {
         #[arg(long)]
@@ -136,6 +139,7 @@ enum Command {
     Tools(ToolsCommand),
     Runtime(RuntimeCommand),
     Extension(ExtensionCommand),
+    Skill(SkillCommand),
     Doctor {
         #[arg(long)]
         live: bool,
@@ -187,6 +191,21 @@ pub enum ExtensionSubcommand {
     Disable { id: String },
     Inspect { id: String },
     Reload,
+    Validate { path: PathBuf },
+}
+
+#[derive(Args)]
+pub struct SkillCommand {
+    #[command(subcommand)]
+    pub command: SkillSubcommand,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum SkillSubcommand {
+    List,
+    Inspect { name: String },
+    Activate { name: String },
+    Deactivate { name: String },
     Validate { path: PathBuf },
 }
 
@@ -584,6 +603,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_turns: cli.max_turns,
         workspace: cli.workspace.clone(),
         profile: cli.profile.clone(),
+        skills: Vec::new(),
     };
 
     let format = cli.format;
@@ -595,7 +615,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             resume,
             yes,
             tui,
+            skill,
         } => {
+            overrides.skills = skill;
             if yes {
                 overrides.mode = Some("yolo".to_string());
             }
@@ -1420,6 +1442,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ExtensionSubcommand::Validate { path } => {
                 let res = gestalt_cli::runtime::validate_extension(&path)
                     .map(|manifest| ExtensionInspectReport { manifest });
+                handle_result(res, format, quiet)?;
+            }
+        },
+        Command::Skill(command) => match command.command {
+            SkillSubcommand::List => {
+                let res = gestalt_cli::runtime::list_skills(&overrides)
+                    .map(|skills| SkillsListReport { skills });
+                handle_result(res, format, quiet)?;
+            }
+            SkillSubcommand::Inspect { name } => {
+                let res = gestalt_cli::runtime::inspect_skill(&overrides, &name)
+                    .and_then(|opt| {
+                        opt.ok_or_else(|| format!("Skill '{}' not found", name).into())
+                    })
+                    .map(|skill| SkillInspectReport {
+                        name: skill.name,
+                        description: skill.description,
+                        skill_root: skill.skill_root.to_string_lossy().to_string(),
+                        manifest_path: skill.manifest_path.to_string_lossy().to_string(),
+                        manifest_hash: skill.manifest_hash,
+                        trust_level: format!("{:?}", skill.trust_level),
+                        source: format!("{:?}", skill.source),
+                        license: skill.license,
+                        compatibility: skill.compatibility,
+                        allowed_tools: skill.allowed_tools,
+                    });
+                handle_result(res, format, quiet)?;
+            }
+            SkillSubcommand::Activate { name } => {
+                let res = gestalt_cli::runtime::activate_skill(&overrides, &name).map(|_| {
+                    SkillActionReport {
+                        action: "activate".to_string(),
+                        skill_name: name.clone(),
+                        success: true,
+                        message: format!("Skill '{}' activated.", name),
+                    }
+                });
+                handle_result(res, format, quiet)?;
+            }
+            SkillSubcommand::Deactivate { name } => {
+                let res = gestalt_cli::runtime::deactivate_skill(&overrides, &name).map(|_| {
+                    SkillActionReport {
+                        action: "deactivate".to_string(),
+                        skill_name: name.clone(),
+                        success: true,
+                        message: format!("Skill '{}' deactivated.", name),
+                    }
+                });
+                handle_result(res, format, quiet)?;
+            }
+            SkillSubcommand::Validate { path } => {
+                let res = gestalt_cli::runtime::validate_skill(&path)
+                    .map(|manifest| SkillInspectReport {
+                        name: manifest.name,
+                        description: manifest.description,
+                        skill_root: path.to_string_lossy().to_string(),
+                        manifest_path: path.join("SKILL.md").to_string_lossy().to_string(),
+                        manifest_hash: "validated".to_string(),
+                        trust_level: "Explicit".to_string(),
+                        source: "ExplicitPath".to_string(),
+                        license: manifest.license,
+                        compatibility: manifest.compatibility,
+                        allowed_tools: manifest.allowed_tools,
+                    });
                 handle_result(res, format, quiet)?;
             }
         },

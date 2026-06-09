@@ -38,6 +38,8 @@ pub struct WorkspaceConfig {
     pub policies: Option<PoliciesConfig>,
     #[serde(default)]
     pub extensions: Option<ExtensionsConfig>,
+    #[serde(default)]
+    pub skills: Option<SkillsConfig>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -51,6 +53,17 @@ pub struct ExtensionsConfig {
     pub trusted: Vec<String>,
     #[serde(default)]
     pub allow_untrusted: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SkillsConfig {
+    #[serde(default)]
+    pub explicit_paths: Vec<String>,
+    #[serde(default)]
+    pub active: Vec<String>,
+    #[serde(default)]
+    pub trusted: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -527,6 +540,7 @@ pub struct CliOverrides {
     pub max_turns: Option<usize>,
     pub workspace: Option<PathBuf>,
     pub profile: Option<String>,
+    pub skills: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -545,6 +559,7 @@ pub struct EffectiveConfig {
     pub model_override: Option<String>,
     pub tui: TuiConfig,
     pub extensions: ExtensionsConfig,
+    pub skills: SkillsConfig,
 }
 
 impl WorkspaceConfig {
@@ -693,6 +708,16 @@ impl WorkspaceConfig {
             self_extensions.allow_untrusted =
                 other_extensions.allow_untrusted || self_extensions.allow_untrusted;
             self.extensions = Some(self_extensions);
+        }
+
+        if let Some(other_skills) = other.skills {
+            let mut self_skills = self.skills.unwrap_or_default();
+            self_skills
+                .explicit_paths
+                .extend(other_skills.explicit_paths);
+            self_skills.active.extend(other_skills.active);
+            self_skills.trusted.extend(other_skills.trusted);
+            self.skills = Some(self_skills);
         }
 
         self.providers.extend(other.providers);
@@ -851,6 +876,14 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
     tui.diagnostics = Some(diagnostics);
 
     let extensions = config.extensions.unwrap_or_default();
+    let mut skills = config.skills.unwrap_or_default();
+    for skill in &overrides.skills {
+        if let Some(name) = skill.strip_prefix('!') {
+            skills.active.retain(|active| active != name);
+        } else if !skills.active.iter().any(|active| active == skill) {
+            skills.active.push(skill.clone());
+        }
+    }
 
     Ok(EffectiveConfig {
         workspace_root,
@@ -867,6 +900,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         model_override,
         tui,
         extensions,
+        skills,
     })
 }
 

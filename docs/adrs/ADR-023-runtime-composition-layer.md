@@ -22,3 +22,4 @@ Introduce the `gestalt-runtime` crate as the primary orchestration and compositi
 - Clean separation of CLI/UX rendering from agent loop logic.
 - Simplified API surface for embedding the harness in third-party services and products.
 - Preserved purity of `gestalt-core` which remains agnostic to runtime orchestration, extensions, or workflow systems.
+- The progressive skill system (`gestalt-skills` crate) integrates entirely through the runtime composition layer — `SkillContributorState` provides per-turn activation state to `ToolCatalogPlanner` and `RuntimePolicyEngine`, `ContextContributor` implementations inject skill metadata and active instructions with appropriate cache stability tags, and `RuntimeEvent` variants capture skill lifecycle events — without requiring any skill-specific logic in `gestalt-core`.
