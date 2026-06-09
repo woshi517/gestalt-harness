@@ -215,6 +215,21 @@ impl AgentLoop {
 
                 break reason;
             }
+
+            if let Some(block_reason) = self.invoke_next_turn_hooks(session, turns, &mut emit, cancel_token).await? {
+                let reason = StopReason::HookBlocked;
+                emit(AgentEvent::HookFailed {
+                    hook_type: "next_turn".to_string(),
+                    name: "prepare_next_turn".to_string(),
+                    error: block_reason.clone(),
+                })?;
+                emit(AgentEvent::Error {
+                    message: block_reason,
+                    recoverable: false,
+                })?;
+                emit(AgentEvent::Stop { reason })?;
+                break reason;
+            }
         };
 
         for hook in &self.hooks.session_hooks {
@@ -264,7 +279,7 @@ impl AgentLoop {
 
     async fn build_request<F>(
         &self,
-        session: &Session,
+        session: &mut Session,
         emit: &mut F,
         cancel_token: &crate::cancel::CancelToken,
         last_packet_hash: &mut Option<String>,
@@ -351,10 +366,46 @@ impl AgentLoop {
             }
         }
 
-        let model = if session.config.model.is_empty() {
+        let override_state = session.next_turn_override.take();
+        if let Some(ref pending) = override_state {
+            if let Some(ref provider_override) = pending.provider {
+                if provider_override != self.provider.id() {
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "next_turn".to_string(),
+                        name: "prepare_next_turn".to_string(),
+                        error: format!(
+                            "Cross-provider override requested for '{}', but current provider is '{}'; using model override only",
+                            provider_override,
+                            self.provider.id(),
+                        ),
+                    })?;
+                    emit(AgentEvent::Error {
+                        message: format!(
+                            "Cross-provider override requested for '{}', but current provider is '{}'; using model override only",
+                            provider_override,
+                            self.provider.id(),
+                        ),
+                        recoverable: true,
+                    })?;
+                }
+            }
+        }
+
+        let effective_model = match override_state {
+            Some(override_state) => {
+                if override_state.model.is_empty() {
+                    session.config.model.clone()
+                } else {
+                    override_state.model
+                }
+            }
+            None => session.config.model.clone(),
+        };
+
+        let model = if effective_model.is_empty() {
             self.provider.default_model().to_string()
         } else {
-            session.config.model.clone()
+            effective_model
         };
 
         let token_estimate = self.provider.count_tokens(&model, &packet.messages)?;
@@ -574,42 +625,42 @@ impl AgentLoop {
         let assistant_turn_event = AgentEvent::Stop {
             reason: stop_reason,
         };
-        for hook in &self.hooks.model_hooks {
-            emit(AgentEvent::HookStarted {
-                hook_type: "model".to_string(),
-                name: "after_model_response".to_string(),
-            })?;
-            let hook_res = tokio::select! {
-                res = hook.after_model_response(session, &assistant_turn_event) => res,
-                _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
-            };
-            match hook_res {
-                Ok(events) => {
-                    emit(AgentEvent::HookCompleted {
-                        hook_type: "model".to_string(),
-                        name: "after_model_response".to_string(),
-                    })?;
-                    for ev in events {
-                        emit(ev)?;
+            for hook in &self.hooks.model_hooks {
+                emit(AgentEvent::HookStarted {
+                    hook_type: "model".to_string(),
+                    name: "after_model_response".to_string(),
+                })?;
+                let hook_res = tokio::select! {
+                    res = hook.after_model_response(session, &assistant_turn_event) => res,
+                    _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
+                };
+                match hook_res {
+                    Ok(events) => {
+                        emit(AgentEvent::HookCompleted {
+                            hook_type: "model".to_string(),
+                            name: "after_model_response".to_string(),
+                        })?;
+                        for ev in events {
+                            emit(ev)?;
+                        }
+                    }
+                    Err(err) => {
+                        emit(AgentEvent::HookFailed {
+                            hook_type: "model".to_string(),
+                            name: "after_model_response".to_string(),
+                            error: err.to_string(),
+                        })?;
+                        emit(AgentEvent::Error {
+                            message: format!("ModelHook.after_model_response failed: {err}"),
+                            recoverable: true,
+                        })?;
                     }
                 }
-                Err(err) => {
-                    emit(AgentEvent::HookFailed {
-                        hook_type: "model".to_string(),
-                        name: "after_model_response".to_string(),
-                        error: err.to_string(),
-                    })?;
-                    emit(AgentEvent::Error {
-                        message: format!("ModelHook.after_model_response failed: {err}"),
-                        recoverable: true,
-                    })?;
-                }
             }
-        }
 
-        if tool_calls.is_empty() {
-            return Ok(TurnOutcome::Stop(stop_reason));
-        }
+            if tool_calls.is_empty() {
+                return Ok(TurnOutcome::Stop(stop_reason));
+            }
 
         for call in &tool_calls {
             if !emitted_proposals.contains(&call.id) {
@@ -759,6 +810,70 @@ impl AgentLoop {
         }
 
         Ok(TurnOutcome::ToolExecuted)
+    }
+
+    async fn invoke_next_turn_hooks<F>(
+        &self,
+        session: &mut Session,
+        current_turn: usize,
+        emit: &mut F,
+        cancel_token: &crate::cancel::CancelToken,
+    ) -> Result<Option<String>>
+    where
+        F: FnMut(AgentEvent) -> Result<()> + Send,
+    {
+        for hook in &self.hooks.next_turn_hooks {
+            emit(AgentEvent::HookStarted {
+                hook_type: "next_turn".to_string(),
+                name: "prepare_next_turn".to_string(),
+            })?;
+            let hook_res = tokio::select! {
+                res = hook.prepare_next_turn(session, current_turn) => res,
+                _ = cancel_token.cancelled() => return Err(HarnessError::Cancelled),
+            };
+            match hook_res {
+                Ok(events) => {
+                    emit(AgentEvent::HookCompleted {
+                        hook_type: "next_turn".to_string(),
+                        name: "prepare_next_turn".to_string(),
+                    })?;
+                    for ev in events {
+                        match &ev {
+                            AgentEvent::NextTurnOverrideRequested { model, provider } => {
+                                let effective_model = if model.is_empty() {
+                                    session.config.model.clone()
+                                } else {
+                                    model.clone()
+                                };
+                                session.next_turn_override =
+                                    Some(crate::session::NextTurnOverride {
+                                        model: effective_model,
+                                        provider: provider.clone(),
+                                    });
+                            }
+                            AgentEvent::NextTurnBlocked { reason } => {
+                                return Ok(Some(reason.clone()));
+                            }
+                            _ => {}
+                        }
+                        emit(ev)?;
+                    }
+                }
+                Err(err) => {
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "next_turn".to_string(),
+                        name: "prepare_next_turn".to_string(),
+                        error: err.to_string(),
+                    })?;
+                    emit(AgentEvent::Error {
+                        message: format!("NextTurnHook.prepare_next_turn failed: {err}"),
+                        recoverable: true,
+                    })?;
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     fn stop_reason(

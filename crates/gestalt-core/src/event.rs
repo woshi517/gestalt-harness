@@ -238,6 +238,14 @@ pub enum AgentEvent {
         error: String,
         delay_ms: u64,
     },
+    NextTurnOverrideRequested {
+        model: String,
+        #[serde(default)]
+        provider: Option<String>,
+    },
+    NextTurnBlocked {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,6 +267,7 @@ pub enum StopReason {
     BudgetExhausted,
     PolicyViolation,
     ProviderError,
+    HookBlocked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

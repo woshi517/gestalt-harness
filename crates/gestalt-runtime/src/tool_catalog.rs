@@ -77,7 +77,7 @@ impl ToolCatalog for ComposedToolCatalog {
             descs = planner.plan_descriptors(descs);
         }
         // Deterministic ordering by canonical ID string
-        descs.sort_by(|a, b| a.id.to_string().cmp(&b.id.to_string()));
+        descs.sort_by_key(|a| a.id.to_string());
         descs
     }
 }

@@ -19,6 +19,10 @@ pub enum HookOutcome {
     Block { reason: String },
     AddContext { message: Message },
     Annotate { metadata: serde_json::Value },
+    SwitchModel {
+        model: String,
+        provider: Option<String>,
+    },
 }
 
 pub struct BeforeContextBuildCtx {
@@ -51,12 +55,21 @@ pub struct OnEventCtx {
     pub event: AgentEvent,
 }
 
+pub struct PrepareNextTurnCtx {
+    pub session_id: String,
+    pub history: Vec<Message>,
+    pub turn_index: usize,
+    pub current_model: String,
+    pub current_provider: String,
+}
+
 #[async_trait]
 pub trait CompositionHooks: Send + Sync {
     async fn before_context_build(&self, context: &BeforeContextBuildCtx) -> Result<HookOutcome>;
     async fn after_context_build(&self, context: &AfterContextBuildCtx) -> Result<HookOutcome>;
     async fn before_tool_policy(&self, context: &BeforeToolPolicyCtx) -> Result<HookOutcome>;
     async fn after_tool_result(&self, context: &AfterToolResultCtx) -> Result<HookOutcome>;
+    async fn prepare_next_turn(&self, context: &PrepareNextTurnCtx) -> Result<HookOutcome>;
     async fn on_event(&self, context: &OnEventCtx) -> Result<()>;
 }
 
@@ -248,6 +261,110 @@ pub struct RuntimeToolHookAdapter {
     pub event_bus: RuntimeEventBus,
 }
 
+pub struct RuntimeModelHookAdapter {
+    pub hooks: Arc<dyn CompositionHooks>,
+    pub event_bus: RuntimeEventBus,
+}
+
+pub struct RuntimeNextTurnHookAdapter {
+    pub hooks: Arc<dyn CompositionHooks>,
+    pub event_bus: RuntimeEventBus,
+}
+
+#[async_trait]
+impl gestalt_core::hook::NextTurnHook for RuntimeNextTurnHookAdapter {
+    async fn prepare_next_turn(
+        &self,
+        session: &Session,
+        current_turn: usize,
+    ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
+        self.event_bus.publish(RuntimeEvent::HookStarted {
+            hook_name: "prepare_next_turn".to_string(),
+            lifecycle_point: "prepare_next_turn".to_string(),
+        });
+
+        let effective_model = session
+            .next_turn_override
+            .as_ref()
+            .map(|o| o.model.clone())
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| session.config.model.clone());
+        let effective_provider = session
+            .next_turn_override
+            .as_ref()
+            .and_then(|o| o.provider.clone())
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| session.config.provider.clone());
+
+        let ctx = PrepareNextTurnCtx {
+            session_id: session.id.clone(),
+            history: session.history.clone(),
+            turn_index: current_turn,
+            current_model: effective_model,
+            current_provider: effective_provider,
+        };
+
+        match self.hooks.prepare_next_turn(&ctx).await {
+            Ok(outcome) => {
+                self.event_bus.publish(RuntimeEvent::HookCompleted {
+                    hook_name: "prepare_next_turn".to_string(),
+                    lifecycle_point: "prepare_next_turn".to_string(),
+                    outcome: format!("{:?}", outcome),
+                });
+
+                match outcome {
+                    HookOutcome::SwitchModel { model, provider } => {
+                        let override_model = if model.is_empty() {
+                            session.config.model.clone()
+                        } else {
+                            model
+                        };
+                        let pending = gestalt_core::session::NextTurnOverride {
+                            model: override_model,
+                            provider,
+                        };
+                        Ok(vec![AgentEvent::NextTurnOverrideRequested {
+                            model: pending.model.clone(),
+                            provider: pending.provider.clone(),
+                        }])
+                    }
+                    HookOutcome::Block { reason } => Ok(vec![AgentEvent::NextTurnBlocked {
+                        reason,
+                    }]),
+                    _ => Ok(Vec::new()),
+                }
+            }
+            Err(err) => {
+                self.event_bus.publish(RuntimeEvent::HookFailed {
+                    hook_name: "prepare_next_turn".to_string(),
+                    lifecycle_point: "prepare_next_turn".to_string(),
+                    error: err.to_string(),
+                });
+                Ok(Vec::new())
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl gestalt_core::hook::ModelHook for RuntimeModelHookAdapter {
+    async fn before_model_request(
+        &self,
+        _session: &Session,
+        _request: &gestalt_core::provider::ProviderRequest,
+    ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
+        Ok(Vec::new())
+    }
+
+    async fn after_model_response(
+        &self,
+        _session: &Session,
+        _event: &AgentEvent,
+    ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
+        Ok(Vec::new())
+    }
+}
+
 #[async_trait]
 impl gestalt_core::hook::ToolHook for RuntimeToolHookAdapter {
     async fn before_tool_execution(
@@ -377,6 +494,18 @@ fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
                         .cloned()
                         .unwrap_or(serde_json::Value::Null);
                     return HookOutcome::Annotate { metadata };
+                }
+                "switch_model" => {
+                    let model = obj
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let provider = obj
+                        .get("provider")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    return HookOutcome::SwitchModel { model, provider };
                 }
                 _ => {}
             }
@@ -548,6 +677,50 @@ impl CompositionHooks for ComposedCompositionHooks {
                         match outcome {
                             HookOutcome::Block { .. } => return Ok(outcome),
                             HookOutcome::AddContext { .. } | HookOutcome::Annotate { .. } => {
+                                final_outcome = outcome;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        Ok(final_outcome)
+    }
+
+    async fn prepare_next_turn(&self, context: &PrepareNextTurnCtx) -> Result<HookOutcome> {
+        if let Some(ref user) = self.user_hooks {
+            let res = user.prepare_next_turn(context).await?;
+            if !matches!(res, HookOutcome::Continue) {
+                return Ok(res);
+            }
+        }
+
+        let mut final_outcome = HookOutcome::Continue;
+        for ext in &self.extensions {
+            if let Some(pe) = ext.as_process_extension() {
+                if let Some(hook_decl) = pe
+                    .manifest
+                    .hooks
+                    .iter()
+                    .find(|h| h.lifecycle_point == "prepare_next_turn")
+                {
+                    let params = serde_json::json!({
+                        "name": hook_decl.name.clone(),
+                        "lifecycle_point": "prepare_next_turn",
+                        "context": {
+                            "session_id": context.session_id.clone(),
+                            "history": context.history.clone(),
+                            "turn_index": context.turn_index,
+                            "current_model": context.current_model.clone(),
+                            "current_provider": context.current_provider.clone(),
+                        }
+                    });
+                    if let Ok(res_val) = pe.broker.call("hooks/call", Some(params)).await {
+                        let outcome = parse_hook_outcome(res_val);
+                        match outcome {
+                            HookOutcome::Block { .. } => return Ok(outcome),
+                            HookOutcome::SwitchModel { .. } | HookOutcome::Annotate { .. } => {
                                 final_outcome = outcome;
                             }
                             _ => {}

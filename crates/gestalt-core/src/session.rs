@@ -4,6 +4,17 @@ use crate::{context::TokenBudget, message::Message, tool::ToolContext};
 
 use crate::snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter};
 
+/// Ephemeral next-turn override state.
+///
+/// When present on a `Session`, this override applies to the very next request only
+/// and is cleared immediately after the request is assembled.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NextTurnOverride {
+    pub model: String,
+    #[serde(default)]
+    pub provider: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Session {
     pub id: String,
@@ -13,6 +24,7 @@ pub struct Session {
     pub tool_ctx: ToolContext,
     pub mode: ExecutionMode,
     pub snapshot: WorkspaceSnapshot,
+    pub next_turn_override: Option<NextTurnOverride>,
 }
 
 impl Session {
@@ -32,6 +44,7 @@ impl Session {
             tool_ctx,
             mode,
             snapshot,
+            next_turn_override: None,
         }
     }
 

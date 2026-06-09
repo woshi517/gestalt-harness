@@ -43,7 +43,7 @@ As of 2026-06-01, the repository contains a working Rust workspace with Phase 0 
 - Extension manifest system (`gestalt.extension.toml`) with capability declarations and permission profiles
 - Extension discovery (three-tier: explicit → project-local → global)
 - Permission enforcement (filesystem paths, network hosts, shell commands, environment isolation)
-- Composition hooks (5 lifecycle points: before/after context build, before tool policy, after tool result, on event)
+- Composition hooks (6 lifecycle points: before/after context build, before tool policy, after tool result, prepare_next_turn, on event)
 - Composed tool catalog (base + extension tool merging with collision detection)
 - Orchestration traits (`AgentRuntimeHandle`, `Orchestrator`, `ArtifactStore`)
 - CLI extension management commands (list, enable, disable, inspect, reload, validate)
@@ -314,7 +314,7 @@ flowchart TD
 ### P1.5.1 Runtime Composition Layer
 
 - [x] `AgentRuntimeBuilder`, `RuntimeRegistry`, `RuntimeConfig`, `RuntimeEventBus`
-- [x] Composition hooks at 5 lifecycle points
+- [x] Composition hooks at 6 lifecycle points
 - [x] Composed tool catalog with collision detection
 - [x] Runtime inspection (`RuntimeInspect`, `gestalt runtime inspect`)
 

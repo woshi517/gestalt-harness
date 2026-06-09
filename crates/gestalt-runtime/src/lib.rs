@@ -24,8 +24,8 @@ pub use artifact_store::{ArtifactStore, FilesystemArtifactStore, InMemoryArtifac
 pub use builder::AgentRuntimeBuilder;
 pub use composition_hooks::{
     AfterContextBuildCtx, AfterToolResultCtx, BeforeContextBuildCtx, BeforeToolPolicyCtx,
-    CompositionHooks, HookOutcome, OnEventCtx, RuntimeContextHookAdapter, RuntimeToolHookAdapter,
-    RuntimeTraceHookAdapter,
+    CompositionHooks, HookOutcome, OnEventCtx, PrepareNextTurnCtx, RuntimeContextHookAdapter,
+    RuntimeNextTurnHookAdapter, RuntimeToolHookAdapter, RuntimeTraceHookAdapter,
 };
 pub use config::RuntimeConfig;
 pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};

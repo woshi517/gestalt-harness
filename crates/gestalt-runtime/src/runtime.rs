@@ -22,8 +22,8 @@ use crate::error::{Result, RuntimeError};
 use crate::inspect::{RuntimeInspect, ToolInspectInfo};
 
 use crate::composition_hooks::{
-    CompositionHooks, OnEventCtx, RuntimeContextHookAdapter, RuntimeToolHookAdapter,
-    RuntimeTraceHookAdapter,
+    CompositionHooks, OnEventCtx, RuntimeContextHookAdapter, RuntimeNextTurnHookAdapter,
+    RuntimeToolHookAdapter, RuntimeTraceHookAdapter,
 };
 use crate::context::{ContextContributor, RuntimeContextPipeline};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
@@ -260,6 +260,11 @@ impl AgentRuntime {
             }));
 
             core_hooks.register_tool_hook(Arc::new(RuntimeToolHookAdapter {
+                hooks: comp_hooks.clone(),
+                event_bus: self.event_bus.clone(),
+            }));
+
+            core_hooks.register_next_turn_hook(Arc::new(RuntimeNextTurnHookAdapter {
                 hooks: comp_hooks.clone(),
                 event_bus: self.event_bus.clone(),
             }));

@@ -15,11 +15,12 @@ pub trait CompositionHooks: Send + Sync {
     async fn after_context_build(&self, context: &AfterContextBuildCtx) -> Result<HookOutcome>;
     async fn before_tool_policy(&self, context: &BeforeToolPolicyCtx) -> Result<HookOutcome>;
     async fn after_tool_result(&self, context: &AfterToolResultCtx) -> Result<HookOutcome>;
+    async fn prepare_next_turn(&self, context: &PrepareNextTurnCtx) -> Result<HookOutcome>;
     async fn on_event(&self, context: &OnEventCtx) -> Result<()>;
 }
 ```
 
-All five methods are `async` and return `gestalt_runtime::error::Result`. The first four return a `HookOutcome`; `on_event` is a fire-and-forget observer that returns `Result<()>`.
+All six methods are `async` and return `gestalt_runtime::error::Result`. The first five return a `HookOutcome`; `on_event` is a fire-and-forget observer that returns `Result<()>`.
 
 ---
 
@@ -82,6 +83,26 @@ pub struct AfterToolResultCtx {
 
 **What happens:** The hook inspects the `ToolExecutionResult`. Blocking here emits an `AgentEvent::Error` that flags the result to the session loop.
 
+### `prepare_next_turn`
+
+```rust
+pub struct PrepareNextTurnCtx {
+    pub session_id: String,
+    pub history: Vec<Message>,
+    pub turn_index: usize,
+    pub current_model: String,
+    pub current_provider: String,
+}
+```
+
+**When:** After a turn completes and tool execution has finished, but before the next request is built, if the session would otherwise proceed into another turn.
+
+**What happens:** The hook can inspect the completed turn history, including tool results that already landed in the session, and decide whether the next LLM request should use a different model or provider. Returning `Continue` keeps the next request unchanged. Returning `SwitchModel { model, provider? }` applies a one-shot override to the very next request only. Returning `Block { reason }` stops the session before the next turn begins, provided the agent loop would otherwise continue.
+
+`current_model` and `current_provider` reflect the effective model/provider for the turn that just executed. If a previous turn set a one-shot override, those effective values are reported rather than the original session defaults.
+
+**Important:** V1 keeps this lifecycle narrow. It is intentionally limited to next-turn model/provider switching. It is not a general request-override surface for parameters like `temperature` or `max_tokens`. Cross-provider switching is not yet reliably honored by the runtime in V1; the model override is applied, but a provider hint that does not match the active provider is surfaced explicitly and is not relied upon for routing.
+
 ### `on_event`
 
 ```rust
@@ -106,6 +127,7 @@ pub enum HookOutcome {
     Block { reason: String },
     AddContext { message: Message },
     Annotate { metadata: serde_json::Value },
+    SwitchModel { model: String, provider: Option<String> },
 }
 ```
 
@@ -115,6 +137,7 @@ pub enum HookOutcome {
 | `Block { reason }` | Aborts the turn | Denies the tool call | Emits `AgentEvent::Error` with the reason |
 | `AddContext { message }` | Injects a `Message` into the context packet (turn N+1 for after_context_build, same turn for before_context_build) | N/A (ignored) | Cached in `patch_store` |
 | `Annotate { metadata }` | Attaches `serde_json::Value` metadata to the hook outcome | Attaches metadata | Consumed by observers / event subscribers |
+| `SwitchModel { model, provider? }` | N/A | N/A | Sets a one-shot override for the next request only |
 
 ---
 
@@ -122,7 +145,8 @@ pub enum HookOutcome {
 
 - **`before_tool_policy` returning `Err`:** The `RuntimePolicyEngine` treats any error as a policy denial and returns `PolicyDecision::Denied`. This is a security invariant — hook execution failure must not accidentally permit a tool call.
 - **Context hooks (`before_context_build` / `after_context_build`) returning `Err`:** The error is logged and the hook outcome is silently treated as `Continue` (the turn proceeds). The error is published as `RuntimeEvent::HookFailed`.
-- **`before_tool_policy` returning `Err`:** The error is published as `HookFailed` and the tool is denied.
+- **`prepare_next_turn` returning `Err`:** Treat it as fail-open for V1 by default. The runtime logs the error, emits `RuntimeEvent::HookFailed`, and proceeds without applying a next-turn override.
+- **`after_tool_result` returning `Err`:** The error is published as `HookFailed` and the turn continues without special recovery.
 
 ---
 
@@ -252,6 +276,9 @@ serde_json::json!({
         "tool_name": "...",      // only in before_tool_policy / after_tool_result
         "tool_input": {...},     // only in before_tool_policy
         "result": {...},         // only in after_tool_result
+        "turn_index": 0,         // only in prepare_next_turn
+        "current_model": "...",  // only in prepare_next_turn
+        "current_provider": "...", // only in prepare_next_turn
         "event": {...},          // only in on_event
     }
 })

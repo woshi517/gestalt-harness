@@ -312,6 +312,7 @@ type LifecyclePoint =
     | "after_context_build"
     | "before_tool_policy"
     | "after_tool_result"
+    | "prepare_next_turn"
     | "on_event";
 
 interface HookContext {
@@ -334,6 +335,13 @@ interface HookContext {
     tool_name?: string;
     result?: ToolExecutionResult;
 
+    // prepare_next_turn
+    session_id?: string;
+    history?: Message[];
+    turn_index?: number;
+    current_model?: string;
+    current_provider?: string;
+
     // on_event
     session_id?: string;
     event?: AgentEvent;
@@ -348,6 +356,7 @@ interface HookContext {
 | `after_context_build`  | `session_id`, `history`, `packet` (the built ContextPacket) |
 | `before_tool_policy`   | `session_id`, `tool_name`, `tool_input`                     |
 | `after_tool_result`    | `session_id`, `tool_name`, `result` (ToolExecutionResult)   |
+| `prepare_next_turn`    | `session_id`, `history`, `turn_index`, `current_model`, `current_provider` |
 | `on_event`             | `session_id`, `event` (AgentEvent)                          |
 
 #### Request Example
@@ -378,7 +387,8 @@ type HookResponse =
     | { outcome: "continue" }
     | { outcome: "block"; reason: string }
     | { outcome: "add_context"; message: Message }
-    | { outcome: "annotate"; metadata: object };
+    | { outcome: "annotate"; metadata: object }
+    | { outcome: "switch_model"; model: string; provider?: string };
 ```
 
 The `on_event` lifecycle point ignores the response (the broker does not process it).
@@ -392,6 +402,7 @@ The broker parses the response result with the following precedence:
    - `"block"` → `HookOutcome::Block { reason }` (default reason: `"Blocked by hook"`)
    - `"add_context"` → `HookOutcome::AddContext { message }` (deserialized from the `"message"` field)
    - `"annotate"` → `HookOutcome::Annotate { metadata }`
+   - `"switch_model"` → `HookOutcome::SwitchModel { model, provider? }`
    - Unknown type → falls through to `HookOutcome::Continue`
 3. **Default:** `HookOutcome::Continue`
 
@@ -448,6 +459,19 @@ Annotate:
 }
 ```
 
+Switch model:
+```json
+{
+    "id": "d3e4f5a6-...",
+    "jsonrpc": "2.0",
+    "result": {
+        "type": "switch_model",
+        "model": "claude-sonnet-4-20250514",
+        "provider": "anthropic"
+    }
+}
+```
+
 #### How Each Outcome Variant Maps
 
 | Outcome       | Behavior                                                                 |
@@ -456,6 +480,7 @@ Annotate:
 | `block`       | Processing is interrupted. Reason is captured and surfaced as an error.  |
 | `add_context` | The `message` is appended to the `patch_store` and injected into context.|
 | `annotate`    | Metadata is stored (reserved for future use in current implementation).  |
+| `switch_model` | V1-only narrow override for the next turn's model and optional provider. |
 
 #### Execution Order (ComposedCompositionHooks)
 
@@ -756,7 +781,7 @@ Fields relevant to the protocol:
 
 - `runtime` — Must be `"stdio"` (the only supported transport in MVP).
 - `capabilities` — Booleans for `tools`, `hooks`, `context`. These are sent in `initialize`. No RPC calls are made for disabled capabilities.
-- `hooks` — A list of `{ name, lifecycle_point }` pairs. Each `lifecycle_point` must match one of the five supported values.
+- `hooks` — A list of `{ name, lifecycle_point }` pairs. Each `lifecycle_point` must match one of the six supported values.
 
 ## Appendix B: Example Extension (Shell)
 

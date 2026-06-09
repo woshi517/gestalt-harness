@@ -144,6 +144,8 @@ pub fn inspect_trace(
             AgentEvent::ToolCatalogSelected { .. } => "tool_catalog_selected",
             AgentEvent::ToolCallValidationFailed { .. } => "tool_call_validation_failed",
             AgentEvent::ToolRetryAttempt { .. } => "tool_retry_attempt",
+            AgentEvent::NextTurnOverrideRequested { .. } => "next_turn_override_requested",
+            AgentEvent::NextTurnBlocked { .. } => "next_turn_blocked",
         };
 
         *event_types.entry(variant_name.to_string()).or_insert(0) += 1;

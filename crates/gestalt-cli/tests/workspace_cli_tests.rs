@@ -183,6 +183,7 @@ profile = "openai"
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn test_snapshot_workspace() {
     let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
@@ -253,6 +254,7 @@ fn test_doctor_workspace() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn test_enhanced_cli_operations() {
     let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();

@@ -310,7 +310,7 @@ In `gestalt-harness`, process-backed stdio JSON-RPC extensions are mapped direct
 
 - **`ProcessBackedTool`** implements the core `Tool` trait, forwarding `execute()` calls to the extension via the `tools/call` RPC method. The same pattern applies similarly to MCP-bridged tools.
 
-- **`CompositionHooks`** maps to the progressive hook/event model: five lifecycle points (`before_context_build`, `after_context_build`, `before_tool_policy`, `after_tool_result`, `on_event`) allow extensions to intercept and modify agent behavior without tight coupling.
+- **`CompositionHooks`** maps to the progressive hook/event model: six lifecycle points (`before_context_build`, `after_context_build`, `before_tool_policy`, `after_tool_result`, `prepare_next_turn`, `on_event`) allow extensions to intercept and modify agent behavior without tight coupling.
 
 - **Extension manifests** declare capabilities (tools, hooks, context) and permissions (filesystem paths, network hosts, shell access). The host enforces these BEFORE forwarding requests to the child process.
 
