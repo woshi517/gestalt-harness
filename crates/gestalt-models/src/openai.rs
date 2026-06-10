@@ -439,7 +439,7 @@ fn split_openai_messages(messages: &[Message]) -> Vec<Value> {
             Message::System { content } => {
                 output.push(json!({"role": "system", "content": content}));
             }
-            Message::User { content } => {
+            Message::User { content, .. } => {
                 output.push(convert_user_message(content));
             }
             Message::Assistant { content } => {
@@ -580,12 +580,14 @@ mod tests {
             }],
             0,
         );
-        let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot)
-            .with_segments(vec![PromptSegment::from_messages(
-                PromptSegmentKind::Snapshot,
-                ContextStability::SessionStatic,
-                &snapshot.messages,
-            )]);
+        let plan =
+            PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot).with_segments(vec![
+                PromptSegment::from_messages(
+                    PromptSegmentKind::Snapshot,
+                    ContextStability::SessionStatic,
+                    &snapshot.messages,
+                ),
+            ]);
 
         ProviderRequest {
             model: "gpt-4o-mini".to_string(),
@@ -593,6 +595,7 @@ mod tests {
                 content: vec![ContentBlock::Text {
                     text: "hello".to_string(),
                 }],
+                metadata: None,
             }],
             tools: vec![],
             tool_name_map: vec![],

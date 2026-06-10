@@ -397,6 +397,7 @@ impl GoldenTraceRunner {
             content: vec![gestalt_core::message::ContentBlock::Text {
                 text: golden.input.user_prompt.clone(),
             }],
+            metadata: None,
         });
 
         let sink_run = sink.clone();

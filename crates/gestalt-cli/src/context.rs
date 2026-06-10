@@ -37,6 +37,7 @@ pub async fn explain_context(
             content: vec![gestalt_core::ContentBlock::Text {
                 text: prompt.to_string(),
             }],
+            metadata: None,
         }];
 
         let packet = pipeline.build_packet(&history, &budget);

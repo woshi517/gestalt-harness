@@ -6,7 +6,10 @@ use gestalt_runtime::InMemorySteeringQueue;
 #[tokio::test]
 async fn test_in_memory_steering_queue_fifo_and_len() {
     let queue = InMemorySteeringQueue::new();
-    queue.update_lifecycle(QueueLifecycle::Active).await.unwrap();
+    queue
+        .update_lifecycle(QueueLifecycle::Active)
+        .await
+        .unwrap();
 
     assert!(queue.is_empty().await.unwrap());
     assert_eq!(queue.len().await.unwrap(), 0);
@@ -47,7 +50,10 @@ async fn test_in_memory_steering_queue_fifo_and_len() {
 #[tokio::test]
 async fn test_in_memory_steering_queue_idempotency() {
     let queue = InMemorySteeringQueue::new();
-    queue.update_lifecycle(QueueLifecycle::Active).await.unwrap();
+    queue
+        .update_lifecycle(QueueLifecycle::Active)
+        .await
+        .unwrap();
 
     let msg1 = QueuedSessionMessage {
         id: "1".to_string(),
@@ -80,7 +86,10 @@ async fn test_in_memory_steering_queue_idempotency() {
 async fn test_in_memory_steering_queue_lifecycle() {
     let queue = InMemorySteeringQueue::new();
 
-    queue.update_lifecycle(QueueLifecycle::Closing).await.unwrap();
+    queue
+        .update_lifecycle(QueueLifecycle::Closing)
+        .await
+        .unwrap();
     let msg = QueuedSessionMessage {
         id: "1".to_string(),
         content: "Test".to_string(),
@@ -91,7 +100,10 @@ async fn test_in_memory_steering_queue_lifecycle() {
     let ack = queue.enqueue(msg.clone()).await.unwrap();
     assert_eq!(ack, QueueAck::SessionClosing);
 
-    queue.update_lifecycle(QueueLifecycle::Completed).await.unwrap();
+    queue
+        .update_lifecycle(QueueLifecycle::Completed)
+        .await
+        .unwrap();
     let ack2 = queue.enqueue(msg).await.unwrap();
     assert_eq!(ack2, QueueAck::SessionNotActive);
 }

@@ -393,8 +393,33 @@ Queue-backed steering and context patching are distinct mechanisms designed for 
 
 1. **Queue-Backed Steering (Durable)**
    * **Purpose**: Used for user, operator, or automation inputs that represent canonical history additions.
-   * **Mechanism**: Messages are enqueued into the runtime steering queue, drained at turn boundaries, and appended directly to `session.history` as `Message::User`.
+   * **Mechanism**: Messages are enqueued into the runtime steering queue, drained at turn boundaries, and appended directly to `session.history` as `Message::User` with optional `MessageMetadata` (source, queued message id, injected turn).
    * **Durability & Replay**: These messages are captured in trace checkpoints and persisted. Replay/resume flows treat these as canonical committed history, ensuring exact determinism.
+   * **History schema**: The `Message::User` variant now carries an optional `metadata: Option<MessageMetadata>` field. Metadata records the original `MessageSource` (User, Operator, Automation, FollowUp), the queued message id, and the turn at which injection occurred. All non-injected user messages use `metadata: None`. Model adapters treat all user messages uniformly regardless of metadata.
+
+### Queue Lifecycle Ownership
+
+The steering queue transitions through three states with explicit ownership boundaries:
+
+| State | Owner | When |
+|-------|-------|------|
+| `Active` | **`AgentRuntime`** | Runtime sets `Active` at `run_session()` entry, before the agent loop starts |
+| `Closing` | **`AgentLoop`** | The core loop sets `Closing` at the terminal stop boundary, after the last safe pre-request drain point and before session-end hooks |
+| `Completed` | **`AgentRuntime`** | Runtime sets `Completed` after `AgentLoop::run()` returns, trace workers are shut down, and outer cleanup finishes |
+
+**Why this split matters:**
+- `Active` and `Completed` are runtime-level decisions: the runtime layer owns session lifecycle, trace workers, and event bus subscriptions outside the core loop.
+- `Closing` is an agent-level decision: only `AgentLoop` knows the exact semantic boundary where no further `build_request()` cycle can occur. If `Closing` were owned by runtime, the queue would remain `Active` during `on_session_end` hooks, allowing late enqueues to succeed even though no model turn can consume them.
+- `Completed` has destructive semantics in `InMemorySteeringQueue` (pending messages are cleared), making it that is a runtime cleanup action.
+- This split prevents future contributors from "simplifying" lifecycle transitions back into the wrong layer.
+
+### Enqueue Rejection by Lifecycle
+
+| Lifecycle State | `enqueue()` Result |
+|----------------|--------------------|
+| `Active` | `Queued` (normal path) or `Duplicate` (idempotent) |
+| `Closing` | `SessionClosing` — the core loop has terminated; no further drain will occur |
+| `Completed` | `SessionNotActive` — the run is fully finished; use explicit continue/branch semantics |
 
 2. **Context Patching (Transient)**
    * **Purpose**: Used for injecting prompt-only instructions, skills metadata, or ephemeral UI state.

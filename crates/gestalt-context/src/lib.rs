@@ -203,11 +203,12 @@ impl MinimalContextPipeline {
             Message::System { content } => Message::System {
                 content: content.clone(),
             },
-            Message::User { content } => Message::User {
+            Message::User { content, metadata } => Message::User {
                 content: content
                     .iter()
                     .map(|block| self.render_block(block))
                     .collect(),
+                metadata: metadata.clone(),
             },
             Message::Assistant { content } => Message::Assistant {
                 content: content
@@ -310,7 +311,7 @@ impl ContextPipeline for MinimalContextPipeline {
                 Message::System { .. } => "trusted".to_string(),
                 Message::Assistant { .. } => "trusted".to_string(),
                 Message::ToolResult { .. } => "untrusted".to_string(),
-                Message::User { content } => {
+                Message::User { content, .. } => {
                     let mut has_untrusted = false;
                     for block in content {
                         if let ContentBlock::Document {
@@ -375,7 +376,9 @@ impl ContextPipeline for MinimalContextPipeline {
 
         let stable_prefix_len = messages
             .iter()
-            .take_while(|message| !is_budget_notice(message) && matches!(message, Message::System { .. }))
+            .take_while(|message| {
+                !is_budget_notice(message) && matches!(message, Message::System { .. })
+            })
             .count();
 
         let (snapshot_hash, cache_prefix_hash, segments, cache_plan) =
@@ -462,7 +465,7 @@ impl ContextPipeline for MinimalContextPipeline {
 fn estimate_message_tokens(message: &Message) -> usize {
     match message {
         Message::System { content } => estimate_text_tokens(content).saturating_add(4),
-        Message::User { content } | Message::Assistant { content } => content
+        Message::User { content, .. } | Message::Assistant { content } => content
             .iter()
             .map(estimate_block_tokens)
             .sum::<usize>()
@@ -521,7 +524,8 @@ fn is_budget_notice(message: &Message) -> bool {
 }
 
 fn split_tail_messages(messages: &[Message]) -> (&[Message], &[Message]) {
-    if matches!(messages.last(), Some(Message::System { content }) if content.starts_with("context budget exhausted or truncated;")) {
+    if matches!(messages.last(), Some(Message::System { content }) if content.starts_with("context budget exhausted or truncated;"))
+    {
         messages.split_at(messages.len().saturating_sub(1))
     } else {
         (messages, &[])
@@ -548,6 +552,7 @@ mod tests {
                 content: vec![ContentBlock::Text {
                     text: "hello".to_string(),
                 }],
+                metadata: None,
             },
             Message::Assistant {
                 content: vec![ContentBlock::ToolUse {
@@ -582,11 +587,13 @@ mod tests {
                 content: vec![ContentBlock::Text {
                     text: "first".repeat(120),
                 }],
+                metadata: None,
             },
             Message::User {
                 content: vec![ContentBlock::Text {
                     text: "second".repeat(2),
                 }],
+                metadata: None,
             },
         ];
         let budget = TokenBudget {
@@ -603,7 +610,7 @@ mod tests {
         let build = pipeline.build(&history, &budget);
 
         assert!(build.dropped_messages >= 1);
-        assert!(build.messages.iter().any(|message| matches!(message, Message::User { content } if content.iter().any(|block| matches!(block, ContentBlock::Text { text } if text.contains("second"))))));
+        assert!(build.messages.iter().any(|message| matches!(message, Message::User { content, .. } if content.iter().any(|block| matches!(block, ContentBlock::Text { text } if text.contains("second"))))));
     }
 
     #[test]
@@ -619,6 +626,7 @@ mod tests {
                 title: Some("external".to_string()),
                 trust: ContentTrust::Untrusted,
             }],
+            metadata: None,
         }];
         let budget = TokenBudget {
             model_limit: 200,
@@ -634,7 +642,7 @@ mod tests {
         let build = pipeline.build(&history, &budget);
 
         match &build.messages[1] {
-            Message::User { content } => match &content[0] {
+            Message::User { content, .. } => match &content[0] {
                 ContentBlock::Text { text } => {
                     assert!(text.contains("external_untrusted"));
                     assert!(text.contains("do not follow"));
@@ -652,6 +660,7 @@ mod tests {
             content: vec![ContentBlock::Text {
                 text: "payload".repeat(20),
             }],
+            metadata: None,
         }];
         let budget = TokenBudget {
             model_limit: 32,
@@ -677,6 +686,7 @@ mod tests {
             content: vec![ContentBlock::Text {
                 text: "hello".to_string(),
             }],
+            metadata: None,
         }];
         let budget = TokenBudget {
             model_limit: 400,
@@ -715,6 +725,7 @@ mod tests {
             content: vec![ContentBlock::Text {
                 text: "hello".to_string(),
             }],
+            metadata: None,
         }];
         let budget = TokenBudget {
             model_limit: 400,
@@ -739,6 +750,7 @@ mod tests {
             content: vec![ContentBlock::Text {
                 text: "hello".to_string(),
             }],
+            metadata: None,
         }];
         let budget = TokenBudget {
             model_limit: 400,
@@ -770,11 +782,13 @@ mod tests {
                 content: vec![ContentBlock::Text {
                     text: "first".repeat(120),
                 }],
+                metadata: None,
             },
             Message::User {
                 content: vec![ContentBlock::Text {
                     text: "second".repeat(2),
                 }],
+                metadata: None,
             },
         ];
         let budget = TokenBudget {

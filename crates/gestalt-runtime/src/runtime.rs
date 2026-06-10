@@ -53,8 +53,7 @@ pub struct AgentRuntime {
     pub event_bus: RuntimeEventBus,
     /// Shared skill contributor state. Carried by the runtime so activation
     /// can be resolved per-turn from `before_context_build`.
-    pub skill_state:
-        Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
+    pub skill_state: Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
     steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
 }
 
@@ -104,9 +103,7 @@ impl AgentRuntime {
     /// `RuntimeEvent::SkillResourceAccessed` on this runtime's event bus. Tools
     /// can install this recorder so that any read against a skill's
     /// `references/` or `scripts/` resources becomes observable in the trace.
-    pub fn skill_resource_recorder(
-        &self,
-    ) -> Option<gestalt_skills::ResourceAccessRecorder> {
+    pub fn skill_resource_recorder(&self) -> Option<gestalt_skills::ResourceAccessRecorder> {
         self.skill_state
             .as_ref()
             .and_then(|s| s.lock().ok())
@@ -181,6 +178,7 @@ impl AgentRuntime {
             content: vec![gestalt_core::message::ContentBlock::Text {
                 text: input.prompt.clone(),
             }],
+            metadata: None,
         });
 
         let user_msg_event = AgentEvent::UserMessage {
@@ -194,12 +192,7 @@ impl AgentRuntime {
             let _ = tx.send(user_msg_event);
         }
 
-        self.run_session(
-            &mut session,
-            &input.cancel_token,
-            input.event_tx,
-            None,
-        )
+        self.run_session(&mut session, &input.cancel_token, input.event_tx, None)
             .await
     }
 
@@ -210,7 +203,10 @@ impl AgentRuntime {
         event_tx: Option<UnboundedSender<AgentEvent>>,
         initial_prompt_snapshot_hash: Option<String>,
     ) -> Result<RunResult> {
-        let _ = self.steering_queue.update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active).await;
+        let _ = self
+            .steering_queue
+            .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)
+            .await;
 
         let mut core_hooks = self.hooks.clone();
         let mut middleware = self.middleware.clone();
@@ -345,8 +341,6 @@ impl AgentRuntime {
                 .await
         };
 
-        let _ = self.steering_queue.update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Closing).await;
-
         if let Some(tx) = maybe_trace_tx {
             drop(tx);
         }
@@ -354,7 +348,13 @@ impl AgentRuntime {
             let _ = worker.await;
         }
 
-        let _ = self.steering_queue.update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Completed).await;
+        // `Completed` belongs to runtime: the outer run lifecycle is finished,
+        // trace workers are shut down, and any still-pending steering can be
+        // discarded instead of being carried past this run boundary.
+        let _ = self
+            .steering_queue
+            .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Completed)
+            .await;
 
         match loop_result {
             Ok(run_result) => Ok(run_result),

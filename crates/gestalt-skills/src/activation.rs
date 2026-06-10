@@ -1,5 +1,5 @@
-use crate::{ActiveSkill, Result, SkillDescriptor, SkillError};
 use crate::index::SkillIndex;
+use crate::{ActiveSkill, Result, SkillDescriptor, SkillError};
 use std::collections::HashSet;
 
 /// Tracks which skills are active and why.
@@ -72,7 +72,10 @@ impl ActivationEngine {
                     continue;
                 }
                 // Only auto-activate trusted skills (Explicit or Workspace)
-                if !matches!(desc.trust_level, crate::SkillTrustLevel::Explicit | crate::SkillTrustLevel::Workspace) {
+                if !matches!(
+                    desc.trust_level,
+                    crate::SkillTrustLevel::Explicit | crate::SkillTrustLevel::Workspace
+                ) {
                     continue;
                 }
                 let desc_lower = desc.description.to_lowercase();
@@ -81,11 +84,15 @@ impl ActivationEngine {
                     .filter(|w| w.len() > 3)
                     .collect();
                 let name_lower = desc.name.to_lowercase();
-                let name_words: Vec<&str> = name_lower
-                    .split('-')
-                    .collect();
-                let match_score = trigger_words.iter().filter(|&&w| task_lower.contains(w)).count()
-                    + name_words.iter().filter(|&&w| task_lower.contains(w)).count();
+                let name_words: Vec<&str> = name_lower.split('-').collect();
+                let match_score = trigger_words
+                    .iter()
+                    .filter(|&&w| task_lower.contains(w))
+                    .count()
+                    + name_words
+                        .iter()
+                        .filter(|&&w| task_lower.contains(w))
+                        .count();
                 if match_score > 0 {
                     active.insert(desc.name.clone());
                 }
@@ -100,8 +107,7 @@ impl ActivationEngine {
 
 /// Load the full SKILL.md body for a descriptor.
 pub fn load_skill_body(descriptor: &SkillDescriptor) -> Result<ActiveSkill> {
-    let full_body = std::fs::read_to_string(&descriptor.manifest_path)
-        .map_err(SkillError::Io)?;
+    let full_body = std::fs::read_to_string(&descriptor.manifest_path).map_err(SkillError::Io)?;
     Ok(ActiveSkill {
         descriptor: descriptor.clone(),
         full_body,
@@ -180,7 +186,8 @@ mod tests {
     fn test_trigger_match() {
         let index = SkillIndex::new(vec![dummy_skill("pdf", "Process PDF documents and forms.")]);
         let state = ActivationState::new(vec![]);
-        let active = ActivationEngine::resolve(&index, &state, Some("Please extract text from this PDF"));
+        let active =
+            ActivationEngine::resolve(&index, &state, Some("Please extract text from this PDF"));
         assert_eq!(active, vec!["pdf"]);
     }
 

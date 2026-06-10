@@ -28,7 +28,10 @@ fn pipeline() -> MinimalContextPipeline {
 fn dynamic_strategy_keeps_cache_metadata_empty() {
     let packet = pipeline().build_packet(&[], &budget(400));
 
-    assert_eq!(packet.prompt_assembly_strategy, PromptAssemblyStrategy::Dynamic);
+    assert_eq!(
+        packet.prompt_assembly_strategy,
+        PromptAssemblyStrategy::Dynamic
+    );
     assert!(packet.snapshot_hash.is_none());
     assert!(packet.cache_prefix_hash.is_none());
     assert!(packet.segments.is_empty());
@@ -44,13 +47,17 @@ fn snapshot_strategy_records_stable_prefix_and_dynamic_tail() {
                 content: vec![ContentBlock::Text {
                     text: "hello world".to_string(),
                 }],
+                metadata: None,
             }],
             &budget(400),
         );
 
     let plan = packet.cache_plan.as_ref().expect("cache plan");
 
-    assert_eq!(packet.prompt_assembly_strategy, PromptAssemblyStrategy::Snapshot);
+    assert_eq!(
+        packet.prompt_assembly_strategy,
+        PromptAssemblyStrategy::Snapshot
+    );
     assert_eq!(plan.strategy, PromptAssemblyStrategy::Snapshot);
     assert_eq!(packet.snapshot_hash, Some(plan.snapshot_hash.clone()));
     assert_eq!(packet.cache_prefix_hash, Some(plan.prefix_hash.clone()));
@@ -75,6 +82,7 @@ fn snapshot_hash_stays_stable_when_history_changes() {
             content: vec![ContentBlock::Text {
                 text: "first".to_string(),
             }],
+            metadata: None,
         }],
         &budget(400),
     );
@@ -84,6 +92,7 @@ fn snapshot_hash_stays_stable_when_history_changes() {
             content: vec![ContentBlock::Text {
                 text: "second".to_string(),
             }],
+            metadata: None,
         }],
         &budget(400),
     );

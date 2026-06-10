@@ -70,7 +70,9 @@ impl RuntimeContextPipeline {
     ) -> (Vec<Message>, usize) {
         let stable_prefix_len = base_messages
             .iter()
-            .take_while(|message| !is_budget_notice(message) && matches!(message, Message::System { .. }))
+            .take_while(|message| {
+                !is_budget_notice(message) && matches!(message, Message::System { .. })
+            })
             .count();
 
         let (stable_patches, unstable_patches): (Vec<_>, Vec<_>) = patches
@@ -79,9 +81,8 @@ impl RuntimeContextPipeline {
             .partition(|patch| is_stable(patch.stability));
         let stable_patch_count = stable_patches.len();
 
-        let mut messages = Vec::with_capacity(
-            base_messages.len() + stable_patch_count + unstable_patches.len(),
-        );
+        let mut messages =
+            Vec::with_capacity(base_messages.len() + stable_patch_count + unstable_patches.len());
         messages.extend(base_messages[..stable_prefix_len].iter().cloned());
         messages.extend(stable_patches.into_iter().map(|patch| patch.message));
         messages.extend(unstable_patches.into_iter().map(|patch| patch.message));
@@ -167,7 +168,8 @@ fn is_budget_notice(message: &Message) -> bool {
 }
 
 fn split_tail_messages(messages: &[Message]) -> (&[Message], &[Message]) {
-    if matches!(messages.last(), Some(Message::System { content }) if content.starts_with("context budget exhausted or truncated;")) {
+    if matches!(messages.last(), Some(Message::System { content }) if content.starts_with("context budget exhausted or truncated;"))
+    {
         messages.split_at(messages.len().saturating_sub(1))
     } else {
         (messages, &[])

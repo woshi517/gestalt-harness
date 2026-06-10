@@ -1,8 +1,8 @@
+use gestalt_core::ContextStability;
 use gestalt_runtime::{
     ExtensionManifest, GestaltExtension, ProcessExtension, ProcessExtensionBroker, RuntimeEvent,
     RuntimeEventBus, RuntimeRegistry,
 };
-use gestalt_core::ContextStability;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -43,7 +43,11 @@ async fn test_process_extension_lifecycle_and_execution() {
     assert!(registry.tools.contains_key("bash_tool"));
     assert!(registry.context_contributors.contains_key("bash_context"));
     assert_eq!(
-        registry.context_contributors.get("bash_context").unwrap().stability,
+        registry
+            .context_contributors
+            .get("bash_context")
+            .unwrap()
+            .stability,
         ContextStability::TurnDynamic
     );
 
