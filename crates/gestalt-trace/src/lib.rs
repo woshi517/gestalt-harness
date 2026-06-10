@@ -533,6 +533,15 @@ pub fn render_display(events: &[EventEnvelope]) -> String {
                     "tool-retry> {tool_call_id} attempt={attempt} delay={delay_ms}ms reason={error}"
                 ));
             }
+            AgentEvent::SessionMessageInjected { message } => {
+                lines.push(format!(
+                    "steering-injected> id={} source={:?} content={}",
+                    message.id, message.source, message.content
+                ));
+            }
+            AgentEvent::SessionMessageQueueDrained { count } => {
+                lines.push(format!("steering-drained> count={count}"));
+            }
             _ => {}
         }
     }
