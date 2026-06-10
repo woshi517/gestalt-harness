@@ -29,6 +29,7 @@ pub mod model;
 pub mod policy;
 pub mod provider;
 pub mod session;
+pub mod session_queue;
 pub mod snapshot;
 pub mod tool;
 pub mod tool_descriptor;
@@ -54,7 +55,8 @@ pub use event::{
     VerificationStatus,
 };
 pub use hook::{
-    ContextHook, HookRegistry, ModelHook, SessionHook, ToolHook, TraceHook, VerificationHook,
+    ContextHook, HookDispatcher, HookRegistry, ModelHook, SessionHook, ToolHook, TraceHook,
+    VerificationHook,
 };
 pub use context::{
     ContextStability, ContextPipeline, ContextPacket, PromptAssemblyStrategy,
@@ -67,6 +69,9 @@ pub use provider::{
     EventStream, Provider, ProviderCapabilities, ProviderRequest, ProviderToolSchema,
 };
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
+pub use session_queue::{
+    MessageSource, QueueAck, QueueLifecycle, QueuedSessionMessage, SteeringQueue,
+};
 pub use snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshot, WorkspaceSnapshotter};
 pub use tool::{
     artifact_path, is_audited_local_command, sanitize_artifact_stem, RiskLevel, Tool, ToolArtifact,

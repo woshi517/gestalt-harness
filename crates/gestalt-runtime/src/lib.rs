@@ -17,6 +17,7 @@ pub mod policy;
 pub mod process_extension;
 pub mod registry;
 pub mod runtime;
+pub mod session_queue;
 pub mod skill_contributor;
 pub mod tool_catalog;
 pub mod tool_catalog_planner;
@@ -53,5 +54,6 @@ pub use registry::{
     RuntimeRegistry, ToolMetadata,
 };
 pub use runtime::{AgentRuntime, UserInput};
+pub use session_queue::InMemorySteeringQueue;
 pub use tool_catalog::ComposedToolCatalog;
 pub use tool_catalog_planner::{ToolCatalogPlanner, ToolProfile};

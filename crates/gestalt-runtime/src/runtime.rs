@@ -55,6 +55,7 @@ pub struct AgentRuntime {
     /// can be resolved per-turn from `before_context_build`.
     pub skill_state:
         Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
+    pub steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
 }
 
 impl AgentRuntime {
@@ -85,6 +86,7 @@ impl AgentRuntime {
             composition_hooks,
             event_bus,
             skill_state: None,
+            steering_queue: Arc::new(crate::session_queue::InMemorySteeringQueue::new()),
         }
     }
 
@@ -208,6 +210,8 @@ impl AgentRuntime {
         event_tx: Option<UnboundedSender<AgentEvent>>,
         initial_prompt_snapshot_hash: Option<String>,
     ) -> Result<RunResult> {
+        let _ = self.steering_queue.update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active).await;
+
         let mut core_hooks = self.hooks.clone();
         let mut middleware = self.middleware.clone();
         let mut policy = self.policy.clone();
@@ -311,7 +315,8 @@ impl AgentRuntime {
                 self.approval.clone(),
                 self.config.max_turns,
             )
-            .with_hooks(core_hooks);
+            .with_hooks(core_hooks)
+            .with_steering_queue(self.steering_queue.clone());
 
             let event_bus_clone = self.event_bus.clone();
             loop_
@@ -340,12 +345,16 @@ impl AgentRuntime {
                 .await
         };
 
+        let _ = self.steering_queue.update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Closing).await;
+
         if let Some(tx) = maybe_trace_tx {
             drop(tx);
         }
         if let Some(worker) = maybe_trace_worker {
             let _ = worker.await;
         }
+
+        let _ = self.steering_queue.update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Completed).await;
 
         match loop_result {
             Ok(run_result) => Ok(run_result),
@@ -472,5 +481,31 @@ impl AgentRuntime {
             active_skills,
             skill_fingerprint,
         }
+    }
+
+    pub async fn enqueue_message(
+        &self,
+        content: String,
+        source: gestalt_core::session_queue::MessageSource,
+        idempotency_key: Option<String>,
+    ) -> Result<gestalt_core::session_queue::QueueAck> {
+        let id = format!("msg-{}", uuid::Uuid::new_v4());
+        let msg = gestalt_core::session_queue::QueuedSessionMessage {
+            id,
+            content,
+            source,
+            idempotency_key,
+            injected_at_turn: None,
+        };
+
+        let ack = self.steering_queue.enqueue(msg.clone()).await?;
+
+        if ack == gestalt_core::session_queue::QueueAck::Queued {
+            self.event_bus.publish(RuntimeEvent::SessionMessageQueued {
+                message: msg,
+            });
+        }
+
+        Ok(ack)
     }
 }

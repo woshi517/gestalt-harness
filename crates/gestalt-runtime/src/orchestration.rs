@@ -44,6 +44,13 @@ pub trait AgentRuntimeHandle: Send + Sync {
         -> Result<String>;
     async fn read_artifact(&self, session_id: &str, name: &str) -> Result<Vec<u8>>;
     async fn list_artifacts(&self, session_id: &str) -> Result<Vec<String>>;
+    async fn enqueue_steering_message(
+        &self,
+        session_id: &str,
+        content: &str,
+        source: gestalt_core::session_queue::MessageSource,
+        idempotency_key: Option<String>,
+    ) -> Result<gestalt_core::session_queue::QueueAck>;
 }
 
 pub struct DefaultAgentRuntimeHandle {
@@ -117,6 +124,25 @@ impl AgentRuntimeHandle for DefaultAgentRuntimeHandle {
 
         let result = runtime.run_prompt(input).await?;
         Ok(result)
+    }
+
+    async fn enqueue_steering_message(
+        &self,
+        session_id: &str,
+        content: &str,
+        source: gestalt_core::session_queue::MessageSource,
+        idempotency_key: Option<String>,
+    ) -> Result<gestalt_core::session_queue::QueueAck> {
+        let runtime = {
+            let runtimes = self.runtimes.lock().unwrap();
+            runtimes.get(session_id).cloned().ok_or_else(|| {
+                RuntimeError::Orchestration(format!("Session not found: {}", session_id))
+            })?
+        };
+
+        runtime
+            .enqueue_message(content.to_string(), source, idempotency_key)
+            .await
     }
 
     fn subscribe(&self) -> broadcast::Receiver<Arc<RuntimeEvent>> {
