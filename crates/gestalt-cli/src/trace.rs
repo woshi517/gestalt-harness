@@ -146,6 +146,8 @@ pub fn inspect_trace(
             AgentEvent::ToolRetryAttempt { .. } => "tool_retry_attempt",
             AgentEvent::NextTurnOverrideRequested { .. } => "next_turn_override_requested",
             AgentEvent::NextTurnBlocked { .. } => "next_turn_blocked",
+            AgentEvent::SessionMessageInjected { .. } => "session_message_injected",
+            AgentEvent::SessionMessageQueueDrained { .. } => "session_message_queue_drained",
         };
 
         *event_types.entry(variant_name.to_string()).or_insert(0) += 1;

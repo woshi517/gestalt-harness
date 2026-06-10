@@ -123,3 +123,50 @@ impl HookRegistry {
         self.next_turn_hooks.push(hook);
     }
 }
+
+pub struct HookDispatcher;
+
+impl HookDispatcher {
+    pub async fn dispatch<F, Fut, E>(
+        hook_type: &str,
+        name: &str,
+        cancel_token: &crate::cancel::CancelToken,
+        mut emit: E,
+        f: F,
+    ) -> Result<Vec<AgentEvent>>
+    where
+        F: FnOnce() -> Fut + Send,
+        Fut: std::future::Future<Output = Result<Vec<AgentEvent>>> + Send,
+        E: FnMut(AgentEvent) -> Result<()> + Send,
+    {
+        emit(AgentEvent::HookStarted {
+            hook_type: hook_type.to_string(),
+            name: name.to_string(),
+        })?;
+
+        let res = tokio::select! {
+            res = f() => res,
+            _ = cancel_token.cancelled() => {
+                return Err(crate::error::HarnessError::Cancelled);
+            }
+        };
+
+        match res {
+            Ok(events) => {
+                emit(AgentEvent::HookCompleted {
+                    hook_type: hook_type.to_string(),
+                    name: name.to_string(),
+                })?;
+                Ok(events)
+            }
+            Err(err) => {
+                emit(AgentEvent::HookFailed {
+                    hook_type: hook_type.to_string(),
+                    name: name.to_string(),
+                    error: err.to_string(),
+                })?;
+                Err(err)
+            }
+        }
+    }
+}

@@ -246,6 +246,12 @@ pub enum AgentEvent {
     NextTurnBlocked {
         reason: String,
     },
+    SessionMessageInjected {
+        message: crate::session_queue::QueuedSessionMessage,
+    },
+    SessionMessageQueueDrained {
+        count: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

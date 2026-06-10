@@ -221,3 +221,39 @@ async fn test_orchestration_duplicate_session_error() {
     let err = res2.unwrap_err();
     assert!(err.to_string().contains("Session already exists"));
 }
+
+#[tokio::test]
+async fn test_orchestration_steering_enqueue() {
+    let builder = build_test_builder();
+    let artifact_store = Arc::new(InMemoryArtifactStore::new());
+    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store));
+
+    // Spawn a session
+    let session_id = handle.spawn_session("steered-session", None).await.unwrap();
+
+    let mut rx = handle.subscribe();
+
+    // Enqueue a steering message
+    let ack = handle
+        .enqueue_steering_message(
+            &session_id,
+            "Inject this follow-up",
+            gestalt_core::session_queue::MessageSource::FollowUp,
+            Some("key-1".to_string()),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(ack, gestalt_core::session_queue::QueueAck::Queued);
+
+    // Verify SessionMessageQueued event is published on event bus
+    let mut event_found = false;
+    while let Ok(evt) = rx.try_recv() {
+        if let RuntimeEvent::SessionMessageQueued { message } = &*evt {
+            assert_eq!(message.content, "Inject this follow-up");
+            assert_eq!(message.idempotency_key, Some("key-1".to_string()));
+            event_found = true;
+        }
+    }
+    assert!(event_found, "Should have received SessionMessageQueued event");
+}
