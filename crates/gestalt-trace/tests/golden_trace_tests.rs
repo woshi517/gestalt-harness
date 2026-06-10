@@ -579,3 +579,386 @@ async fn test_operator_correction_before_tool_use_followup() {
     assert_eq!(eval_count.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+#[tokio::test]
+async fn test_persisted_steering_replay_and_resume() {
+    use gestalt_trace::{
+        JsonlTraceSink, resume::ResumeAnalyzer,
+        run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
+    };
+    use gestalt_core::trace::TraceSink;
+    use std::fs;
+
+    // Create temporary run directory
+    let temp_root = std::env::temp_dir().join(format!(
+        "gestalt-test-persisted-steer-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&temp_root).unwrap();
+
+    let session_id = "steered-persisted-session";
+    let run_id = "run-steered-1";
+
+    let (sink, paths) = JsonlTraceSink::create_run(&temp_root, session_id, run_id, None).unwrap();
+    let sink = Arc::new(sink);
+
+    let queue = Arc::new(ProgrammaticTestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
+    let provider = Arc::new(ProgrammaticMockProvider {
+        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![vec![
+            AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]])),
+    });
+
+    let loop_ = AgentLoop::new(
+        provider.clone(),
+        Arc::new(ProgrammaticMockToolCatalog {
+            tools: std::collections::HashMap::new(),
+        }),
+        Arc::new(ProgrammaticMockContextPipeline),
+        Arc::new(ProgrammaticMockPolicyEngine {
+            eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }),
+        Arc::new(gestalt_core::approval::AutoApprovalProvider),
+        1,
+    )
+    .with_steering_queue(queue.clone());
+
+    let mut session = make_programmatic_session(1);
+    let cancel = CancelToken::new();
+
+    // Enqueue steering message
+    queue
+        .enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+            id: "msg-steered-123".to_string(),
+            content: "Steered message content".to_string(),
+            source: MessageSource::Operator,
+            idempotency_key: None,
+            injected_at_turn: None,
+        })
+        .await
+        .unwrap();
+
+    // Run the loop and output to the trace sink
+    let sink_clone = sink.clone();
+    loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            sink_clone.emit(ev).unwrap();
+        })
+        .await
+        .unwrap();
+
+    sink.flush().unwrap();
+    drop(sink); // Close the trace file
+
+    // Save a completed run manifest
+    let fp = CompatibilityFingerprint {
+        context_pipeline_version: "mock".to_string(),
+        tool_schema_hash: "mock".to_string(),
+        policy_fingerprint: "mock".to_string(),
+        hook_contract_hash: "mock".to_string(),
+        execution_mode: "Yolo".to_string(),
+        skill_fingerprint: None,
+    };
+    let manifest = RunManifest {
+        v: 1,
+        session_id: session_id.to_string(),
+        run_id: run_id.to_string(),
+        parent_run_id: None,
+        base_checkpoint: None,
+        run_kind: RunKind::New,
+        created_at: chrono::Utc::now(),
+        lifecycle_state: LifecycleState::Completed,
+        finalized_at: Some(chrono::Utc::now()),
+        failure_kind: None,
+        interrupted_phase: None,
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
+        compatibility_fingerprint: fp,
+    };
+    manifest.save_to(&paths.root.join("run.json")).unwrap();
+
+    // Now analyze the run directory using ResumeAnalyzer
+    let analysis = ResumeAnalyzer::analyze(&paths.root, None, None);
+    assert_eq!(analysis.session_id, session_id);
+    assert_eq!(analysis.run_id, run_id);
+    assert!(analysis.history.len() >= 1);
+    let last_msg = &analysis.history[0];
+    match last_msg {
+        Message::User { content } => match &content[0] {
+            gestalt_core::message::ContentBlock::Text { text } => {
+                assert_eq!(text, "Steered message content");
+            }
+            _ => panic!("Expected text content block"),
+        },
+        _ => panic!("Expected user message in history"),
+    }
+
+    // Cleanup
+    fs::remove_dir_all(&temp_root).unwrap();
+}
+
+#[tokio::test]
+async fn test_persisted_steering_resume_flow() {
+    use gestalt_trace::{
+        JsonlTraceSink, resume::ResumeAnalyzer,
+        run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
+    };
+    use gestalt_core::trace::TraceSink;
+    use std::fs;
+
+    let temp_root = std::env::temp_dir().join(format!(
+        "gestalt-test-resume-flow-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&temp_root).unwrap();
+
+    let session_id = "steered-resume-session";
+    let run_id = "run-steered-interrupted";
+
+    let (sink, paths) = JsonlTraceSink::create_run(&temp_root, session_id, run_id, None).unwrap();
+    let sink = Arc::new(sink);
+
+    let queue = Arc::new(ProgrammaticTestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
+    
+    let cancel = CancelToken::new();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Arc::new(CancelOnStreamProvider {
+        cancel_token: cancel.clone(),
+        requests: requests.clone(),
+    });
+
+    let loop_ = AgentLoop::new(
+        provider.clone(),
+        Arc::new(ProgrammaticMockToolCatalog {
+            tools: std::collections::HashMap::new(),
+        }),
+        Arc::new(ProgrammaticMockContextPipeline),
+        Arc::new(ProgrammaticMockPolicyEngine {
+            eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }),
+        Arc::new(gestalt_core::approval::AutoApprovalProvider),
+        1,
+    )
+    .with_steering_queue(queue.clone());
+
+    let mut session = make_programmatic_session(1);
+
+    // Enqueue steering message
+    queue
+        .enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+            id: "msg-steered-456".to_string(),
+            content: "Steered message for resume".to_string(),
+            source: MessageSource::Operator,
+            idempotency_key: None,
+            injected_at_turn: None,
+        })
+        .await
+        .unwrap();
+
+    // Run the loop, it will cancel/interrupt during the stream method of provider
+    let sink_clone = sink.clone();
+    let run_res = loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            sink_clone.emit(ev).unwrap();
+        })
+        .await;
+
+    assert!(run_res.is_err()); // should return Err(Cancelled)
+
+    sink.flush().unwrap();
+    drop(sink);
+
+    // Save an interrupted run manifest
+    let fp = CompatibilityFingerprint {
+        context_pipeline_version: "mock".to_string(),
+        tool_schema_hash: "mock".to_string(),
+        policy_fingerprint: "mock".to_string(),
+        hook_contract_hash: "mock".to_string(),
+        execution_mode: "Yolo".to_string(),
+        skill_fingerprint: None,
+    };
+    let manifest = RunManifest {
+        v: 1,
+        session_id: session_id.to_string(),
+        run_id: run_id.to_string(),
+        parent_run_id: None,
+        base_checkpoint: None,
+        run_kind: RunKind::New,
+        created_at: chrono::Utc::now(),
+        lifecycle_state: LifecycleState::Interrupted,
+        finalized_at: None,
+        failure_kind: None,
+        interrupted_phase: Some("provider_stream".to_string()),
+        prompt_snapshot_hash: None,
+        prompt_snapshot_path: None,
+        compatibility_fingerprint: fp,
+    };
+    manifest.save_to(&paths.root.join("run.json")).unwrap();
+
+    // Now analyze using ResumeAnalyzer
+    let analysis = ResumeAnalyzer::analyze(&paths.root, None, None);
+    assert_eq!(analysis.status, gestalt_trace::resume::RecoveryStatus::InterruptedSafe);
+    assert!(analysis.history.len() >= 1);
+
+    // Reconstruct and run a resumed session
+    let resume_requests = Arc::new(Mutex::new(Vec::new()));
+    let resume_provider = Arc::new(AssertResumeProvider {
+        requests: resume_requests.clone(),
+    });
+    
+    let resume_loop = AgentLoop::new(
+        resume_provider,
+        Arc::new(ProgrammaticMockToolCatalog {
+            tools: std::collections::HashMap::new(),
+        }),
+        Arc::new(ProgrammaticMockContextPipeline),
+        Arc::new(ProgrammaticMockPolicyEngine {
+            eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }),
+        Arc::new(gestalt_core::approval::AutoApprovalProvider),
+        1,
+    );
+
+    let mut resume_session = make_programmatic_session(1);
+    resume_session.history = analysis.history;
+
+    let resume_cancel = CancelToken::new();
+    let resume_res = resume_loop
+        .run(&mut resume_session, &resume_cancel, None, |_ev| {})
+        .await;
+
+    assert!(resume_res.is_ok());
+
+    // Verify the resume provider request contained the steered message exactly once in its history
+    let resume_reqs = resume_requests.lock().unwrap().clone();
+    assert_eq!(resume_reqs.len(), 1);
+    let history = &resume_reqs[0].messages;
+    
+    // History should have exactly one message: the steered message
+    assert_eq!(history.len(), 1);
+    match &history[0] {
+        Message::User { content } => match &content[0] {
+            gestalt_core::message::ContentBlock::Text { text } => {
+                assert_eq!(text, "Steered message for resume");
+            }
+            _ => panic!("Expected text block"),
+        },
+        _ => panic!("Expected user message in request history"),
+    }
+
+    fs::remove_dir_all(&temp_root).unwrap();
+}
+
+struct CancelOnStreamProvider {
+    cancel_token: CancelToken,
+    requests: Arc<Mutex<Vec<ProviderRequest>>>,
+}
+
+#[async_trait::async_trait]
+impl Provider for CancelOnStreamProvider {
+    fn id(&self) -> &str {
+        "cancel-mock"
+    }
+    fn display_name(&self) -> &str {
+        "Cancel Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock"
+    }
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAP: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: false,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: false,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: false,
+            supports_strict_schema: false,
+        };
+        &CAP
+    }
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(0)
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        self.requests.lock().unwrap().push(request);
+        self.cancel_token.cancel();
+        Err(gestalt_core::error::HarnessError::Cancelled)
+    }
+}
+
+struct AssertResumeProvider {
+    requests: Arc<Mutex<Vec<ProviderRequest>>>,
+}
+
+#[async_trait::async_trait]
+impl Provider for AssertResumeProvider {
+    fn id(&self) -> &str {
+        "assert-mock"
+    }
+    fn display_name(&self) -> &str {
+        "Assert Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock"
+    }
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAP: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: false,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: false,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: false,
+            supports_strict_schema: false,
+        };
+        &CAP
+    }
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(0)
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        self.requests.lock().unwrap().push(request);
+        let events = vec![AgentEvent::Stop {
+            reason: StopReason::EndTurn,
+        }];
+        let stream = futures::stream::iter(
+            events
+                .into_iter()
+                .map(Ok::<_, gestalt_core::error::HarnessError>),
+        );
+        Ok(Box::pin(stream))
+    }
+}
+

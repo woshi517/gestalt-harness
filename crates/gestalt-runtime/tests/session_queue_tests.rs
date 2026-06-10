@@ -6,6 +6,7 @@ use gestalt_runtime::InMemorySteeringQueue;
 #[tokio::test]
 async fn test_in_memory_steering_queue_fifo_and_len() {
     let queue = InMemorySteeringQueue::new();
+    queue.update_lifecycle(QueueLifecycle::Active).await.unwrap();
 
     assert!(queue.is_empty().await.unwrap());
     assert_eq!(queue.len().await.unwrap(), 0);
@@ -46,6 +47,7 @@ async fn test_in_memory_steering_queue_fifo_and_len() {
 #[tokio::test]
 async fn test_in_memory_steering_queue_idempotency() {
     let queue = InMemorySteeringQueue::new();
+    queue.update_lifecycle(QueueLifecycle::Active).await.unwrap();
 
     let msg1 = QueuedSessionMessage {
         id: "1".to_string(),

@@ -180,8 +180,6 @@ impl AgentLoop {
                 &mut emit,
                 turns,
                 cancel_token,
-                last_packet_hash.as_ref(),
-                last_prompt_source.as_ref(),
             )
             .await?;
 
@@ -245,6 +243,18 @@ impl AgentLoop {
                 break reason;
             }
         };
+
+        if let Some(ref queue) = self.steering_queue {
+            let _ = queue.update_lifecycle(crate::session_queue::QueueLifecycle::Closing).await;
+        }
+
+        self.drain_session_messages(
+            session,
+            &mut emit,
+            turns,
+            cancel_token,
+        )
+        .await?;
 
         for hook in &self.hooks.session_hooks {
             let hook_res = crate::hook::HookDispatcher::dispatch(
@@ -816,6 +826,7 @@ impl AgentLoop {
                                     });
                             }
                             AgentEvent::NextTurnBlocked { reason } => {
+                                emit(ev.clone())?;
                                 return Ok(Some(reason.clone()));
                             }
                             _ => {}
@@ -864,8 +875,6 @@ impl AgentLoop {
         emit: &mut F,
         current_turn: usize,
         cancel_token: &crate::cancel::CancelToken,
-        last_packet_hash: Option<&String>,
-        last_prompt_source: Option<&String>,
     ) -> Result<()>
     where
         F: FnMut(AgentEvent) -> Result<()> + Send,
@@ -907,8 +916,8 @@ impl AgentLoop {
         emit(AgentEvent::Checkpoint {
             history: session.history.clone(),
             token_budget: session.token_budget.clone(),
-            packet_hash: last_packet_hash.cloned(),
-            prompt_source: last_prompt_source.cloned(),
+            packet_hash: None,
+            prompt_source: None,
         })?;
 
         Ok(())

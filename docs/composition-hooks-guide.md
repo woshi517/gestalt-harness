@@ -384,3 +384,21 @@ RuntimeEvent::HookFailed {
 - `HookFailed` — published when a hook method returns `Err`
 
 These events can be consumed by CLI subscribers (`gestalt runtime events`), the `RuntimeInspect` diagnostics, or any `broadcast::Receiver`.
+
+---
+
+## Queue-Backed Steering vs. Context Patching
+
+Queue-backed steering and context patching are distinct mechanisms designed for different durability and semantic needs:
+
+1. **Queue-Backed Steering (Durable)**
+   * **Purpose**: Used for user, operator, or automation inputs that represent canonical history additions.
+   * **Mechanism**: Messages are enqueued into the runtime steering queue, drained at turn boundaries, and appended directly to `session.history` as `Message::User`.
+   * **Durability & Replay**: These messages are captured in trace checkpoints and persisted. Replay/resume flows treat these as canonical committed history, ensuring exact determinism.
+
+2. **Context Patching (Transient)**
+   * **Purpose**: Used for injecting prompt-only instructions, skills metadata, or ephemeral UI state.
+   * **Mechanism**: Implemented via `ContextContributor` or composition hooks (e.g. `before_context_build`). They inject temporary patches into the context packet.
+   * **Durability & Replay**: These patches do *not* mutate `session.history`. Instead, they are resolved dynamically per-turn during context compilation based on active runtime, skill, or extension state.
+
+By keeping these two paths separate, Gestalt preserves full auditability and replay safety for direct user steering while maintaining the flexibility of hook-driven context assembly.
