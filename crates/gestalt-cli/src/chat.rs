@@ -79,7 +79,11 @@ pub async fn run_chat(
                 gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
             },
             execution_mode: format!("{:?}", config.selected_mode()?),
-            skill_fingerprint: crate::run::compute_skill_fingerprint(&config, &discovered_skills, None),
+            skill_fingerprint: crate::run::compute_skill_fingerprint(
+                &config,
+                &discovered_skills,
+                None,
+            ),
         };
 
         let analysis = ResumeAnalyzer::analyze(

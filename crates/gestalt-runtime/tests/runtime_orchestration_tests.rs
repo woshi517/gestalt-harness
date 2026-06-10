@@ -253,7 +253,10 @@ async fn test_orchestration_steering_enqueue() {
             event_found = true;
         }
     }
-    assert!(!event_found, "Should NOT have received SessionMessageQueued event before active");
+    assert!(
+        !event_found,
+        "Should NOT have received SessionMessageQueued event before active"
+    );
 }
 
 #[tokio::test]
@@ -268,9 +271,7 @@ async fn test_orchestration_steering_concurrent() {
         handle: tool_handle.clone(),
         session_id: "concurrent-steered-session".to_string(),
     });
-    let tools = Arc::new(SteeringTestToolCatalog {
-        tool: steer_tool,
-    });
+    let tools = Arc::new(SteeringTestToolCatalog { tool: steer_tool });
 
     let builder = AgentRuntimeBuilder::new()
         .provider(provider)
@@ -308,14 +309,12 @@ async fn test_orchestration_steering_concurrent() {
     let req1_msgs = &reqs[0].messages;
     assert_eq!(req1_msgs.len(), 1);
     match &req1_msgs[0] {
-        Message::User { content } => {
-            match &content[0] {
-                gestalt_core::message::ContentBlock::Text { text } => {
-                    assert_eq!(text, "Initial prompt");
-                }
-                _ => panic!("Expected text block"),
+        Message::User { content, .. } => match &content[0] {
+            gestalt_core::message::ContentBlock::Text { text } => {
+                assert_eq!(text, "Initial prompt");
             }
-        }
+            _ => panic!("Expected text block"),
+        },
         _ => panic!("Expected user message"),
     }
 
@@ -330,14 +329,12 @@ async fn test_orchestration_steering_concurrent() {
 
     let injected_msg = &req2_msgs[3];
     match injected_msg {
-        Message::User { content } => {
-            match &content[0] {
-                gestalt_core::message::ContentBlock::Text { text } => {
-                    assert_eq!(text, "Concurrently injected steering message");
-                }
-                _ => panic!("Expected text block"),
+        Message::User { content, .. } => match &content[0] {
+            gestalt_core::message::ContentBlock::Text { text } => {
+                assert_eq!(text, "Concurrently injected steering message");
             }
-        }
+            _ => panic!("Expected text block"),
+        },
         _ => panic!("Expected user message"),
     }
 }

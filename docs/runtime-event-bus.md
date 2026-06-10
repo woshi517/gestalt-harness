@@ -208,7 +208,7 @@ pub enum RuntimeEvent {
 | `RpcResponse` | A JSON-RPC 2.0 response is received from an extension | `extension_id`, `method`, `request_id`, `success` |
 | `ArtifactRouted` | An artifact is routed between sessions via `ArtifactStore` | `session_id`, `path`, `size_bytes` |
 | `SessionSpawned` | A new agent session is created | `session_id` |
-| `SessionMessageQueued` | A steering message is accepted into the runtime queue | `session_id`, `message` (the queued message details) |
+| `SessionMessageQueued` | A steering message is accepted into the runtime queue (only when lifecycle is `Active`) | `session_id`, `message` (the queued message details) |
 | `ReloadStarted` | Runtime config or extension reload begins | — |
 | `ReloadCompleted` | Runtime reload completes | — |
 | `RuntimeError` | An internal runtime error occurs | `message` |

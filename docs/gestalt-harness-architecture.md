@@ -333,7 +333,8 @@ stateDiagram-v2
     TurnLoop --> SessionEnd
 
     state SessionEnd {
-        [*] --> ProposeMemory
+        [*] --> CloseSteering
+        CloseSteering --> ProposeMemory
         ProposeMemory --> WriteTrace
         WriteTrace --> [*]
     }
@@ -347,6 +348,19 @@ Key invariants enforced by the state machine:
 - `AppendResults` is atomic: all tool results for the turn are appended before the next `ContextCompile`.
 - `PolicyEval` runs for every tool call, without exception.
 - `ProposeMemory` is non-blocking; the session completes whether or not the user accepts the proposal.
+- `CloseSteering` transitions the steering queue from `Active` to `Closing` before session-end hooks run. This is owned by `AgentLoop` (not runtime) because only the core loop knows the exact boundary where no further `build_request()` cycle can occur.
+
+### Steering Queue Lifecycle
+
+The steering queue owns three states with split ownership between `AgentRuntime` and `AgentLoop`:
+
+| State | Owner | Set When |
+|-------|-------|----------|
+| `Active` | `AgentRuntime` | `run_session()` entry, before loop starts |
+| `Closing` | `AgentLoop` | Terminal stop boundary, after last safe drain, before session-end hooks |
+| `Completed` | `AgentRuntime` | After `AgentLoop::run()` returns, after outer cleanup |
+
+See `crates/gestalt-core/src/session_queue.rs` for the `QueueLifecycle` enum and `docs/composition-hooks-guide.md` for the full lifecycle contract.
 
 ---
 
@@ -355,6 +369,8 @@ Key invariants enforced by the state machine:
 ```mermaid
 flowchart TD
     UserInput["User Input"] --> Session["Session<br>(append to history)"]
+
+    SteeringQueue["SteeringQueue<br>drain before build_request"] --> Session
 
     Session --> ContextPipeline["ContextPipeline<br>ContextCollector → WorkspaceInjector<br>→ RelevanceRanker → SourceCompressor<br>→ BudgetAllocator → Trimmer<br>→ MessageRenderer"]
 
@@ -414,6 +430,9 @@ pub struct AgentLoop {
     middleware: Arc<ContextPipeline>,
     policy: Arc<dyn PolicyEngine>,
     max_turns: usize,
+    /// Optional steering queue drained before each `build_request()`.
+    /// Owned by runtime; no-op when absent.
+    steering_queue: Option<Arc<dyn SteeringQueue>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

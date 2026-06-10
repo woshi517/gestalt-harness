@@ -1,28 +1,33 @@
-use std::sync::Arc;
-use std::sync::Mutex;
 use async_trait::async_trait;
 use gestalt_core::{
-    AgentLoop, ToolError, ContextPacket, ToolExecutionResult,
-    event::{AgentEvent, StopReason},
-    message::Message,
-    session::{Session, SessionConfig, ExecutionMode},
-    provider::{Provider, ProviderRequest, ProviderCapabilities, EventStream},
-    tool::{Tool, ToolCatalog, ToolContext, RiskLevel, ToolOutput},
-    context::{ContextPipeline, TokenBudget},
-    policy::{PolicyEngine, PolicyDecision, PolicyRequest},
     approval::AutoApprovalProvider,
-    hook::{HookDispatcher, ContextHook, ToolHook, NextTurnHook, HookRegistry},
     cancel::CancelToken,
+    context::{ContextPipeline, TokenBudget},
+    event::{AgentEvent, StopReason},
+    hook::{ContextHook, HookDispatcher, HookRegistry, NextTurnHook, ToolHook},
+    message::Message,
+    policy::{PolicyDecision, PolicyEngine, PolicyRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
+    session::{ExecutionMode, Session, SessionConfig},
     snapshot::WorkspaceSnapshot,
-    HarnessError,
+    tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput},
+    AgentLoop, ContextPacket, HarnessError, ToolError, ToolExecutionResult,
 };
+use std::sync::Arc;
+use std::sync::Mutex;
 
 struct MockProvider;
 #[async_trait]
 impl Provider for MockProvider {
-    fn id(&self) -> &str { "mock" }
-    fn display_name(&self) -> &str { "Mock" }
-    fn default_model(&self) -> &str { "mock-model" }
+    fn id(&self) -> &str {
+        "mock"
+    }
+    fn display_name(&self) -> &str {
+        "Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
     fn capabilities(&self) -> &ProviderCapabilities {
         static CAP: ProviderCapabilities = ProviderCapabilities {
             supports_tools: true,
@@ -38,8 +43,12 @@ impl Provider for MockProvider {
         };
         &CAP
     }
-    fn model_info(&self, _model: &str) -> Option<gestalt_core::model::ModelInfo> { None }
-    fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, HarnessError> { Ok(0) }
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::model::ModelInfo> {
+        None
+    }
+    fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, HarnessError> {
+        Ok(0)
+    }
     async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, HarnessError> {
         let stream = futures::stream::iter(vec![
             Ok(AgentEvent::ToolCallStreamed {
@@ -47,7 +56,9 @@ impl Provider for MockProvider {
                 name: "dummy".to_string(),
                 input_delta: "{}".to_string(),
             }),
-            Ok(AgentEvent::Stop { reason: StopReason::ToolUse }),
+            Ok(AgentEvent::Stop {
+                reason: StopReason::ToolUse,
+            }),
         ]);
         Ok(Box::pin(stream))
     }
@@ -58,14 +69,20 @@ impl ContextPipeline for MockContextPipeline {
     fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
         history.to_vec()
     }
-    fn version(&self) -> &str { "mock" }
+    fn version(&self) -> &str {
+        "mock"
+    }
 }
 
 struct DummyTool;
 #[async_trait]
 impl Tool for DummyTool {
-    fn name(&self) -> &str { "dummy" }
-    fn description(&self) -> &str { "dummy" }
+    fn name(&self) -> &str {
+        "dummy"
+    }
+    fn description(&self) -> &str {
+        "dummy"
+    }
     fn schema(&self) -> serde_json::Value {
         serde_json::json!({
             "name": "dummy",
@@ -76,9 +93,17 @@ impl Tool for DummyTool {
             }
         })
     }
-    fn risk(&self, _input: &serde_json::Value) -> RiskLevel { RiskLevel::Low }
-    async fn execute(&self, _input: serde_json::Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
-        Ok(ToolOutput::Text { content: "ok".to_string() })
+    fn risk(&self, _input: &serde_json::Value) -> RiskLevel {
+        RiskLevel::Low
+    }
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &ToolContext,
+    ) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput::Text {
+            content: "ok".to_string(),
+        })
     }
 }
 
@@ -155,12 +180,21 @@ fn make_session() -> Session {
 struct FailingContextHook;
 #[async_trait]
 impl ContextHook for FailingContextHook {
-    async fn before_context_build(&self, _session: &Session) -> Result<Vec<AgentEvent>, HarnessError> {
-        Err(HarnessError::Context(gestalt_core::error::ContextError::PipelineFailed(
-            "before_context_build fail".to_string(),
-        )))
+    async fn before_context_build(
+        &self,
+        _session: &Session,
+    ) -> Result<Vec<AgentEvent>, HarnessError> {
+        Err(HarnessError::Context(
+            gestalt_core::error::ContextError::PipelineFailed(
+                "before_context_build fail".to_string(),
+            ),
+        ))
     }
-    async fn after_context_build(&self, _session: &Session, _packet: &ContextPacket) -> Result<Vec<AgentEvent>, HarnessError> {
+    async fn after_context_build(
+        &self,
+        _session: &Session,
+        _packet: &ContextPacket,
+    ) -> Result<Vec<AgentEvent>, HarnessError> {
         Ok(vec![])
     }
 }
@@ -168,12 +202,22 @@ impl ContextHook for FailingContextHook {
 struct FailingToolHook;
 #[async_trait]
 impl ToolHook for FailingToolHook {
-    async fn before_tool_execution(&self, _session: &Session, _name: &str, _input: &serde_json::Value) -> Result<Vec<AgentEvent>, HarnessError> {
+    async fn before_tool_execution(
+        &self,
+        _session: &Session,
+        _name: &str,
+        _input: &serde_json::Value,
+    ) -> Result<Vec<AgentEvent>, HarnessError> {
         Err(HarnessError::Tool(ToolError::NotFound(
             "before_tool_execution fail".to_string(),
         )))
     }
-    async fn after_tool_execution(&self, _session: &Session, _name: &str, _res: &ToolExecutionResult) -> Result<Vec<AgentEvent>, HarnessError> {
+    async fn after_tool_execution(
+        &self,
+        _session: &Session,
+        _name: &str,
+        _res: &ToolExecutionResult,
+    ) -> Result<Vec<AgentEvent>, HarnessError> {
         Ok(vec![])
     }
 }
@@ -181,7 +225,11 @@ impl ToolHook for FailingToolHook {
 struct BlockingNextTurnHook;
 #[async_trait]
 impl NextTurnHook for BlockingNextTurnHook {
-    async fn prepare_next_turn(&self, _session: &Session, _turn: usize) -> Result<Vec<AgentEvent>, HarnessError> {
+    async fn prepare_next_turn(
+        &self,
+        _session: &Session,
+        _turn: usize,
+    ) -> Result<Vec<AgentEvent>, HarnessError> {
         Ok(vec![AgentEvent::NextTurnBlocked {
             reason: "prepare_next_turn block".to_string(),
         }])
@@ -199,8 +247,11 @@ async fn test_hook_dispatcher_unit_success() {
     };
 
     let res = HookDispatcher::dispatch("test_hook", "test_name", &cancel, emit, || async {
-        Ok(vec![AgentEvent::UserMessage { content: "success".to_string() }])
-    }).await;
+        Ok(vec![AgentEvent::UserMessage {
+            content: "success".to_string(),
+        }])
+    })
+    .await;
 
     assert!(res.is_ok());
     let res_events = res.unwrap();
@@ -224,7 +275,8 @@ async fn test_hook_dispatcher_unit_failure() {
 
     let res = HookDispatcher::dispatch("test_hook", "test_name", &cancel, emit, || async {
         Err(HarnessError::Cancelled)
-    }).await;
+    })
+    .await;
 
     assert!(res.is_err());
     let emitted = events.lock().unwrap().clone();
@@ -237,7 +289,9 @@ async fn test_hook_dispatcher_unit_failure() {
 async fn test_context_hook_fail_open() {
     let loop_ = AgentLoop::new(
         Arc::new(MockProvider),
-        Arc::new(MockToolCatalog { tool: Arc::new(DummyTool) }),
+        Arc::new(MockToolCatalog {
+            tool: Arc::new(DummyTool),
+        }),
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
@@ -253,17 +307,29 @@ async fn test_context_hook_fail_open() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    let res = loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await;
+    let res = loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await;
 
     // Fails open, so the loop runs successfully
     assert!(res.is_ok());
 
     let emitted = events.lock().unwrap().clone();
     // Verify HookFailed and Error events are emitted
-    let has_hook_failed = emitted.iter().any(|e| matches!(e, AgentEvent::HookFailed { hook_type, .. } if hook_type == "context"));
-    let has_error = emitted.iter().any(|e| matches!(e, AgentEvent::Error { recoverable: true, .. }));
+    let has_hook_failed = emitted
+        .iter()
+        .any(|e| matches!(e, AgentEvent::HookFailed { hook_type, .. } if hook_type == "context"));
+    let has_error = emitted.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Error {
+                recoverable: true,
+                ..
+            }
+        )
+    });
     assert!(has_hook_failed);
     assert!(has_error);
 }
@@ -272,7 +338,9 @@ async fn test_context_hook_fail_open() {
 async fn test_tool_hook_fail_open() {
     let loop_ = AgentLoop::new(
         Arc::new(MockProvider),
-        Arc::new(MockToolCatalog { tool: Arc::new(DummyTool) }),
+        Arc::new(MockToolCatalog {
+            tool: Arc::new(DummyTool),
+        }),
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
@@ -288,15 +356,27 @@ async fn test_tool_hook_fail_open() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    let res = loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await;
+    let res = loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await;
 
     assert!(res.is_ok());
 
     let emitted = events.lock().unwrap().clone();
-    let has_hook_failed = emitted.iter().any(|e| matches!(e, AgentEvent::HookFailed { hook_type, .. } if hook_type == "tool"));
-    let has_error = emitted.iter().any(|e| matches!(e, AgentEvent::Error { recoverable: true, .. }));
+    let has_hook_failed = emitted
+        .iter()
+        .any(|e| matches!(e, AgentEvent::HookFailed { hook_type, .. } if hook_type == "tool"));
+    let has_error = emitted.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Error {
+                recoverable: true,
+                ..
+            }
+        )
+    });
     assert!(has_hook_failed);
     assert!(has_error);
 }
@@ -305,7 +385,9 @@ async fn test_tool_hook_fail_open() {
 async fn test_next_turn_hook_fail_closed_blocked() {
     let loop_ = AgentLoop::new(
         Arc::new(MockProvider),
-        Arc::new(MockToolCatalog { tool: Arc::new(DummyTool) }),
+        Arc::new(MockToolCatalog {
+            tool: Arc::new(DummyTool),
+        }),
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
@@ -321,16 +403,27 @@ async fn test_next_turn_hook_fail_closed_blocked() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    let res = loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await;
+    let res = loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await;
 
     // Should return Ok(RunResult) but stop loop with HookBlocked stop reason
     assert!(res.is_ok());
 
     let emitted = events.lock().unwrap().clone();
-    let has_blocked_event = emitted.iter().any(|e| matches!(e, AgentEvent::NextTurnBlocked { .. }));
-    let has_blocked_stop = emitted.iter().any(|e| matches!(e, AgentEvent::Stop { reason: StopReason::HookBlocked }));
+    let has_blocked_event = emitted
+        .iter()
+        .any(|e| matches!(e, AgentEvent::NextTurnBlocked { .. }));
+    let has_blocked_stop = emitted.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Stop {
+                reason: StopReason::HookBlocked
+            }
+        )
+    });
     assert!(has_blocked_event);
     assert!(has_blocked_stop);
 }

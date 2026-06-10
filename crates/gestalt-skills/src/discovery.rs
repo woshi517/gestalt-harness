@@ -11,7 +11,11 @@ pub struct SkillDiscovery {
 }
 
 impl SkillDiscovery {
-    pub fn new(workspace_root: PathBuf, global_dir: Option<PathBuf>, home_dir: Option<PathBuf>) -> Self {
+    pub fn new(
+        workspace_root: PathBuf,
+        global_dir: Option<PathBuf>,
+        home_dir: Option<PathBuf>,
+    ) -> Self {
         Self {
             workspace_root,
             global_dir,
@@ -39,20 +43,38 @@ impl SkillDiscovery {
         // 2. Workspace `.gestalt/skills/`
         let gestalt_skills = self.workspace_root.join(".gestalt/skills");
         if gestalt_skills.exists() && gestalt_skills.is_dir() {
-            Self::collect_from_dir(&gestalt_skills, SkillSource::WorkspaceLocal, SkillTrustLevel::Workspace, &mut seen_names, &mut discovered)?;
+            Self::collect_from_dir(
+                &gestalt_skills,
+                SkillSource::WorkspaceLocal,
+                SkillTrustLevel::Workspace,
+                &mut seen_names,
+                &mut discovered,
+            )?;
         }
 
         // 3. Workspace `.agents/skills/`
         let agents_skills = self.workspace_root.join(".agents/skills");
         if agents_skills.exists() && agents_skills.is_dir() {
-            Self::collect_from_dir(&agents_skills, SkillSource::WorkspaceLocal, SkillTrustLevel::Workspace, &mut seen_names, &mut discovered)?;
+            Self::collect_from_dir(
+                &agents_skills,
+                SkillSource::WorkspaceLocal,
+                SkillTrustLevel::Workspace,
+                &mut seen_names,
+                &mut discovered,
+            )?;
         }
 
         // 4. Global `~/.config/gestalt/skills/`
         if let Some(ref gdir) = self.global_dir {
             let global_skills = gdir.join("skills");
             if global_skills.exists() && global_skills.is_dir() {
-                Self::collect_from_dir(&global_skills, SkillSource::GlobalConfig, SkillTrustLevel::Global, &mut seen_names, &mut discovered)?;
+                Self::collect_from_dir(
+                    &global_skills,
+                    SkillSource::GlobalConfig,
+                    SkillTrustLevel::Global,
+                    &mut seen_names,
+                    &mut discovered,
+                )?;
             }
         }
 
@@ -60,19 +82,30 @@ impl SkillDiscovery {
         if let Some(ref hdir) = self.home_dir {
             let home_agents_skills = hdir.join(".agents/skills");
             if home_agents_skills.exists() && home_agents_skills.is_dir() {
-                Self::collect_from_dir(&home_agents_skills, SkillSource::GlobalConfig, SkillTrustLevel::Global, &mut seen_names, &mut discovered)?;
+                Self::collect_from_dir(
+                    &home_agents_skills,
+                    SkillSource::GlobalConfig,
+                    SkillTrustLevel::Global,
+                    &mut seen_names,
+                    &mut discovered,
+                )?;
             }
         }
 
         Ok(discovered)
     }
 
-    fn load_explicit(path: &Path, seen_names: &mut HashSet<String>) -> Result<Option<SkillDescriptor>> {
+    fn load_explicit(
+        path: &Path,
+        seen_names: &mut HashSet<String>,
+    ) -> Result<Option<SkillDescriptor>> {
         let skill_root = if path.is_dir() {
             path.to_path_buf()
         } else {
             path.parent()
-                .ok_or_else(|| SkillError::Validation("Explicit path has no parent directory".to_string()))?
+                .ok_or_else(|| {
+                    SkillError::Validation("Explicit path has no parent directory".to_string())
+                })?
                 .to_path_buf()
         };
 
@@ -84,7 +117,9 @@ impl SkillDiscovery {
         let raw = std::fs::read_to_string(&manifest_path)?;
         let file = SkillManifest::parse(&raw).map_err(SkillError::YamlParse)?;
         let dir_name = skill_root.file_name().and_then(|n| n.to_str());
-        file.manifest.validate(dir_name).map_err(SkillError::Validation)?;
+        file.manifest
+            .validate(dir_name)
+            .map_err(SkillError::Validation)?;
 
         if !seen_names.insert(file.manifest.name.clone()) {
             return Ok(None);
@@ -197,8 +232,16 @@ mod tests {
 
         let gestalt = root.join(".gestalt/skills");
         std::fs::create_dir_all(&gestalt).unwrap();
-        make_skill_dir(&gestalt, "alpha-skill", "---\nname: alpha-skill\ndescription: Alpha.\n---\n");
-        make_skill_dir(&gestalt, "beta-skill", "---\nname: beta-skill\ndescription: Beta.\n---\n");
+        make_skill_dir(
+            &gestalt,
+            "alpha-skill",
+            "---\nname: alpha-skill\ndescription: Alpha.\n---\n",
+        );
+        make_skill_dir(
+            &gestalt,
+            "beta-skill",
+            "---\nname: beta-skill\ndescription: Beta.\n---\n",
+        );
 
         let discovery = SkillDiscovery::new(root.to_path_buf(), None, None);
         let found = discovery.discover_all(&[]).unwrap();
@@ -215,12 +258,17 @@ mod tests {
 
         let gestalt = root.join(".gestalt/skills");
         std::fs::create_dir_all(&gestalt).unwrap();
-        make_skill_dir(&gestalt, "my-skill", "---\nname: my-skill\ndescription: Workspace.\n---\n");
+        make_skill_dir(
+            &gestalt,
+            "my-skill",
+            "---\nname: my-skill\ndescription: Workspace.\n---\n",
+        );
 
         let explicit = root.join("explicit/my-skill");
         std::fs::create_dir_all(&explicit).unwrap();
         let mut file = std::fs::File::create(explicit.join("SKILL.md")).unwrap();
-        file.write_all("---\nname: my-skill\ndescription: Explicit.\n---\n".as_bytes()).unwrap();
+        file.write_all("---\nname: my-skill\ndescription: Explicit.\n---\n".as_bytes())
+            .unwrap();
 
         let discovery = SkillDiscovery::new(root.to_path_buf(), None, None);
         let found = discovery.discover_all(&[explicit]).unwrap();
@@ -237,8 +285,16 @@ mod tests {
 
         let gestalt = root.join(".gestalt/skills");
         std::fs::create_dir_all(&gestalt).unwrap();
-        make_skill_dir(&gestalt, "my-skill", "---\nname: my-skill\ndescription: First.\n---\n");
-        make_skill_dir(&gestalt, "my-skill-dup", "---\nname: my-skill\ndescription: Dup.\n---\n");
+        make_skill_dir(
+            &gestalt,
+            "my-skill",
+            "---\nname: my-skill\ndescription: First.\n---\n",
+        );
+        make_skill_dir(
+            &gestalt,
+            "my-skill-dup",
+            "---\nname: my-skill\ndescription: Dup.\n---\n",
+        );
 
         let discovery = SkillDiscovery::new(root.to_path_buf(), None, None);
         let found = discovery.discover_all(&[]).unwrap();

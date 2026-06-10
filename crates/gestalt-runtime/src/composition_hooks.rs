@@ -10,15 +10,21 @@ use gestalt_core::{
     tool::ToolExecutionResult,
     ContextStability,
 };
-use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HookOutcome {
     Continue,
-    Block { reason: String },
-    AddContext { message: Message },
-    Annotate { metadata: serde_json::Value },
+    Block {
+        reason: String,
+    },
+    AddContext {
+        message: Message,
+    },
+    Annotate {
+        metadata: serde_json::Value,
+    },
     SwitchModel {
         model: String,
         provider: Option<String>,
@@ -152,7 +158,10 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
             match contributor.contribute(&self.workspace_root).await {
                 Ok(msg) => {
                     let mut store = self.patch_store.lock().unwrap();
-                    store.push(crate::context::ContextPatch::new(msg, contributor.stability()));
+                    store.push(crate::context::ContextPatch::new(
+                        msg,
+                        contributor.stability(),
+                    ));
                 }
                 Err(err) => {
                     events.push(AgentEvent::Error {
@@ -340,9 +349,9 @@ impl gestalt_core::hook::NextTurnHook for RuntimeNextTurnHookAdapter {
                             provider: pending.provider.clone(),
                         }])
                     }
-                    HookOutcome::Block { reason } => Ok(vec![AgentEvent::NextTurnBlocked {
-                        reason,
-                    }]),
+                    HookOutcome::Block { reason } => {
+                        Ok(vec![AgentEvent::NextTurnBlocked { reason }])
+                    }
                     _ => Ok(Vec::new()),
                 }
             }
@@ -778,7 +787,7 @@ impl CompositionHooks for ComposedCompositionHooks {
 /// `None` if no user text can be found.
 fn last_user_text(history: &[gestalt_core::message::Message]) -> Option<String> {
     for msg in history.iter().rev() {
-        if let gestalt_core::message::Message::User { content } = msg {
+        if let gestalt_core::message::Message::User { content, .. } = msg {
             let mut combined = String::new();
             for block in content {
                 if let gestalt_core::message::ContentBlock::Text { text } = block {

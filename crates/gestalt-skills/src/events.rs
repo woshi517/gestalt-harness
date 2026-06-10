@@ -44,7 +44,12 @@ pub enum ActivationReason {
 }
 
 impl SkillEvent {
-    pub fn discovered(skill_name: impl Into<String>, manifest_hash: impl Into<String>, source: impl Into<String>, trust_level: impl Into<String>) -> Self {
+    pub fn discovered(
+        skill_name: impl Into<String>,
+        manifest_hash: impl Into<String>,
+        source: impl Into<String>,
+        trust_level: impl Into<String>,
+    ) -> Self {
         Self::Discovered {
             skill_name: skill_name.into(),
             manifest_hash: manifest_hash.into(),
@@ -53,7 +58,11 @@ impl SkillEvent {
         }
     }
 
-    pub fn activated(skill_name: impl Into<String>, manifest_hash: impl Into<String>, reason: ActivationReason) -> Self {
+    pub fn activated(
+        skill_name: impl Into<String>,
+        manifest_hash: impl Into<String>,
+        reason: ActivationReason,
+    ) -> Self {
         Self::Activated {
             skill_name: skill_name.into(),
             manifest_hash: manifest_hash.into(),
@@ -82,7 +91,10 @@ impl SkillEvent {
         }
     }
 
-    pub fn resource_accessed(skill_name: impl Into<String>, resource_path: impl Into<String>) -> Self {
+    pub fn resource_accessed(
+        skill_name: impl Into<String>,
+        resource_path: impl Into<String>,
+    ) -> Self {
         Self::ResourceAccessed {
             skill_name: skill_name.into(),
             resource_path: resource_path.into(),

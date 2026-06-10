@@ -4,15 +4,15 @@
 //! `ActivationEngine` and the runtime: skill state, contributor registration,
 //! per-turn resolution, and lifecycle event publication.
 
-use std::collections::HashMap;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use gestalt_core::message::ContentBlock;
-use gestalt_core::session::Session;
 use gestalt_core::policy::{PolicyDecision, PolicyEngine, PolicyRequest};
+use gestalt_core::session::Session;
 use gestalt_core::tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema};
 use gestalt_core::tool_descriptor::ToolNamespace;
 use gestalt_runtime::composition_hooks::{
@@ -21,9 +21,7 @@ use gestalt_runtime::composition_hooks::{
 use gestalt_runtime::event_bus::{RuntimeEvent, RuntimeEventBus};
 use gestalt_runtime::skill_contributor::SkillContributorState;
 use gestalt_runtime::{ComposedToolCatalog, RuntimePolicyEngine, ToolCatalogPlanner, ToolProfile};
-use gestalt_skills::{
-    SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel,
-};
+use gestalt_skills::{SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel};
 
 fn make_descriptor(name: &str, description: &str, _body: &str) -> SkillDescriptor {
     SkillDescriptor {
@@ -151,11 +149,11 @@ impl CompositionHooks for NoopCompositionHooks {
 }
 
 fn fresh_session() -> Session {
+    use chrono::Utc;
     use gestalt_core::context::TokenBudget;
     use gestalt_core::session::SessionConfig;
-    use gestalt_core::tool::ToolContext;
     use gestalt_core::snapshot::WorkspaceSnapshot;
-    use chrono::Utc;
+    use gestalt_core::tool::ToolContext;
     Session::new(
         "test-session",
         SessionConfig {
@@ -199,7 +197,11 @@ fn fresh_session() -> Session {
 
 #[tokio::test]
 async fn test_resolve_active_emits_skill_activated_event() {
-    let descs = vec![make_descriptor("pdf", "Process PDF documents and forms.", "PDF body")];
+    let descs = vec![make_descriptor(
+        "pdf",
+        "Process PDF documents and forms.",
+        "PDF body",
+    )];
     let bus = RuntimeEventBus::new();
     let state = Arc::new(std::sync::Mutex::new(
         SkillContributorState::new(descs.clone(), vec![]).with_event_bus(bus.clone()),
@@ -220,14 +222,20 @@ async fn test_resolve_active_emits_skill_activated_event() {
         .iter()
         .filter(|e| matches!(e, RuntimeEvent::SkillActivated { .. }))
         .collect();
-    assert_eq!(activations.len(), 1, "expected exactly one SkillActivated event");
+    assert_eq!(
+        activations.len(),
+        1,
+        "expected exactly one SkillActivated event"
+    );
 }
 
 #[tokio::test]
 async fn test_resolve_active_emits_skill_deactivated_event() {
-    let descs = vec![
-        make_descriptor("pdf", "Process PDF documents and forms.", "PDF body"),
-    ];
+    let descs = vec![make_descriptor(
+        "pdf",
+        "Process PDF documents and forms.",
+        "PDF body",
+    )];
     let bus = RuntimeEventBus::new();
     // Start with "pdf" already active (as if user explicitly activated it on
     // a prior turn). The skill's description matches the task, so the engine
@@ -236,8 +244,7 @@ async fn test_resolve_active_emits_skill_deactivated_event() {
     // longer needs the skill. Because the user never marked it explicit, the
     // resolved set drops it and a deactivation event is emitted.
     let state = Arc::new(std::sync::Mutex::new(
-        SkillContributorState::new(descs, vec!["pdf".to_string()])
-            .with_event_bus(bus.clone()),
+        SkillContributorState::new(descs, vec!["pdf".to_string()]).with_event_bus(bus.clone()),
     ));
 
     let mut guard = state.lock().unwrap();
@@ -256,7 +263,10 @@ async fn test_resolve_active_emits_skill_deactivated_event() {
         .iter()
         .filter(|e| matches!(e, RuntimeEvent::SkillDeactivated { .. }))
         .collect();
-    assert!(!deactivations.is_empty(), "expected at least one deactivation event");
+    assert!(
+        !deactivations.is_empty(),
+        "expected at least one deactivation event"
+    );
     let names: Vec<String> = deactivations
         .iter()
         .map(|e| match e {
@@ -339,6 +349,7 @@ async fn test_context_hook_adapter_resolves_activation_on_before_context_build()
         content: vec![ContentBlock::Text {
             text: "Please extract text from this PDF document".to_string(),
         }],
+        metadata: None,
     });
 
     let adapter = RuntimeContextHookAdapter {
@@ -382,15 +393,25 @@ async fn test_index_helpers() {
 async fn test_dynamic_activation_filters_tools_and_denies_off_skill_calls() {
     let pdf_skill = SkillDescriptor {
         allowed_tools: Some("Read Search".to_string()),
-        ..make_descriptor("pdf-processing", "Process PDF documents and forms.", "PDF body")
+        ..make_descriptor(
+            "pdf-processing",
+            "Process PDF documents and forms.",
+            "PDF body",
+        )
     };
-    let state = Arc::new(std::sync::Mutex::new(
-        SkillContributorState::new(vec![pdf_skill], vec![]),
-    ));
+    let state = Arc::new(std::sync::Mutex::new(SkillContributorState::new(
+        vec![pdf_skill],
+        vec![],
+    )));
     let planner = ToolCatalogPlanner::new(ToolProfile::All).with_skill_state(state.clone());
     let mut tools: HashMap<String, Arc<dyn Tool>> = HashMap::new();
     for name in ["Read", "Search", "Bash"] {
-        tools.insert(name.to_string(), Arc::new(MockTool { name: name.to_string() }));
+        tools.insert(
+            name.to_string(),
+            Arc::new(MockTool {
+                name: name.to_string(),
+            }),
+        );
     }
     let catalog = ComposedToolCatalog::new(Arc::new(MockToolCatalog { tools }), BTreeMap::new())
         .unwrap()

@@ -187,7 +187,7 @@ fn built_in_models() -> &'static Vec<ModelInfo> {
 fn message_chars(message: &Message) -> usize {
     match message {
         Message::System { content } | Message::ToolResult { content, .. } => content.len(),
-        Message::User { content } | Message::Assistant { content } => content
+        Message::User { content, .. } | Message::Assistant { content } => content
             .iter()
             .map(|block| serde_json::to_string(block).map_or(0, |text| text.len()))
             .sum(),

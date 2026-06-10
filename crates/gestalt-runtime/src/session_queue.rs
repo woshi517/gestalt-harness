@@ -1,9 +1,7 @@
+use async_trait::async_trait;
+use gestalt_core::session_queue::{QueueAck, QueueLifecycle, QueuedSessionMessage, SteeringQueue};
 use std::collections::HashSet;
 use std::sync::Mutex;
-use gestalt_core::session_queue::{
-    QueueAck, QueueLifecycle, QueuedSessionMessage, SteeringQueue,
-};
-use async_trait::async_trait;
 
 pub struct InMemorySteeringQueue {
     state: Mutex<QueueState>,
@@ -35,7 +33,10 @@ impl Default for InMemorySteeringQueue {
 
 #[async_trait]
 impl SteeringQueue for InMemorySteeringQueue {
-    async fn enqueue(&self, message: QueuedSessionMessage) -> Result<QueueAck, gestalt_core::error::HarnessError> {
+    async fn enqueue(
+        &self,
+        message: QueuedSessionMessage,
+    ) -> Result<QueueAck, gestalt_core::error::HarnessError> {
         let mut guard = self.state.lock().unwrap();
         match guard.lifecycle {
             QueueLifecycle::Completed => Ok(QueueAck::SessionNotActive),
@@ -59,7 +60,10 @@ impl SteeringQueue for InMemorySteeringQueue {
         Ok(messages)
     }
 
-    async fn update_lifecycle(&self, state: QueueLifecycle) -> Result<(), gestalt_core::error::HarnessError> {
+    async fn update_lifecycle(
+        &self,
+        state: QueueLifecycle,
+    ) -> Result<(), gestalt_core::error::HarnessError> {
         let mut guard = self.state.lock().unwrap();
         guard.lifecycle = state;
         if state == QueueLifecycle::Completed {

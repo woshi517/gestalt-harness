@@ -159,7 +159,8 @@ impl AnthropicProvider {
         body.insert("stream".to_string(), Value::Bool(true));
         if let Some(cache_plan) = request.cache_plan.as_ref() {
             let prefix_count = cache_plan.prefix_message_count.min(request.messages.len());
-            let (system, messages) = split_anthropic_messages_with_cache(&request.messages, prefix_count);
+            let (system, messages) =
+                split_anthropic_messages_with_cache(&request.messages, prefix_count);
 
             if !system.is_empty() {
                 body.insert("system".to_string(), Value::Array(system));
@@ -471,7 +472,7 @@ fn message_to_anthropic_message(message: &Message, allow_system_role: bool) -> V
             "role": "user",
             "content": blocks_from_text(content)
         }),
-        Message::User { content } => json!({
+        Message::User { content, .. } => json!({
             "role": "user",
             "content": blocks(content)
         }),
@@ -572,12 +573,14 @@ mod tests {
             0,
         );
 
-        let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot)
-            .with_segments(vec![PromptSegment::from_messages(
-                PromptSegmentKind::Snapshot,
-                ContextStability::SessionStatic,
-                &snapshot.messages,
-            )]);
+        let plan =
+            PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot).with_segments(vec![
+                PromptSegment::from_messages(
+                    PromptSegmentKind::Snapshot,
+                    ContextStability::SessionStatic,
+                    &snapshot.messages,
+                ),
+            ]);
 
         ProviderRequest {
             model: "claude-3-5-sonnet-20241022".to_string(),
@@ -589,6 +592,7 @@ mod tests {
                     content: vec![ContentBlock::Text {
                         text: "hello".to_string(),
                     }],
+                    metadata: None,
                 },
             ],
             tools: vec![],
@@ -612,8 +616,14 @@ mod tests {
 
         let system = body.get("system").and_then(Value::as_array).unwrap();
         assert_eq!(system.len(), 1);
-        assert!(system[0].get("cache_control").and_then(Value::as_object).is_some());
-        assert_eq!(system[0].get("text").and_then(Value::as_str), Some("stable prefix"));
+        assert!(system[0]
+            .get("cache_control")
+            .and_then(Value::as_object)
+            .is_some());
+        assert_eq!(
+            system[0].get("text").and_then(Value::as_str),
+            Some("stable prefix")
+        );
     }
 
     #[test]
@@ -633,8 +643,9 @@ mod tests {
         let provider = AnthropicProvider::default();
         let mut request = request_with_cache_plan();
         request.messages.push(Message::System {
-            content: "context budget exhausted or truncated; keep working with the available context"
-                .to_string(),
+            content:
+                "context budget exhausted or truncated; keep working with the available context"
+                    .to_string(),
         });
 
         let body = provider.body(&request);

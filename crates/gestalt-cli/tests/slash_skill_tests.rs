@@ -2,9 +2,7 @@
 //! untrusted skill names are rejected, and that known names produce the
 //! expected `SlashOutcome` for the chat loop to consume.
 
-use gestalt_cli::config::{
-    CliOverrides, EffectiveConfig, SkillsConfig,
-};
+use gestalt_cli::config::{CliOverrides, EffectiveConfig, SkillsConfig};
 use gestalt_cli::slash::{handle_slash_command, SlashOutcome};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,11 +11,8 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn temp_workspace() -> PathBuf {
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let dir = std::env::temp_dir().join(format!(
-        "gestalt-slash-skills-{}-{}",
-        std::process::id(),
-        n
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("gestalt-slash-skills-{}-{}", std::process::id(), n));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -47,9 +42,8 @@ fn write_gestalt_json(workspace: &PathBuf, skills: SkillsConfig) {
 fn make_skill_dir(workspace: &PathBuf, name: &str) -> PathBuf {
     let dir = workspace.join(".gestalt").join("skills").join(name);
     std::fs::create_dir_all(&dir).unwrap();
-    let manifest = format!(
-        "---\nname: {name}\ndescription: Description for {name}\n---\n# {name} body\n"
-    );
+    let manifest =
+        format!("---\nname: {name}\ndescription: Description for {name}\n---\n# {name} body\n");
     std::fs::write(dir.join("SKILL.md"), manifest).unwrap();
     dir
 }
@@ -110,10 +104,15 @@ async fn slash_skill_off_known_name_returns_deactivation_outcome() {
     let config = load_config(&workspace);
     let mut overrides = overrides_with_workspace(workspace.clone());
 
-    let outcome =
-        handle_slash_command("/skill off pdf", "test-session", None, &mut overrides, &config)
-            .await
-            .expect("slash handler returns Ok");
+    let outcome = handle_slash_command(
+        "/skill off pdf",
+        "test-session",
+        None,
+        &mut overrides,
+        &config,
+    )
+    .await
+    .expect("slash handler returns Ok");
     match outcome {
         SlashOutcome::SkillDeactivated(name) => assert_eq!(name, "pdf"),
         other => panic!("expected SkillDeactivated, got {other:?}"),
@@ -129,10 +128,15 @@ async fn slash_skill_off_unknown_name_does_not_return_outcome() {
     let config = load_config(&workspace);
     let mut overrides = overrides_with_workspace(workspace.clone());
 
-    let outcome =
-        handle_slash_command("/skill off missing", "test-session", None, &mut overrides, &config)
-            .await
-            .expect("slash handler returns Ok");
+    let outcome = handle_slash_command(
+        "/skill off missing",
+        "test-session",
+        None,
+        &mut overrides,
+        &config,
+    )
+    .await
+    .expect("slash handler returns Ok");
     assert!(
         matches!(outcome, SlashOutcome::None),
         "unknown deactivation target must not produce SkillDeactivated; got {outcome:?}"

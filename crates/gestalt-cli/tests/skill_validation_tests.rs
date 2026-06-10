@@ -6,7 +6,7 @@ use gestalt_cli::config::{
     PoliciesConfig, PromptConfig, SkillsConfig, ToolsConfig, TuiConfig,
 };
 use gestalt_cli::runtime::{
-    SkillValidation, activate_skill, deactivate_skill, validate_skill_activation,
+    activate_skill, deactivate_skill, validate_skill_activation, SkillValidation,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,11 +16,7 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn temp_workspace() -> PathBuf {
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let dir = std::env::temp_dir().join(format!(
-        "gestalt-cli-skills-{}-{}",
-        std::process::id(),
-        n
-    ));
+    let dir = std::env::temp_dir().join(format!("gestalt-cli-skills-{}-{}", std::process::id(), n));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -56,9 +52,8 @@ fn load_config_for(workspace: &PathBuf, skills: SkillsConfig) -> EffectiveConfig
 fn make_skill_dir(workspace: &PathBuf, name: &str) -> PathBuf {
     let dir = workspace.join(".gestalt").join("skills").join(name);
     std::fs::create_dir_all(&dir).unwrap();
-    let manifest = format!(
-        "---\nname: {name}\ndescription: Description for {name}\n---\n# {name} body\n"
-    );
+    let manifest =
+        format!("---\nname: {name}\ndescription: Description for {name}\n---\n# {name} body\n");
     std::fs::write(dir.join("SKILL.md"), manifest).unwrap();
     dir
 }

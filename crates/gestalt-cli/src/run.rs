@@ -3,7 +3,9 @@ use std::{fs, path::PathBuf, sync::Arc};
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{trace::TraceSink, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter};
 use gestalt_policy::MinimalPolicyEngine;
-use gestalt_trace::{aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink};
+use gestalt_trace::{
+    aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink,
+};
 
 use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::render_event};
 
@@ -42,7 +44,7 @@ pub async fn run_prompt(
 
     // Initial manifest setup and save
     let run_manifest_path = run_paths.root.join("run.json");
-        let initial_manifest = gestalt_trace::run_manifest::RunManifest {
+    let initial_manifest = gestalt_trace::run_manifest::RunManifest {
         v: 1,
         session_id: session_id.clone(),
         run_id: run_id.clone(),
@@ -174,9 +176,8 @@ pub async fn run_prompt(
         .join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
     if let Ok(snapshot) = read_prompt_snapshot(&prompt_snapshot_path) {
         manifest.prompt_snapshot_hash = Some(snapshot.snapshot_hash);
-        manifest.prompt_snapshot_path = Some(
-            gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
-        );
+        manifest.prompt_snapshot_path =
+            Some(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
     }
 
     let _ = manifest.save_to(&run_manifest_path);
@@ -264,9 +265,7 @@ pub fn build_pipeline(
     Ok(pipeline)
 }
 
-pub(crate) fn build_policy(
-    config: &EffectiveConfig,
-) -> MinimalPolicyEngine {
+pub(crate) fn build_policy(config: &EffectiveConfig) -> MinimalPolicyEngine {
     let policy = config.policies.to_policy_config();
     MinimalPolicyEngine::new(policy)
 }
@@ -300,7 +299,7 @@ pub(crate) fn emit_trace_event<S: TraceSink>(
 mod tests {
     use std::sync::Mutex;
 
-    use gestalt_core::{AgentEvent, PromptAssemblyStrategy, error::TraceError, trace::TraceSink};
+    use gestalt_core::{error::TraceError, trace::TraceSink, AgentEvent, PromptAssemblyStrategy};
 
     use super::emit_trace_event;
 
@@ -426,7 +425,10 @@ mod tests {
         use gestalt_core::context::ContextPipeline as _;
         let packet = pipeline.build_packet(&[], &budget);
         assert_eq!(packet.prompt_source.as_deref(), Some("default"));
-        assert_eq!(packet.prompt_assembly_strategy, PromptAssemblyStrategy::Snapshot);
+        assert_eq!(
+            packet.prompt_assembly_strategy,
+            PromptAssemblyStrategy::Snapshot
+        );
         assert!(packet.cache_plan.is_some());
 
         // Scenario 2: inline prompt.override wins
@@ -652,7 +654,8 @@ mod fingerprint_tests {
             make_descriptor("pdf", "hash-pdf-v1"),
             make_descriptor("search", "hash-search-v1"),
         ];
-        let f1 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        let f1 =
+            compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
 
         // Mutate the manifest hash of "pdf" (simulating an in-place edit of
         // SKILL.md) and re-compute. The fingerprint MUST change because the
@@ -661,7 +664,8 @@ mod fingerprint_tests {
             make_descriptor("pdf", "hash-pdf-v2"),
             make_descriptor("search", "hash-search-v1"),
         ];
-        let f2 = compute_skill_fingerprint(&config, &discovered_v2, None).expect("fingerprint present");
+        let f2 =
+            compute_skill_fingerprint(&config, &discovered_v2, None).expect("fingerprint present");
         assert_ne!(
             f1, f2,
             "skill_fingerprint must change when an active skill's manifest content changes"
@@ -673,9 +677,14 @@ mod fingerprint_tests {
         let mut config = empty_config();
         config.skills.active = vec!["pdf".to_string()];
         let discovered = vec![make_descriptor("pdf", "hash-pdf-v1")];
-        let f1 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
-        let f2 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
-        assert_eq!(f1, f2, "fingerprint must be deterministic for the same inputs");
+        let f1 =
+            compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        let f2 =
+            compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        assert_eq!(
+            f1, f2,
+            "fingerprint must be deterministic for the same inputs"
+        );
     }
 
     #[test]
@@ -683,15 +692,20 @@ mod fingerprint_tests {
         let mut config = empty_config();
         config.skills.active = vec!["pdf".to_string()];
         let discovered = vec![make_descriptor("pdf", "hash-pdf-v1")];
-        let f1 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        let f1 =
+            compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
 
         config.skills.active = vec!["pdf".to_string(), "search".to_string()];
         let discovered = vec![
             make_descriptor("pdf", "hash-pdf-v1"),
             make_descriptor("search", "hash-search-v1"),
         ];
-        let f2 = compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
-        assert_ne!(f1, f2, "fingerprint must change when the active set changes");
+        let f2 =
+            compute_skill_fingerprint(&config, &discovered, None).expect("fingerprint present");
+        assert_ne!(
+            f1, f2,
+            "fingerprint must change when the active set changes"
+        );
     }
 
     #[test]
@@ -713,12 +727,9 @@ mod fingerprint_tests {
         let config = empty_config();
         let discovered = vec![make_descriptor("pdf-processing", "Process PDF documents.")];
         assert!(compute_skill_fingerprint(&config, &discovered, None).is_none());
-        let fingerprint = compute_skill_fingerprint(
-            &config,
-            &discovered,
-            Some("Please process this PDF"),
-        )
-        .expect("fingerprint present");
+        let fingerprint =
+            compute_skill_fingerprint(&config, &discovered, Some("Please process this PDF"))
+                .expect("fingerprint present");
         assert!(!fingerprint.is_empty());
     }
 }

@@ -20,8 +20,7 @@ pub struct ToolCatalogPlanner {
     /// Additional skill-scoped tool name filter. Applied as intersection
     /// after the base profile filter.
     pub skill_allowed_names: Option<Vec<String>>,
-    pub skill_state:
-        Option<Arc<Mutex<crate::skill_contributor::SkillContributorState>>>,
+    pub skill_state: Option<Arc<Mutex<crate::skill_contributor::SkillContributorState>>>,
 }
 
 impl ToolCatalogPlanner {
@@ -87,7 +86,9 @@ impl ToolCatalogPlanner {
                 None
             }
         });
-        let allowed = dynamic_allowed.as_ref().or(self.skill_allowed_names.as_ref());
+        let allowed = dynamic_allowed
+            .as_ref()
+            .or(self.skill_allowed_names.as_ref());
 
         // Apply skill filter as intersection
         if let Some(allowed) = allowed {

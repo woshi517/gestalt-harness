@@ -14,7 +14,10 @@ fn test_fixture_skill_discovery() {
     assert!(pdf.is_some(), "Expected pdf-processing skill");
 
     let pdf = pdf.unwrap();
-    assert_eq!(pdf.description, "Extract PDF text, fill forms, merge files. Use when handling PDFs.");
+    assert_eq!(
+        pdf.description,
+        "Extract PDF text, fill forms, merge files. Use when handling PDFs."
+    );
     assert_eq!(pdf.trust_level, SkillTrustLevel::Explicit);
     assert!(pdf.allowed_tools.as_ref().unwrap().contains("Read"));
 }

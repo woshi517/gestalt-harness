@@ -9,8 +9,7 @@ pub struct RuntimePolicyEngine {
     pub hooks: Arc<dyn CompositionHooks>,
     pub session_id: String,
     pub event_bus: RuntimeEventBus,
-    pub skill_state:
-        Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
+    pub skill_state: Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
 }
 
 #[async_trait]
@@ -34,7 +33,8 @@ impl PolicyEngine for RuntimePolicyEngine {
         });
         if let Some(ref policy) = skill_policy {
             if !policy.allows(&request.tool_name) {
-                let mut allowed_tools: Vec<String> = policy.allowed_tool_names.iter().cloned().collect();
+                let mut allowed_tools: Vec<String> =
+                    policy.allowed_tool_names.iter().cloned().collect();
                 allowed_tools.sort();
                 self.event_bus.publish(RuntimeEvent::SkillPolicyApplied {
                     skill_name: "active_skill_set".to_string(),

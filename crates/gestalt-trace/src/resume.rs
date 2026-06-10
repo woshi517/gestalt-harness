@@ -1,6 +1,5 @@
 use crate::{
-    read_prompt_snapshot,
-    read_trace,
+    read_prompt_snapshot, read_trace,
     run_manifest::{LifecycleState, RunManifest},
 };
 use gestalt_core::{context::TokenBudget, snapshot::WorkspaceSnapshot, Message, PromptSnapshot};
@@ -389,7 +388,7 @@ mod tests {
         CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
         PROMPT_SNAPSHOT_RELATIVE_PATH,
     };
-    use crate::{EventEnvelope, write_prompt_snapshot};
+    use crate::{write_prompt_snapshot, EventEnvelope};
     use gestalt_core::snapshot::WorkspaceSnapshot;
     use gestalt_core::{AgentEvent, Message, PromptSnapshot};
     use std::fs;
@@ -726,11 +725,7 @@ mod tests {
             default_fingerprint(),
             snapshot.snapshot_hash.clone(),
         );
-        write_prompt_snapshot(
-            dir.join(PROMPT_SNAPSHOT_RELATIVE_PATH),
-            &snapshot,
-        )
-        .unwrap();
+        write_prompt_snapshot(dir.join(PROMPT_SNAPSHOT_RELATIVE_PATH), &snapshot).unwrap();
         write_trace(&dir, vec![]);
 
         let analysis = ResumeAnalyzer::analyze(&dir, None, None);

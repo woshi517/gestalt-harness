@@ -3,6 +3,16 @@ use serde_json::Value;
 
 use crate::tool_failure::ToolErrorReport;
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MessageMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::session_queue::MessageSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injected_at_turn: Option<usize>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContentTrust {
@@ -18,6 +28,8 @@ pub enum Message {
     },
     User {
         content: Vec<ContentBlock>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        metadata: Option<MessageMetadata>,
     },
     Assistant {
         content: Vec<ContentBlock>,

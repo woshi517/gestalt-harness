@@ -101,12 +101,8 @@ pub async fn build_cli_runtime(
     // `--skill`, slash command, or gestalt.json. This converts a class of
     // silent-drop failures (where an unknown name was accepted and then
     // filtered out at runtime) into a clear, deterministic error.
-    let trusted_names: std::collections::HashSet<&str> = config
-        .skills
-        .trusted
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let trusted_names: std::collections::HashSet<&str> =
+        config.skills.trusted.iter().map(String::as_str).collect();
     for name in &config.skills.active {
         let Some(desc) = discovered_skills.iter().find(|skill| skill.name == *name) else {
             return Err(HarnessError::Config(
@@ -200,12 +196,14 @@ pub async fn build_cli_runtime(
 
     // Publish skill discovery events
     for skill in &discovered_skills {
-        builder.event_bus.publish(gestalt_runtime::RuntimeEvent::SkillDiscovered {
-            skill_name: skill.name.clone(),
-            manifest_hash: skill.manifest_hash.clone(),
-            source: format!("{:?}", skill.source),
-            trust_level: format!("{:?}", skill.trust_level),
-        });
+        builder
+            .event_bus
+            .publish(gestalt_runtime::RuntimeEvent::SkillDiscovered {
+                skill_name: skill.name.clone(),
+                manifest_hash: skill.manifest_hash.clone(),
+                source: format!("{:?}", skill.source),
+                trust_level: format!("{:?}", skill.trust_level),
+            });
     }
 
     if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
@@ -515,11 +513,7 @@ pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_skills::SkillD
     } else {
         dirs::home_dir()
     };
-    gestalt_skills::SkillDiscovery::new(
-        config.workspace_root.clone(),
-        global_dir,
-        home_dir,
-    )
+    gestalt_skills::SkillDiscovery::new(config.workspace_root.clone(), global_dir, home_dir)
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -599,10 +593,7 @@ pub fn validate_skill(
 /// Returns a structured `SkillValidation` describing what was found and what
 /// was rejected, so callers (CLI, slash command, chat) can render a consistent
 /// error or success message.
-pub fn validate_skill_activation(
-    config: &EffectiveConfig,
-    name: &str,
-) -> SkillValidation {
+pub fn validate_skill_activation(config: &EffectiveConfig, name: &str) -> SkillValidation {
     let skill_explicit: Vec<std::path::PathBuf> = config
         .skills
         .explicit_paths
@@ -611,12 +602,8 @@ pub fn validate_skill_activation(
         .collect();
     let discovery = build_skill_discovery(config);
     let discovered = discovery.discover_all(&skill_explicit).unwrap_or_default();
-    let trust_list: std::collections::HashSet<String> = config
-        .skills
-        .trusted
-        .iter()
-        .cloned()
-        .collect();
+    let trust_list: std::collections::HashSet<String> =
+        config.skills.trusted.iter().cloned().collect();
 
     let descriptor = discovered.iter().find(|s| s.name == name).cloned();
     match descriptor {
@@ -651,9 +638,7 @@ pub enum SkillValidation {
         descriptor: Box<gestalt_skills::SkillDescriptor>,
     },
     /// Skill name was not present in the discovered set.
-    Unknown {
-        name: String,
-    },
+    Unknown { name: String },
     /// Skill was found but its trust level is below the threshold for the
     /// current activation request (e.g. `Downloaded` skill not in
     /// `skills.trusted`).
@@ -721,7 +706,10 @@ pub fn deactivate_skill(
     name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
-    if matches!(validate_skill_activation(&config, name), SkillValidation::Unknown { .. }) {
+    if matches!(
+        validate_skill_activation(&config, name),
+        SkillValidation::Unknown { .. }
+    ) {
         return Err(format!(
             "Cannot deactivate unknown skill '{name}'. Use `gestalt skill list` to see available skills."
         )
