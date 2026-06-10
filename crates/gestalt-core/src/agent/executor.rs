@@ -754,30 +754,24 @@ where
     F: FnMut(AgentEvent) -> crate::error::Result<()> + Send,
 {
     for hook in &hooks.tool_hooks {
-        emit(AgentEvent::HookStarted {
-            hook_type: "tool".to_string(),
-            name: "before_tool_execution".to_string(),
-        })?;
-        let hook_res = tokio::select! {
-            res = hook.before_tool_execution(session, tool_name, input) => res,
-            _ = cancel_token.cancelled() => return Err(crate::error::HarnessError::Cancelled),
-        };
+        let hook_res = crate::hook::HookDispatcher::dispatch(
+            "tool",
+            "before_tool_execution",
+            cancel_token,
+            &mut *emit,
+            || hook.before_tool_execution(session, tool_name, input),
+        )
+        .await;
         match hook_res {
             Ok(events) => {
-                emit(AgentEvent::HookCompleted {
-                    hook_type: "tool".to_string(),
-                    name: "before_tool_execution".to_string(),
-                })?;
                 for ev in events {
                     emit(ev)?;
                 }
             }
+            Err(crate::error::HarnessError::Cancelled) => {
+                return Err(crate::error::HarnessError::Cancelled);
+            }
             Err(err) => {
-                emit(AgentEvent::HookFailed {
-                    hook_type: "tool".to_string(),
-                    name: "before_tool_execution".to_string(),
-                    error: err.to_string(),
-                })?;
                 emit(AgentEvent::Error {
                     message: format!("ToolHook.before_tool_execution failed: {err}"),
                     recoverable: true,

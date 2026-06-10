@@ -1,6 +1,17 @@
 use gestalt_core::event::AgentEvent;
+use gestalt_core::{
+    AgentLoop, CancelToken, ExecutionMode, StopReason, Session, ToolError,
+    message::Message,
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
+    context::{ContextPipeline, TokenBudget},
+    tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput},
+    policy::{PolicyEngine, PolicyRequest},
+    session_queue::{MessageSource, QueueAck, QueueLifecycle, SteeringQueue},
+    snapshot::WorkspaceSnapshot,
+};
 use gestalt_trace::{EventEnvelope, GoldenTrace, GoldenTraceRunner};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 fn get_trace_fixtures_dir() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -175,3 +186,396 @@ async fn test_assert_golden_negative_cases() {
         }
     }
 }
+
+// Programmatic Steering Golden Tests
+
+struct ProgrammaticMockProvider {
+    mock_responses: Mutex<std::collections::VecDeque<Vec<AgentEvent>>>,
+}
+
+#[async_trait::async_trait]
+impl Provider for ProgrammaticMockProvider {
+    fn id(&self) -> &str { "mock" }
+    fn display_name(&self) -> &str { "Mock" }
+    fn default_model(&self) -> &str { "mock-model" }
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAP: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: true,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: false,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: false,
+            supports_strict_schema: false,
+        };
+        &CAP
+    }
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::model::ModelInfo> { None }
+    fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, gestalt_core::error::HarnessError> { Ok(0) }
+    async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        let response = self.mock_responses.lock().unwrap().pop_front().unwrap_or_else(|| {
+            vec![AgentEvent::Stop { reason: StopReason::EndTurn }]
+        });
+        let stream = futures::stream::iter(response.into_iter().map(Ok::<_, gestalt_core::error::HarnessError>));
+        Ok(Box::pin(stream))
+    }
+}
+
+struct ProgrammaticMockContextPipeline;
+impl ContextPipeline for ProgrammaticMockContextPipeline {
+    fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
+        history.to_vec()
+    }
+    fn version(&self) -> &str { "mock" }
+}
+
+struct ProgrammaticMockToolCatalog {
+    tools: std::collections::HashMap<String, Arc<dyn Tool>>,
+}
+impl ToolCatalog for ProgrammaticMockToolCatalog {
+    fn schemas(&self) -> Vec<serde_json::Value> {
+        self.tools.values().map(|t| t.schema()).collect()
+    }
+    fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.tools.get(name).cloned()
+    }
+}
+
+struct ProgrammaticMockPolicyEngine {
+    eval_count: Arc<std::sync::atomic::AtomicUsize>,
+}
+#[async_trait::async_trait]
+impl PolicyEngine for ProgrammaticMockPolicyEngine {
+    async fn evaluate(&self, _req: PolicyRequest) -> gestalt_core::policy::PolicyDecision {
+        self.eval_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        gestalt_core::policy::PolicyDecision {
+            status: gestalt_core::event::PolicyStatus::Allowed,
+            reason: None,
+            policy_source: "mock".to_string(),
+        }
+    }
+}
+
+struct ProgrammaticTestSteeringQueue {
+    messages: Mutex<Vec<gestalt_core::session_queue::QueuedSessionMessage>>,
+}
+
+#[async_trait::async_trait]
+impl SteeringQueue for ProgrammaticTestSteeringQueue {
+    async fn enqueue(&self, message: gestalt_core::session_queue::QueuedSessionMessage) -> Result<QueueAck, gestalt_core::error::HarnessError> {
+        self.messages.lock().unwrap().push(message);
+        Ok(QueueAck::Queued)
+    }
+    async fn drain(&self) -> Result<Vec<gestalt_core::session_queue::QueuedSessionMessage>, gestalt_core::error::HarnessError> {
+        let mut guard = self.messages.lock().unwrap();
+        Ok(std::mem::take(&mut *guard))
+    }
+    async fn update_lifecycle(&self, _state: QueueLifecycle) -> Result<(), gestalt_core::error::HarnessError> { Ok(()) }
+    async fn len(&self) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(self.messages.lock().unwrap().len())
+    }
+}
+
+struct ProgrammaticDummyTool;
+#[async_trait::async_trait]
+impl Tool for ProgrammaticDummyTool {
+    fn name(&self) -> &str { "dummy" }
+    fn description(&self) -> &str { "dummy" }
+    fn schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": "dummy",
+            "description": "dummy",
+            "input_schema": {
+                "type": "object",
+                "properties": {}
+            }
+        })
+    }
+    fn risk(&self, _input: &serde_json::Value) -> RiskLevel { RiskLevel::Low }
+    async fn execute(&self, _input: serde_json::Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput::Text { content: "ok".to_string() })
+    }
+}
+
+fn make_programmatic_session(max_turns: usize) -> Session {
+    Session::new(
+        "test-session",
+        gestalt_core::session::SessionConfig {
+            model: "mock-model".to_string(),
+            provider: "mock".to_string(),
+            max_tokens: 100,
+            temperature: None,
+            max_turns,
+        },
+        gestalt_core::context::TokenBudget {
+            model_limit: 1000,
+            reserved_output: 10,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 1,
+        },
+        gestalt_core::tool::ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            workspace_root: None,
+            timeout: std::time::Duration::from_secs(1),
+            allow_network: false,
+            environment: std::collections::HashMap::new(),
+            max_output_bytes: 1000,
+            artifact_dir: None,
+            current_tool_call_id: None,
+        },
+        ExecutionMode::Yolo,
+        WorkspaceSnapshot {
+            workspace_root: std::path::PathBuf::from("/"),
+            git_sha: None,
+            git_dirty: Some(false),
+            untracked_count: None,
+            content_hash: "hash".to_string(),
+            captured_at: chrono::Utc::now(),
+        },
+    )
+}
+
+#[tokio::test]
+async fn test_steering_before_model_request_golden_order() {
+    let queue = Arc::new(ProgrammaticTestSteeringQueue { messages: Mutex::new(vec![]) });
+    let provider = Arc::new(ProgrammaticMockProvider {
+        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![
+            vec![AgentEvent::Stop { reason: StopReason::EndTurn }]
+        ])),
+    });
+    let loop_ = AgentLoop::new(
+        provider.clone(),
+        Arc::new(ProgrammaticMockToolCatalog { tools: std::collections::HashMap::new() }),
+        Arc::new(ProgrammaticMockContextPipeline),
+        Arc::new(ProgrammaticMockPolicyEngine { eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)) }),
+        Arc::new(gestalt_core::approval::AutoApprovalProvider),
+        1,
+    ).with_steering_queue(queue.clone());
+
+    let mut session = make_programmatic_session(1);
+    let cancel = CancelToken::new();
+
+    // Enqueue steering message
+    queue.enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+        id: "msg-1".to_string(),
+        content: "Steer content".to_string(),
+        source: MessageSource::Operator,
+        idempotency_key: None,
+        injected_at_turn: None,
+    }).await.unwrap();
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+
+    loop_.run(&mut session, &cancel, None, move |ev| {
+        events_clone.lock().unwrap().push(ev);
+    }).await.unwrap();
+
+    let events_guard = events.lock().unwrap();
+
+    // Find indices of interesting events
+    let mut injected_idx = None;
+    let mut checkpoint_idx = None;
+    let mut build_started_idx = None;
+    let mut context_built_idx = None;
+    let mut model_request_idx = None;
+
+    for (idx, ev) in events_guard.iter().enumerate() {
+        match ev {
+            AgentEvent::SessionMessageInjected { .. } => injected_idx = Some(idx),
+            AgentEvent::Checkpoint { .. } => {
+                // We want the checkpoint that happens right after injection, before context build started
+                if build_started_idx.is_none() && injected_idx.is_some() {
+                    checkpoint_idx = Some(idx);
+                }
+            }
+            AgentEvent::ContextBuildStarted => build_started_idx = Some(idx),
+            AgentEvent::ContextBuilt { .. } => context_built_idx = Some(idx),
+            AgentEvent::ModelRequest { .. } => model_request_idx = Some(idx),
+            _ => {}
+        }
+    }
+
+    assert!(injected_idx.is_some());
+    assert!(checkpoint_idx.is_some());
+    assert!(build_started_idx.is_some());
+    assert!(context_built_idx.is_some());
+    assert!(model_request_idx.is_some());
+
+    let inj = injected_idx.unwrap();
+    let cp = checkpoint_idx.unwrap();
+    let bs = build_started_idx.unwrap();
+    let cb = context_built_idx.unwrap();
+    let mr = model_request_idx.unwrap();
+
+    // Assert exact event ordering: Injection -> Checkpoint -> ContextBuildStarted -> ContextBuilt -> ModelRequest
+    assert!(inj < cp);
+    assert!(cp < bs);
+    assert!(bs < cb);
+    assert!(cb < mr);
+}
+
+#[tokio::test]
+async fn test_multiple_steering_messages_same_turn() {
+    let queue = Arc::new(ProgrammaticTestSteeringQueue { messages: Mutex::new(vec![]) });
+    let provider = Arc::new(ProgrammaticMockProvider {
+        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![
+            vec![AgentEvent::Stop { reason: StopReason::EndTurn }]
+        ])),
+    });
+    let loop_ = AgentLoop::new(
+        provider.clone(),
+        Arc::new(ProgrammaticMockToolCatalog { tools: std::collections::HashMap::new() }),
+        Arc::new(ProgrammaticMockContextPipeline),
+        Arc::new(ProgrammaticMockPolicyEngine { eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)) }),
+        Arc::new(gestalt_core::approval::AutoApprovalProvider),
+        1,
+    ).with_steering_queue(queue.clone());
+
+    let mut session = make_programmatic_session(1);
+    let cancel = CancelToken::new();
+
+    // Enqueue steering messages
+    queue.enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+        id: "msg-1".to_string(),
+        content: "First message".to_string(),
+        source: MessageSource::Operator,
+        idempotency_key: None,
+        injected_at_turn: None,
+    }).await.unwrap();
+
+    queue.enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+        id: "msg-2".to_string(),
+        content: "Second message".to_string(),
+        source: MessageSource::FollowUp,
+        idempotency_key: None,
+        injected_at_turn: None,
+    }).await.unwrap();
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+
+    loop_.run(&mut session, &cancel, None, move |ev| {
+        events_clone.lock().unwrap().push(ev);
+    }).await.unwrap();
+
+    let events_guard = events.lock().unwrap();
+
+    let mut injected_msgs = Vec::new();
+    for ev in events_guard.iter() {
+        if let AgentEvent::SessionMessageInjected { message } = ev {
+            injected_msgs.push(message.clone());
+        }
+    }
+
+    assert_eq!(injected_msgs.len(), 2);
+    assert_eq!(injected_msgs[0].id, "msg-1");
+    assert_eq!(injected_msgs[1].id, "msg-2");
+}
+
+#[tokio::test]
+async fn test_operator_correction_before_tool_use_followup() {
+    let queue = Arc::new(ProgrammaticTestSteeringQueue { messages: Mutex::new(vec![]) });
+    let provider = Arc::new(ProgrammaticMockProvider {
+        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![
+            // Turn 0: Model proposes a tool call
+            vec![
+                AgentEvent::ToolCallStreamed {
+                    id: "call-1".to_string(),
+                    name: "dummy".to_string(),
+                    input_delta: "{}".to_string(),
+                },
+                AgentEvent::Stop { reason: StopReason::ToolUse },
+            ],
+            // Turn 1: Model ends turn
+            vec![
+                AgentEvent::Stop { reason: StopReason::EndTurn },
+            ],
+        ])),
+    });
+
+    let eval_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let mut tools = std::collections::HashMap::new();
+    tools.insert("dummy".to_string(), Arc::new(ProgrammaticDummyTool) as Arc<dyn Tool>);
+
+    let loop_ = AgentLoop::new(
+        provider.clone(),
+        Arc::new(ProgrammaticMockToolCatalog { tools }),
+        Arc::new(ProgrammaticMockContextPipeline),
+        Arc::new(ProgrammaticMockPolicyEngine { eval_count: eval_count.clone() }),
+        Arc::new(gestalt_core::approval::AutoApprovalProvider),
+        2,
+    ).with_steering_queue(queue.clone());
+
+    let mut session = make_programmatic_session(2);
+    let cancel = CancelToken::new();
+
+    // We want to enqueue a message dynamically before Turn 1 (follow-up turn).
+    // How can we do this?
+    // We can use a trace hook or we can simply enqueue the message when the first turn completes.
+    // Wait, the steering queue is drained once per turn, *before* build_request.
+    // So if we enqueue it before the entire loop starts, since there are 2 turns,
+    // wait: if we enqueue it at the start, it will be drained on Turn 0.
+    // Can we enqueue it in the middle of execution?
+    // Yes! We can implement a trace hook in `HookRegistry` that gets called, and when it sees `ToolResult` for call-1, it enqueues the operator correction!
+    // This is incredibly elegant and mirrors a real operator correction during/after tool use!
+
+    struct TriggerSteeringHook {
+        queue: Arc<ProgrammaticTestSteeringQueue>,
+    }
+    impl gestalt_core::hook::TraceHook for TriggerSteeringHook {
+        fn on_trace_write(&self, event: &AgentEvent) -> std::result::Result<(), gestalt_core::TraceError> {
+            if let AgentEvent::ToolResult { id, .. } = event {
+                if id == "call-1" {
+                    // Enqueue operator correction
+                    self.queue.messages.lock().unwrap().push(gestalt_core::session_queue::QueuedSessionMessage {
+                        id: "operator-correction".to_string(),
+                        content: "Corrected instruction".to_string(),
+                        source: MessageSource::Operator,
+                        idempotency_key: None,
+                        injected_at_turn: None,
+                    });
+                }
+            }
+            Ok(())
+        }
+    }
+
+    let mut hooks = gestalt_core::HookRegistry::new();
+    hooks.register_trace_hook(Arc::new(TriggerSteeringHook { queue: queue.clone() }));
+
+    let loop_ = loop_.with_hooks(hooks);
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+
+    loop_.run(&mut session, &cancel, None, move |ev| {
+        events_clone.lock().unwrap().push(ev);
+    }).await.unwrap();
+
+    // Let's assert that the correction was injected in Turn 1
+    let events_guard = events.lock().unwrap();
+
+    let mut correction_injected = false;
+    for ev in events_guard.iter() {
+        if let AgentEvent::SessionMessageInjected { message } = ev {
+            if message.id == "operator-correction" {
+                assert_eq!(message.injected_at_turn, Some(1)); // Injected in Turn 1
+                correction_injected = true;
+            }
+        }
+    }
+
+    assert!(correction_injected, "Operator correction should have been injected");
+    // Assert that the policy evaluator was evaluated for the tool call in Turn 0
+    assert_eq!(eval_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+

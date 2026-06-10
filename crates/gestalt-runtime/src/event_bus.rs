@@ -120,6 +120,9 @@ pub enum RuntimeEvent {
         skill_name: String,
         resource_path: String,
     },
+    SessionMessageQueued {
+        message: gestalt_core::session_queue::QueuedSessionMessage,
+    },
 }
 
 #[derive(Clone)]
