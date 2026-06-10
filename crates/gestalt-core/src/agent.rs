@@ -175,13 +175,18 @@ impl AgentLoop {
                 break reason;
             }
 
-            self.drain_session_messages(
-                session,
-                &mut emit,
-                turns,
-                cancel_token,
-            )
-            .await?;
+            let injected_count = self
+                .drain_session_messages(session, &mut emit, turns, cancel_token)
+                .await?;
+
+            if injected_count > 0 {
+                emit_checkpoint(
+                    &mut emit,
+                    session,
+                    last_packet_hash.clone(),
+                    last_prompt_source.clone(),
+                )?;
+            }
 
             let request = self
                 .build_request(
@@ -228,7 +233,10 @@ impl AgentLoop {
                 break reason;
             }
 
-            if let Some(block_reason) = self.invoke_next_turn_hooks(session, turns, &mut emit, cancel_token).await? {
+            if let Some(block_reason) = self
+                .invoke_next_turn_hooks(session, turns, &mut emit, cancel_token)
+                .await?
+            {
                 let reason = StopReason::HookBlocked;
                 emit(AgentEvent::HookFailed {
                     hook_type: "next_turn".to_string(),
@@ -245,16 +253,14 @@ impl AgentLoop {
         };
 
         if let Some(ref queue) = self.steering_queue {
-            let _ = queue.update_lifecycle(crate::session_queue::QueueLifecycle::Closing).await;
+            // `Closing` belongs to AgentLoop, not runtime: this is the exact
+            // boundary where no further drain/build_request cycle can occur,
+            // so late steering must stop being accepted before session-end
+            // hooks run.
+            let _ = queue
+                .update_lifecycle(crate::session_queue::QueueLifecycle::Closing)
+                .await;
         }
-
-        self.drain_session_messages(
-            session,
-            &mut emit,
-            turns,
-            cancel_token,
-        )
-        .await?;
 
         for hook in &self.hooks.session_hooks {
             let hook_res = crate::hook::HookDispatcher::dispatch(
@@ -324,7 +330,9 @@ impl AgentLoop {
                     }
                 }
                 Err(HarnessError::Cancelled) => {
-                    emit(AgentEvent::ContextBuildFailed { reason: "cancelled".to_string() })?;
+                    emit(AgentEvent::ContextBuildFailed {
+                        reason: "cancelled".to_string(),
+                    })?;
                     return Err(HarnessError::Cancelled);
                 }
                 Err(err) => {
@@ -356,7 +364,9 @@ impl AgentLoop {
                     }
                 }
                 Err(HarnessError::Cancelled) => {
-                    emit(AgentEvent::ContextBuildFailed { reason: "cancelled".to_string() })?;
+                    emit(AgentEvent::ContextBuildFailed {
+                        reason: "cancelled".to_string(),
+                    })?;
                     return Err(HarnessError::Cancelled);
                 }
                 Err(err) => {
@@ -621,36 +631,36 @@ impl AgentLoop {
         let assistant_turn_event = AgentEvent::Stop {
             reason: stop_reason,
         };
-            for hook in &self.hooks.model_hooks {
-                let hook_res = crate::hook::HookDispatcher::dispatch(
-                    "model",
-                    "after_model_response",
-                    cancel_token,
-                    &mut *emit,
-                    || hook.after_model_response(session, &assistant_turn_event),
-                )
-                .await;
-                match hook_res {
-                    Ok(events) => {
-                        for ev in events {
-                            emit(ev)?;
-                        }
-                    }
-                    Err(HarnessError::Cancelled) => {
-                        return Err(HarnessError::Cancelled);
-                    }
-                    Err(err) => {
-                        emit(AgentEvent::Error {
-                            message: format!("ModelHook.after_model_response failed: {err}"),
-                            recoverable: true,
-                        })?;
+        for hook in &self.hooks.model_hooks {
+            let hook_res = crate::hook::HookDispatcher::dispatch(
+                "model",
+                "after_model_response",
+                cancel_token,
+                &mut *emit,
+                || hook.after_model_response(session, &assistant_turn_event),
+            )
+            .await;
+            match hook_res {
+                Ok(events) => {
+                    for ev in events {
+                        emit(ev)?;
                     }
                 }
+                Err(HarnessError::Cancelled) => {
+                    return Err(HarnessError::Cancelled);
+                }
+                Err(err) => {
+                    emit(AgentEvent::Error {
+                        message: format!("ModelHook.after_model_response failed: {err}"),
+                        recoverable: true,
+                    })?;
+                }
             }
+        }
 
-            if tool_calls.is_empty() {
-                return Ok(TurnOutcome::Stop(stop_reason));
-            }
+        if tool_calls.is_empty() {
+            return Ok(TurnOutcome::Stop(stop_reason));
+        }
 
         for call in &tool_calls {
             if !emitted_proposals.contains(&call.id) {
@@ -875,13 +885,13 @@ impl AgentLoop {
         emit: &mut F,
         current_turn: usize,
         cancel_token: &crate::cancel::CancelToken,
-    ) -> Result<()>
+    ) -> Result<usize>
     where
         F: FnMut(AgentEvent) -> Result<()> + Send,
     {
         let queue = match &self.steering_queue {
             Some(q) => q,
-            None => return Ok(()),
+            None => return Ok(0),
         };
 
         if cancel_token.is_cancelled() {
@@ -890,7 +900,7 @@ impl AgentLoop {
 
         let mut messages = queue.drain().await?;
         if messages.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
 
         let count = messages.len();
@@ -903,6 +913,11 @@ impl AgentLoop {
             };
             let history_msg = crate::message::Message::User {
                 content: vec![content_block],
+                metadata: Some(crate::message::MessageMetadata {
+                    source: Some(msg.source),
+                    queued_message_id: Some(msg.id.clone()),
+                    injected_at_turn: msg.injected_at_turn,
+                }),
             };
             session.history.push(history_msg);
 
@@ -913,13 +928,6 @@ impl AgentLoop {
 
         emit(AgentEvent::SessionMessageQueueDrained { count })?;
 
-        emit(AgentEvent::Checkpoint {
-            history: session.history.clone(),
-            token_budget: session.token_budget.clone(),
-            packet_hash: None,
-            prompt_source: None,
-        })?;
-
-        Ok(())
+        Ok(count)
     }
 }

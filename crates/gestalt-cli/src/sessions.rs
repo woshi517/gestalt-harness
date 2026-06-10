@@ -12,8 +12,7 @@ use gestalt_core::{
 };
 use gestalt_tools::default_registry;
 use gestalt_trace::{
-    aggregate_costs,
-    read_prompt_snapshot,
+    aggregate_costs, read_prompt_snapshot,
     resume::ResumeAnalyzer,
     run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
     write_cost_report, write_summary, JsonlTraceSink,
@@ -733,6 +732,7 @@ pub async fn run_session_action(
     if let Some(ref p) = prompt {
         session.history.push(Message::User {
             content: vec![gestalt_core::ContentBlock::Text { text: p.clone() }],
+            metadata: None,
         });
         let user_msg_event = AgentEvent::UserMessage { content: p.clone() };
         sink.emit(user_msg_event.clone())?;
@@ -832,9 +832,8 @@ pub async fn run_session_action(
         .join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
     if let Ok(snapshot) = read_prompt_snapshot(&prompt_snapshot_path) {
         manifest.prompt_snapshot_hash = Some(snapshot.snapshot_hash);
-        manifest.prompt_snapshot_path = Some(
-            gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
-        );
+        manifest.prompt_snapshot_path =
+            Some(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
     }
 
     let _ = manifest.save_to(&run_manifest_path);

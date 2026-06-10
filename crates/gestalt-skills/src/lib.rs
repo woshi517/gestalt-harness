@@ -11,13 +11,17 @@ pub mod policy;
 pub mod resources;
 
 // Re-exports for ergonomic access
-pub use activation::{ActivationEngine, ActivationState, load_skill_body, render_active_skill_instructions};
+pub use activation::{
+    load_skill_body, render_active_skill_instructions, ActivationEngine, ActivationState,
+};
 pub use discovery::SkillDiscovery;
 pub use events::{ActivationReason, SkillEvent};
 pub use index::SkillIndex;
 pub use manifest::{SkillFile, SkillManifest};
-pub use policy::{SkillToolPolicy, effective_tool_policy};
-pub use resources::{resolve_skill_resource, resolve_skill_resource_tracked, ResourceAccessRecorder};
+pub use policy::{effective_tool_policy, SkillToolPolicy};
+pub use resources::{
+    resolve_skill_resource, resolve_skill_resource_tracked, ResourceAccessRecorder,
+};
 
 /// A discovered skill with only metadata loaded.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1,13 +1,13 @@
 use gestalt_core::event::AgentEvent;
 use gestalt_core::{
-    AgentLoop, CancelToken, ExecutionMode, StopReason, Session, ToolError,
-    message::Message,
-    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     context::{ContextPipeline, TokenBudget},
-    tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput},
+    message::Message,
     policy::{PolicyEngine, PolicyRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     session_queue::{MessageSource, QueueAck, QueueLifecycle, SteeringQueue},
     snapshot::WorkspaceSnapshot,
+    tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput},
+    AgentLoop, CancelToken, ExecutionMode, Session, StopReason, ToolError,
 };
 use gestalt_trace::{EventEnvelope, GoldenTrace, GoldenTraceRunner};
 use std::path::PathBuf;
@@ -195,9 +195,15 @@ struct ProgrammaticMockProvider {
 
 #[async_trait::async_trait]
 impl Provider for ProgrammaticMockProvider {
-    fn id(&self) -> &str { "mock" }
-    fn display_name(&self) -> &str { "Mock" }
-    fn default_model(&self) -> &str { "mock-model" }
+    fn id(&self) -> &str {
+        "mock"
+    }
+    fn display_name(&self) -> &str {
+        "Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
     fn capabilities(&self) -> &ProviderCapabilities {
         static CAP: ProviderCapabilities = ProviderCapabilities {
             supports_tools: true,
@@ -213,13 +219,35 @@ impl Provider for ProgrammaticMockProvider {
         };
         &CAP
     }
-    fn model_info(&self, _model: &str) -> Option<gestalt_core::model::ModelInfo> { None }
-    fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, gestalt_core::error::HarnessError> { Ok(0) }
-    async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, gestalt_core::error::HarnessError> {
-        let response = self.mock_responses.lock().unwrap().pop_front().unwrap_or_else(|| {
-            vec![AgentEvent::Stop { reason: StopReason::EndTurn }]
-        });
-        let stream = futures::stream::iter(response.into_iter().map(Ok::<_, gestalt_core::error::HarnessError>));
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::model::ModelInfo> {
+        None
+    }
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(0)
+    }
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        let response = self
+            .mock_responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_else(|| {
+                vec![AgentEvent::Stop {
+                    reason: StopReason::EndTurn,
+                }]
+            });
+        let stream = futures::stream::iter(
+            response
+                .into_iter()
+                .map(Ok::<_, gestalt_core::error::HarnessError>),
+        );
         Ok(Box::pin(stream))
     }
 }
@@ -229,7 +257,9 @@ impl ContextPipeline for ProgrammaticMockContextPipeline {
     fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
         history.to_vec()
     }
-    fn version(&self) -> &str { "mock" }
+    fn version(&self) -> &str {
+        "mock"
+    }
 }
 
 struct ProgrammaticMockToolCatalog {
@@ -250,7 +280,8 @@ struct ProgrammaticMockPolicyEngine {
 #[async_trait::async_trait]
 impl PolicyEngine for ProgrammaticMockPolicyEngine {
     async fn evaluate(&self, _req: PolicyRequest) -> gestalt_core::policy::PolicyDecision {
-        self.eval_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.eval_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         gestalt_core::policy::PolicyDecision {
             status: gestalt_core::event::PolicyStatus::Allowed,
             reason: None,
@@ -265,15 +296,28 @@ struct ProgrammaticTestSteeringQueue {
 
 #[async_trait::async_trait]
 impl SteeringQueue for ProgrammaticTestSteeringQueue {
-    async fn enqueue(&self, message: gestalt_core::session_queue::QueuedSessionMessage) -> Result<QueueAck, gestalt_core::error::HarnessError> {
+    async fn enqueue(
+        &self,
+        message: gestalt_core::session_queue::QueuedSessionMessage,
+    ) -> Result<QueueAck, gestalt_core::error::HarnessError> {
         self.messages.lock().unwrap().push(message);
         Ok(QueueAck::Queued)
     }
-    async fn drain(&self) -> Result<Vec<gestalt_core::session_queue::QueuedSessionMessage>, gestalt_core::error::HarnessError> {
+    async fn drain(
+        &self,
+    ) -> Result<
+        Vec<gestalt_core::session_queue::QueuedSessionMessage>,
+        gestalt_core::error::HarnessError,
+    > {
         let mut guard = self.messages.lock().unwrap();
         Ok(std::mem::take(&mut *guard))
     }
-    async fn update_lifecycle(&self, _state: QueueLifecycle) -> Result<(), gestalt_core::error::HarnessError> { Ok(()) }
+    async fn update_lifecycle(
+        &self,
+        _state: QueueLifecycle,
+    ) -> Result<(), gestalt_core::error::HarnessError> {
+        Ok(())
+    }
     async fn len(&self) -> Result<usize, gestalt_core::error::HarnessError> {
         Ok(self.messages.lock().unwrap().len())
     }
@@ -282,8 +326,12 @@ impl SteeringQueue for ProgrammaticTestSteeringQueue {
 struct ProgrammaticDummyTool;
 #[async_trait::async_trait]
 impl Tool for ProgrammaticDummyTool {
-    fn name(&self) -> &str { "dummy" }
-    fn description(&self) -> &str { "dummy" }
+    fn name(&self) -> &str {
+        "dummy"
+    }
+    fn description(&self) -> &str {
+        "dummy"
+    }
     fn schema(&self) -> serde_json::Value {
         serde_json::json!({
             "name": "dummy",
@@ -294,9 +342,17 @@ impl Tool for ProgrammaticDummyTool {
             }
         })
     }
-    fn risk(&self, _input: &serde_json::Value) -> RiskLevel { RiskLevel::Low }
-    async fn execute(&self, _input: serde_json::Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
-        Ok(ToolOutput::Text { content: "ok".to_string() })
+    fn risk(&self, _input: &serde_json::Value) -> RiskLevel {
+        RiskLevel::Low
+    }
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &ToolContext,
+    ) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput::Text {
+            content: "ok".to_string(),
+        })
     }
 }
 
@@ -344,39 +400,54 @@ fn make_programmatic_session(max_turns: usize) -> Session {
 
 #[tokio::test]
 async fn test_steering_before_model_request_golden_order() {
-    let queue = Arc::new(ProgrammaticTestSteeringQueue { messages: Mutex::new(vec![]) });
+    let queue = Arc::new(ProgrammaticTestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
     let provider = Arc::new(ProgrammaticMockProvider {
-        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![
-            vec![AgentEvent::Stop { reason: StopReason::EndTurn }]
-        ])),
+        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![vec![
+            AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]])),
     });
     let loop_ = AgentLoop::new(
         provider.clone(),
-        Arc::new(ProgrammaticMockToolCatalog { tools: std::collections::HashMap::new() }),
+        Arc::new(ProgrammaticMockToolCatalog {
+            tools: std::collections::HashMap::new(),
+        }),
         Arc::new(ProgrammaticMockContextPipeline),
-        Arc::new(ProgrammaticMockPolicyEngine { eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)) }),
+        Arc::new(ProgrammaticMockPolicyEngine {
+            eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }),
         Arc::new(gestalt_core::approval::AutoApprovalProvider),
         1,
-    ).with_steering_queue(queue.clone());
+    )
+    .with_steering_queue(queue.clone());
 
     let mut session = make_programmatic_session(1);
     let cancel = CancelToken::new();
 
     // Enqueue steering message
-    queue.enqueue(gestalt_core::session_queue::QueuedSessionMessage {
-        id: "msg-1".to_string(),
-        content: "Steer content".to_string(),
-        source: MessageSource::Operator,
-        idempotency_key: None,
-        injected_at_turn: None,
-    }).await.unwrap();
+    queue
+        .enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+            id: "msg-1".to_string(),
+            content: "Steer content".to_string(),
+            source: MessageSource::Operator,
+            idempotency_key: None,
+            injected_at_turn: None,
+        })
+        .await
+        .unwrap();
 
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await.unwrap();
+    loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await
+        .unwrap();
 
     let events_guard = events.lock().unwrap();
 
@@ -424,47 +495,65 @@ async fn test_steering_before_model_request_golden_order() {
 
 #[tokio::test]
 async fn test_multiple_steering_messages_same_turn() {
-    let queue = Arc::new(ProgrammaticTestSteeringQueue { messages: Mutex::new(vec![]) });
+    let queue = Arc::new(ProgrammaticTestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
     let provider = Arc::new(ProgrammaticMockProvider {
-        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![
-            vec![AgentEvent::Stop { reason: StopReason::EndTurn }]
-        ])),
+        mock_responses: Mutex::new(std::collections::VecDeque::from(vec![vec![
+            AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]])),
     });
     let loop_ = AgentLoop::new(
         provider.clone(),
-        Arc::new(ProgrammaticMockToolCatalog { tools: std::collections::HashMap::new() }),
+        Arc::new(ProgrammaticMockToolCatalog {
+            tools: std::collections::HashMap::new(),
+        }),
         Arc::new(ProgrammaticMockContextPipeline),
-        Arc::new(ProgrammaticMockPolicyEngine { eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)) }),
+        Arc::new(ProgrammaticMockPolicyEngine {
+            eval_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }),
         Arc::new(gestalt_core::approval::AutoApprovalProvider),
         1,
-    ).with_steering_queue(queue.clone());
+    )
+    .with_steering_queue(queue.clone());
 
     let mut session = make_programmatic_session(1);
     let cancel = CancelToken::new();
 
     // Enqueue steering messages
-    queue.enqueue(gestalt_core::session_queue::QueuedSessionMessage {
-        id: "msg-1".to_string(),
-        content: "First message".to_string(),
-        source: MessageSource::Operator,
-        idempotency_key: None,
-        injected_at_turn: None,
-    }).await.unwrap();
+    queue
+        .enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+            id: "msg-1".to_string(),
+            content: "First message".to_string(),
+            source: MessageSource::Operator,
+            idempotency_key: None,
+            injected_at_turn: None,
+        })
+        .await
+        .unwrap();
 
-    queue.enqueue(gestalt_core::session_queue::QueuedSessionMessage {
-        id: "msg-2".to_string(),
-        content: "Second message".to_string(),
-        source: MessageSource::FollowUp,
-        idempotency_key: None,
-        injected_at_turn: None,
-    }).await.unwrap();
+    queue
+        .enqueue(gestalt_core::session_queue::QueuedSessionMessage {
+            id: "msg-2".to_string(),
+            content: "Second message".to_string(),
+            source: MessageSource::FollowUp,
+            idempotency_key: None,
+            injected_at_turn: None,
+        })
+        .await
+        .unwrap();
 
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await.unwrap();
+    loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await
+        .unwrap();
 
     let events_guard = events.lock().unwrap();
 
@@ -482,7 +571,9 @@ async fn test_multiple_steering_messages_same_turn() {
 
 #[tokio::test]
 async fn test_operator_correction_before_tool_use_followup() {
-    let queue = Arc::new(ProgrammaticTestSteeringQueue { messages: Mutex::new(vec![]) });
+    let queue = Arc::new(ProgrammaticTestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
     let provider = Arc::new(ProgrammaticMockProvider {
         mock_responses: Mutex::new(std::collections::VecDeque::from(vec![
             // Turn 0: Model proposes a tool call
@@ -492,28 +583,36 @@ async fn test_operator_correction_before_tool_use_followup() {
                     name: "dummy".to_string(),
                     input_delta: "{}".to_string(),
                 },
-                AgentEvent::Stop { reason: StopReason::ToolUse },
+                AgentEvent::Stop {
+                    reason: StopReason::ToolUse,
+                },
             ],
             // Turn 1: Model ends turn
-            vec![
-                AgentEvent::Stop { reason: StopReason::EndTurn },
-            ],
+            vec![AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            }],
         ])),
     });
 
     let eval_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     let mut tools = std::collections::HashMap::new();
-    tools.insert("dummy".to_string(), Arc::new(ProgrammaticDummyTool) as Arc<dyn Tool>);
+    tools.insert(
+        "dummy".to_string(),
+        Arc::new(ProgrammaticDummyTool) as Arc<dyn Tool>,
+    );
 
     let loop_ = AgentLoop::new(
         provider.clone(),
         Arc::new(ProgrammaticMockToolCatalog { tools }),
         Arc::new(ProgrammaticMockContextPipeline),
-        Arc::new(ProgrammaticMockPolicyEngine { eval_count: eval_count.clone() }),
+        Arc::new(ProgrammaticMockPolicyEngine {
+            eval_count: eval_count.clone(),
+        }),
         Arc::new(gestalt_core::approval::AutoApprovalProvider),
         2,
-    ).with_steering_queue(queue.clone());
+    )
+    .with_steering_queue(queue.clone());
 
     let mut session = make_programmatic_session(2);
     let cancel = CancelToken::new();
@@ -532,17 +631,22 @@ async fn test_operator_correction_before_tool_use_followup() {
         queue: Arc<ProgrammaticTestSteeringQueue>,
     }
     impl gestalt_core::hook::TraceHook for TriggerSteeringHook {
-        fn on_trace_write(&self, event: &AgentEvent) -> std::result::Result<(), gestalt_core::TraceError> {
+        fn on_trace_write(
+            &self,
+            event: &AgentEvent,
+        ) -> std::result::Result<(), gestalt_core::TraceError> {
             if let AgentEvent::ToolResult { id, .. } = event {
                 if id == "call-1" {
                     // Enqueue operator correction
-                    self.queue.messages.lock().unwrap().push(gestalt_core::session_queue::QueuedSessionMessage {
-                        id: "operator-correction".to_string(),
-                        content: "Corrected instruction".to_string(),
-                        source: MessageSource::Operator,
-                        idempotency_key: None,
-                        injected_at_turn: None,
-                    });
+                    self.queue.messages.lock().unwrap().push(
+                        gestalt_core::session_queue::QueuedSessionMessage {
+                            id: "operator-correction".to_string(),
+                            content: "Corrected instruction".to_string(),
+                            source: MessageSource::Operator,
+                            idempotency_key: None,
+                            injected_at_turn: None,
+                        },
+                    );
                 }
             }
             Ok(())
@@ -550,16 +654,21 @@ async fn test_operator_correction_before_tool_use_followup() {
     }
 
     let mut hooks = gestalt_core::HookRegistry::new();
-    hooks.register_trace_hook(Arc::new(TriggerSteeringHook { queue: queue.clone() }));
+    hooks.register_trace_hook(Arc::new(TriggerSteeringHook {
+        queue: queue.clone(),
+    }));
 
     let loop_ = loop_.with_hooks(hooks);
 
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await.unwrap();
+    loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await
+        .unwrap();
 
     // Let's assert that the correction was injected in Turn 1
     let events_guard = events.lock().unwrap();
@@ -574,18 +683,22 @@ async fn test_operator_correction_before_tool_use_followup() {
         }
     }
 
-    assert!(correction_injected, "Operator correction should have been injected");
+    assert!(
+        correction_injected,
+        "Operator correction should have been injected"
+    );
     // Assert that the policy evaluator was evaluated for the tool call in Turn 0
     assert_eq!(eval_count.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
 async fn test_persisted_steering_replay_and_resume() {
-    use gestalt_trace::{
-        JsonlTraceSink, resume::ResumeAnalyzer,
-        run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
-    };
     use gestalt_core::trace::TraceSink;
+    use gestalt_trace::{
+        resume::ResumeAnalyzer,
+        run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
+        JsonlTraceSink,
+    };
     use std::fs;
 
     // Create temporary run directory
@@ -687,7 +800,7 @@ async fn test_persisted_steering_replay_and_resume() {
     assert!(analysis.history.len() >= 1);
     let last_msg = &analysis.history[0];
     match last_msg {
-        Message::User { content } => match &content[0] {
+        Message::User { content, .. } => match &content[0] {
             gestalt_core::message::ContentBlock::Text { text } => {
                 assert_eq!(text, "Steered message content");
             }
@@ -702,17 +815,16 @@ async fn test_persisted_steering_replay_and_resume() {
 
 #[tokio::test]
 async fn test_persisted_steering_resume_flow() {
-    use gestalt_trace::{
-        JsonlTraceSink, resume::ResumeAnalyzer,
-        run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
-    };
     use gestalt_core::trace::TraceSink;
+    use gestalt_trace::{
+        resume::ResumeAnalyzer,
+        run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
+        JsonlTraceSink,
+    };
     use std::fs;
 
-    let temp_root = std::env::temp_dir().join(format!(
-        "gestalt-test-resume-flow-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let temp_root =
+        std::env::temp_dir().join(format!("gestalt-test-resume-flow-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp_root).unwrap();
 
     let session_id = "steered-resume-session";
@@ -724,7 +836,7 @@ async fn test_persisted_steering_resume_flow() {
     let queue = Arc::new(ProgrammaticTestSteeringQueue {
         messages: Mutex::new(vec![]),
     });
-    
+
     let cancel = CancelToken::new();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let provider = Arc::new(CancelOnStreamProvider {
@@ -802,7 +914,10 @@ async fn test_persisted_steering_resume_flow() {
 
     // Now analyze using ResumeAnalyzer
     let analysis = ResumeAnalyzer::analyze(&paths.root, None, None);
-    assert_eq!(analysis.status, gestalt_trace::resume::RecoveryStatus::InterruptedSafe);
+    assert_eq!(
+        analysis.status,
+        gestalt_trace::resume::RecoveryStatus::InterruptedSafe
+    );
     assert!(analysis.history.len() >= 1);
 
     // Reconstruct and run a resumed session
@@ -810,7 +925,7 @@ async fn test_persisted_steering_resume_flow() {
     let resume_provider = Arc::new(AssertResumeProvider {
         requests: resume_requests.clone(),
     });
-    
+
     let resume_loop = AgentLoop::new(
         resume_provider,
         Arc::new(ProgrammaticMockToolCatalog {
@@ -838,11 +953,11 @@ async fn test_persisted_steering_resume_flow() {
     let resume_reqs = resume_requests.lock().unwrap().clone();
     assert_eq!(resume_reqs.len(), 1);
     let history = &resume_reqs[0].messages;
-    
+
     // History should have exactly one message: the steered message
     assert_eq!(history.len(), 1);
     match &history[0] {
-        Message::User { content } => match &content[0] {
+        Message::User { content, .. } => match &content[0] {
             gestalt_core::message::ContentBlock::Text { text } => {
                 assert_eq!(text, "Steered message for resume");
             }
@@ -961,4 +1076,3 @@ impl Provider for AssertResumeProvider {
         Ok(Box::pin(stream))
     }
 }
-

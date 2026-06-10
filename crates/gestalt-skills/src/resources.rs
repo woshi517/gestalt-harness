@@ -4,13 +4,11 @@ use std::path::{Path, PathBuf};
 /// Resolve a resource path relative to a skill root, rejecting escapes.
 pub fn resolve_skill_resource(skill_root: &Path, resource_path: &str) -> Result<PathBuf> {
     let resolved = skill_root.join(resource_path);
-    let canonical = resolved
-        .canonicalize()
-        .or_else(|_| {
-            // If the file doesn't exist yet, canonicalize fails.
-            // We can still validate by normalizing the path manually.
-            Ok::<_, std::io::Error>(normalize_path(&resolved))
-        })?;
+    let canonical = resolved.canonicalize().or_else(|_| {
+        // If the file doesn't exist yet, canonicalize fails.
+        // We can still validate by normalizing the path manually.
+        Ok::<_, std::io::Error>(normalize_path(&resolved))
+    })?;
 
     let root_canonical = skill_root
         .canonicalize()
@@ -59,7 +57,11 @@ fn normalize_path(path: &Path) -> PathBuf {
             std::path::Component::Normal(name) => result.push(name),
         }
     }
-    let base = if path.has_root() { PathBuf::from("/") } else { PathBuf::new() };
+    let base = if path.has_root() {
+        PathBuf::from("/")
+    } else {
+        PathBuf::new()
+    };
     result.into_iter().fold(base, |mut p, c| {
         p.push(c);
         p
@@ -100,12 +102,8 @@ mod tests {
         // resolve_skill_resource function rejects escapes via
         // `SkillError::ResourceEscape`, so the tracked wrapper must propagate
         // the error and must NOT record an access for the rejected request.
-        let resolved = resolve_skill_resource_tracked(
-            "test-skill",
-            &root,
-            "../outside.md",
-            Some(&recorder),
-        );
+        let resolved =
+            resolve_skill_resource_tracked("test-skill", &root, "../outside.md", Some(&recorder));
         assert!(resolved.is_err());
         assert_eq!(
             counter.load(Ordering::SeqCst),

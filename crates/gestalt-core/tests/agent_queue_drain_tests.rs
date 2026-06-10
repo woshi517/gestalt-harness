@@ -1,26 +1,33 @@
+use gestalt_core::{
+    approval::AutoApprovalProvider,
+    cancel::CancelToken,
+    context::{ContextPipeline, TokenBudget},
+    event::{AgentEvent, StopReason},
+    hook::{HookRegistry, TraceHook},
+    message::{ContentBlock, Message},
+    policy::{PolicyDecision, PolicyEngine, PolicyRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
+    session::{ExecutionMode, Session, SessionConfig},
+    session_queue::{MessageSource, QueueAck, QueueLifecycle, QueuedSessionMessage, SteeringQueue},
+    snapshot::WorkspaceSnapshot,
+    tool::{ToolCatalog, ToolContext},
+    AgentLoop,
+};
 use std::sync::Arc;
 use std::sync::Mutex;
-use gestalt_core::{
-    AgentLoop,
-    event::{AgentEvent, StopReason},
-    message::{Message, ContentBlock},
-    session::{Session, SessionConfig, ExecutionMode},
-    provider::{Provider, ProviderRequest, ProviderCapabilities, EventStream},
-    tool::{ToolCatalog, ToolContext},
-    context::{ContextPipeline, TokenBudget},
-    policy::{PolicyEngine, PolicyDecision, PolicyRequest},
-    approval::AutoApprovalProvider,
-    session_queue::{SteeringQueue, QueuedSessionMessage, MessageSource, QueueAck, QueueLifecycle},
-    cancel::CancelToken,
-    snapshot::WorkspaceSnapshot,
-};
 
 struct MockProvider;
 #[async_trait::async_trait]
 impl Provider for MockProvider {
-    fn id(&self) -> &str { "mock" }
-    fn display_name(&self) -> &str { "Mock" }
-    fn default_model(&self) -> &str { "mock-model" }
+    fn id(&self) -> &str {
+        "mock"
+    }
+    fn display_name(&self) -> &str {
+        "Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
     fn capabilities(&self) -> &ProviderCapabilities {
         static CAP: ProviderCapabilities = ProviderCapabilities {
             supports_tools: false,
@@ -36,10 +43,23 @@ impl Provider for MockProvider {
         };
         &CAP
     }
-    fn model_info(&self, _model: &str) -> Option<gestalt_core::model::ModelInfo> { None }
-    fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<usize, gestalt_core::error::HarnessError> { Ok(0) }
-    async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, gestalt_core::error::HarnessError> {
-        let stream = futures::stream::iter(vec![Ok(AgentEvent::Stop { reason: StopReason::EndTurn })]);
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::model::ModelInfo> {
+        None
+    }
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(0)
+    }
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        let stream = futures::stream::iter(vec![Ok(AgentEvent::Stop {
+            reason: StopReason::EndTurn,
+        })]);
         Ok(Box::pin(stream))
     }
 }
@@ -49,13 +69,19 @@ impl ContextPipeline for MockContextPipeline {
     fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
         history.to_vec()
     }
-    fn version(&self) -> &str { "mock" }
+    fn version(&self) -> &str {
+        "mock"
+    }
 }
 
 struct MockToolCatalog;
 impl ToolCatalog for MockToolCatalog {
-    fn schemas(&self) -> Vec<serde_json::Value> { vec![] }
-    fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> { None }
+    fn schemas(&self) -> Vec<serde_json::Value> {
+        vec![]
+    }
+    fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+        None
+    }
 }
 
 struct MockPolicyEngine;
@@ -74,9 +100,38 @@ struct TestSteeringQueue {
     messages: Mutex<Vec<QueuedSessionMessage>>,
 }
 
+struct EnqueueOnAssistantCommitHook {
+    queue: Arc<TestSteeringQueue>,
+}
+
+impl TraceHook for EnqueueOnAssistantCommitHook {
+    fn on_trace_write(
+        &self,
+        event: &AgentEvent,
+    ) -> std::result::Result<(), gestalt_core::error::TraceError> {
+        if matches!(event, AgentEvent::AssistantMessageCommitted { .. }) {
+            self.queue
+                .messages
+                .lock()
+                .unwrap()
+                .push(QueuedSessionMessage {
+                    id: "late-msg".to_string(),
+                    content: "Late operator correction".to_string(),
+                    source: MessageSource::Operator,
+                    idempotency_key: None,
+                    injected_at_turn: None,
+                });
+        }
+        Ok(())
+    }
+}
+
 #[async_trait::async_trait]
 impl SteeringQueue for TestSteeringQueue {
-    async fn enqueue(&self, message: QueuedSessionMessage) -> Result<QueueAck, gestalt_core::error::HarnessError> {
+    async fn enqueue(
+        &self,
+        message: QueuedSessionMessage,
+    ) -> Result<QueueAck, gestalt_core::error::HarnessError> {
         self.messages.lock().unwrap().push(message);
         Ok(QueueAck::Queued)
     }
@@ -84,7 +139,10 @@ impl SteeringQueue for TestSteeringQueue {
         let mut guard = self.messages.lock().unwrap();
         Ok(std::mem::take(&mut *guard))
     }
-    async fn update_lifecycle(&self, _state: QueueLifecycle) -> Result<(), gestalt_core::error::HarnessError> {
+    async fn update_lifecycle(
+        &self,
+        _state: QueueLifecycle,
+    ) -> Result<(), gestalt_core::error::HarnessError> {
         Ok(())
     }
     async fn len(&self) -> Result<usize, gestalt_core::error::HarnessError> {
@@ -136,7 +194,9 @@ fn make_session() -> Session {
 
 #[tokio::test]
 async fn test_agent_loop_drain_single_message() {
-    let queue = Arc::new(TestSteeringQueue { messages: Mutex::new(vec![]) });
+    let queue = Arc::new(TestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
     let loop_ = AgentLoop::new(
         Arc::new(MockProvider),
         Arc::new(MockToolCatalog),
@@ -144,7 +204,8 @@ async fn test_agent_loop_drain_single_message() {
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
         1,
-    ).with_steering_queue(queue.clone());
+    )
+    .with_steering_queue(queue.clone());
 
     let mut session = make_session();
     let cancel = CancelToken::new();
@@ -162,9 +223,12 @@ async fn test_agent_loop_drain_single_message() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await.unwrap();
+    loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await
+        .unwrap();
 
     let events_guard = events.lock().unwrap();
 
@@ -191,22 +255,33 @@ async fn test_agent_loop_drain_single_message() {
         }
     }
 
-    assert!(injected_index.is_some(), "Should emit SessionMessageInjected");
-    assert!(drained_index.is_some(), "Should emit SessionMessageQueueDrained");
+    assert!(
+        injected_index.is_some(),
+        "Should emit SessionMessageInjected"
+    );
+    assert!(
+        drained_index.is_some(),
+        "Should emit SessionMessageQueueDrained"
+    );
     assert!(context_built_index.is_some(), "Should emit ContextBuilt");
 
     let inj = injected_index.unwrap();
     let dr = drained_index.unwrap();
     let cb = context_built_index.unwrap();
 
-    assert!(inj < dr, "Injected event must be emitted before Drained event");
+    assert!(
+        inj < dr,
+        "Injected event must be emitted before Drained event"
+    );
     assert!(dr < cb, "Drained event must be emitted before ContextBuilt");
 
     // History should contain the injected message
     let user_injected = session.history.iter().any(|m| {
-        if let Message::User { content } = m {
+        if let Message::User { content, metadata } = m {
             if let ContentBlock::Text { text } = &content[0] {
-                return text == "Stop and report";
+                return text == "Stop and report"
+                    && metadata.as_ref().and_then(|value| value.source)
+                        == Some(MessageSource::Operator);
             }
         }
         false
@@ -216,7 +291,9 @@ async fn test_agent_loop_drain_single_message() {
 
 #[tokio::test]
 async fn test_agent_loop_drain_empty_no_events() {
-    let queue = Arc::new(TestSteeringQueue { messages: Mutex::new(vec![]) });
+    let queue = Arc::new(TestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
     let loop_ = AgentLoop::new(
         Arc::new(MockProvider),
         Arc::new(MockToolCatalog),
@@ -224,7 +301,8 @@ async fn test_agent_loop_drain_empty_no_events() {
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
         1,
-    ).with_steering_queue(queue.clone());
+    )
+    .with_steering_queue(queue.clone());
 
     let mut session = make_session();
     let cancel = CancelToken::new();
@@ -232,9 +310,12 @@ async fn test_agent_loop_drain_empty_no_events() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let events_clone = events.clone();
 
-    loop_.run(&mut session, &cancel, None, move |ev| {
-        events_clone.lock().unwrap().push(ev);
-    }).await.unwrap();
+    loop_
+        .run(&mut session, &cancel, None, move |ev| {
+            events_clone.lock().unwrap().push(ev);
+        })
+        .await
+        .unwrap();
 
     let events_guard = events.lock().unwrap();
 
@@ -242,4 +323,40 @@ async fn test_agent_loop_drain_empty_no_events() {
         assert!(!matches!(ev, AgentEvent::SessionMessageInjected { .. }));
         assert!(!matches!(ev, AgentEvent::SessionMessageQueueDrained { .. }));
     }
+}
+
+#[tokio::test]
+async fn test_agent_loop_does_not_drain_messages_after_terminal_stop() {
+    let queue = Arc::new(TestSteeringQueue {
+        messages: Mutex::new(vec![]),
+    });
+    let mut hooks = HookRegistry::new();
+    hooks.register_trace_hook(Arc::new(EnqueueOnAssistantCommitHook {
+        queue: queue.clone(),
+    }));
+
+    let loop_ = AgentLoop::new(
+        Arc::new(MockProvider),
+        Arc::new(MockToolCatalog),
+        Arc::new(MockContextPipeline),
+        Arc::new(MockPolicyEngine),
+        Arc::new(AutoApprovalProvider),
+        1,
+    )
+    .with_hooks(hooks)
+    .with_steering_queue(queue.clone());
+
+    let mut session = make_session();
+    let cancel = CancelToken::new();
+
+    loop_
+        .run(&mut session, &cancel, None, |_ev| {})
+        .await
+        .unwrap();
+
+    assert!(!session.history.iter().any(|message| {
+        matches!(message, Message::User { content, .. }
+            if matches!(&content[0], ContentBlock::Text { text } if text == "Late operator correction"))
+    }));
+    assert_eq!(queue.len().await.unwrap(), 1);
 }

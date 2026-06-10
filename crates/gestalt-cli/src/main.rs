@@ -1453,9 +1453,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             SkillSubcommand::Inspect { name } => {
                 let res = gestalt_cli::runtime::inspect_skill(&overrides, &name)
-                    .and_then(|opt| {
-                        opt.ok_or_else(|| format!("Skill '{}' not found", name).into())
-                    })
+                    .and_then(|opt| opt.ok_or_else(|| format!("Skill '{}' not found", name).into()))
                     .map(|skill| SkillInspectReport {
                         name: skill.name,
                         description: skill.description,
@@ -1493,8 +1491,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle_result(res, format, quiet)?;
             }
             SkillSubcommand::Validate { path } => {
-                let res = gestalt_cli::runtime::validate_skill(&path)
-                    .map(|manifest| SkillInspectReport {
+                let res = gestalt_cli::runtime::validate_skill(&path).map(|manifest| {
+                    SkillInspectReport {
                         name: manifest.name,
                         description: manifest.description,
                         skill_root: path.to_string_lossy().to_string(),
@@ -1505,7 +1503,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         license: manifest.license,
                         compatibility: manifest.compatibility,
                         allowed_tools: manifest.allowed_tools,
-                    });
+                    }
+                });
                 handle_result(res, format, quiet)?;
             }
         },

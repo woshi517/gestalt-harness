@@ -5,7 +5,9 @@ use tokio::sync::mpsc;
 
 use gestalt_core::{
     approval::AutoApprovalProvider,
-    context::{ContextPipeline, PromptAssemblyStrategy, PromptCachePlan, PromptSnapshot, TokenBudget},
+    context::{
+        ContextPipeline, PromptAssemblyStrategy, PromptCachePlan, PromptSnapshot, TokenBudget,
+    },
     event::{AgentEvent, StopReason},
     hook::ContextHook,
     message::{ContentBlock, Message},
@@ -678,6 +680,7 @@ async fn test_runtime_run_session_preserves_history() {
         content: vec![gestalt_core::message::ContentBlock::Text {
             text: "Initial user turn".to_string(),
         }],
+        metadata: None,
     });
     session.history.push(Message::Assistant {
         content: vec![gestalt_core::message::ContentBlock::Text {
@@ -690,7 +693,7 @@ async fn test_runtime_run_session_preserves_history() {
 
     // Verify history was preserved and not reset
     assert_eq!(session.history.len(), 3);
-    if let Message::User { content } = &session.history[0] {
+    if let Message::User { content, .. } = &session.history[0] {
         if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
             assert_eq!(text, "Initial user turn");
         }
@@ -704,10 +707,8 @@ async fn test_runtime_run_session_preserves_history() {
 
 #[tokio::test]
 async fn test_runtime_context_hook_persists_prompt_snapshot() {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "gestalt-runtime-snapshot-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let temp_dir =
+        std::env::temp_dir().join(format!("gestalt-runtime-snapshot-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     let artifact_dir = temp_dir.join("artifacts");
@@ -769,6 +770,7 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
         content: vec![ContentBlock::Text {
             text: "latest turn".to_string(),
         }],
+        metadata: None,
     };
     let snapshot = PromptSnapshot::new(vec![stable_message.clone()], 0);
     let cache_plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot);
@@ -793,8 +795,14 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
         .after_context_build(&session, &packet)
         .await
         .expect("after_context_build succeeds");
-    assert!(matches!(events_first[0], AgentEvent::PromptSnapshotCreated { .. }));
-    assert!(matches!(events_first[1], AgentEvent::PromptCachePlanGenerated { .. }));
+    assert!(matches!(
+        events_first[0],
+        AgentEvent::PromptSnapshotCreated { .. }
+    ));
+    assert!(matches!(
+        events_first[1],
+        AgentEvent::PromptCachePlanGenerated { .. }
+    ));
 
     let persisted = gestalt_trace::read_prompt_snapshot(artifact_dir.join("prompt-snapshot.json"))
         .expect("prompt snapshot persisted");
@@ -804,7 +812,10 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
         .after_context_build(&session, &packet)
         .await
         .expect("after_context_build succeeds again");
-    assert!(matches!(events_second[0], AgentEvent::PromptSnapshotReused { .. }));
+    assert!(matches!(
+        events_second[0],
+        AgentEvent::PromptSnapshotReused { .. }
+    ));
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -824,7 +835,11 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
             "pipeline-v1"
         }
 
-        fn build_packet(&self, _history: &[Message], _budget: &TokenBudget) -> gestalt_core::context::ContextPacket {
+        fn build_packet(
+            &self,
+            _history: &[Message],
+            _budget: &TokenBudget,
+        ) -> gestalt_core::context::ContextPacket {
             let messages = self.process(&[], &TokenBudget::default());
             let snapshot = PromptSnapshot::new(messages.clone(), 0);
             let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot);
@@ -872,7 +887,10 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
         },
     );
 
-    assert_eq!(packet.prompt_assembly_strategy, PromptAssemblyStrategy::Snapshot);
+    assert_eq!(
+        packet.prompt_assembly_strategy,
+        PromptAssemblyStrategy::Snapshot
+    );
     assert!(packet.snapshot_hash.is_some());
     assert!(packet.cache_prefix_hash.is_some());
     assert!(packet.cache_plan.is_some());

@@ -250,13 +250,20 @@ model = "mock-model"
     let tool_names: Vec<String> = tool_registry
         .schemas()
         .iter()
-        .filter_map(|schema| schema.get("name").and_then(|value| value.as_str()).map(String::from))
+        .filter_map(|schema| {
+            schema
+                .get("name")
+                .and_then(|value| value.as_str())
+                .map(String::from)
+        })
         .collect();
 
     // Fingerprint matching what run_session_action generates
     let fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
-        tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&tool_registry.schemas()),
+        tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
+            &tool_registry.schemas(),
+        ),
         policy_fingerprint: serde_json::to_string(&config.policies)
             .map(|content| gestalt_trace::run_manifest::compute_policy_fingerprint(&content))
             .unwrap(),
@@ -307,23 +314,27 @@ model = "mock-model"
             content: vec![ContentBlock::Text {
                 text: "next prompt".to_string(),
             }],
+            metadata: None,
         },
     ];
     use gestalt_core::context::ContextPipeline as _;
-    let packet = pipeline.build_packet(&resume_history, &gestalt_core::context::TokenBudget::default());
+    let packet = pipeline.build_packet(
+        &resume_history,
+        &gestalt_core::context::TokenBudget::default(),
+    );
     let cache_plan = packet.cache_plan.as_ref().unwrap();
     let prompt_snapshot = gestalt_core::context::PromptSnapshot::new(
         packet.messages[..cache_plan.prefix_message_count].to_vec(),
         0,
     );
-    let prompt_snapshot_path = run_root_dir.join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+    let prompt_snapshot_path =
+        run_root_dir.join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
     gestalt_trace::write_prompt_snapshot(&prompt_snapshot_path, &prompt_snapshot).unwrap();
 
     let mut manifest_root = manifest_root;
     manifest_root.prompt_snapshot_hash = Some(prompt_snapshot.snapshot_hash.clone());
-    manifest_root.prompt_snapshot_path = Some(
-        gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
-    );
+    manifest_root.prompt_snapshot_path =
+        Some(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
     manifest_root
         .save_to(&run_root_dir.join("run.json"))
         .unwrap();
@@ -405,8 +416,14 @@ model = "mock-model"
         reconstructed_has_history,
         "Reconstructed run did not preserve final assistant turn history!"
     );
-    assert!(saw_loaded_snapshot, "Resume should log PromptSnapshotLoaded");
-    assert!(saw_reused_snapshot, "Resume should reuse the loaded prompt snapshot");
+    assert!(
+        saw_loaded_snapshot,
+        "Resume should log PromptSnapshotLoaded"
+    );
+    assert!(
+        saw_reused_snapshot,
+        "Resume should reuse the loaded prompt snapshot"
+    );
 
     // 2. Test BRANCHing from a specific checkpoint sequence
     let cancel_branch = gestalt_core::CancelToken::new();
@@ -441,7 +458,7 @@ model = "mock-model"
                     1,
                     "Branched run should only contain the branch prompt"
                 );
-                if let Message::User { content } = &history[0] {
+                if let Message::User { content, .. } = &history[0] {
                     if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
                         assert_eq!(text, "branched prompt");
                     } else {

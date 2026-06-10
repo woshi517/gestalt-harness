@@ -12,7 +12,11 @@ pub struct SkillManifest {
     pub compatibility: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
-    #[serde(default, rename = "allowed-tools", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "allowed-tools",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub allowed_tools: Option<String>,
 }
 
@@ -118,7 +122,8 @@ mod tests {
 
     #[test]
     fn test_parse_minimal() {
-        let raw = "---\nname: pdf-processing\ndescription: Extract PDF text.\n---\n\n# Instructions\n";
+        let raw =
+            "---\nname: pdf-processing\ndescription: Extract PDF text.\n---\n\n# Instructions\n";
         let file = SkillManifest::parse(raw).unwrap();
         assert_eq!(file.manifest.name, "pdf-processing");
         assert_eq!(file.manifest.description, "Extract PDF text.");
@@ -142,7 +147,10 @@ allowed-tools: Read Search
         assert_eq!(file.manifest.name, "data-analysis");
         assert_eq!(file.manifest.license, Some("MIT".to_string()));
         assert_eq!(file.manifest.allowed_tools, Some("Read Search".to_string()));
-        assert_eq!(file.manifest.metadata.get("author"), Some(&"test".to_string()));
+        assert_eq!(
+            file.manifest.metadata.get("author"),
+            Some(&"test".to_string())
+        );
     }
 
     #[test]

@@ -204,11 +204,11 @@ pub fn inspect_trace(
     let cost_rep = aggregate_costs(&trace_path, resolver).ok();
     let estimated_cost_usd = cost_rep.and_then(|c| c.estimated_cost_usd);
 
-        Ok(TraceInspectReport {
-            run_id,
-            path: trace_path,
-            total_events: envelopes.len(),
-            event_types,
+    Ok(TraceInspectReport {
+        run_id,
+        path: trace_path,
+        total_events: envelopes.len(),
+        event_types,
         turns,
         tool_calls,
         policy_decisions,
@@ -216,17 +216,17 @@ pub fn inspect_trace(
         verification_results,
         verification_status,
         artifacts,
-            total_input_tokens,
-            total_output_tokens,
-            estimated_cost_usd,
-            prompt_snapshots_created,
-            prompt_snapshots_loaded,
-            prompt_snapshots_reused,
-            prompt_cache_plans,
-            ephemeral_context_injections,
-            redacted,
-            warnings,
-        })
+        total_input_tokens,
+        total_output_tokens,
+        estimated_cost_usd,
+        prompt_snapshots_created,
+        prompt_snapshots_loaded,
+        prompt_snapshots_reused,
+        prompt_cache_plans,
+        ephemeral_context_injections,
+        redacted,
+        warnings,
+    })
 }
 
 /// Validates trace envelope schemas, monotonic sequence ordering, and artifact presence.

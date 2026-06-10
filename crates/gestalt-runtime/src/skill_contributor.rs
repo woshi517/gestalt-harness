@@ -3,8 +3,8 @@ use crate::error::Result;
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use gestalt_core::{message::Message, ContextStability};
 use gestalt_skills::{
-    ActivationEngine, ActivationState, ActivationReason as SkActivationReason, SkillIndex,
-    render_active_skill_instructions,
+    render_active_skill_instructions, ActivationEngine, ActivationReason as SkActivationReason,
+    ActivationState, SkillIndex,
 };
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
@@ -49,7 +49,10 @@ impl std::fmt::Debug for SkillContributorState {
         f.debug_struct("SkillContributorState")
             .field("index", &self.index)
             .field("active", &self.active)
-            .field("loaded_bodies", &self.loaded_bodies.keys().collect::<Vec<_>>())
+            .field(
+                "loaded_bodies",
+                &self.loaded_bodies.keys().collect::<Vec<_>>(),
+            )
             .field("failed_bodies", &self.failed_bodies)
             .finish()
     }
@@ -96,10 +99,7 @@ impl SkillContributorState {
     /// Resolve active skills for the current turn using the deterministic
     /// `ActivationEngine`. Returns a diff describing what changed relative to
     /// the last resolved set, so callers can emit events.
-    pub fn resolve_active(
-        &mut self,
-        current_task: Option<&str>,
-    ) -> (Vec<String>, ActivationDiff) {
+    pub fn resolve_active(&mut self, current_task: Option<&str>) -> (Vec<String>, ActivationDiff) {
         let previous: HashSet<String> = self.last_resolved_active.clone();
         // Treat the existing set as "explicit" so user intent persists across
         // turns. CLI-requested skills are folded into the same precedence tier
@@ -137,13 +137,11 @@ impl SkillContributorState {
     /// Load the full instruction body for an active skill, returning a copy of
     /// the body on success. Tracks failures so the activation layer can decide
     /// whether to keep the skill in the active set.
-    pub fn load_active_body(
-        &mut self,
-        name: &str,
-    ) -> std::result::Result<String, std::io::Error> {
-        let desc = self.index.get(name).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, "unknown skill")
-        })?;
+    pub fn load_active_body(&mut self, name: &str) -> std::result::Result<String, std::io::Error> {
+        let desc = self
+            .index
+            .get(name)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "unknown skill"))?;
         match std::fs::read_to_string(&desc.manifest_path) {
             Ok(body) => {
                 self.failed_bodies.remove(name);
