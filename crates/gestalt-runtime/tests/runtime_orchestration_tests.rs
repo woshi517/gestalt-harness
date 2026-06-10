@@ -5,7 +5,7 @@ use gestalt_core::{
     message::Message,
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
-    tool::{ToolCatalog, ToolSchema},
+    tool::{Tool, ToolCatalog, ToolSchema},
 };
 use gestalt_runtime::{
     AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, InMemoryArtifactStore,
@@ -233,7 +233,7 @@ async fn test_orchestration_steering_enqueue() {
 
     let mut rx = handle.subscribe();
 
-    // Enqueue a steering message
+    // Enqueue a steering message before session starts running -> SessionNotActive
     let ack = handle
         .enqueue_steering_message(
             &session_id,
@@ -244,16 +244,253 @@ async fn test_orchestration_steering_enqueue() {
         .await
         .unwrap();
 
-    assert_eq!(ack, gestalt_core::session_queue::QueueAck::Queued);
+    assert_eq!(ack, gestalt_core::session_queue::QueueAck::SessionNotActive);
 
-    // Verify SessionMessageQueued event is published on event bus
+    // Verify no SessionMessageQueued event is published on event bus
     let mut event_found = false;
     while let Ok(evt) = rx.try_recv() {
-        if let RuntimeEvent::SessionMessageQueued { message } = &*evt {
-            assert_eq!(message.content, "Inject this follow-up");
-            assert_eq!(message.idempotency_key, Some("key-1".to_string()));
+        if let RuntimeEvent::SessionMessageQueued { .. } = &*evt {
             event_found = true;
         }
     }
-    assert!(event_found, "Should have received SessionMessageQueued event");
+    assert!(!event_found, "Should NOT have received SessionMessageQueued event before active");
+}
+
+#[tokio::test]
+async fn test_orchestration_steering_concurrent() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let provider = Arc::new(SteeringTestProvider {
+        requests: requests.clone(),
+    });
+
+    let tool_handle = Arc::new(Mutex::new(None));
+    let steer_tool = Arc::new(SteeringTestTool {
+        handle: tool_handle.clone(),
+        session_id: "concurrent-steered-session".to_string(),
+    });
+    let tools = Arc::new(SteeringTestToolCatalog {
+        tool: steer_tool,
+    });
+
+    let builder = AgentRuntimeBuilder::new()
+        .provider(provider)
+        .tools(tools)
+        .middleware(Arc::new(PassThroughContextPipeline))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(RuntimeConfig {
+            max_turns: 3,
+            ..Default::default()
+        });
+
+    let artifact_store = Arc::new(InMemoryArtifactStore::new());
+    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store));
+    *tool_handle.lock().unwrap() = Some(handle.clone());
+
+    // Spawn and run the session
+    let session_id = handle
+        .spawn_session("concurrent-steered-session", None)
+        .await
+        .unwrap();
+
+    let res = handle
+        .send_message(&session_id, "Initial prompt")
+        .await
+        .unwrap();
+
+    assert_eq!(res.stop_reason, StopReason::EndTurn);
+
+    // Verify requests sent to the provider
+    let reqs = requests.lock().unwrap().clone();
+    assert_eq!(reqs.len(), 2);
+
+    // Turn 1 request should not have the steered message, but has the initial prompt
+    let req1_msgs = &reqs[0].messages;
+    assert_eq!(req1_msgs.len(), 1);
+    match &req1_msgs[0] {
+        Message::User { content } => {
+            match &content[0] {
+                gestalt_core::message::ContentBlock::Text { text } => {
+                    assert_eq!(text, "Initial prompt");
+                }
+                _ => panic!("Expected text block"),
+            }
+        }
+        _ => panic!("Expected user message"),
+    }
+
+    // Turn 2 request should have:
+    // 1. Initial user prompt
+    // 2. Tool call request (from provider response 1)
+    // 3. Tool response "Tool executed"
+    // 4. INJECTED steering message: "Concurrently injected steering message"
+    let req2_msgs = &reqs[1].messages;
+    // Let's verify that the last message is indeed the injected user message
+    assert!(req2_msgs.len() >= 4);
+
+    let injected_msg = &req2_msgs[3];
+    match injected_msg {
+        Message::User { content } => {
+            match &content[0] {
+                gestalt_core::message::ContentBlock::Text { text } => {
+                    assert_eq!(text, "Concurrently injected steering message");
+                }
+                _ => panic!("Expected text block"),
+            }
+        }
+        _ => panic!("Expected user message"),
+    }
+}
+
+use std::sync::Mutex;
+
+struct SteeringTestProvider {
+    requests: Arc<Mutex<Vec<ProviderRequest>>>,
+}
+
+#[async_trait::async_trait]
+impl Provider for SteeringTestProvider {
+    fn id(&self) -> &str {
+        "steering-mock"
+    }
+    fn display_name(&self) -> &str {
+        "Steering Mock"
+    }
+    fn default_model(&self) -> &str {
+        "mock-model"
+    }
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAP: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: true,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: false,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: true,
+            supports_strict_schema: false,
+        };
+        &CAP
+    }
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(0)
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        self.requests.lock().unwrap().push(request.clone());
+        let turn = self.requests.lock().unwrap().len();
+        if turn == 1 {
+            let events = vec![
+                AgentEvent::ToolCallStreamed {
+                    id: "call-1".to_string(),
+                    name: "steer_tool".to_string(),
+                    input_delta: "{}".to_string(),
+                },
+                AgentEvent::Stop {
+                    reason: StopReason::ToolUse,
+                },
+            ];
+            let stream = futures::stream::iter(
+                events
+                    .into_iter()
+                    .map(Ok::<_, gestalt_core::error::HarnessError>),
+            );
+            Ok(Box::pin(stream))
+        } else {
+            let events = vec![AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            }];
+            let stream = futures::stream::iter(
+                events
+                    .into_iter()
+                    .map(Ok::<_, gestalt_core::error::HarnessError>),
+            );
+            Ok(Box::pin(stream))
+        }
+    }
+}
+
+struct SteeringTestTool {
+    handle: Arc<Mutex<Option<Arc<DefaultAgentRuntimeHandle>>>>,
+    session_id: String,
+}
+
+#[async_trait::async_trait]
+impl gestalt_core::tool::Tool for SteeringTestTool {
+    fn name(&self) -> &str {
+        "steer_tool"
+    }
+    fn description(&self) -> &str {
+        "steer tool"
+    }
+    fn schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": "steer_tool",
+            "description": "steer tool",
+            "input_schema": {
+                "type": "object",
+                "properties": {}
+            }
+        })
+    }
+    fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
+        gestalt_core::tool::RiskLevel::Low
+    }
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &gestalt_core::tool::ToolContext,
+    ) -> Result<gestalt_core::tool::ToolOutput, gestalt_core::error::ToolError> {
+        let handle = self.handle.lock().unwrap().as_ref().unwrap().clone();
+        let ack = handle
+            .enqueue_steering_message(
+                &self.session_id,
+                "Concurrently injected steering message",
+                gestalt_core::session_queue::MessageSource::FollowUp,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(ack, gestalt_core::session_queue::QueueAck::Queued);
+        Ok(gestalt_core::tool::ToolOutput::Text {
+            content: "Tool executed".to_string(),
+        })
+    }
+}
+
+struct SteeringTestToolCatalog {
+    tool: Arc<SteeringTestTool>,
+}
+impl ToolCatalog for SteeringTestToolCatalog {
+    fn schemas(&self) -> Vec<gestalt_core::tool::ToolSchema> {
+        vec![self.tool.schema()]
+    }
+    fn get(&self, name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+        if name == "steer_tool" {
+            Some(self.tool.clone())
+        } else {
+            None
+        }
+    }
+}
+
+struct PassThroughContextPipeline;
+impl ContextPipeline for PassThroughContextPipeline {
+    fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
+        history.to_vec()
+    }
+    fn version(&self) -> &str {
+        "pass-through"
+    }
 }

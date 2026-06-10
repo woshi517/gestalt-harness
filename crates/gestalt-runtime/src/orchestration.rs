@@ -141,7 +141,7 @@ impl AgentRuntimeHandle for DefaultAgentRuntimeHandle {
         };
 
         runtime
-            .enqueue_message(content.to_string(), source, idempotency_key)
+            .enqueue_message(session_id.to_string(), content.to_string(), source, idempotency_key)
             .await
     }
 

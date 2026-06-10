@@ -19,7 +19,7 @@ impl InMemorySteeringQueue {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(QueueState {
-                lifecycle: QueueLifecycle::Active,
+                lifecycle: QueueLifecycle::Completed,
                 messages: Vec::new(),
                 seen_idempotency_keys: HashSet::new(),
             }),
@@ -62,6 +62,9 @@ impl SteeringQueue for InMemorySteeringQueue {
     async fn update_lifecycle(&self, state: QueueLifecycle) -> Result<(), gestalt_core::error::HarnessError> {
         let mut guard = self.state.lock().unwrap();
         guard.lifecycle = state;
+        if state == QueueLifecycle::Completed {
+            guard.messages.clear();
+        }
         Ok(())
     }
 

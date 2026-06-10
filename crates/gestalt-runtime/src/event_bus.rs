@@ -121,6 +121,7 @@ pub enum RuntimeEvent {
         resource_path: String,
     },
     SessionMessageQueued {
+        session_id: String,
         message: gestalt_core::session_queue::QueuedSessionMessage,
     },
 }

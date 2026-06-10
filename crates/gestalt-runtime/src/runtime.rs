@@ -55,7 +55,7 @@ pub struct AgentRuntime {
     /// can be resolved per-turn from `before_context_build`.
     pub skill_state:
         Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
-    pub steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
+    steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
 }
 
 impl AgentRuntime {
@@ -485,6 +485,7 @@ impl AgentRuntime {
 
     pub async fn enqueue_message(
         &self,
+        session_id: String,
         content: String,
         source: gestalt_core::session_queue::MessageSource,
         idempotency_key: Option<String>,
@@ -502,6 +503,7 @@ impl AgentRuntime {
 
         if ack == gestalt_core::session_queue::QueueAck::Queued {
             self.event_bus.publish(RuntimeEvent::SessionMessageQueued {
+                session_id,
                 message: msg,
             });
         }
