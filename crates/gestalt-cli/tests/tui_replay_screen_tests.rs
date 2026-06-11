@@ -42,6 +42,7 @@ mod tests {
             model_override: None,
             tui: Default::default(),
             extensions: Default::default(),
+            skills: Default::default(),
         }
     }
 

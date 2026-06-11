@@ -205,7 +205,7 @@ fn validate_json_value(value: &Value, schema: &Value) -> Result<(), String> {
                         }
                     }
                     if let Some(additional) = schema_obj.get("additionalProperties") {
-                        if let Some(false) = additional.as_bool() {
+                        if additional.as_bool() == Some(false) {
                             if let Some(properties) =
                                 schema_obj.get("properties").and_then(|p| p.as_object())
                             {

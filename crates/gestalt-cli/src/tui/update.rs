@@ -94,14 +94,14 @@ pub fn handle_key_event(state: &mut TuiAppState, key_event: KeyEvent) -> Vec<Tui
         }
         TuiModal::Approval => {
             match key_event.code {
-                KeyCode::Char('a') | KeyCode::Char('y') => {
+                KeyCode::Char('a' | 'y') => {
                     state.chrome.active_modal = TuiModal::None;
                     state.approval.active_request = None;
                     return vec![TuiUiAction::ApprovalDecision {
                         decision: ApprovalDecision::Approve,
                     }];
                 }
-                KeyCode::Char('d') | KeyCode::Char('n') | KeyCode::Char('c') | KeyCode::Esc => {
+                KeyCode::Char('d' | 'n' | 'c') | KeyCode::Esc => {
                     state.chrome.active_modal = TuiModal::None;
                     state.approval.active_request = None;
                     return vec![TuiUiAction::ApprovalDecision {
@@ -408,13 +408,17 @@ pub fn handle_key_event(state: &mut TuiAppState, key_event: KeyEvent) -> Vec<Tui
                                 "/context" => {
                                     if let Some(ref parent) = state.parent_run_id {
                                         return vec![TuiUiAction::ExplainContext(parent.clone())];
-                                    } else {
-                                        push_event(&mut state.chat.events, AgentEvent::Error {
-                                            message: "No runs have been executed in this session yet.".to_string(),
-                                            recoverable: true,
-                                        });
-                                        return Vec::new();
                                     }
+                                    push_event(
+                                        &mut state.chat.events,
+                                        AgentEvent::Error {
+                                            message:
+                                                "No runs have been executed in this session yet."
+                                                    .to_string(),
+                                            recoverable: true,
+                                        },
+                                    );
+                                    return Vec::new();
                                 }
                                 "/branch" => {
                                     if parts.len() < 2 {
@@ -446,26 +450,22 @@ pub fn handle_key_event(state: &mut TuiAppState, key_event: KeyEvent) -> Vec<Tui
                                         state.parent_run_id.clone()
                                     };
 
-                                    match target_run_id {
-                                        Some(run_id) => {
-                                            state.is_running = true;
-                                            state.status = "Running".to_string();
-                                            return vec![TuiUiAction::BranchSession {
-                                                parent_run_id: run_id,
-                                                prompt: prompt_text,
-                                            }];
-                                        }
-                                        None => {
-                                            push_event(
-                                                &mut state.chat.events,
-                                                AgentEvent::Error {
-                                                    message: "No run to branch from.".to_string(),
-                                                    recoverable: true,
-                                                },
-                                            );
-                                            return Vec::new();
-                                        }
+                                    if let Some(run_id) = target_run_id {
+                                        state.is_running = true;
+                                        state.status = "Running".to_string();
+                                        return vec![TuiUiAction::BranchSession {
+                                            parent_run_id: run_id,
+                                            prompt: prompt_text,
+                                        }];
                                     }
+                                    push_event(
+                                        &mut state.chat.events,
+                                        AgentEvent::Error {
+                                            message: "No run to branch from.".to_string(),
+                                            recoverable: true,
+                                        },
+                                    );
+                                    return Vec::new();
                                 }
                                 "/export" => {
                                     if parts.len() < 2 {
@@ -487,13 +487,12 @@ pub fn handle_key_event(state: &mut TuiAppState, key_event: KeyEvent) -> Vec<Tui
                                                     parent_run_id: parent.clone(),
                                                     format,
                                                 }];
-                                            } else {
-                                                push_event(&mut state.chat.events, AgentEvent::Error {
-                                                    message: "No runs have been executed in this session yet.".to_string(),
-                                                    recoverable: true,
-                                                });
-                                                return Vec::new();
                                             }
+                                            push_event(&mut state.chat.events, AgentEvent::Error {
+                                                message: "No runs have been executed in this session yet.".to_string(),
+                                                recoverable: true,
+                                            });
+                                            return Vec::new();
                                         }
                                         _ => {
                                             push_event(&mut state.chat.events, AgentEvent::Error {
@@ -507,13 +506,17 @@ pub fn handle_key_event(state: &mut TuiAppState, key_event: KeyEvent) -> Vec<Tui
                                 "/verify" => {
                                     if let Some(ref parent) = state.parent_run_id {
                                         return vec![TuiUiAction::VerifyRun(parent.clone())];
-                                    } else {
-                                        push_event(&mut state.chat.events, AgentEvent::Error {
-                                            message: "No runs have been executed in this session yet.".to_string(),
-                                            recoverable: true,
-                                        });
-                                        return Vec::new();
                                     }
+                                    push_event(
+                                        &mut state.chat.events,
+                                        AgentEvent::Error {
+                                            message:
+                                                "No runs have been executed in this session yet."
+                                                    .to_string(),
+                                            recoverable: true,
+                                        },
+                                    );
+                                    return Vec::new();
                                 }
                                 _ => {
                                     push_event(&mut state.chat.events, AgentEvent::Error {

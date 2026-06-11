@@ -775,7 +775,7 @@ pub async fn run_session_action(
         Ok(result) => {
             manifest.lifecycle_state = LifecycleState::Completed;
             let _ = write_summary(&run_paths.summary, &result);
-            let _ = sink.flush();
+            crate::run::flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             Ok(run_paths.root.clone())
         }
@@ -784,7 +784,7 @@ pub async fn run_session_action(
         )) => {
             manifest.lifecycle_state = LifecycleState::Interrupted;
             manifest.interrupted_phase = Some("agent_loop".to_string());
-            let _ = sink.flush();
+            crate::run::flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
 
             let mock_run_result = gestalt_core::session::RunResult {
                 session_id: session.id.clone(),
@@ -802,7 +802,7 @@ pub async fn run_session_action(
         Err(err) => {
             manifest.lifecycle_state = LifecycleState::Failed;
             manifest.failure_kind = Some(format!("{:?}", err));
-            let _ = sink.flush();
+            crate::run::flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
 
             let mock_run_result = gestalt_core::session::RunResult {
                 session_id: session.id.clone(),
