@@ -259,6 +259,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bash_risk_should_match_policy_classifier_for_command_matrix() {
+        let cases = [
+            ("rm -rf /", RiskLevel::Critical),
+            ("cat .env.local", RiskLevel::High),
+            ("cat foo.txt | grep bar", RiskLevel::High),
+            ("curl https://example.com", RiskLevel::High),
+            ("mkdir tmp/output", RiskLevel::Medium),
+            ("git status", RiskLevel::Low),
+            ("custom-command --flag", RiskLevel::Medium),
+        ];
+
+        for (command, expected) in cases {
+            assert_eq!(
+                BashTool::default().risk(&json!({"command": command})),
+                expected
+            );
+            assert_eq!(gestalt_policy::classify_bash(command), expected);
+        }
+    }
+
     #[tokio::test]
     async fn bash_should_restrict_cwd() {
         let root = temp_workspace("bash-cwd");

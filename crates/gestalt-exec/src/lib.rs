@@ -99,6 +99,10 @@ impl Drop for ProcessGroupKiller {
         if let Some(pid) = self.child_id {
             unsafe {
                 if let Ok(pid) = i32::try_from(pid) {
+                    // SAFETY: `pid` comes from a spawned child process. Negating it targets the
+                    // child's process group, which we created with `setsid()` in `pre_exec`.
+                    // Best-effort cleanup is acceptable in `Drop` because failures cannot be
+                    // reported and we only invoke the async-signal-safe `kill(2)` syscall.
                     libc::kill(-pid, libc::SIGKILL);
                 }
             }
@@ -138,6 +142,9 @@ impl ExecutionSandbox for NoSandbox {
         #[cfg(unix)]
         unsafe {
             cmd.pre_exec(|| {
+                // SAFETY: `pre_exec` runs in the child after fork and before exec. We only call
+                // the async-signal-safe `setsid(2)` syscall to place the child in its own process
+                // group so timeout/drop cleanup can kill the whole subtree.
                 libc::setsid();
                 Ok(())
             });
@@ -210,6 +217,9 @@ impl ExecutionSandbox for NoSandbox {
             if let Some(pid) = child.id() {
                 unsafe {
                     if let Ok(pid) = i32::try_from(pid) {
+                        // SAFETY: `pid` belongs to the spawned child process group established by
+                        // `setsid()` above. On timeout we perform best-effort group termination to
+                        // avoid leaving descendant processes behind.
                         libc::kill(-pid, libc::SIGKILL);
                     }
                 }

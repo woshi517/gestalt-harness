@@ -28,26 +28,17 @@ impl ProcessExtensionBroker {
     pub async fn spawn(manifest: ExtensionManifest, event_bus: RuntimeEventBus) -> Result<Self> {
         let extension_id = manifest.id.clone();
 
-        // Shell permission check before running command
-        if !manifest.permissions.allow_shell {
-            let cmd = &manifest.entrypoint.command;
-            if cmd.contains(' ')
-                || cmd.contains('|')
-                || cmd.contains('&')
-                || cmd.contains(';')
-                || cmd.contains('>')
-                || cmd.contains('<')
-            {
-                event_bus.publish(RuntimeEvent::ExtensionRejected {
-                    extension_id: extension_id.clone(),
-                    reason:
-                        "Entrypoint command requires shell interpretation but allow_shell is false"
-                            .to_string(),
-                });
-                return Err(RuntimeError::Extension(
-                    "Missing shell permission for command".to_string(),
-                ));
-            }
+        if let Err(reason) = crate::manifest::validate_shell_entrypoint(
+            &manifest.entrypoint,
+            manifest.permissions.allow_shell,
+        ) {
+            event_bus.publish(RuntimeEvent::ExtensionRejected {
+                extension_id: extension_id.clone(),
+                reason,
+            });
+            return Err(RuntimeError::Extension(
+                "Missing shell permission for command".to_string(),
+            ));
         }
 
         let mut cmd = Command::new(&manifest.entrypoint.command);

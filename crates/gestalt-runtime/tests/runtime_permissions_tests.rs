@@ -3,6 +3,9 @@ use gestalt_runtime::{
     Entrypoint, ExtensionManifest, Permissions, RuntimeEventBus,
 };
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn dummy_manifest() -> ExtensionManifest {
     ExtensionManifest {
@@ -31,6 +34,18 @@ fn dummy_manifest() -> ExtensionManifest {
         hooks: vec![],
         context_injectors: vec![],
     }
+}
+
+fn temp_workspace() -> std::path::PathBuf {
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!(
+        "gestalt-runtime-permissions-{}-{}",
+        std::process::id(),
+        id
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
 #[test]
@@ -78,6 +93,68 @@ fn test_permissions_paths() {
         &event_bus,
     );
     assert!(res.is_err());
+}
+
+#[test]
+fn test_permissions_reject_nonexistent_traversal_outside_workspace() {
+    let mut manifest = dummy_manifest();
+    manifest.permissions.allow_workspace_write = true;
+    let event_bus = RuntimeEventBus::new();
+    let workspace = temp_workspace();
+    let outside = workspace
+        .parent()
+        .expect("temp workspace should have parent")
+        .join("outside-target");
+
+    let res = check_path_permission(
+        &manifest,
+        &workspace,
+        Path::new("../outside-target/new-file.txt"),
+        true,
+        &event_bus,
+    );
+    assert!(
+        res.is_err(),
+        "expected traversal outside workspace to be denied"
+    );
+    assert!(
+        !outside.join("new-file.txt").exists(),
+        "permission check must not treat traversal path as workspace-local"
+    );
+
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_permissions_reject_symlink_escape_for_nonexistent_target() {
+    let mut manifest = dummy_manifest();
+    manifest.permissions.allow_workspace_write = true;
+    let event_bus = RuntimeEventBus::new();
+    let workspace = temp_workspace();
+    let outside = workspace
+        .parent()
+        .expect("temp workspace should have parent")
+        .join(format!(
+            "outside-target-{}",
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+    std::fs::create_dir_all(&outside).unwrap();
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, workspace.join("linked-outside")).unwrap();
+
+    let res = check_path_permission(
+        &manifest,
+        &workspace,
+        Path::new("linked-outside/../escaped.txt"),
+        true,
+        &event_bus,
+    );
+    assert!(res.is_err(), "expected symlink escape to be denied");
+
+    let _ = std::fs::remove_dir_all(&workspace);
+    let _ = std::fs::remove_dir_all(&outside);
 }
 
 #[test]

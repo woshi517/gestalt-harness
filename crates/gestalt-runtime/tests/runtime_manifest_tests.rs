@@ -162,4 +162,52 @@ allow_shell = false
 "#;
     let manifest = ExtensionManifest::parse(invalid_toml).unwrap();
     assert!(manifest.validate(true).is_err());
+
+    // Shell bypass through entrypoint args without allow_shell
+    let invalid_toml = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "env"
+args = ["bash", "-c", "echo hi"]
+[capabilities]
+[permissions]
+allow_shell = false
+"#;
+    let manifest = ExtensionManifest::parse(invalid_toml).unwrap();
+    assert!(manifest.validate(true).is_err());
+
+    // Shell bypass through wrapper command without shell-only flags
+    let invalid_toml = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "env"
+args = ["bash", "script.sh"]
+[capabilities]
+[permissions]
+allow_shell = false
+"#;
+    let manifest = ExtensionManifest::parse(invalid_toml).unwrap();
+    assert!(manifest.validate(true).is_err());
+
+    // Non-shell commands may legitimately use -c style flags
+    let valid_toml = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "python"
+args = ["-c", "print('hi')"]
+[capabilities]
+[permissions]
+allow_shell = false
+"#;
+    let manifest = ExtensionManifest::parse(valid_toml).unwrap();
+    assert!(manifest.validate(true).is_ok());
 }
