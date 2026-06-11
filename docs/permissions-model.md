@@ -15,7 +15,7 @@ Gestalt's permissions model is **host-side gating, not OS sandboxing**. Extensio
 | `allowed_paths` | `Vec<String>` | `[]` | Additional paths (outside workspace) the extension can access |
 | `allow_all_paths` | `bool` | `false` | Bypass all filesystem checks — access any path |
 
-Path resolution uses `canonicalize()` on both the requested path and the workspace root to prevent `../` traversal attacks. If a path falls within the workspace root, `allow_workspace_read` or `allow_workspace_write` is checked. If it falls outside, the `allowed_paths` list is checked. If `allow_all_paths` is `true`, all checks pass immediately.
+Path resolution uses `canonicalize()` on both the requested path and the workspace root to prevent `../` traversal attacks. For paths (or parent directories) that do not yet exist, the validation falls back to resolving and canonicalizing their closest existing ancestor path, then normalizes the relative path segments. If the resolved path falls within the workspace root, `allow_workspace_read` or `allow_workspace_write` is checked. If it falls outside, the `allowed_paths` list is checked. If `allow_all_paths` is `true`, all checks pass immediately.
 
 ### Network
 
@@ -87,7 +87,7 @@ Every tool invocation goes through `check_input_permissions()` which recursively
 
 **`check_path_permission(manifest, workspace_root, path, write, event_bus)`**
 1. If `allow_all_paths` → OK
-2. If path canonicalizes inside workspace root → check `allow_workspace_read` (read) or `allow_workspace_write` (write)
+2. If the resolved path (falling back to canonicalizing the closest existing ancestor for nonexistent paths) lies inside the workspace root → check `allow_workspace_read` (read) or `allow_workspace_write` (write)
 3. Otherwise, check `allowed_paths` list
 4. Publishes `RuntimeEvent::PermissionDecision`
 
@@ -182,14 +182,14 @@ When `allow_shell` is `false`, the manifest validation enforces two rules on `en
 
 **Metacharacter detection:** The command must not contain any of: space, `|`, `&`, `;`, `>`, `<`. Presence of these indicates the command requires shell interpretation (e.g., piping, chaining, redirection).
 
-**Known shell detection:** The command's filename (extracted via `Path::file_name()`) is compared case-insensitively against:
+**Known shell detection:** The command is resolved through wrapper binaries (like `env` or `command`) to find the actual underlying binary being run. The filename of this resolved binary (extracted via `Path::file_name()`) is compared case-insensitively against:
 
 ```
 sh, bash, zsh, ksh, csh, tcsh, cmd, cmd.exe,
 powershell, powershell.exe, pwsh, pwsh.exe, fish
 ```
 
-If the command names a shell directly, it is rejected unless `allow_shell` is `true`.
+If the resolved command names a shell directly, it is rejected unless `allow_shell` is `true`. This prevents wrapper-based shell bypass.
 
 ## Limitations & Honesty
 

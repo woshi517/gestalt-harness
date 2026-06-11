@@ -169,7 +169,7 @@ This declares a single tool (`bash_tool`), a context injector (`bash_context`), 
 | Hooks declared → hooks capability | `!self.hooks.is_empty() && !self.capabilities.hooks` | `"Extension declares hooks but capabilities.hooks is false"` |
 | Context injectors declared → context capability | `!self.context_injectors.is_empty() && !self.capabilities.context` | `"Extension declares context injectors but capabilities.context is false"` |
 | Shell metacharacters in entrypoint (allow_shell=false) | `cmd.contains(' \|')` / `cmd.contains('|')` / etc. | `"Entrypoint command requires shell interpretation but allow_shell permission is false"` |
-| Shell binary in entrypoint (allow_shell=false) | Command filename matches known shell (case-insensitive): `sh`, `bash`, `zsh`, `ksh`, `csh`, `tcsh`, `cmd`, `cmd.exe`, `powershell`, `powershell.exe`, `pwsh`, `pwsh.exe`, `fish` | `"Entrypoint command is a shell executable but allow_shell permission is false"` |
+| Shell binary in entrypoint (allow_shell=false) | Command filename (or underlying command resolved through wrappers like `env` or `command`) matches known shell (case-insensitive): `sh`, `bash`, `zsh`, `ksh`, `csh`, `tcsh`, `cmd`, `cmd.exe`, `powershell`, `powershell.exe`, `pwsh`, `pwsh.exe`, `fish` | `"Entrypoint command is a shell executable but allow_shell permission is false"` |
 
 ## Field Constraints
 
