@@ -127,9 +127,6 @@ graph TD
     Trace[gestalt-trace]
     MCP[gestalt-mcp]
     Exec[gestalt-exec]
-    Docs[gestalt-docs]
-    Index[gestalt-index]
-    Memory[gestalt-memory]
 
     CLI --> Core
     CLI --> Models
@@ -145,15 +142,9 @@ graph TD
     Tools --> Core
     Tools --> Exec
     Context --> Core
-    Context --> Docs
-    Context --> Index
-    Context --> Memory
     Policy --> Core
     Trace --> Core
     MCP --> Core
-    Docs --> Core
-    Index --> Core
-    Memory --> Core
     Exec --> Core
 ```
 
@@ -269,6 +260,16 @@ Hooks are chained via `ComposedCompositionHooks` which runs user-registered hook
 - **`AgentRuntimeHandle`** — trait for spawning sessions, sending messages, subscribing to events, and managing artifacts. Implemented by `DefaultAgentRuntimeHandle`.
 - **`Orchestrator`** — trait for composing multi-agent workflows (e.g., writer-reviewer loops, artifact handoff chains).
 - **`ArtifactStore`** — pluggable file storage for session artifacts. Implementations: `InMemoryArtifactStore` (testing), `FilesystemArtifactStore` (production, with path-traversal prevention).
+
+#### 4.4.5 Deferred Knowledge Source Capabilities
+
+To align with the project's extension-first architecture, the following knowledge-management capabilities are deferred from the v0.1 core and will be implemented as process-backed extensions:
+
+1. **Document Extraction & Ingestion** (formerly `gestalt-docs`): Ingestion of Markdown, HTML, and PDF files. This capability will integrate via [ProcessBackedTool](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/src/process_extension.rs) (for ad-hoc extraction commands) and [ProcessBackedContextContributor](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/src/process_extension.rs) (to inject files into the context compiler).
+2. **Lexical Workspace Search Index** (formerly `gestalt-index`): A BM25/ripgrep search index. This capability will integrate as a standard tool registered via [ProcessBackedTool](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/src/process_extension.rs).
+3. **Memory Proposal & Deduplication** (formerly `gestalt-memory`): Synthesizing memory updates at session end. This capability will hook into the runtime using [CompositionHooks](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/src/composition_hooks.rs) (specifically the `prepare_next_turn` or custom finalization hooks).
+
+For details on building and declaring these capabilities, see the [Extension Development Guide](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/docs/extension-development-guide.md), [Extension Manifest Schema](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/docs/extension-manifest-schema.md), and [Composition Hooks Guide](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/docs/composition-hooks-guide.md).
 
 ---
 
