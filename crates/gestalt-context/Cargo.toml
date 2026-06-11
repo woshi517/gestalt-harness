@@ -12,9 +12,6 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
-gestalt-docs = { path = "../gestalt-docs" }
-gestalt-index = { path = "../gestalt-index" }
-gestalt-memory = { path = "../gestalt-memory" }
 tiktoken-rs = { workspace = true }
 pulldown-cmark = { workspace = true }
 sha2 = { workspace = true }

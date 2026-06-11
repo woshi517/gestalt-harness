@@ -1279,12 +1279,13 @@ The runtime composition layer, extension system, process-backed extensions, even
 ### 🔜 Phase 3 — Knowledge Ingestion, MCP & Skills (Current)
 
 - `gestalt-mcp`: MCP client over stdio and HTTP SSE; capability negotiation; tool registration; trust boundary enforcement
-- `gestalt-docs`: PDF ingestion (`pdfium-render`), HTML readability extraction, Markdown chunking; source cache with content hashing
-- `gestalt-memory`: `memory.md` parser, memory proposal generation at session end, deduplication
-- `gestalt-index`: lexical workspace search index (BM25 / ripgrep); source summary cache
 - Citation contract enforcement and `CitationVerifier`
 - `gestalt skill` command, SKILL.md parser, three-phase disclosure, skill trust levels
 - Pipeline mode: Markdown pipeline parser, sequential task execution, run diffs
+- **Deferred to Extension Layer (Future):**
+  - Document Ingestion (formerly `gestalt-docs`): PDF ingestion (`pdfium-render`), HTML readability extraction, Markdown chunking; source cache with content hashing (to be implemented as process-backed tools/context contributors)
+  - Persistent Session Memory (formerly `gestalt-memory`): `memory.md` parser, memory proposal generation at session end, deduplication (to be implemented via composition hooks)
+  - Workspace Search Index (formerly `gestalt-index`): lexical workspace search index (BM25 / ripgrep); source summary cache (to be implemented as a process-backed search tool)
 
 ### 🔜 Phase 4 — Autonomy, Sandboxing & Embedding (Future)
 

@@ -59,7 +59,7 @@ bash scripts/check-binary-size.sh
    - The sacred loop implementation (`gestalt-core/src/agent.rs`) must remain lightweight (target: under 200 lines).
 3. **Crate Boundaries:**
    - `gestalt-tools` depends on `gestalt-exec` for subprocess execution.
-   - `gestalt-context` orchestrates `gestalt-docs`, `gestalt-index`, and `gestalt-memory`.
+   - `gestalt-context` compiles context sources like the current workspace and session memory.
 4. **Git Hygiene:**
    - Never stage all changes indiscriminately (avoid `git add -A` or `git add .`). Manually inspect and stage specific files.
    - Avoid destructive git actions (`git reset --hard` or `git checkout .`) unless absolutely necessary.

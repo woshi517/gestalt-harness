@@ -95,9 +95,6 @@ flowchart TD
   - `gestalt-policy`
   - `gestalt-context`
   - `gestalt-trace`
-  - `gestalt-docs`
-  - `gestalt-index`
-  - `gestalt-memory`
   - `gestalt-mcp`
 - [x] Configure shared package metadata: license, edition, repository, authors, rust-version.
 - [x] Add feature flags for deferred capabilities: `pdf`, `mcp`, `tui`, `otel`, `wasm`.
@@ -408,9 +405,9 @@ The minimal policy gate from v0.1 evolves into a complete runtime control layer.
 
 ---
 
-### P2.2 Document Ingestion & Source Cache
+### P2.2 Document Ingestion & Source Cache (Deferred to Extension Layer)
 
-Introduce the knowledge substrate used by research and document-heavy workflows.
+Introduce the knowledge substrate used by research and document-heavy workflows. This capability is deferred from the core crates and will be implemented via external process-backed extensions registering tools and context contributors.
 
 #### Deliverables
 
@@ -431,9 +428,9 @@ Introduce the knowledge substrate used by research and document-heavy workflows.
 
 ---
 
-### P2.3 Workspace Search Index
+### P2.3 Workspace Search Index (Deferred to Extension Layer)
 
-Provide deterministic retrieval without introducing vector infrastructure.
+Provide deterministic retrieval without introducing vector infrastructure. This capability is deferred from the core crates and will be implemented via external process-backed search tools.
 
 #### Deliverables
 
@@ -460,9 +457,9 @@ Those remain future optional enhancements.
 
 ---
 
-### P2.4 Memory System
+### P2.4 Memory System (Deferred to Extension Layer)
 
-Introduce durable, human-readable memory.
+Introduce durable, human-readable memory. This capability is deferred from the core crates and will be implemented via composition hooks in the extension layer.
 
 #### Deliverables
 
