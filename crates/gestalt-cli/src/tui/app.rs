@@ -557,6 +557,7 @@ pub async fn run_tui(
                                         mode: state.config.defaults.mode.clone(),
                                         max_turns: state.config.defaults.max_turns,
                                         profile: state.config.defaults.profile.clone(),
+                                        ..crate::config::CliOverrides::default()
                                     };
                                     let tx = bridge_tx.clone();
                                     tokio::spawn(async move {

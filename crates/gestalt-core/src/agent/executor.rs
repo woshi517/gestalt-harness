@@ -396,9 +396,7 @@ impl ToolExecutor {
                         parallel_safe: true,
                     })?;
                 }
-                if let Some(s) = sink {
-                    let _ = s.flush();
-                }
+                flush_trace_sink(sink, emit)?;
 
                 let cancel_clone = cancel_token.clone();
                 let retry_tx_clone = retry_tx.clone();
@@ -473,9 +471,7 @@ impl ToolExecutor {
                 parallel_group_id: None,
                 parallel_safe: false,
             })?;
-            if let Some(s) = sink {
-                let _ = s.flush();
-            }
+            flush_trace_sink(sink, emit)?;
 
             let descriptor = tool.descriptor();
             let retry_policy = descriptor.retry_policy.as_ref();
@@ -510,9 +506,7 @@ impl ToolExecutor {
                     parallel_safe: true,
                 })?;
             }
-            if let Some(s) = sink {
-                let _ = s.flush();
-            }
+            flush_trace_sink(sink, emit)?;
 
             let cancel_clone = cancel_token.clone();
             let retry_tx_clone = retry_tx.clone();
@@ -742,6 +736,22 @@ fn emit_policy_decision(
     })
 }
 
+fn flush_trace_sink(
+    sink: Option<&dyn crate::trace::TraceSink>,
+    emit: &mut impl FnMut(AgentEvent) -> crate::error::Result<()>,
+) -> crate::error::Result<()> {
+    if let Some(sink) = sink {
+        if let Err(err) = sink.flush() {
+            emit(AgentEvent::Error {
+                message: format!("trace flush failed: {err}"),
+                recoverable: true,
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn emit_tool_hooks_before<F>(
     hooks: &crate::hook::HookRegistry,
     session: &Session,
@@ -928,21 +938,22 @@ async fn execute_tool_with_retry(
             .map_or(ToolFailureKind::ExecutionFailed, |f| f.kind);
         let is_transient = failure_kind.is_transient();
 
-        let can_retry = if let Some(policy) = retry_policy {
-            let is_idempotent = descriptor.annotations.get_trusted_bool("idempotent");
-            let is_read_only = descriptor.annotations.get_trusted_bool("read_only");
-
-            attempt < policy.max_retries && is_idempotent && is_read_only && is_transient
-        } else {
-            false
+        let Some(policy) = retry_policy else {
+            return result;
         };
+
+        let is_idempotent = descriptor.annotations.get_trusted_bool("idempotent");
+        let is_read_only = descriptor.annotations.get_trusted_bool("read_only");
+
+        let can_retry =
+            attempt < policy.max_retries && is_idempotent && is_read_only && is_transient;
 
         if !can_retry {
             return result;
         }
 
         attempt += 1;
-        let delay_ms = retry_policy.unwrap().backoff_ms;
+        let delay_ms = policy.backoff_ms;
 
         // Emit retry event
         let _ = emit_retry_tx.send(AgentEvent::ToolRetryAttempt {

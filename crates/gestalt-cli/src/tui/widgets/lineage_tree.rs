@@ -73,7 +73,7 @@ pub fn draw_lineage_tree(
             let mut spans = prefix_spans;
             spans.push(Span::styled(format!("● {short_id}"), node_style));
             let turns = node.turns;
-            spans.push(Span::raw(format!(" ({turns}t) [",)));
+            spans.push(Span::raw(format!(" ({turns}t) [")));
             spans.push(Span::styled(
                 &node.lifecycle_state,
                 Style::default().fg(status_color),

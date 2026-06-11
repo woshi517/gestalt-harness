@@ -108,12 +108,11 @@ impl ToolAnnotations {
 
     pub fn get_trusted_bool(&self, key: &str) -> bool {
         self.get(key)
-            .map(|a| a.source == AnnotationSource::BuiltInTrusted && a.value == "true")
-            .unwrap_or(false)
+            .is_some_and(|a| a.source == AnnotationSource::BuiltInTrusted && a.value == "true")
     }
 
     pub fn get_bool_advisory(&self, key: &str) -> bool {
-        self.get(key).map(|a| a.value == "true").unwrap_or(false)
+        self.get(key).is_some_and(|a| a.value == "true")
     }
 }
 

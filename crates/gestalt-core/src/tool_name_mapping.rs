@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Maximum length of a provider-facing alias. Common provider limits
-/// (Anthropic 64, OpenAI 64) sit at or below this value, so we cap here
+/// (Anthropic 64, `OpenAI` 64) sit at or below this value, so we cap here
 /// once and let individual providers do their own validation.
 pub const MAX_PROVIDER_NAME_LEN: usize = 64;
 
@@ -195,9 +195,7 @@ impl ToolNameMapping {
     /// names. The order of `tools` defines which colliding tool keeps
     /// the un-suffixed alias, so callers should pass descriptors in a
     /// deterministic order (e.g. sorted by canonical internal ID).
-    pub fn build_mapping_with_resolution(
-        tools: &[(CanonicalToolId, String, String)],
-    ) -> Vec<ToolNameMapping> {
+    pub fn build_mapping_with_resolution(tools: &[(CanonicalToolId, String, String)]) -> Vec<Self> {
         let ids: Vec<CanonicalToolId> = tools.iter().map(|(id, _, _)| id.clone()).collect();
         let resolved = Self::resolve_provider_names(&ids);
         let mut by_id: HashMap<CanonicalToolId, String> = resolved.into_iter().collect();
@@ -207,7 +205,7 @@ impl ToolNameMapping {
                 let provider_name = by_id
                     .remove(id)
                     .unwrap_or_else(|| Self::generate_provider_name(id));
-                ToolNameMapping {
+                Self {
                     internal_id: id.clone(),
                     provider_name,
                     display_name: display_name.clone(),

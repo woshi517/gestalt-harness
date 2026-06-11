@@ -74,7 +74,7 @@ pub fn draw_session_switcher(
         }
     }
 
-    let has_sessions = model.map_or(false, |m| !m.sessions.is_empty());
+    let has_sessions = model.is_some_and(|m| !m.sessions.is_empty());
 
     if items.len() <= 2 {
         items.push(ListItem::new(Line::from(vec![Span::styled(

@@ -9,7 +9,7 @@ use gestalt_cli::runtime::{
     activate_skill, deactivate_skill, validate_skill_activation, SkillValidation,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -22,14 +22,14 @@ fn temp_workspace() -> PathBuf {
     dir
 }
 
-fn overrides_with_workspace(workspace: PathBuf) -> CliOverrides {
+fn overrides_with_workspace(workspace: &Path) -> CliOverrides {
     CliOverrides {
-        workspace: Some(workspace),
+        workspace: Some(workspace.to_path_buf()),
         ..Default::default()
     }
 }
 
-fn write_gestalt_json(workspace: &PathBuf, skills: SkillsConfig) {
+fn write_gestalt_json(workspace: &Path, skills: SkillsConfig) {
     let path = workspace.join("gestalt.json");
     let wrapper = serde_json::json!({
         "providers": {},
@@ -43,13 +43,13 @@ fn write_gestalt_json(workspace: &PathBuf, skills: SkillsConfig) {
     std::fs::write(&path, serde_json::to_string_pretty(&wrapper).unwrap()).unwrap();
 }
 
-fn load_config_for(workspace: &PathBuf, skills: SkillsConfig) -> EffectiveConfig {
+fn load_config_for(workspace: &Path, skills: SkillsConfig) -> EffectiveConfig {
     write_gestalt_json(workspace, skills);
-    let overrides = overrides_with_workspace(workspace.clone());
+    let overrides = overrides_with_workspace(workspace);
     gestalt_cli::config::load_effective_config(&overrides).expect("config loads")
 }
 
-fn make_skill_dir(workspace: &PathBuf, name: &str) -> PathBuf {
+fn make_skill_dir(workspace: &Path, name: &str) -> PathBuf {
     let dir = workspace.join(".gestalt").join("skills").join(name);
     std::fs::create_dir_all(&dir).unwrap();
     let manifest =
@@ -104,7 +104,7 @@ fn validation_accepts_known_workspace_skill() {
 fn activate_skill_persists_to_workspace_config() {
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
-    let overrides = overrides_with_workspace(workspace.clone());
+    let overrides = overrides_with_workspace(&workspace);
     // Need a config to validate against before we mutate it; write a minimal
     // gestalt.json that contains no skills.active entry yet.
     write_gestalt_json(&workspace, SkillsConfig::default());
@@ -120,11 +120,10 @@ fn activate_skill_persists_to_workspace_config() {
         .and_then(|a| a.as_array())
         .cloned()
         .unwrap_or_default();
-    let names: Vec<String> = active
+    assert!(active
         .iter()
-        .filter_map(|v| v.as_str().map(String::from))
-        .collect();
-    assert!(names.contains(&"pdf".to_string()));
+        .filter_map(|v| v.as_str())
+        .any(|name| name == "pdf"));
 }
 
 #[test]
@@ -132,7 +131,7 @@ fn activate_skill_rejects_unknown_name_with_error() {
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     write_gestalt_json(&workspace, SkillsConfig::default());
-    let overrides = overrides_with_workspace(workspace.clone());
+    let overrides = overrides_with_workspace(&workspace);
 
     let res = activate_skill(&overrides, "missing-skill");
     assert!(res.is_err(), "expected error for unknown skill");
@@ -151,11 +150,10 @@ fn activate_skill_rejects_unknown_name_with_error() {
         .and_then(|a| a.as_array())
         .cloned()
         .unwrap_or_default();
-    let names: Vec<String> = active
+    assert!(!active
         .iter()
-        .filter_map(|v| v.as_str().map(String::from))
-        .collect();
-    assert!(!names.contains(&"missing-skill".to_string()));
+        .filter_map(|v| v.as_str())
+        .any(|name| name == "missing-skill"));
 }
 
 #[test]
@@ -163,7 +161,7 @@ fn deactivate_skill_rejects_unknown_name_with_error() {
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     write_gestalt_json(&workspace, SkillsConfig::default());
-    let overrides = overrides_with_workspace(workspace.clone());
+    let overrides = overrides_with_workspace(&workspace);
 
     let res = deactivate_skill(&overrides, "missing-skill");
     assert!(res.is_err());
@@ -204,7 +202,7 @@ fn deactivation_override_removes_persisted_active_skill() {
     skills.active.push("pdf".to_string());
     let _config = load_config_for(&workspace, skills);
 
-    let mut overrides = overrides_with_workspace(workspace.clone());
+    let mut overrides = overrides_with_workspace(&workspace);
     overrides.skills.push("!pdf".to_string());
 
     let effective = gestalt_cli::config::load_effective_config(&overrides).expect("config loads");

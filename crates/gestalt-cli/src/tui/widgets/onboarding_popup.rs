@@ -108,7 +108,7 @@ pub fn draw_onboarding_popup(
     let masked_key = if is_ollama {
         "Ollama will connect directly to http://localhost:11434".to_string()
     } else if api_key.is_empty() {
-        "".to_string()
+        String::new()
     } else {
         "*".repeat(api_key.len())
     };

@@ -35,7 +35,7 @@ pub enum QueueAck {
 pub enum QueueLifecycle {
     /// Runtime opens the queue when a run becomes able to accept steering.
     Active,
-    /// AgentLoop closes the queue at the terminal stop boundary, after the
+    /// `AgentLoop` closes the queue at the terminal stop boundary, after the
     /// final safe pre-request drain point and before session-end hooks.
     Closing,
     /// Runtime completes the queue after `AgentLoop::run` returns and outer

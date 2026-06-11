@@ -1,7 +1,9 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use gestalt_context::MinimalContextPipeline;
-use gestalt_core::{trace::TraceSink, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter};
+use gestalt_core::{
+    trace::TraceSink, AgentEvent, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter,
+};
 use gestalt_policy::MinimalPolicyEngine;
 use gestalt_trace::{
     aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink,
@@ -117,7 +119,7 @@ pub async fn run_prompt(
         Ok(result) => {
             manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Completed;
             let _ = write_summary(&run_paths.summary, &result);
-            let _ = sink.flush();
+            flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             Ok(run_paths.root.clone())
         }
@@ -126,7 +128,7 @@ pub async fn run_prompt(
         )) => {
             manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Interrupted;
             manifest.interrupted_phase = Some("agent_loop".to_string());
-            let _ = sink.flush();
+            flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
 
             let mock_run_result = gestalt_core::session::RunResult {
                 session_id,
@@ -144,7 +146,7 @@ pub async fn run_prompt(
         Err(err) => {
             manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Failed;
             manifest.failure_kind = Some(format!("{:?}", err));
-            let _ = sink.flush();
+            flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
 
             let mock_run_result = gestalt_core::session::RunResult {
                 session_id,
@@ -280,7 +282,7 @@ pub(crate) fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::Ap
 #[allow(dead_code)]
 pub(crate) fn emit_trace_event<S: TraceSink>(
     sink: &S,
-    event: gestalt_core::AgentEvent,
+    event: AgentEvent,
     trace_error_count: &mut usize,
     max_trace_errors: usize,
 ) -> Result<(), gestalt_core::HarnessError> {
@@ -295,13 +297,37 @@ pub(crate) fn emit_trace_event<S: TraceSink>(
     Ok(())
 }
 
+pub(crate) fn flush_trace_sink_with_warning(
+    sink: &dyn TraceSink,
+    event_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
+) {
+    if let Err(err) = sink.flush() {
+        let event = AgentEvent::Error {
+            message: format!("trace flush failed: {err}"),
+            recoverable: true,
+        };
+
+        if let Some(tx) = event_tx {
+            if tx.send(event.clone()).is_ok() {
+                return;
+            }
+        }
+
+        if let Some(line) = render_event(&event) {
+            eprintln!("{line}");
+        } else {
+            eprintln!("trace flush failed: {err}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
 
     use gestalt_core::{error::TraceError, trace::TraceSink, AgentEvent, PromptAssemblyStrategy};
 
-    use super::emit_trace_event;
+    use super::{emit_trace_event, flush_trace_sink_with_warning};
 
     #[derive(Default)]
     struct FailingTraceSink {
@@ -319,6 +345,21 @@ mod tests {
 
         fn flush(&self) -> Result<(), TraceError> {
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct FlushFailingTraceSink;
+
+    impl TraceSink for FlushFailingTraceSink {
+        fn emit(&self, _event: AgentEvent) -> Result<(), TraceError> {
+            Ok(())
+        }
+
+        fn flush(&self) -> Result<(), TraceError> {
+            Err(TraceError::WriteFailed(std::io::Error::other(
+                "trace flush boom",
+            )))
         }
     }
 
@@ -348,6 +389,26 @@ mod tests {
         );
         assert!(second.is_err());
         assert_eq!(trace_error_count, 2);
+    }
+
+    #[test]
+    fn trace_flush_failure_is_forwarded_as_error_event() {
+        let sink = FlushFailingTraceSink;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        flush_trace_sink_with_warning(&sink, Some(&tx));
+
+        let event = rx.try_recv().expect("expected flush failure event");
+        match event {
+            AgentEvent::Error {
+                message,
+                recoverable,
+            } => {
+                assert!(recoverable);
+                assert!(message.contains("trace flush failed"));
+            }
+            other => panic!("expected error event, got {other:?}"),
+        }
     }
 
     #[test]

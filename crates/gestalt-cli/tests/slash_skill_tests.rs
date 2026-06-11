@@ -4,7 +4,7 @@
 
 use gestalt_cli::config::{CliOverrides, EffectiveConfig, SkillsConfig};
 use gestalt_cli::slash::{handle_slash_command, SlashOutcome};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -18,14 +18,14 @@ fn temp_workspace() -> PathBuf {
     dir
 }
 
-fn overrides_with_workspace(workspace: PathBuf) -> CliOverrides {
+fn overrides_with_workspace(workspace: &Path) -> CliOverrides {
     CliOverrides {
-        workspace: Some(workspace),
+        workspace: Some(workspace.to_path_buf()),
         ..Default::default()
     }
 }
 
-fn write_gestalt_json(workspace: &PathBuf, skills: SkillsConfig) {
+fn write_gestalt_json(workspace: &Path, skills: SkillsConfig) {
     let path = workspace.join("gestalt.json");
     let wrapper = serde_json::json!({
         "providers": {},
@@ -39,7 +39,7 @@ fn write_gestalt_json(workspace: &PathBuf, skills: SkillsConfig) {
     std::fs::write(&path, serde_json::to_string_pretty(&wrapper).unwrap()).unwrap();
 }
 
-fn make_skill_dir(workspace: &PathBuf, name: &str) -> PathBuf {
+fn make_skill_dir(workspace: &Path, name: &str) -> PathBuf {
     let dir = workspace.join(".gestalt").join("skills").join(name);
     std::fs::create_dir_all(&dir).unwrap();
     let manifest =
@@ -48,9 +48,9 @@ fn make_skill_dir(workspace: &PathBuf, name: &str) -> PathBuf {
     dir
 }
 
-fn load_config(workspace: &PathBuf) -> EffectiveConfig {
+fn load_config(workspace: &Path) -> EffectiveConfig {
     write_gestalt_json(workspace, SkillsConfig::default());
-    let overrides = overrides_with_workspace(workspace.clone());
+    let overrides = overrides_with_workspace(workspace);
     gestalt_cli::config::load_effective_config(&overrides).expect("config loads")
 }
 
@@ -60,7 +60,7 @@ async fn slash_skill_unknown_name_does_not_activate() {
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
-    let mut overrides = overrides_with_workspace(workspace.clone());
+    let mut overrides = overrides_with_workspace(&workspace);
 
     let outcome = handle_slash_command(
         "/skill missing-skill",
@@ -84,7 +84,7 @@ async fn slash_skill_known_name_returns_activation_outcome() {
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
-    let mut overrides = overrides_with_workspace(workspace.clone());
+    let mut overrides = overrides_with_workspace(&workspace);
 
     let outcome = handle_slash_command("/skill pdf", "test-session", None, &mut overrides, &config)
         .await
@@ -102,7 +102,7 @@ async fn slash_skill_off_known_name_returns_deactivation_outcome() {
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
-    let mut overrides = overrides_with_workspace(workspace.clone());
+    let mut overrides = overrides_with_workspace(&workspace);
 
     let outcome = handle_slash_command(
         "/skill off pdf",
@@ -126,7 +126,7 @@ async fn slash_skill_off_unknown_name_does_not_return_outcome() {
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
-    let mut overrides = overrides_with_workspace(workspace.clone());
+    let mut overrides = overrides_with_workspace(&workspace);
 
     let outcome = handle_slash_command(
         "/skill off missing",
@@ -149,7 +149,7 @@ async fn slash_skill_missing_args_is_noop() {
     std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     let config = load_config(&workspace);
-    let mut overrides = overrides_with_workspace(workspace.clone());
+    let mut overrides = overrides_with_workspace(&workspace);
 
     let outcome = handle_slash_command("/skill", "test-session", None, &mut overrides, &config)
         .await
@@ -163,7 +163,7 @@ async fn slash_skill_off_missing_args_is_noop() {
     std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     let config = load_config(&workspace);
-    let mut overrides = overrides_with_workspace(workspace.clone());
+    let mut overrides = overrides_with_workspace(&workspace);
 
     let outcome = handle_slash_command("/skill off", "test-session", None, &mut overrides, &config)
         .await
