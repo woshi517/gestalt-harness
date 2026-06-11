@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use gestalt_core::tool::ToolExecutionResult;
 
 pub fn shape_tool_response(tool_name: &str, result: &mut ToolExecutionResult) {
@@ -9,14 +11,15 @@ pub fn shape_tool_response(tool_name: &str, result: &mut ToolExecutionResult) {
         "read" => {
             let mut prefix = String::new();
             if result.truncated {
-                prefix.push_str(&format!(
-                    "[Output truncated. Original: {} bytes. Full output saved to artifact: {}]\n",
+                let _ = writeln!(
+                    prefix,
+                    "[Output truncated. Original: {} bytes. Full output saved to artifact: {}]",
                     result.original_bytes.unwrap_or(0),
                     result
                         .artifact
                         .as_ref()
                         .map_or("unavailable", |a| a.path.to_str().unwrap_or("")),
-                ));
+                );
             }
             result.content = format!("{}{}", prefix, result.content);
         }

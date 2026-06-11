@@ -1183,6 +1183,7 @@ dependencies = [
  "encoding_rs",
  "gestalt-core",
  "gestalt-exec",
+ "gestalt-policy",
  "glob",
  "reqwest",
  "schemars",

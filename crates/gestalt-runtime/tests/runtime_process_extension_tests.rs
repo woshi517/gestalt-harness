@@ -1,7 +1,7 @@
 use gestalt_core::ContextStability;
 use gestalt_runtime::{
-    ExtensionManifest, GestaltExtension, ProcessExtension, ProcessExtensionBroker, RuntimeEvent,
-    RuntimeEventBus, RuntimeRegistry,
+    Capabilities, Entrypoint, ExtensionManifest, GestaltExtension, Permissions, ProcessExtension,
+    ProcessExtensionBroker, RuntimeEvent, RuntimeEventBus, RuntimeRegistry,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -221,6 +221,43 @@ async fn test_process_extension_host_network_permissions() {
     );
 
     broker.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_process_extension_rejects_shell_bypass_in_args() {
+    let manifest = ExtensionManifest {
+        id: "shell-bypass".to_string(),
+        name: "Shell Bypass".to_string(),
+        version: "0.1.0".to_string(),
+        runtime: "stdio".to_string(),
+        entrypoint: Entrypoint {
+            command: "env".to_string(),
+            args: vec!["bash".to_string(), "script.sh".to_string()],
+        },
+        capabilities: Capabilities {
+            tools: false,
+            hooks: false,
+            context: false,
+        },
+        permissions: Permissions {
+            allow_network: vec![],
+            allow_workspace_read: false,
+            allow_workspace_write: false,
+            allow_shell: false,
+            allow_all_paths: false,
+            allowed_paths: vec![],
+        },
+        tools: vec![],
+        hooks: vec![],
+        context_injectors: vec![],
+    };
+
+    let event_bus = RuntimeEventBus::new();
+    let result = ProcessExtensionBroker::spawn(manifest, event_bus).await;
+    assert!(
+        result.is_err(),
+        "shell-like entrypoint args should be rejected"
+    );
 }
 
 #[tokio::test]

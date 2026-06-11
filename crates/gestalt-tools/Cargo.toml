@@ -22,3 +22,6 @@ encoding_rs = { workspace = true }
 glob = { workspace = true }
 reqwest = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+gestalt-policy = { path = "../gestalt-policy" }

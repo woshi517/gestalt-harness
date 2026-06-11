@@ -1,6 +1,6 @@
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::manifest::ExtensionManifest;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 pub fn check_path_permission(
     manifest: &ExtensionManifest,
@@ -35,9 +35,7 @@ fn check_path_permission_impl(
         return Ok(());
     }
 
-    let canonical_workspace = workspace_root
-        .canonicalize()
-        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let canonical_workspace = resolve_path_for_permission_check(workspace_root);
 
     // We do absolute representation to prevent traversal issues
     let abs_path = if path.is_absolute() {
@@ -46,7 +44,7 @@ fn check_path_permission_impl(
         workspace_root.join(path)
     };
 
-    let canonical_path = abs_path.canonicalize().unwrap_or_else(|_| abs_path.clone());
+    let canonical_path = resolve_path_for_permission_check(&abs_path);
 
     // Check traversal outside workspace root
     if canonical_path.starts_with(&canonical_workspace) {
@@ -67,9 +65,7 @@ fn check_path_permission_impl(
 
     for allowed in &manifest.permissions.allowed_paths {
         let allowed_path = Path::new(allowed);
-        let canonical_allowed = allowed_path
-            .canonicalize()
-            .unwrap_or_else(|_| allowed_path.to_path_buf());
+        let canonical_allowed = resolve_path_for_permission_check(allowed_path);
         if canonical_path.starts_with(&canonical_allowed) {
             return Ok(());
         }
@@ -79,6 +75,54 @@ fn check_path_permission_impl(
         "Access to path '{:?}' is not allowed by manifest permissions",
         path
     ))
+}
+
+fn resolve_path_for_permission_check(path: &Path) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+
+    resolve_from_existing_ancestor(path)
+}
+
+fn resolve_from_existing_ancestor(path: &Path) -> PathBuf {
+    let mut ancestor = path;
+    while !ancestor.exists() {
+        let Some(parent) = ancestor.parent() else {
+            return path.to_path_buf();
+        };
+        ancestor = parent;
+    }
+
+    let Ok(mut resolved) = ancestor.canonicalize() else {
+        return path.to_path_buf();
+    };
+
+    let remainder = path
+        .strip_prefix(ancestor)
+        .expect("existing ancestor must be a prefix of the resolved path");
+    resolved.push(remainder);
+    normalize_path(&resolved)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() && !path.is_absolute() {
+                    normalized.push("..");
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+
+    normalized
 }
 
 pub fn check_network_permission(

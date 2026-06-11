@@ -797,7 +797,7 @@ async fn test_persisted_steering_replay_and_resume() {
     let analysis = ResumeAnalyzer::analyze(&paths.root, None, None);
     assert_eq!(analysis.session_id, session_id);
     assert_eq!(analysis.run_id, run_id);
-    assert!(analysis.history.len() >= 1);
+    assert!(!analysis.history.is_empty());
     let last_msg = &analysis.history[0];
     match last_msg {
         Message::User { content, .. } => match &content[0] {
@@ -918,7 +918,7 @@ async fn test_persisted_steering_resume_flow() {
         analysis.status,
         gestalt_trace::resume::RecoveryStatus::InterruptedSafe
     );
-    assert!(analysis.history.len() >= 1);
+    assert!(!analysis.history.is_empty());
 
     // Reconstruct and run a resumed session
     let resume_requests = Arc::new(Mutex::new(Vec::new()));
