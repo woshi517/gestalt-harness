@@ -31,6 +31,7 @@ ADRs 001–022 are documented in the [architecture document](../gestalt-harness-
 | [ADR-024](./ADR-024-process-extensions.md) | Process-Backed Extensions over Stdio JSON-RPC | Accepted |
 | [ADR-025](./ADR-025-unified-gestalt-json-config.md) | Unified `gestalt.json` Configuration | Accepted |
 | [ADR-026](./ADR-026-cache-aware-prompt-assembly.md) | Cache-Aware Prompt Assembly | Accepted |
+| [ADR-027](./ADR-027-mcp-client-integration.md) | Model Context Protocol (MCP) Client Integration | Accepted |
 
 ADR-023: Introduces the gestalt-runtime crate as the primary orchestration and composition shell above the pure kernel (gestalt-core).
 
@@ -39,4 +40,6 @@ ADR-024: Implements process-backed extensions executed in separate child process
 ADR-025: Consolidates workspace-scoped and global harness configuration into a single `gestalt.json` per scope, with JSON-first loading, legacy TOML fallback, and transparent migration seeding.
 
 ADR-026: Introduces `PromptAssemblyStrategy` (Snapshot/Dynamic), `ContextStability` classification, and cache-aware context compilation that preserves provider prompt-cache hit rates by separating stable session context from turn-specific context.
+
+ADR-027: Integrates Model Context Protocol (MCP) clients with standard stdio transport, lazy client lifecycle pooling via OnceCell, canonical collision-safe tool naming, secure host-side risk annotations, and event-bus notifications.
 
