@@ -25,6 +25,8 @@ futures = { workspace = true }
 sha2 = { workspace = true }
 toml = { workspace = true }
 url = { workspace = true }
+gestalt-mcp = { path = "../gestalt-mcp" }
+
 
 [dev-dependencies]
 # We might add some test mocks later

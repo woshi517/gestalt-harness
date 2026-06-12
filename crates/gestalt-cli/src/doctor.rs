@@ -47,6 +47,7 @@ pub async fn diagnose_workspace(
                 tui: crate::config::TuiConfig::default(),
                 extensions: Default::default(),
                 skills: Default::default(),
+                mcp: None,
             }
         }
     };

@@ -47,7 +47,6 @@ pub async fn build_cli_runtime(
     let enabled_cli_features = vec![
         #[cfg(feature = "tui")]
         "tui".to_string(),
-        #[cfg(feature = "mcp")]
         "mcp".to_string(),
         #[cfg(feature = "otel")]
         "otel".to_string(),
@@ -133,6 +132,12 @@ pub async fn build_cli_runtime(
     let active_skills = config.skills.active.clone();
 
     // Publish skill discovery events
+    let (mcp_servers, mcp_discovery_threshold) = if let Some(mcp) = &config.mcp {
+        (mcp.servers.clone(), mcp.discovery_threshold)
+    } else {
+        (std::collections::HashMap::new(), Some(5))
+    };
+
     let runtime_config = RuntimeConfig {
         workspace_root: config.workspace_root.clone(),
         execution_mode: mode,
@@ -152,6 +157,8 @@ pub async fn build_cli_runtime(
         trusted_extension_ids,
         discovered_skills: discovered_skills.clone(),
         active_skills: active_skills.clone(),
+        mcp_servers,
+        mcp_discovery_threshold,
     };
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();

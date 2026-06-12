@@ -40,6 +40,8 @@ pub struct WorkspaceConfig {
     pub extensions: Option<ExtensionsConfig>,
     #[serde(default)]
     pub skills: Option<SkillsConfig>,
+    #[serde(default)]
+    pub mcp: Option<McpConfig>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -64,6 +66,15 @@ pub struct SkillsConfig {
     pub active: Vec<String>,
     #[serde(default)]
     pub trusted: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct McpConfig {
+    #[serde(default)]
+    pub servers: HashMap<String, gestalt_mcp::McpServerConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_threshold: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -560,6 +571,7 @@ pub struct EffectiveConfig {
     pub tui: TuiConfig,
     pub extensions: ExtensionsConfig,
     pub skills: SkillsConfig,
+    pub mcp: Option<McpConfig>,
 }
 
 impl WorkspaceConfig {
@@ -718,6 +730,17 @@ impl WorkspaceConfig {
             self_skills.active.extend(other_skills.active);
             self_skills.trusted.extend(other_skills.trusted);
             self.skills = Some(self_skills);
+        }
+
+        if let Some(other_mcp) = other.mcp {
+            let mut self_mcp = self.mcp.unwrap_or_default();
+            for (k, v) in other_mcp.servers {
+                self_mcp.servers.insert(k, v);
+            }
+            if other_mcp.discovery_threshold.is_some() {
+                self_mcp.discovery_threshold = other_mcp.discovery_threshold;
+            }
+            self.mcp = Some(self_mcp);
         }
 
         self.providers.extend(other.providers);
@@ -884,6 +907,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
             skills.active.push(skill.clone());
         }
     }
+    let mcp = config.mcp;
 
     Ok(EffectiveConfig {
         workspace_root,
@@ -901,6 +925,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         tui,
         extensions,
         skills,
+        mcp,
     })
 }
 
@@ -1615,6 +1640,21 @@ pub fn explain_config(
             .and_then(|t| t.diagnostics.as_ref())
             .and_then(|d| d.max_log_lines)),
         1000
+    );
+
+    resolve!(
+        "mcp.discovery_threshold",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c
+            .mcp
+            .as_ref()
+            .and_then(|m| m.discovery_threshold)),
+        (|c: &WorkspaceConfig| c
+            .mcp
+            .as_ref()
+            .and_then(|m| m.discovery_threshold)),
+        5
     );
 
     Ok(map)

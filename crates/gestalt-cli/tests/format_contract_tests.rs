@@ -323,6 +323,8 @@ fn test_runtime_inspect_report_contract() {
         discovered_skills: vec![],
         active_skills: vec![],
         skill_fingerprint: None,
+        mcp_servers: vec![],
+        mcp_discovery_threshold: Some(5),
     };
 
     let report = RuntimeInspectReport { inspect };

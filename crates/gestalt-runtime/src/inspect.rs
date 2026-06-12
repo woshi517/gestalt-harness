@@ -23,6 +23,8 @@ pub struct RuntimeInspect {
     pub discovered_skills: Vec<SkillInspectInfo>,
     pub active_skills: Vec<String>,
     pub skill_fingerprint: Option<String>,
+    pub mcp_servers: Vec<gestalt_mcp::McpServerState>,
+    pub mcp_discovery_threshold: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

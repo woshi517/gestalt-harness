@@ -54,6 +54,8 @@ pub struct AgentRuntime {
     /// Shared skill contributor state. Carried by the runtime so activation
     /// can be resolved per-turn from `before_context_build`.
     pub skill_state: Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
+    pub mcp_registry: Arc<gestalt_mcp::McpRegistry>,
+    pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
     steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
 }
 
@@ -71,6 +73,8 @@ impl AgentRuntime {
         registry: RuntimeRegistry,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
         event_bus: RuntimeEventBus,
+        mcp_registry: Arc<gestalt_mcp::McpRegistry>,
+        mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
     ) -> Self {
         Self {
             provider,
@@ -85,6 +89,8 @@ impl AgentRuntime {
             composition_hooks,
             event_bus,
             skill_state: None,
+            mcp_registry,
+            mcp_discovery_state,
             steering_queue: Arc::new(crate::session_queue::InMemorySteeringQueue::new()),
         }
     }
@@ -458,6 +464,9 @@ impl AgentRuntime {
             Some(format!("{:x}", hasher.finalize()))
         };
 
+        let discovery_threshold = self.config.mcp_discovery_threshold.unwrap_or(5);
+        let mcp_servers = self.mcp_registry.get_all_states(discovery_threshold);
+
         RuntimeInspect {
             provider_name: self.config.provider.clone(),
             provider_model: self.config.model.clone(),
@@ -480,6 +489,8 @@ impl AgentRuntime {
             discovered_skills,
             active_skills,
             skill_fingerprint,
+            mcp_servers,
+            mcp_discovery_threshold: self.config.mcp_discovery_threshold,
         }
     }
 

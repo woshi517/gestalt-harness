@@ -54,7 +54,6 @@ toml_edit = { workspace = true }
 [features]
 default = []
 tui = ["dep:ratatui", "dep:crossterm"]
-mcp = ["dep:gestalt-mcp"]
 otel = ["gestalt-trace/otel"]
 
 [dependencies.ratatui]
@@ -67,7 +66,6 @@ optional = true
 
 [dependencies.gestalt-mcp]
 path = "../gestalt-mcp"
-optional = true
 
 [dev-dependencies]
 uuid = { workspace = true }

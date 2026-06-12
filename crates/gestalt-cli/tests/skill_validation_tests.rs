@@ -75,6 +75,7 @@ fn empty_effective_config() -> EffectiveConfig {
         tui: TuiConfig::default(),
         extensions: ExtensionsConfig::default(),
         skills: SkillsConfig::default(),
+        mcp: None,
     }
 }
 

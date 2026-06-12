@@ -22,6 +22,9 @@ pub mod skill_contributor;
 pub mod tool_catalog;
 pub mod tool_catalog_planner;
 
+pub mod mcp;
+pub mod mcp_discovery;
+
 pub use artifact_store::{ArtifactStore, FilesystemArtifactStore, InMemoryArtifactStore};
 pub use builder::AgentRuntimeBuilder;
 pub use composition_hooks::{
@@ -57,3 +60,6 @@ pub use runtime::{AgentRuntime, UserInput};
 pub use session_queue::InMemorySteeringQueue;
 pub use tool_catalog::ComposedToolCatalog;
 pub use tool_catalog_planner::{ToolCatalogPlanner, ToolProfile};
+pub use mcp::McpBackedTool;
+pub use mcp_discovery::{McpDiscoveryState, SearchToolsTool, GetToolDetailsTool};
+

@@ -3,4 +3,18 @@
 //! This crate is part of the gestalt-harness workspace.
 //! See the [architecture document](../../docs/gestalt-harness-architecture.md) for crate boundaries.
 
-// Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
+pub mod client;
+pub mod error;
+pub mod model;
+pub mod registry;
+pub mod transport;
+
+pub use client::McpClient;
+pub use error::{McpError, Result};
+pub use model::{
+    McpCallResult, McpConnectionState, McpLifecycleMode, McpServerConfig, McpServerId,
+    McpServerState, McpToolIdentity, McpToolSchema, McpToolSummary, McpTransportConfig,
+    parse_mcp_call_result, McpRegistryEvent, McpEventCallback,
+};
+pub use registry::McpRegistry;
+pub use transport::McpTransport;

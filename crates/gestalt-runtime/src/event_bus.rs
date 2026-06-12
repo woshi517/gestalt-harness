@@ -124,6 +124,42 @@ pub enum RuntimeEvent {
         session_id: String,
         message: gestalt_core::session_queue::QueuedSessionMessage,
     },
+    McpServerConfigured {
+        server_name: String,
+        transport: String,
+    },
+    McpServerConnecting {
+        server_name: String,
+    },
+    McpServerConnected {
+        server_name: String,
+        protocol_version: String,
+        tool_count: usize,
+    },
+    McpServerConnectionFailed {
+        server_name: String,
+        reason: String,
+    },
+    McpToolCatalogRefreshed {
+        server_name: String,
+        tool_count: usize,
+        schema_hash: String,
+    },
+    McpToolCallStarted {
+        server_name: String,
+        tool_name: String,
+        call_id: String,
+    },
+    McpToolCallCompleted {
+        server_name: String,
+        tool_name: String,
+        call_id: String,
+        success: bool,
+        duration_ms: u64,
+    },
+    McpToolListChanged {
+        server_name: String,
+    },
 }
 
 #[derive(Clone)]
