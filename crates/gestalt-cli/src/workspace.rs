@@ -284,6 +284,7 @@ pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorRepor
                 tui: crate::config::TuiConfig::default(),
                 extensions: Default::default(),
                 skills: Default::default(),
+                mcp: None,
             }
         }
     };

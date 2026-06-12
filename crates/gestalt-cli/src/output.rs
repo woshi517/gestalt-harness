@@ -1952,6 +1952,35 @@ impl CliReport for RuntimeInspectReport {
             }
         }
 
+        lines.push(String::new());
+        lines.push(format!(
+            "MCP Servers ({}) - Discovery Threshold: {:?}",
+            self.inspect.mcp_servers.len(),
+            self.inspect.mcp_discovery_threshold
+        ));
+        if self.inspect.mcp_servers.is_empty() {
+            lines.push("  (none)".to_string());
+        } else {
+            for server in &self.inspect.mcp_servers {
+                let status = format!("{:?}", server.connection_state).to_uppercase();
+                let trust = server.trust_level.as_deref().unwrap_or("untrusted");
+                let fresh = if server.cache_fresh { "fresh" } else { "stale" };
+                let mode = if server.discovery_mode { "progressive discovery" } else { "direct exposure" };
+                lines.push(format!(
+                    "  - {}: Status: {} | Tools: {} ({}) | Trust: {} | Mode: {}",
+                    server.server_id,
+                    status,
+                    server.tool_count,
+                    fresh,
+                    trust,
+                    mode
+                ));
+                if let Some(ref err) = server.last_error {
+                    lines.push(format!("    Error: {}", err));
+                }
+            }
+        }
+
         lines.join("\n")
     }
 }

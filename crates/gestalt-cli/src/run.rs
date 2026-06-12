@@ -463,6 +463,7 @@ mod tests {
             tui: crate::config::TuiConfig::default(),
             extensions: Default::default(),
             skills: Default::default(),
+            mcp: None,
         };
 
         // Scenario 1: No prompt override => default prompt source
@@ -695,6 +696,7 @@ mod fingerprint_tests {
             tui: TuiConfig::default(),
             extensions: ExtensionsConfig::default(),
             skills: SkillsConfig::default(),
+            mcp: None,
         }
     }
 

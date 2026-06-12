@@ -42,11 +42,11 @@
         }
       ]
     },
-    "skills": {
+    "mcp": {
       "default": null,
       "anyOf": [
         {
-          "$ref": "#/definitions/SkillsConfig"
+          "$ref": "#/definitions/McpConfig"
         },
         {
           "type": "null"
@@ -99,6 +99,17 @@
       "additionalProperties": {
         "$ref": "#/definitions/ProviderConfig"
       }
+    },
+    "skills": {
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SkillsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "tools": {
       "default": null,
@@ -236,32 +247,139 @@
       },
       "additionalProperties": false
     },
-    "SkillsConfig": {
+    "McpConfig": {
       "type": "object",
       "properties": {
-        "active": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+        "discovery_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
         },
-        "explicit_paths": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "trusted": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
+        "servers": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/McpServerConfig"
           }
         }
       },
       "additionalProperties": false
+    },
+    "McpLifecycleMode": {
+      "type": "string",
+      "enum": [
+        "lazy",
+        "always_on"
+      ]
+    },
+    "McpServerConfig": {
+      "type": "object",
+      "required": [
+        "name",
+        "transport"
+      ],
+      "properties": {
+        "allow_sampling": {
+          "default": false,
+          "type": "boolean"
+        },
+        "env": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "lifecycle": {
+          "default": "lazy",
+          "allOf": [
+            {
+              "$ref": "#/definitions/McpLifecycleMode"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "$ref": "#/definitions/McpTransportConfig"
+        },
+        "trust_level": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_annotations": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "McpTransportConfig": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "command",
+            "type"
+          ],
+          "properties": {
+            "args": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "command": {
+              "type": "string"
+            },
+            "env": {
+              "default": {},
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "stdio"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "url"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "sse"
+              ]
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "ObserveConfig": {
       "type": "object",
@@ -440,9 +558,26 @@
       },
       "additionalProperties": false
     },
+    "PromptAssemblyStrategy": {
+      "type": "string",
+      "enum": [
+        "dynamic",
+        "snapshot"
+      ]
+    },
     "PromptConfig": {
       "type": "object",
       "properties": {
+        "assembly_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PromptAssemblyStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "override": {
           "type": [
             "string",
@@ -453,17 +588,6 @@
           "type": [
             "string",
             "null"
-          ]
-        },
-        "assembly_strategy": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "dynamic",
-            "snapshot",
-            null
           ]
         }
       },
@@ -534,6 +658,33 @@
             "string",
             "null"
           ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "SkillsConfig": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "explicit_paths": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "trusted": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false

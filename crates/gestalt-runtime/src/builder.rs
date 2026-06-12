@@ -27,6 +27,7 @@ pub struct AgentRuntimeBuilder {
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
     pub extensions: Vec<Arc<dyn GestaltExtension>>,
     pub event_bus: RuntimeEventBus,
+    pub mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
 }
 
 impl Default for AgentRuntimeBuilder {
@@ -50,6 +51,7 @@ impl AgentRuntimeBuilder {
             composition_hooks: None,
             extensions: Vec::new(),
             event_bus: RuntimeEventBus::new(),
+            mcp_registry: None,
         }
     }
 
@@ -100,6 +102,11 @@ impl AgentRuntimeBuilder {
 
     pub fn config(mut self, config: RuntimeConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    pub fn mcp_registry(mut self, registry: Arc<gestalt_mcp::McpRegistry>) -> Self {
+        self.mcp_registry = Some(registry);
         self
     }
 
@@ -163,6 +170,113 @@ impl AgentRuntimeBuilder {
             None
         };
 
+        // Initialize MCP Registry
+        let mcp_registry = self.mcp_registry.unwrap_or_else(|| {
+            Arc::new(gestalt_mcp::McpRegistry::new(
+                self.config.workspace_root.clone(),
+                self.config.mcp_servers.clone(),
+            ))
+        });
+
+        // Publish configuration events
+        for (name, server_cfg) in &self.config.mcp_servers {
+            self.event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConfigured {
+                server_name: name.clone(),
+                transport: format!("{:?}", server_cfg.transport),
+            });
+        }
+
+        // Wire event callback to propagate MCP Registry events to Runtime Event Bus
+        let event_bus = self.event_bus.clone();
+        mcp_registry.set_event_callback(Arc::new(move |event| {
+            match event {
+                gestalt_mcp::McpRegistryEvent::Connecting { server_name } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
+                }
+                gestalt_mcp::McpRegistryEvent::Connected { server_name, protocol_version, tool_count } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnected {
+                        server_name,
+                        protocol_version,
+                        tool_count,
+                    });
+                }
+                gestalt_mcp::McpRegistryEvent::ConnectionFailed { server_name, reason } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnectionFailed {
+                        server_name,
+                        reason,
+                    });
+                }
+                gestalt_mcp::McpRegistryEvent::ToolCatalogRefreshed { server_name, tool_count, schema_hash } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolCatalogRefreshed {
+                        server_name,
+                        tool_count,
+                        schema_hash,
+                    });
+                }
+                gestalt_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
+                }
+            }
+        }));
+
+        // Spawn always_on servers
+        for (name, server_cfg) in &self.config.mcp_servers {
+            if server_cfg.lifecycle == gestalt_mcp::McpLifecycleMode::AlwaysOn {
+                let mcp_registry = mcp_registry.clone();
+                let name = name.clone();
+                tokio::spawn(async move {
+                    let _ = mcp_registry.get_client(&name).await;
+                });
+            }
+        }
+
+        // Create MCP discovery state
+        let mcp_discovery_state = Arc::new(std::sync::Mutex::new(crate::mcp_discovery::McpDiscoveryState::new()));
+
+        // Register MCP discovery tools
+        self.registry.register_executable_tool(
+            "search_tools".to_string(),
+            serde_json::json!({
+                "name": "search_tools",
+                "description": "Search for available tools by keyword or description query.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The query term or keywords to search for in tool names and descriptions."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }),
+            Arc::new(crate::mcp_discovery::SearchToolsTool::new(mcp_registry.clone())),
+            None,
+        )?;
+
+        self.registry.register_executable_tool(
+            "get_tool_details".to_string(),
+            serde_json::json!({
+                "name": "get_tool_details",
+                "description": "Inspect the detailed schema and arguments for a specific tool.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The name or canonical ID of the tool to inspect."
+                        }
+                    },
+                    "required": ["name"]
+                }
+            }),
+            Arc::new(crate::mcp_discovery::GetToolDetailsTool::new(
+                mcp_registry.clone(),
+                mcp_discovery_state.clone(),
+            )),
+            None,
+        )?;
+
         let provider = self
             .provider
             .ok_or_else(|| RuntimeError::Builder("Missing provider".to_string()))?;
@@ -179,7 +293,10 @@ impl AgentRuntimeBuilder {
 
         let mut composed_tools =
             crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
-                .map_err(RuntimeError::Registry)?;
+                .map_err(RuntimeError::Registry)?
+                .with_mcp(mcp_registry.clone())
+                .with_event_bus(self.event_bus.clone());
+
         let mut planner = self
             .config
             .tool_profile
@@ -194,6 +311,15 @@ impl AgentRuntimeBuilder {
                 .with_skill_state(state.clone()),
             });
         }
+
+        // Configure MCP in planner
+        planner = Some(match planner {
+            Some(p) => p.with_mcp(self.config.mcp_discovery_threshold, mcp_discovery_state.clone(), mcp_registry.clone()),
+            None => crate::tool_catalog_planner::ToolCatalogPlanner::new(
+                crate::tool_catalog_planner::ToolProfile::All,
+            )
+            .with_mcp(self.config.mcp_discovery_threshold, mcp_discovery_state.clone(), mcp_registry.clone()),
+        });
 
         if let Some(p) = planner {
             composed_tools = composed_tools.with_planner(p);
@@ -229,6 +355,8 @@ impl AgentRuntimeBuilder {
             self.registry,
             Some(composed_hooks),
             self.event_bus,
+            mcp_registry,
+            mcp_discovery_state,
         );
         Ok(match skill_state_handle {
             Some(state) => runtime.with_skill_state(state),

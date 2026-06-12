@@ -31,6 +31,12 @@ pub struct RuntimeConfig {
     /// Names of skills explicitly activated for this session.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub active_skills: Vec<String>,
+    /// Configured MCP servers
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, gestalt_mcp::McpServerConfig>,
+    /// Threshold to switch to progressive discovery
+    #[serde(default)]
+    pub mcp_discovery_threshold: Option<usize>,
 }
 
 impl Default for RuntimeConfig {
@@ -54,6 +60,8 @@ impl Default for RuntimeConfig {
             trusted_extension_ids: Vec::new(),
             discovered_skills: Vec::new(),
             active_skills: Vec::new(),
+            mcp_servers: HashMap::new(),
+            mcp_discovery_threshold: Some(5),
         }
     }
 }

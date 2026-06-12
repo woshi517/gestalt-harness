@@ -21,6 +21,9 @@ pub struct ToolCatalogPlanner {
     /// after the base profile filter.
     pub skill_allowed_names: Option<Vec<String>>,
     pub skill_state: Option<Arc<Mutex<crate::skill_contributor::SkillContributorState>>>,
+    pub mcp_discovery_threshold: Option<usize>,
+    pub mcp_discovery_state: Option<Arc<Mutex<crate::mcp_discovery::McpDiscoveryState>>>,
+    pub mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
 }
 
 impl ToolCatalogPlanner {
@@ -29,6 +32,9 @@ impl ToolCatalogPlanner {
             profile,
             skill_allowed_names: None,
             skill_state: None,
+            mcp_discovery_threshold: None,
+            mcp_discovery_state: None,
+            mcp_registry: None,
         }
     }
 
@@ -42,6 +48,18 @@ impl ToolCatalogPlanner {
         state: Arc<Mutex<crate::skill_contributor::SkillContributorState>>,
     ) -> Self {
         self.skill_state = Some(state);
+        self
+    }
+
+    pub fn with_mcp(
+        mut self,
+        threshold: Option<usize>,
+        state: Arc<Mutex<crate::mcp_discovery::McpDiscoveryState>>,
+        registry: Arc<gestalt_mcp::McpRegistry>,
+    ) -> Self {
+        self.mcp_discovery_threshold = threshold;
+        self.mcp_discovery_state = Some(state);
+        self.mcp_registry = Some(registry);
         self
     }
 
@@ -91,13 +109,45 @@ impl ToolCatalogPlanner {
             .or(self.skill_allowed_names.as_ref());
 
         // Apply skill filter as intersection
-        if let Some(allowed) = allowed {
-            return filtered
+        let mut final_filtered = if let Some(allowed) = allowed {
+            filtered
                 .into_iter()
                 .filter(|desc| allowed.contains(&desc.id.name))
-                .collect();
+                .collect()
+        } else {
+            filtered
+        };
+
+        // Apply MCP progressive discovery filtering
+        if let (Some(threshold), Some(ref mcp_state), Some(ref mcp_reg)) = (
+            self.mcp_discovery_threshold,
+            &self.mcp_discovery_state,
+            &self.mcp_registry,
+        ) {
+            let cached_tools = mcp_reg.get_cached_tools();
+            let total_mcp_tools = cached_tools.len();
+            if total_mcp_tools > threshold {
+                let selected = if let Ok(guard) = mcp_state.lock() {
+                    guard.selected_tools.clone()
+                } else {
+                    Vec::new()
+                };
+                final_filtered = final_filtered
+                    .into_iter()
+                    .filter(|desc| {
+                        match &desc.id.namespace {
+                            gestalt_core::tool_descriptor::ToolNamespace::Mcp(_) => {
+                                // Only keep if it is in the selected tools list by canonical ID or unique provider name
+                                let provider_name = gestalt_core::tool_name_mapping::ToolNameMapping::generate_provider_name(&desc.id);
+                                selected.contains(&desc.id.to_string()) || selected.contains(&provider_name)
+                            }
+                            _ => true,
+                        }
+                    })
+                    .collect();
+            }
         }
 
-        filtered
+        final_filtered
     }
 }

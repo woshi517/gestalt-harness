@@ -1044,9 +1044,12 @@ dependencies = [
 name = "gestalt-mcp"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "gestalt-core",
+ "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
 ]
 
@@ -1089,6 +1092,7 @@ dependencies = [
  "chrono",
  "futures",
  "gestalt-core",
+ "gestalt-mcp",
  "gestalt-skills",
  "gestalt-trace",
  "serde",
