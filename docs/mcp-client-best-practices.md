@@ -304,17 +304,22 @@ Progressive discovery and programmatic tool calling work well together. The mode
 
 ## Gestalt Implementation Mapping
 
-In `gestalt-harness`, process-backed stdio JSON-RPC extensions are mapped directly to these safety and design patterns:
+In `gestalt-harness`, process-backed extensions and Model Context Protocol (MCP) clients are integrated directly following these safety, lifecycle, and scalability patterns:
 
+### Stdio JSON-RPC Extensions
 - **`ProcessExtensionBroker`** sits between the child process and the core agent loop, managing the JSON-RPC 2.0 protocol over stdio (newline-delimited framing, method dispatch, timeout enforcement).
-
-- **`ProcessBackedTool`** implements the core `Tool` trait, forwarding `execute()` calls to the extension via the `tools/call` RPC method. The same pattern applies similarly to MCP-bridged tools.
-
-- **`CompositionHooks`** maps to the progressive hook/event model: six lifecycle points (`before_context_build`, `after_context_build`, `before_tool_policy`, `after_tool_result`, `prepare_next_turn`, `on_event`) allow extensions to intercept and modify agent behavior without tight coupling.
-
-- **Extension manifests** declare capabilities (tools, hooks, context) and permissions (filesystem paths, network hosts, shell access). The host enforces these BEFORE forwarding requests to the child process.
-
-- **`ComposedToolCatalog`** merges tools from multiple extensions with built-in tools, rejecting duplicate tool names with clear errors.
-
+- **`ProcessBackedTool`** implements the core `Tool` trait, forwarding `execute()` calls to the extension via the `tools/call` RPC method.
+- **`CompositionHooks`** maps to the progressive hook/event model: six lifecycle points (`before_context_build`, `after_context_build`, `before_tool_policy`, `after_tool_result`, `prepare_next_turn`, `on_event`) allow extensions to intercept and modify agent behavior.
+- **Extension manifests** declare capabilities and permissions (filesystem paths, network hosts, shell access). The host enforces these BEFORE forwarding requests to the child process.
 - Safety properties: 30-second RPC timeouts, `kill_on_drop(true)`, environment isolation (`env_clear()` + safe allowlist), and recursive input argument scanning for path/network permission enforcement.
+
+### Model Context Protocol (MCP) Client Integration
+- **`McpRegistry` & `McpClient`** (in `gestalt-mcp`) manage client connection state pooling, executing stdio transports lazily, and preventing concurrent instantiation races via tokio `OnceCell`.
+- **`McpBackedTool`** (in `gestalt-runtime`) implements the core `Tool` trait, wrapping MCP server tool definitions and executing calls via `call_tool`.
+- **Identity & Collision Scoping**: Enforces `mcp:<server_name>:<tool_name>` canonical IDs. The planner and catalog guarantee same-named tools across different servers do not collide.
+- **Progressive Discovery**: Activated via `mcp_discovery_threshold` configuration in `gestalt.json`. When total cached tools exceed this, the registry hides raw tools and exposes a lightweight `search_tools` tool.
+- **Host-Controlled Risk**: Tools default to `Medium` risk. Downgrades to `Low` are restricted to high-trust servers when verified using host-configured `tool_annotations` (`read_only` or `idempotent`) in `gestalt.json`.
+- **Event Bus integration**: Publishes registry lifecycle events (connecting, connected, refreshed) and execution start/completion events directly to the runtime event bus.
+
+See [ADR-027: MCP Client Integration](adrs/ADR-027-mcp-client-integration.md) for detailed architecture decisions.
 
