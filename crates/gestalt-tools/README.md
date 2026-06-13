@@ -1,6 +1,6 @@
 # Gestalt Tools Crate (`gestalt-tools`)
 
-Built-in tools and `ToolRegistry` for gestalt-harness. Provides the six built-in agent tools, path validation, tool descriptor factories, and response shaping.
+Built-in tools and `ToolRegistry` for gestalt-harness. Provides the seven built-in agent tools, path validation, tool descriptor factories, and response shaping.
 
 ---
 
@@ -10,6 +10,7 @@ Built-in tools and `ToolRegistry` for gestalt-harness. Provides the six built-in
 |------|------|-----------|------------|-------|----------|
 | `read` | Low | yes | yes | 2 retries, 100ms | yes |
 | `search` | Low | yes | yes | 2 retries, 100ms | yes |
+| `find_files` | Low | yes | yes | 2 retries, 100ms | yes |
 | `write` | Medium | no | no | none | no |
 | `patch` | Medium | no | no | none | no |
 | `bash` | Classified | no | no | none | Low only |
@@ -30,14 +31,34 @@ pub struct ReadInput {
 
 ### `search` — Search Files
 
-Searches workspace files with regex patterns. Supports glob filtering, case-insensitive mode, and result limits.
+Searches workspace text files with local, path-scoped semantics using regular expressions or literal strings. Supports glob filtering, case-insensitive mode, context lines before/after, hidden-file controls, gitignore controls, and result limits.
 
 ```rust
 pub struct SearchInput {
     pub pattern: String,
-    pub path: Option<PathBuf>,
+    pub path: Option<String>,
     pub file_glob: Option<String>,
     pub case_insensitive: Option<bool>,
+    pub is_regex: Option<bool>,
+    pub context_before: Option<usize>,
+    pub context_after: Option<usize>,
+    pub include_hidden: Option<bool>,
+    pub respect_gitignore: Option<bool>,
+    pub max_results: Option<usize>,
+}
+```
+
+### `find_files` — Fuzzy Find Files
+
+Fuzzy finds files inside the workspace relative to a directory root. Excludes hidden files and respects `.gitignore` rules by default.
+
+```rust
+pub struct FindFilesInput {
+    pub query: String,
+    pub path: Option<String>,
+    pub file_glob: Option<String>,
+    pub include_hidden: Option<bool>,
+    pub respect_gitignore: Option<bool>,
     pub max_results: Option<usize>,
 }
 ```
@@ -123,7 +144,7 @@ impl ToolRegistry {
 }
 ```
 
-Rejects duplicate tool names. `default_registry()` provides the six built-in tools pre-registered.
+Rejects duplicate tool names. `default_registry()` provides the seven built-in tools pre-registered.
 
 ---
 
@@ -158,5 +179,5 @@ Shaped output keeps session history compact while still communicating enough det
 use std::sync::Arc;
 use gestalt_tools::default_registry;
 
-let tools = default_registry(); // Arc<dyn ToolCatalog> with 6 tools
+let tools = default_registry(); // Arc<dyn ToolCatalog> with 7 tools
 ```

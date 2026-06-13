@@ -159,6 +159,7 @@ pub async fn build_cli_runtime(
         active_skills: active_skills.clone(),
         mcp_servers,
         mcp_discovery_threshold,
+        ignore_patterns: config.tools.ignore_patterns.clone().unwrap_or_default(),
     };
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();

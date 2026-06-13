@@ -43,6 +43,7 @@ mod tests {
             tui: Default::default(),
             extensions: Default::default(),
             skills: Default::default(),
+            mcp: Default::default(),
         }
     }
 

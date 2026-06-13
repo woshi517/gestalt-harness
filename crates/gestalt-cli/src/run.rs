@@ -443,6 +443,7 @@ mod tests {
                 bash_timeout_secs: None,
                 max_output_tokens: None,
                 sandbox_type: None,
+                ignore_patterns: None,
             },
             context: ContextConfig {
                 max_context_window: None,

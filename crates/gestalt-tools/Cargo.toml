@@ -22,6 +22,11 @@ encoding_rs = { workspace = true }
 glob = { workspace = true }
 reqwest = { workspace = true }
 url = { workspace = true }
+walkdir = "2"
+regex = "1"
+thiserror = { workspace = true }
 
 [dev-dependencies]
 gestalt-policy = { path = "../gestalt-policy" }
+tempfile = "3"
+

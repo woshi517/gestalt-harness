@@ -43,7 +43,7 @@ This document specifies the internal architecture of `gestalt-harness`: its crat
 |---|---|
 |`gestalt-core` is pure — zero I/O, zero HTTP|All concrete I/O lives outside core|
 |Compile in < 30 seconds (core only)|Strict dependency budget per crate|
-|Single stripped binary under 10 MB (default features)|Feature-gated PDF, TUI, MCP, extra providers|
+|Single stripped binary under 10 MB (default features)|Feature-gated TUI, MCP, extra providers|
 |Agent loop under 200 lines|Every new concern belongs in middleware|
 |Deterministic context compilation|Same inputs → same context packet, always|
 |Full JSONL trace replay|Every event is serializable and sequenced|
@@ -1371,6 +1371,8 @@ pub struct ToolContext {
     pub environment: HashMap<String, String>,
     /// Maximum bytes for tool stdout/stderr output before truncation.
     pub max_output_bytes: usize,
+    /// Custom glob ignore patterns for file and folder discovery tools.
+    pub ignore_patterns: Vec<String>,
 }
 
 /// Rich output from a tool execution, before normalization.
@@ -1711,7 +1713,7 @@ pub struct WebFetchInput {
     /// Maximum approximate tokens. Default: 4000.
     #[serde(default)]
     pub max_tokens: Option<usize>,
-    /// Return raw HTML instead of readability-extracted Markdown. Default: false.
+    /// Return raw HTML instead of stripped text inside a <source> envelope. Default: false.
     #[serde(default)]
     pub raw: bool,
 }
@@ -1728,19 +1730,34 @@ pub struct SearchInput {
     #[serde(default)]
     pub case_insensitive: Option<bool>,
     #[serde(default)]
+    pub is_regex: Option<bool>,
+    #[serde(default)]
+    pub context_before: Option<usize>,
+    #[serde(default)]
+    pub context_after: Option<usize>,
+    #[serde(default)]
+    pub include_hidden: Option<bool>,
+    #[serde(default)]
+    pub respect_gitignore: Option<bool>,
+    #[serde(default)]
     pub max_results: Option<usize>,
 }
 
-// ── PdfTool (feature-gated) ───────────────────────────────────────────────────
+// ── FindFilesTool ─────────────────────────────────────────────────────────────
 
-#[cfg(feature = "pdf")]
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct PdfInput {
-    pub path: String,
+pub struct FindFilesInput {
+    pub query: String,
     #[serde(default)]
-    pub pages: Option<Vec<u32>>,
+    pub path: Option<String>,
     #[serde(default)]
-    pub max_tokens: Option<usize>,
+    pub file_glob: Option<String>,
+    #[serde(default)]
+    pub include_hidden: Option<bool>,
+    #[serde(default)]
+    pub respect_gitignore: Option<bool>,
+    #[serde(default)]
+    pub max_results: Option<usize>,
 }
 
 fn default_true() -> bool { true }
@@ -1752,11 +1769,10 @@ fn default_true() -> bool { true }
 |---|---|---|
 |`ReadTool`|Low|Read-only, path-checked|
 |`SearchTool`|Low|Read-only, local only|
-|`PdfTool`|Low|Read-only, file-size guarded|
+|`FindFilesTool`|Low|Read-only, local only|
 |`PatchTool`|Medium|Mutates files, diff-reviewable|
 |`WriteTool`|Medium|Mutates files|
 |`WebFetchTool`|Medium|Network; SSRF-checked|
-|`IngestDocTool`|Medium|May fetch and write|
 |`BashTool`|Context-dependent|Classified per §10.3|
 
 ### 9.8 Tool Reliability Layer

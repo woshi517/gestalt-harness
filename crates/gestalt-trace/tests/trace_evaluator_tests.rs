@@ -105,6 +105,7 @@ async fn test_evaluator_hook_on_session_end() {
             max_output_bytes: 100,
             artifact_dir: Some(temp_dir.join("artifacts")),
             current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
         },
         ExecutionMode::Yolo,
         WorkspaceSnapshot {

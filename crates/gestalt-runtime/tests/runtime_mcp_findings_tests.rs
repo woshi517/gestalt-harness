@@ -323,6 +323,7 @@ async fn test_findings_event_emission_and_list_changed() {
         max_output_bytes: 4096,
         artifact_dir: None,
         current_tool_call_id: None,
+        ignore_patterns: Vec::new(),
     };
 
     // Execute the tool (which triggers tool call start/completed events)

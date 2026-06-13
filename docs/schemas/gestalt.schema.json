@@ -713,6 +713,15 @@
             "string",
             "null"
           ]
+        },
+        "ignore_patterns": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false

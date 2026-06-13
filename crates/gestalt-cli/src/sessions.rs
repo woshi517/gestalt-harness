@@ -669,6 +669,7 @@ pub async fn run_session_action(
             max_output_bytes: config.tools.max_output_tokens.unwrap_or(4_000),
             artifact_dir: Some(run_paths.artifacts.clone()),
             current_tool_call_id: None,
+            ignore_patterns: config.tools.ignore_patterns.clone().unwrap_or_default(),
         },
         mode,
         current_snapshot.clone(),

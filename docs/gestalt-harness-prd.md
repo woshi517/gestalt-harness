@@ -192,7 +192,7 @@ Examples of features that belong inside the harness:
 * JSONL trace logging
 * Replay and cost accounting
 * Generic verifier interfaces
-* Built-in generic tools such as bash, read, write, patch, search, web fetch, and document ingestion
+* Built-in generic tools such as bash, read, write, patch, search, find_files, and web fetch
 
 Examples of features that should be built around the harness:
 
@@ -311,7 +311,7 @@ Context mode is auto-detected from `workspace.md` content or set explicitly. It 
 
 |Dimension|Knowledge Work Mode|Coding Mode|
 |---|---|---|
-|Default tools|bash, read, write, patch, web_fetch, pdf, search, ingest_doc|bash, read, write, patch, search|
+|Default tools|bash, read, write, patch, web_fetch, search, find_files|bash, read, write, patch, search, find_files|
 |Context injected|workspace.md + memory.md + source index|workspace.md + git status|
 |System prompt|Research and analysis focused|Software engineering focused|
 |Token budget strategy|Summarize old sources first|Trim oldest tool outputs first|
@@ -341,9 +341,8 @@ For complete interface contracts and schema definitions, see the architecture do
 |`WriteTool`|Write full replacement content to a file. Shows a diff by default.|Medium|
 |`PatchTool`|Apply a unified diff patch to a file. Safer than full replacement for code edits.|Medium|
 |`SearchTool`|Fast local search over the workspace with glob filtering.|Low|
-|`WebFetchTool`|Fetch a URL and return readability-extracted Markdown. Respects network policy.|Medium|
-|`PdfTool`|Extract text from a PDF file with optional page selection. Feature-gated.|Low|
-|`IngestDocTool`|Convert a PDF, HTML page, or Markdown file into indexed workspace knowledge.|Medium|
+|`WebFetchTool`|Fetch a URL and return stripped text inside a <source> envelope. Respects network policy.|Medium|
+|`FindFilesTool`|Fuzzy find files inside the workspace relative to a directory root.|Low|
 
 ### 10.2 Tool Selection Philosophy
 
@@ -441,7 +440,7 @@ triggers:
   - "literature review"
   - "synthesize research"
 permissions:
-  tools: ["read", "search", "pdf", "write"]
+  tools: ["read", "search", "find_files", "write"]
   network: false
   write_paths: ["/docs/"]
   scripts: false
@@ -864,14 +863,14 @@ loaded:
   workspace.md
   memory.md                12 entries
   sources                  3 files in /sources
-  tools                    bash, read, write, patch, search, pdf, web_fetch
+  tools                    bash, read, write, patch, search, find_files, web_fetch
   mcp                      brave-search
 
 [turn 1] Discovering source files
-  ⚙ bash: find /sources -name "*.pdf"   risk: LOW · auto-approved
+  ⚙ find_files: query: "", path: "sources"   risk: LOW · auto-approved
     → 3 results
 
-  ⚙ pdf: read paper1.pdf pages 1-8
+  ⚙ read: path: "sources/paper1.txt"
     → 4,200 tokens
 
 [turn 2] Extracting claims
@@ -879,8 +878,8 @@ loaded:
     → created
 
 [turn 3] Processing remaining sources
-  ⚙ pdf: read paper2.pdf   → 3,100 tokens
-  ⚙ pdf: read paper3.pdf   → 2,800 tokens
+  ⚙ read: path: "sources/paper2.txt"   → 3,100 tokens
+  ⚙ read: path: "sources/paper3.txt"   → 2,800 tokens
 
 [turn 4] Finalizing synthesis
   ⚙ bash: wc -l /docs/synthesis-draft.md   risk: LOW · auto-approved
@@ -986,7 +985,8 @@ The global file is created automatically on first config-aware CLI use (`{"versi
   "tools": {
     "bash_timeout_secs": 60,
     "max_output_tokens": 4000,
-    "sandbox_type": "none"
+    "sandbox_type": "none",
+    "ignore_patterns": ["node_modules/", "dist/", "*.log"]
   },
   "context": {
     "max_context_window": 120000,
@@ -1429,7 +1429,7 @@ Full list of allowed direct dependencies across all crates. `gestalt-core` has t
 |`sha2`|0.10|Source content hashing in `gestalt-context`|
 |`ratatui`|0.28|TUI — optional feature flag|
 |`crossterm`|0.28|Terminal control — optional feature flag|
-|`pdfium-render`|0.8|PDF text extraction — optional `pdf` feature|
+|`pdfium-render`|0.8|PDF text extraction — planned dependency (optional `pdf` feature)|
 
 Total: 25 direct deps across all crates. `gestalt-core` uses 7. All are actively maintained.
 
@@ -1581,7 +1581,7 @@ Potential improvements:
 * MCP tool normalization and trust-level enforcement.
 * External tool plugin registration.
 
-Built-in tools should remain generic: bash, read, write, patch, search, web fetch, document ingestion, and similar primitives.
+Built-in tools should remain generic: bash, read, write, patch, search, find_files, web fetch, and similar primitives.
 
 Boundary rule:
 

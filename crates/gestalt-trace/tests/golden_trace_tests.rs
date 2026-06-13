@@ -385,6 +385,7 @@ fn make_programmatic_session(max_turns: usize) -> Session {
             max_output_bytes: 1000,
             artifact_dir: None,
             current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
         },
         ExecutionMode::Yolo,
         WorkspaceSnapshot {

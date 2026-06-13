@@ -5,6 +5,7 @@
 
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
+mod backends;
 pub mod builtin_descriptors;
 mod path;
 mod registry;
@@ -13,6 +14,6 @@ mod tools;
 
 pub use registry::ToolRegistry;
 pub use tools::{
-    default_registry, BashInput, BashTool, PatchInput, PatchTool, ReadInput, ReadTool, SearchInput,
-    SearchTool, WebFetchInput, WebFetchTool, WriteInput, WriteTool,
+    default_registry, BashInput, BashTool, FindFilesInput, FindFilesTool, PatchInput, PatchTool,
+    ReadInput, ReadTool, SearchInput, SearchTool, WebFetchInput, WebFetchTool, WriteInput, WriteTool,
 };
