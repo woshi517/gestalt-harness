@@ -40,9 +40,12 @@ pub fn inspect_tool(
         ))
     })?;
 
+    let descriptor = tool.descriptor();
     Ok(ToolsInspectReport {
         name: tool_name.to_string(),
         schema: tool.schema(),
+        risk: tool.risk(&Value::Null),
+        annotations: descriptor.annotations,
     })
 }
 

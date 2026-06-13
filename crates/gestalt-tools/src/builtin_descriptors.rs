@@ -9,6 +9,7 @@ pub fn make_builtin_descriptor(
     read_only: bool,
     idempotent: bool,
     retry_policy: Option<ToolRetryPolicy>,
+    extra_annotations: &[(&str, &str)],
 ) -> ToolDescriptor {
     let name = tool.name().to_string();
     let canonical_id = CanonicalToolId {
@@ -16,7 +17,7 @@ pub fn make_builtin_descriptor(
         name,
     };
 
-    let annotations = vec![
+    let mut annotations = vec![
         ToolAnnotation {
             key: "read_only".to_string(),
             value: read_only.to_string(),
@@ -28,6 +29,14 @@ pub fn make_builtin_descriptor(
             source: AnnotationSource::BuiltInTrusted,
         },
     ];
+
+    for &(key, value) in extra_annotations {
+        annotations.push(ToolAnnotation {
+            key: key.to_string(),
+            value: value.to_string(),
+            source: AnnotationSource::BuiltInTrusted,
+        });
+    }
 
     ToolDescriptor {
         id: canonical_id,

@@ -70,6 +70,7 @@ impl Tool for BashTool {
             self, false, // read_only
             false, // idempotent
             None,  // no retries
+            &[],
         )
     }
 

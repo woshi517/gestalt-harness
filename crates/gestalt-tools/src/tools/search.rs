@@ -1,12 +1,12 @@
-use glob::Pattern;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
-use crate::path::validate_child_dir;
+use crate::path::{validate_child_dir, PathFilter};
+use crate::backends::{default_text_search_backend, TextSearchRequest};
 
-use super::common::{decode_text, invalid_input, parse_input, tool_schema};
+use super::common::{parse_input, tool_schema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SearchInput {
@@ -18,11 +18,27 @@ pub struct SearchInput {
     #[serde(default)]
     pub case_insensitive: Option<bool>,
     #[serde(default)]
+    pub is_regex: Option<bool>,
+    #[serde(default)]
+    pub context_before: Option<usize>,
+    #[serde(default)]
+    pub context_after: Option<usize>,
+    #[serde(default)]
+    pub include_hidden: Option<bool>,
+    #[serde(default)]
+    pub respect_gitignore: Option<bool>,
+    #[serde(default)]
     pub max_results: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SearchTool;
+
+impl SearchTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 #[async_trait::async_trait]
 impl Tool for SearchTool {
@@ -51,6 +67,10 @@ impl Tool for SearchTool {
                 max_retries: 2,
                 backoff_ms: 100,
             }),
+            &[
+                ("backend", "walkdir-grep"),
+                ("replacement_tool", "search_text"),
+            ],
         )
     }
 
@@ -61,114 +81,85 @@ impl Tool for SearchTool {
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let input = parse_input::<SearchInput>(self.name(), input)?;
         let root = validate_child_dir(input.path.as_deref(), ctx)?;
-        let glob = input
-            .file_glob
-            .as_deref()
-            .map(Pattern::new)
-            .transpose()
-            .map_err(|err| invalid_input(self.name(), err.to_string()))?;
-        let needle = if input.case_insensitive.unwrap_or(false) {
-            input.pattern.to_ascii_lowercase()
-        } else {
-            input.pattern.clone()
-        };
+        
+        let case_insensitive = input.case_insensitive.unwrap_or(false);
+        let is_regex = input.is_regex.unwrap_or(false);
+        let context_before = input.context_before.unwrap_or(0);
+        let context_after = input.context_after.unwrap_or(0);
+        let include_hidden = input.include_hidden.unwrap_or(false);
+        let respect_gitignore = input.respect_gitignore.unwrap_or(true);
         let max_results = input.max_results.unwrap_or(100);
-        let mut results = Vec::new();
-        search_dir(
-            &root,
-            &root,
-            glob.as_ref(),
-            &needle,
-            input.case_insensitive.unwrap_or(false),
+
+        let backend = default_text_search_backend();
+        let request = TextSearchRequest {
+            pattern: input.pattern.clone(),
+            root: root.clone(),
+            is_regex,
+            case_insensitive,
+            context_before,
+            context_after,
             max_results,
-            &mut results,
-        )?;
+            file_glob: input.file_glob.clone(),
+        };
+
+        let raw_results = backend.search(&request).await
+            .map_err(|e| ToolError::ExecutionFailed(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+
+        let filter = PathFilter::new(ctx, &root, include_hidden, respect_gitignore);
+        let mut results = Vec::new();
+
+        let mut match_count = 0;
+        for r in raw_results {
+            if filter.is_visible(&r.path) {
+                if match_count >= max_results {
+                    break;
+                }
+                match_count += 1;
+
+                let rel_path = if let Some(ref ws_root) = ctx.workspace_root {
+                    match r.path.strip_prefix(ws_root) {
+                        Ok(p) => p.to_string_lossy().to_string(),
+                        Err(_) => r.path.to_string_lossy().to_string(),
+                    }
+                } else {
+                    match r.path.strip_prefix(&root) {
+                        Ok(p) => p.to_string_lossy().to_string(),
+                        Err(_) => r.path.to_string_lossy().to_string(),
+                    }
+                };
+
+                let start_ctx_line = r.line_number.saturating_sub(r.context_before.len());
+                for (idx, ctx_line) in r.context_before.iter().enumerate() {
+                    results.push(format!(
+                        "{}-{}-{}",
+                        rel_path,
+                        start_ctx_line + idx,
+                        ctx_line
+                    ));
+                }
+
+                results.push(format!(
+                    "{}:{}:{}",
+                    rel_path,
+                    r.line_number,
+                    r.line_content
+                ));
+
+                for (idx, ctx_line) in r.context_after.iter().enumerate() {
+                    results.push(format!(
+                        "{}-{}-{}",
+                        rel_path,
+                        r.line_number + 1 + idx,
+                        ctx_line
+                    ));
+                }
+            }
+        }
 
         Ok(ToolOutput::Text {
             content: results.join("\n"),
         })
     }
-}
-
-fn search_dir(
-    root: &std::path::Path,
-    current: &std::path::Path,
-    glob: Option<&Pattern>,
-    needle: &str,
-    case_insensitive: bool,
-    max_results: usize,
-    results: &mut Vec<String>,
-) -> Result<(), ToolError> {
-    if results.len() >= max_results {
-        return Ok(());
-    }
-
-    let entries = std::fs::read_dir(current).map_err(ToolError::ExecutionFailed)?;
-    for entry in entries {
-        let entry = entry.map_err(ToolError::ExecutionFailed)?;
-        let path = entry.path();
-        let file_type = entry.file_type().map_err(ToolError::ExecutionFailed)?;
-        if file_type.is_dir() {
-            search_dir(
-                root,
-                &path,
-                glob,
-                needle,
-                case_insensitive,
-                max_results,
-                results,
-            )?;
-        } else if file_type.is_file() && glob_matches(root, &path, glob) {
-            search_file(root, &path, needle, case_insensitive, max_results, results)?;
-        }
-        if results.len() >= max_results {
-            break;
-        }
-    }
-    Ok(())
-}
-
-fn glob_matches(root: &std::path::Path, path: &std::path::Path, glob: Option<&Pattern>) -> bool {
-    glob.map_or(true, |pattern| {
-        path.strip_prefix(root)
-            .ok()
-            .and_then(std::path::Path::to_str)
-            .is_some_and(|relative| pattern.matches(relative))
-    })
-}
-
-fn search_file(
-    root: &std::path::Path,
-    path: &std::path::Path,
-    needle: &str,
-    case_insensitive: bool,
-    max_results: usize,
-    results: &mut Vec<String>,
-) -> Result<(), ToolError> {
-    let bytes = std::fs::read(path).map_err(ToolError::ExecutionFailed)?;
-    let Ok(content) = decode_text("search", &bytes) else {
-        return Ok(());
-    };
-    let relative = path.strip_prefix(root).unwrap_or(path);
-    for (line_index, line) in content.lines().enumerate() {
-        let haystack = if case_insensitive {
-            line.to_ascii_lowercase()
-        } else {
-            line.to_string()
-        };
-        if haystack.contains(needle) {
-            results.push(format!(
-                "{}:{}:{}",
-                relative.display(),
-                line_index + 1,
-                line
-            ));
-        }
-        if results.len() >= max_results {
-            break;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -194,5 +185,155 @@ mod tests {
             .expect("search succeeds");
 
         assert!(matches!(output, ToolOutput::Text { content } if content == "a.md:1:Alpha"));
+    }
+
+    #[tokio::test]
+    async fn search_should_find_matches_with_context() {
+        let root = temp_workspace("search_context");
+        fs::write(root.join("a.txt"), "Line1\nTargetLine\nLine3").expect("write txt");
+
+        let output = SearchTool
+            .execute(
+                json!({
+                    "pattern": "TargetLine",
+                    "context_before": 1,
+                    "context_after": 1
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("search succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                let expected = "a.txt-1-Line1\na.txt:2:TargetLine\na.txt-3-Line3";
+                assert_eq!(content, expected);
+            }
+            _ => panic!("Expected text output"),
+        }
+    }
+
+    #[tokio::test]
+    async fn search_excludes_hidden_by_default() {
+        let root = temp_workspace("search_hidden_default");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "TargetContent").unwrap();
+        fs::write(root.join("src/.hidden.rs"), "TargetContent").unwrap();
+
+        let output = SearchTool
+            .execute(
+                json!({"pattern": "TargetContent"}),
+                &ctx(&root),
+            )
+            .await
+            .expect("search succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                assert!(content.contains("src/main.rs"));
+                assert!(!content.contains(".hidden.rs"));
+            }
+            _ => panic!("Expected text output"),
+        }
+    }
+
+    #[tokio::test]
+    async fn search_includes_hidden_when_flag_enabled() {
+        let root = temp_workspace("search_hidden_enabled");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "TargetContent").unwrap();
+        fs::write(root.join("src/.hidden.rs"), "TargetContent").unwrap();
+
+        let output = SearchTool
+            .execute(
+                json!({
+                    "pattern": "TargetContent",
+                    "include_hidden": true
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("search succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                assert!(content.contains("src/main.rs"));
+                assert!(content.contains("src/.hidden.rs"));
+            }
+            _ => panic!("Expected text output"),
+        }
+    }
+
+    #[tokio::test]
+    async fn search_always_excludes_secrets() {
+        let root = temp_workspace("search_sec");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "TargetContent").unwrap();
+        fs::write(root.join("src/.env"), "DATABASE_URL=TargetContent").unwrap();
+        fs::write(root.join("src/secret.key"), "TargetContent").unwrap();
+
+        let output = SearchTool
+            .execute(
+                json!({
+                    "pattern": "TargetContent",
+                    "include_hidden": true
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("search succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                assert!(content.contains("src/main.rs"), "Expected main.rs match: {}", content);
+                assert!(!content.contains(".env"), "Expected no .env match: {}", content);
+                assert!(!content.contains("secret.key"), "Expected no secret.key match: {}", content);
+            }
+            _ => panic!("Expected text output"),
+        }
+    }
+
+    #[tokio::test]
+    async fn search_respects_gitignore() {
+        let root = temp_workspace("search_gitignore");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "TargetContent").unwrap();
+        fs::write(root.join("src/ignored.rs"), "TargetContent").unwrap();
+        fs::write(root.join(".gitignore"), "src/ignored.rs\n").unwrap();
+
+        let output = SearchTool
+            .execute(
+                json!({"pattern": "TargetContent"}),
+                &ctx(&root),
+            )
+            .await
+            .expect("search succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                assert!(content.contains("src/main.rs"));
+                assert!(!content.contains("ignored.rs"));
+            }
+            _ => panic!("Expected text output"),
+        }
+
+        let output2 = SearchTool
+            .execute(
+                json!({
+                    "pattern": "TargetContent",
+                    "respect_gitignore": false
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("search succeeds");
+
+        match output2 {
+            ToolOutput::Text { content } => {
+                assert!(content.contains("src/main.rs"));
+                assert!(content.contains("src/ignored.rs"));
+            }
+            _ => panic!("Expected text output"),
+        }
     }
 }

@@ -1,5 +1,6 @@
 mod bash;
 mod common;
+mod find_files;
 mod patch;
 mod read;
 mod search;
@@ -9,6 +10,7 @@ mod web_fetch;
 mod write;
 
 pub use bash::{BashInput, BashTool};
+pub use find_files::{FindFilesInput, FindFilesTool};
 pub use patch::{PatchInput, PatchTool};
 pub use read::{ReadInput, ReadTool};
 pub use search::{SearchInput, SearchTool};
@@ -23,6 +25,7 @@ pub fn default_registry() -> Result<crate::ToolRegistry, ToolError> {
     let mut registry = crate::ToolRegistry::new();
     registry.register(Arc::new(ReadTool))?;
     registry.register(Arc::new(SearchTool))?;
+    registry.register(Arc::new(FindFilesTool))?;
     registry.register(Arc::new(WriteTool))?;
     registry.register(Arc::new(PatchTool))?;
     registry.register(Arc::new(BashTool::default()))?;
@@ -40,6 +43,6 @@ mod tests {
         let registry = default_registry().expect("registry builds");
         let schemas = registry.schemas();
 
-        assert_eq!(schemas.len(), 6);
+        assert_eq!(schemas.len(), 7);
     }
 }

@@ -50,6 +50,7 @@ impl Tool for ReadTool {
                 max_retries: 2,
                 backoff_ms: 100,
             }),
+            &[],
         )
     }
 

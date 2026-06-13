@@ -37,6 +37,9 @@ pub struct RuntimeConfig {
     /// Threshold to switch to progressive discovery
     #[serde(default)]
     pub mcp_discovery_threshold: Option<usize>,
+    /// Configured ignore patterns for file discovery and text search
+    #[serde(default)]
+    pub ignore_patterns: Vec<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -62,6 +65,7 @@ impl Default for RuntimeConfig {
             active_skills: Vec::new(),
             mcp_servers: HashMap::new(),
             mcp_discovery_threshold: Some(5),
+            ignore_patterns: Vec::new(),
         }
     }
 }

@@ -92,6 +92,7 @@ pub struct ToolContext {
     pub max_output_bytes: usize,
     pub artifact_dir: Option<PathBuf>,
     pub current_tool_call_id: Option<String>,
+    pub ignore_patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

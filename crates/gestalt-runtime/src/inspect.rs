@@ -37,6 +37,8 @@ pub struct SkillInspectInfo {
 pub struct ToolInspectInfo {
     pub name: String,
     pub schema_hash: String,
+    #[serde(default)]
+    pub backend: Option<String>,
 }
 
 pub fn compute_hook_contract_hash(hook_names: &[String]) -> String {

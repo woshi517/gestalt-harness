@@ -388,6 +388,7 @@ impl GoldenTraceRunner {
                 max_output_bytes: 1024,
                 artifact_dir: Some(temp_dir.join("artifacts")),
                 current_tool_call_id: None,
+                ignore_patterns: Vec::new(),
             },
             golden.input.execution_mode,
             snapshot,

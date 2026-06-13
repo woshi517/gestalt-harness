@@ -164,6 +164,7 @@ fn make_session() -> Session {
             max_output_bytes: 1000,
             artifact_dir: None,
             current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
         },
         ExecutionMode::Yolo,
         WorkspaceSnapshot {

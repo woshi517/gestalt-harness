@@ -68,6 +68,7 @@ async fn test_process_extension_lifecycle_and_execution() {
         max_output_bytes: 1024,
         artifact_dir: None,
         current_tool_call_id: None,
+        ignore_patterns: Vec::new(),
     };
     std::env::set_var("TEST_SECRET", "super_secret");
     let output = tool.execute(serde_json::json!({}), &ctx).await.unwrap();
@@ -152,6 +153,7 @@ async fn test_process_extension_host_filesystem_permissions() {
         max_output_bytes: 1024,
         artifact_dir: None,
         current_tool_call_id: None,
+        ignore_patterns: Vec::new(),
     };
 
     // Attempting to write to a disallowed path should fail with PathNotAllowed
@@ -205,6 +207,7 @@ async fn test_process_extension_host_network_permissions() {
         max_output_bytes: 1024,
         artifact_dir: None,
         current_tool_call_id: None,
+        ignore_patterns: Vec::new(),
     };
 
     // Attempting to contact google.com when allow_network is empty should fail with NetworkDenied

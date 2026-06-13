@@ -1636,6 +1636,8 @@ impl CliReport for ToolsListReport {
 pub struct ToolsInspectReport {
     pub name: String,
     pub schema: Value,
+    pub risk: gestalt_core::tool::RiskLevel,
+    pub annotations: gestalt_core::tool_descriptor::ToolAnnotations,
 }
 
 impl CliReport for ToolsInspectReport {
@@ -1644,8 +1646,23 @@ impl CliReport for ToolsInspectReport {
     }
 
     fn render_text(&self) -> String {
-        serde_json::to_string_pretty(&self.schema)
-            .unwrap_or_else(|_| "Serialization error".to_string())
+        let mut lines = vec![
+            format!("Tool Name:   {}", self.name),
+            format!("Risk Level:  {:?}", self.risk),
+        ];
+        if !self.annotations.annotations.is_empty() {
+            lines.push("Annotations:".to_string());
+            for ann in &self.annotations.annotations {
+                lines.push(format!("  - {}: {} ({:?})", ann.key, ann.value, ann.source));
+            }
+        }
+        lines.push("Schema:".to_string());
+        if let Ok(schema_str) = serde_json::to_string_pretty(&self.schema) {
+            for line in schema_str.lines() {
+                lines.push(format!("  {}", line));
+            }
+        }
+        lines.join("\n")
     }
 }
 

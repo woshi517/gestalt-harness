@@ -158,6 +158,7 @@ impl AgentRuntime {
                 max_output_bytes: self.config.max_output_tokens.unwrap_or(4_000),
                 artifact_dir: input.artifact_dir,
                 current_tool_call_id: None,
+                ignore_patterns: self.config.ignore_patterns.clone(),
             },
             self.config.execution_mode,
             snapshot.clone(),
@@ -394,7 +395,13 @@ impl AgentRuntime {
                     .unwrap_or("")
                     .to_string();
                 let schema_hash = crate::registry::compute_schema_hash(s);
-                ToolInspectInfo { name, schema_hash }
+                let backend = self.tools.get(&name).and_then(|t| {
+                    t.descriptor()
+                        .annotations
+                        .get("backend")
+                        .map(|ann| ann.value.clone())
+                });
+                ToolInspectInfo { name, schema_hash, backend }
             })
             .collect();
         let tool_schema_hash = crate::registry::compute_tool_schema_hash(&schemas);

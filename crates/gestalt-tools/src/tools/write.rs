@@ -43,6 +43,7 @@ impl Tool for WriteTool {
             self, false, // read_only
             false, // idempotent
             None,  // no retries
+            &[],
         )
     }
 

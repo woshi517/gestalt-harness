@@ -123,10 +123,11 @@ fn test_tools_reports_contracts() {
     assert_eq!(t_list.kind(), "tools.list");
     assert!(t_list.render_text().contains("mock-tool"));
 
-    // ToolsInspectReport
     let t_inspect = ToolsInspectReport {
         name: "mock-tool".to_string(),
         schema: json!({"type": "object"}),
+        risk: gestalt_core::tool::RiskLevel::Low,
+        annotations: gestalt_core::tool_descriptor::ToolAnnotations::default(),
     };
     assert_eq!(t_inspect.kind(), "tools.inspect");
     assert!(t_inspect.render_text().contains("object"));
@@ -307,6 +308,7 @@ fn test_runtime_inspect_report_contract() {
         tools: vec![gestalt_runtime::ToolInspectInfo {
             name: "bash".to_string(),
             schema_hash: "abc123hash".to_string(),
+            backend: None,
         }],
         tool_schema_hash: "def456hash".to_string(),
         policy_fingerprint: Some("policy789hash".to_string()),

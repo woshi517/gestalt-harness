@@ -670,6 +670,7 @@ async fn test_runtime_run_session_preserves_history() {
             max_output_bytes: 100,
             artifact_dir: None,
             current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
         },
         gestalt_core::session::ExecutionMode::Yolo,
         snapshot,
@@ -751,6 +752,7 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
             max_output_bytes: 100,
             artifact_dir: Some(artifact_dir.clone()),
             current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
         },
         gestalt_core::session::ExecutionMode::Yolo,
         gestalt_core::snapshot::WorkspaceSnapshot {

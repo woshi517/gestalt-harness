@@ -272,6 +272,7 @@ fn make_session(mode: ExecutionMode) -> Session {
             max_output_bytes: 4096,
             artifact_dir: None,
             current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
         },
         mode,
         WorkspaceSnapshot {

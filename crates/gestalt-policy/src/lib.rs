@@ -269,7 +269,7 @@ impl PolicyEngine for MinimalPolicyEngine {
 impl MinimalPolicyEngine {
     fn evaluate_tool_policy(&self, request: &PolicyRequest) -> Option<PolicyDecision> {
         match request.tool_name.as_str() {
-            "read" | "builtin:read" | "search" | "builtin:search" => {
+            "read" | "builtin:read" | "search" | "builtin:search" | "find_files" | "builtin:find_files" => {
                 Some(self.evaluate_path_tool(request, PathAccess::Read))
             }
             "write" | "builtin:write" | "patch" | "builtin:patch" => {
@@ -282,11 +282,38 @@ impl MinimalPolicyEngine {
     }
 
     fn evaluate_path_tool(&self, request: &PolicyRequest, access: PathAccess) -> PolicyDecision {
-        let Some(path) = extract_path(&request.input) else {
-            return deny(
-                "missing path in tool input",
-                "policies.toml:paths.invalid_input",
-            );
+        let path_buf;
+        let path = match extract_path(&request.input) {
+            Some(p) => p,
+            None => {
+                let name = request.tool_name.as_str();
+                if name == "search"
+                    || name == "builtin:search"
+                    || name == "find_files"
+                    || name == "builtin:find_files"
+                {
+                    path_buf = if let Some(ref ws_root) = request.workspace_root {
+                        if let Ok(rel) = request.working_dir.strip_prefix(ws_root) {
+                            let rel_str = rel.to_string_lossy().to_string();
+                            if rel_str.is_empty() {
+                                ".".to_string()
+                            } else {
+                                rel_str
+                            }
+                        } else {
+                            request.working_dir.to_string_lossy().to_string()
+                        }
+                    } else {
+                        ".".to_string()
+                    };
+                    &path_buf
+                } else {
+                    return deny(
+                        "missing path in tool input",
+                        "policies.toml:paths.invalid_input",
+                    );
+                }
+            }
         };
 
         if is_denied_secret_path(path) || self.path_matches_deny(path, access) {
@@ -590,9 +617,30 @@ fn matches_any_path(patterns: &[String], path: &str) -> bool {
         if pattern.ends_with('/') {
             return normalized.starts_with(&pattern);
         }
-        Pattern::new(&pattern).is_ok_and(|glob| glob.matches(&normalized))
+        if Pattern::new(&pattern).is_ok_and(|glob| glob.matches(&normalized))
             || normalized == pattern
             || normalized.starts_with(&format!("{pattern}/"))
+        {
+            return true;
+        }
+
+        // Handle file-shaped glob patterns for directory-scoped paths
+        // Extract the prefix before any glob wildcard character
+        let wildcard_pos = pattern.find(|c| c == '*' || c == '?' || c == '[');
+        if let Some(pos) = wildcard_pos {
+            let prefix = &pattern[..pos];
+            let mut prefix_path = normalize_path(prefix);
+            if prefix_path.ends_with('/') {
+                prefix_path.pop();
+            }
+            if !prefix_path.is_empty() {
+                if normalized == prefix_path || normalized.starts_with(&format!("{prefix_path}/")) {
+                    return true;
+                }
+            }
+        }
+
+        false
     })
 }
 
@@ -813,5 +861,21 @@ mod tests {
             .await;
 
         assert_eq!(decision.status, PolicyStatus::Confirm);
+    }
+
+    #[test]
+    fn test_matches_any_path_file_shaped_globs() {
+        let patterns = vec!["src/**/*.rs".to_string(), "crates/lib/src/*.rs".to_string()];
+        
+        assert!(matches_any_path(&patterns, "src/main.rs"));
+        assert!(matches_any_path(&patterns, "crates/lib/src/lib.rs"));
+        
+        assert!(matches_any_path(&patterns, "src"));
+        assert!(matches_any_path(&patterns, "src/utils"));
+        assert!(matches_any_path(&patterns, "crates/lib/src"));
+        
+        assert!(!matches_any_path(&patterns, "."));
+        assert!(!matches_any_path(&patterns, "crates/lib"));
+        assert!(!matches_any_path(&patterns, "tests"));
     }
 }

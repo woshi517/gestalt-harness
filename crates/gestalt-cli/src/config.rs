@@ -172,6 +172,8 @@ pub struct ToolsConfig {
     pub bash_timeout_secs: Option<u64>,
     pub max_output_tokens: Option<usize>,
     pub sandbox_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_patterns: Option<Vec<String>>,
 }
 
 impl Default for ToolsConfig {
@@ -180,6 +182,7 @@ impl Default for ToolsConfig {
             bash_timeout_secs: Some(60),
             max_output_tokens: Some(4_000),
             sandbox_type: Some("none".to_string()),
+            ignore_patterns: None,
         }
     }
 }
@@ -535,6 +538,7 @@ pub fn default_workspace_config() -> WorkspaceConfig {
             bash_timeout_secs: Some(60),
             max_output_tokens: Some(4000),
             sandbox_type: Some("none".to_string()),
+            ignore_patterns: None,
         }),
         context: Some(ContextConfig::default()),
         observe: Some(ObserveConfig::default()),
@@ -618,6 +622,9 @@ impl WorkspaceConfig {
                 .max_output_tokens
                 .or(self_tools.max_output_tokens);
             self_tools.sandbox_type = other_tools.sandbox_type.or(self_tools.sandbox_type);
+            self_tools.ignore_patterns = other_tools
+                .ignore_patterns
+                .or(self_tools.ignore_patterns);
             self.tools = Some(self_tools);
         }
 
@@ -1391,6 +1398,15 @@ pub fn explain_config(
         (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type.clone())),
         (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type.clone())),
         "none"
+    );
+
+    resolve!(
+        "tools.ignore_patterns",
+        None::<Vec<String>>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.ignore_patterns.clone())),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.ignore_patterns.clone())),
+        Value::Null
     );
 
     resolve!(

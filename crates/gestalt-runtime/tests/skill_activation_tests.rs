@@ -182,6 +182,7 @@ fn fresh_session() -> Session {
             max_output_bytes: 100,
             artifact_dir: None,
             current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
         },
         gestalt_core::session::ExecutionMode::Confirm,
         WorkspaceSnapshot {
