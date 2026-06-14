@@ -365,6 +365,10 @@ fn make_programmatic_session(max_turns: usize) -> Session {
             max_tokens: 100,
             temperature: None,
             max_turns,
+            top_p: None,
+            reasoning_effort: None,
+            text_verbosity: None,
+            metadata: serde_json::Value::Null,
         },
         gestalt_core::context::TokenBudget {
             model_limit: 1000,

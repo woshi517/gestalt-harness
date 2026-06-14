@@ -1001,6 +1001,7 @@
             "null"
           ]
         },
+        "capabilities": true,
         "default_model": {
           "type": [
             "string",

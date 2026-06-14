@@ -84,20 +84,27 @@ impl AnthropicProvider {
             .and_then(|h| serde_json::from_value::<HashMap<String, String>>(h.clone()).ok())
             .unwrap_or_default();
 
+        let mut capabilities = ProviderCapabilities {
+            supports_parallel_tools: true,
+            supports_vision: true,
+            supports_prompt_caching: true,
+            supports_usage_reporting: true,
+            supports_streaming: true,
+            ..ProviderCapabilities::default()
+        };
+        if let Some(caps) = config.get("capabilities") {
+            if let Ok(c) = serde_json::from_value::<ProviderCapabilities>(caps.clone()) {
+                capabilities = c;
+            }
+        }
+
         Ok(Self {
             client: reqwest::Client::new(),
             base_url,
             default_model,
             auth,
             resolver,
-            capabilities: ProviderCapabilities {
-                supports_parallel_tools: true,
-                supports_vision: true,
-                supports_prompt_caching: true,
-                supports_usage_reporting: true,
-                supports_streaming: true,
-                ..ProviderCapabilities::default()
-            },
+            capabilities,
             headers,
         })
     }
@@ -193,6 +200,28 @@ impl AnthropicProvider {
         }
         if !request.stop_sequences.is_empty() {
             body.insert("stop_sequences".to_string(), json!(request.stop_sequences));
+        }
+
+        let mut thinking_set = false;
+        if let Some(thinking) = request.metadata.get("thinking") {
+            body.insert("thinking".to_string(), thinking.clone());
+            thinking_set = true;
+        }
+
+        if !thinking_set {
+            if let Some(effort) = request.reasoning_effort {
+                let effort_str = match effort {
+                    gestalt_core::provider::ReasoningEffort::None => "none",
+                    gestalt_core::provider::ReasoningEffort::Low => "low",
+                    gestalt_core::provider::ReasoningEffort::Medium => "medium",
+                    gestalt_core::provider::ReasoningEffort::High => "high",
+                    gestalt_core::provider::ReasoningEffort::Xhigh => "xhigh",
+                };
+                if effort_str != "none" {
+                    body.insert("thinking".to_string(), json!({ "type": "adaptive" }));
+                    body.insert("output_config".to_string(), json!({ "effort": effort_str }));
+                }
+            }
         }
 
         Value::Object(body)
@@ -603,6 +632,8 @@ mod tests {
             stop_sequences: vec![],
             cache_plan: Some(plan),
             metadata: serde_json::Value::Null,
+            reasoning_effort: None,
+            text_verbosity: None,
         }
     }
 

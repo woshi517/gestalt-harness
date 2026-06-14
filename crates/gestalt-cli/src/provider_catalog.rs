@@ -23,6 +23,7 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             }),
             auth_ref: None,
             request: None,
+            capabilities: None,
             models: HashMap::new(),
         }),
         "anthropic" => Some(ProviderConfig {
@@ -37,6 +38,7 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             headers: None,
             auth_ref: None,
             request: None,
+            capabilities: None,
             models: HashMap::new(),
         }),
         "openai" => Some(ProviderConfig {
@@ -51,6 +53,7 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             headers: None,
             auth_ref: None,
             request: None,
+            capabilities: None,
             models: HashMap::new(),
         }),
         "ollama" => Some(ProviderConfig {
@@ -65,6 +68,7 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             headers: None,
             auth_ref: None,
             request: None,
+            capabilities: None,
             models: HashMap::new(),
         }),
         "groq" => Some(ProviderConfig {
@@ -79,6 +83,7 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             headers: None,
             auth_ref: None,
             request: None,
+            capabilities: None,
             models: HashMap::new(),
         }),
         "together" => Some(ProviderConfig {
@@ -93,6 +98,7 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             headers: None,
             auth_ref: None,
             request: None,
+            capabilities: None,
             models: HashMap::new(),
         }),
         _ => None,

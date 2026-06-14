@@ -650,6 +650,10 @@ async fn test_runtime_run_session_preserves_history() {
             max_tokens: 100,
             temperature: None,
             max_turns: 5,
+            top_p: None,
+            reasoning_effort: None,
+            text_verbosity: None,
+            metadata: serde_json::Value::Null,
         },
         TokenBudget {
             model_limit: 100,
@@ -732,6 +736,10 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
             max_tokens: 100,
             temperature: None,
             max_turns: 5,
+            top_p: None,
+            reasoning_effort: None,
+            text_verbosity: None,
+            metadata: serde_json::Value::Null,
         },
         TokenBudget {
             model_limit: 100,

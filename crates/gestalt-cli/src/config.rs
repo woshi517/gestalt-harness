@@ -164,6 +164,7 @@ pub struct ProviderConfig {
     pub models_endpoint: Option<String>,
     pub headers: Option<HashMap<String, String>>,
     pub request: Option<ProviderRequestConfig>,
+    pub capabilities: Option<serde_json::Value>,
     #[serde(default)]
     pub models: HashMap<String, ModelDefinitionConfig>,
 }
@@ -1258,6 +1259,8 @@ pub struct ResolvedProvider {
     pub api_key_env: Option<String>,
     pub models_endpoint: Option<String>,
     pub headers: Option<HashMap<String, String>>,
+    pub resolved_options: ModelOptionsConfig,
+    pub capabilities: Option<serde_json::Value>,
 }
 
 impl ResolvedProvider {
@@ -1272,6 +1275,7 @@ impl ResolvedProvider {
             "auth_ref": self.auth_ref,
             "models_endpoint": self.models_endpoint,
             "headers": self.headers,
+            "capabilities": self.capabilities,
         })
     }
 }
@@ -1281,42 +1285,42 @@ impl EffectiveConfig {
         let active_profile = self.defaults.profile.clone();
         let active_provider = self.defaults.provider.clone();
 
-        let (profile_name, mut provider_name, mut model_override) = if let Some(p) = active_profile
+        let (profile_name, mut provider_name, mut model_override) = if let Some(ref p) = active_profile
         {
-            if let Some(prof_cfg) = self.profiles.get(&p) {
+            if let Some(prof_cfg) = self.profiles.get(p) {
                 let prov = prof_cfg.provider.clone().unwrap_or_else(|| p.clone());
                 let model = prof_cfg.model.clone();
-                (Some(p), prov, model)
+                (Some(p.clone()), prov, model)
             } else {
                 match p.as_str() {
                     "default" => (
-                        Some(p),
+                        Some(p.clone()),
                         "openrouter".to_string(),
                         Some("openrouter/free".to_string()),
                     ),
                     "openrouter" => (
-                        Some(p),
+                        Some(p.clone()),
                         "openrouter".to_string(),
                         Some("openrouter/free".to_string()),
                     ),
                     "anthropic" => (
-                        Some(p),
+                        Some(p.clone()),
                         "anthropic".to_string(),
                         Some("claude-3-5-sonnet-20241022".to_string()),
                     ),
                     "openai" => (
-                        Some(p),
+                        Some(p.clone()),
                         "openai".to_string(),
                         Some("gpt-4o-mini".to_string()),
                     ),
-                    "ollama" => (Some(p), "ollama".to_string(), Some("llama3".to_string())),
+                    "ollama" => (Some(p.clone()), "ollama".to_string(), Some("llama3".to_string())),
                     "groq" => (
-                        Some(p),
+                        Some(p.clone()),
                         "groq".to_string(),
                         Some("llama3-8b-8192".to_string()),
                     ),
                     "together" => (
-                        Some(p),
+                        Some(p.clone()),
                         "together".to_string(),
                         Some("mistralai/Mixtral-8x7B-Instruct-v0.1".to_string()),
                     ),
@@ -1350,7 +1354,7 @@ impl EffectiveConfig {
             model_override = Some(model_ovr.clone());
         }
 
-        let (kind, base_url, default_model, api_key_env, auth_ref, models_endpoint, headers) =
+        let (kind, base_url, default_model, api_key_env, auth_ref, models_endpoint, headers, capabilities) =
             if let Some(prov_cfg) = self.providers.get(&provider_name) {
                 let kind = prov_cfg
                     .kind
@@ -1381,7 +1385,8 @@ impl EffectiveConfig {
                 let auth = prov_cfg.auth_ref.clone();
                 let endpoint = prov_cfg.models_endpoint.clone();
                 let hdrs = prov_cfg.headers.clone();
-                (kind, base, model, env, auth, endpoint, hdrs)
+                let caps = prov_cfg.capabilities.clone();
+                (kind, base, model, env, auth, endpoint, hdrs, caps)
             } else if let Some(builtin) =
                 crate::provider_catalog::get_builtin_provider(&provider_name)
             {
@@ -1396,6 +1401,7 @@ impl EffectiveConfig {
                     builtin.auth_ref,
                     builtin.models_endpoint,
                     builtin.headers,
+                    None,
                 )
             } else if gestalt_models::registry::registered().contains(&provider_name) {
                 let kind = if provider_name == "anthropic" {
@@ -1405,7 +1411,7 @@ impl EffectiveConfig {
                 } else {
                     ProviderKind::Custom(provider_name.clone())
                 };
-                (kind, None, None, None, None, None, None)
+                (kind, None, None, None, None, None, None, None)
             } else {
                 return Err(HarnessError::Provider(ProviderError::UnknownProvider(
                     provider_name.clone(),
@@ -1429,6 +1435,69 @@ impl EffectiveConfig {
             }
         });
 
+        let mut active_variant = None;
+        if let Some(ref p) = active_profile {
+            if let Some(prof_cfg) = self.profiles.get(p) {
+                if let Some(ref v) = prof_cfg.variant {
+                    active_variant = Some(v.clone());
+                }
+            }
+        }
+        if let Some(ref v) = self.defaults.variant {
+            active_variant = Some(v.clone());
+        }
+        if let Ok(v) = std::env::var("GESTALT_VARIANT") {
+            active_variant = Some(v);
+        }
+
+        let mut resolved_options = ModelOptionsConfig::default();
+        if let Some(prov_cfg) = self.providers.get(&provider_name) {
+            if let Some(model_def) = prov_cfg.models.get(&model) {
+                if let Some(ref opts) = model_def.options {
+                    resolved_options = opts.clone();
+                }
+                if let Some(ref variant_name) = active_variant {
+                    let mut visited = Vec::new();
+                    let variant_opts = resolve_variant(&model_def.variants, variant_name, &mut visited)?;
+                    resolved_options = merge_options(resolved_options, variant_opts);
+                }
+            } else if active_variant.is_some() {
+                return Err(HarnessError::Config(ConfigError::InvalidValue {
+                    field: "variant".to_string(),
+                    reason: format!("variant specified but model '{}' has no definitions", model),
+                }));
+            }
+        } else if active_variant.is_some() {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: "variant".to_string(),
+                reason: format!("variant specified but provider '{}' has no definitions", provider_name),
+            }));
+        }
+
+        // Apply profile & defaults overrides on top:
+        if let Some(ref p) = active_profile {
+            if let Some(prof_cfg) = self.profiles.get(p) {
+                if let Some(t) = prof_cfg.max_output_tokens {
+                    resolved_options.max_output_tokens = Some(t as u32);
+                }
+                if let Some(temp) = prof_cfg.temperature {
+                    resolved_options.temperature = Some(temp as f32);
+                }
+                if let Some(tp) = prof_cfg.top_p {
+                    resolved_options.top_p = Some(tp as f32);
+                }
+            }
+        }
+        if let Some(t) = self.defaults.max_output_tokens {
+            resolved_options.max_output_tokens = Some(t as u32);
+        }
+        if let Some(temp) = self.defaults.temperature {
+            resolved_options.temperature = Some(temp as f32);
+        }
+        if let Some(tp) = self.defaults.top_p {
+            resolved_options.top_p = Some(tp as f32);
+        }
+
         Ok(ResolvedProvider {
             profile_name,
             provider_name,
@@ -1439,6 +1508,8 @@ impl EffectiveConfig {
             api_key_env,
             models_endpoint,
             headers,
+            resolved_options,
+            capabilities,
         })
     }
 
@@ -2008,3 +2079,67 @@ pub fn explain_config(
 
     Ok(map)
 }
+
+fn resolve_variant(
+    variants: &HashMap<String, ModelVariantConfig>,
+    variant_name: &str,
+    visited: &mut Vec<String>,
+) -> Result<ModelOptionsConfig, HarnessError> {
+    if visited.contains(&variant_name.to_string()) {
+        return Err(HarnessError::Config(ConfigError::InvalidValue {
+            field: "variants".to_string(),
+            reason: format!("cycle detected in variant inheritance: {:?}", visited),
+        }));
+    }
+    visited.push(variant_name.to_string());
+
+    let variant_cfg = variants.get(variant_name).ok_or_else(|| {
+        HarnessError::Config(ConfigError::InvalidValue {
+            field: "variant".to_string(),
+            reason: format!("variant '{}' not found", variant_name),
+        })
+    })?;
+
+    let mut base_options = if let Some(ref parent_name) = variant_cfg.extends {
+        resolve_variant(variants, parent_name, visited)?
+    } else {
+        ModelOptionsConfig::default()
+    };
+
+    if let Some(ref options) = variant_cfg.options {
+        base_options = merge_options(base_options, options.clone());
+    }
+
+    visited.pop();
+    Ok(base_options)
+}
+
+fn merge_options(mut base: ModelOptionsConfig, override_opts: ModelOptionsConfig) -> ModelOptionsConfig {
+    if override_opts.max_output_tokens.is_some() {
+        base.max_output_tokens = override_opts.max_output_tokens;
+    }
+    if override_opts.temperature.is_some() {
+        base.temperature = override_opts.temperature;
+    }
+    if override_opts.top_p.is_some() {
+        base.top_p = override_opts.top_p;
+    }
+    if override_opts.reasoning_effort.is_some() {
+        base.reasoning_effort = override_opts.reasoning_effort;
+    }
+    if override_opts.text_verbosity.is_some() {
+        base.text_verbosity = override_opts.text_verbosity;
+    }
+    if override_opts.thinking.is_some() {
+        base.thinking = override_opts.thinking;
+    }
+    if let Some(ref override_map) = override_opts.adapter_options {
+        let mut base_map = base.adapter_options.unwrap_or_default();
+        for (k, v) in override_map {
+            base_map.insert(k.clone(), v.clone());
+        }
+        base.adapter_options = Some(base_map);
+    }
+    base
+}
+

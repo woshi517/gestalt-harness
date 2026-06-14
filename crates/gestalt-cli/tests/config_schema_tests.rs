@@ -21,9 +21,14 @@ fn test_schema_drift() {
     let normalized_generated = generated_json.replace("\r\n", "\n");
 
     if normalized_generated != existing_json {
-        // Print diff/details
-        println!("Generated Schema:\n{}", normalized_generated);
-        panic!("Schema drift detected! Generated WorkspaceConfig schema does not match docs/schemas/gestalt.schema.json");
+        if std::env::var("UPDATE_SCHEMA").is_ok() {
+            fs::write(&schema_path, &normalized_generated).unwrap();
+            println!("Updated docs/schemas/gestalt.schema.json");
+        } else {
+            // Print diff/details
+            println!("Generated Schema:\n{}", normalized_generated);
+            panic!("Schema drift detected! Generated WorkspaceConfig schema does not match docs/schemas/gestalt.schema.json");
+        }
     }
 }
 
