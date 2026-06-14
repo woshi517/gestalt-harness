@@ -134,20 +134,82 @@
       ]
     },
     "version": {
-      "type": [
-        "integer",
-        "null"
-      ],
-      "format": "uint32",
-      "minimum": 0.0
+      "default": 1,
+      "type": "integer",
+      "const": 1
     }
   },
   "additionalProperties": false,
   "definitions": {
+    "AnthropicThinkingConfig": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "effort",
+            "type"
+          ],
+          "properties": {
+            "effort": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "adaptive"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "budget_tokens",
+            "type"
+          ],
+          "properties": {
+            "budget_tokens": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "enabled"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "disabled"
+              ]
+            }
+          }
+        }
+      ]
+    },
     "ContextConfig": {
       "type": "object",
       "properties": {
+        "context_window_override": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
         "max_context_window": {
+          "writeOnly": true,
           "type": [
             "integer",
             "null"
@@ -169,6 +231,14 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "safety_margin_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
         "workspace_file": {
           "type": [
             "string",
@@ -181,6 +251,14 @@
     "DefaultsConfig": {
       "type": "object",
       "properties": {
+        "max_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
         "max_turns": {
           "type": [
             "integer",
@@ -190,9 +268,13 @@
           "minimum": 0.0
         },
         "mode": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ExecutionMode"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "model": {
@@ -212,9 +294,39 @@
             "string",
             "null"
           ]
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "top_p": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "variant": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false
+    },
+    "ExecutionMode": {
+      "type": "string",
+      "enum": [
+        "confirm",
+        "yolo",
+        "human",
+        "dry_run",
+        "replay"
+      ]
     },
     "ExtensionsConfig": {
       "type": "object",
@@ -247,6 +359,12 @@
       },
       "additionalProperties": false
     },
+    "LogFormat": {
+      "type": "string",
+      "enum": [
+        "jsonl"
+      ]
+    },
     "McpConfig": {
       "type": "object",
       "properties": {
@@ -278,12 +396,21 @@
     "McpServerConfig": {
       "type": "object",
       "required": [
-        "name",
         "transport"
       ],
       "properties": {
         "allow_sampling": {
           "default": false,
+          "type": "boolean"
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "default": true,
           "type": "boolean"
         },
         "env": {
@@ -302,16 +429,18 @@
           ]
         },
         "name": {
+          "default": "",
           "type": "string"
         },
-        "transport": {
-          "$ref": "#/definitions/McpTransportConfig"
-        },
-        "trust_level": {
+        "timeouts": {
           "default": null,
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/McpTimeoutsConfig"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "tool_annotations": {
@@ -323,6 +452,38 @@
               "type": "string"
             }
           }
+        },
+        "transport": {
+          "$ref": "#/definitions/McpTransportConfig"
+        },
+        "trust_level": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "McpTimeoutsConfig": {
+      "type": "object",
+      "properties": {
+        "connect_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "request_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "additionalProperties": false
@@ -346,6 +507,13 @@
             "command": {
               "type": "string"
             },
+            "cwd": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "env": {
               "default": {},
               "type": "object",
@@ -368,10 +536,17 @@
             "url"
           ],
           "properties": {
+            "headers": {
+              "default": {},
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
             "type": {
               "type": "string",
               "enum": [
-                "sse"
+                "http"
               ]
             },
             "url": {
@@ -381,13 +556,133 @@
         }
       ]
     },
+    "ModelDefinitionConfig": {
+      "type": "object",
+      "properties": {
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelOptionsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "variants": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ModelVariantConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelOptionsConfig": {
+      "type": "object",
+      "properties": {
+        "adapter_options": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "max_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReasoningEffort"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "text_verbosity": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TextVerbosity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "thinking": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AnthropicThinkingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "top_p": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelVariantConfig": {
+      "type": "object",
+      "properties": {
+        "extends": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelOptionsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "ObserveConfig": {
       "type": "object",
       "properties": {
         "log_format": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LogFormat"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "run_log_dir": {
@@ -429,10 +724,28 @@
       },
       "additionalProperties": false
     },
+    "PolicyAction": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "confirm",
+        "deny"
+      ]
+    },
     "PolicyBashConfig": {
       "type": "object",
       "properties": {
+        "allow": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "always_confirm": {
+          "writeOnly": true,
           "type": [
             "array",
             "null"
@@ -442,6 +755,16 @@
           }
         },
         "always_deny": {
+          "writeOnly": true,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "confirm": {
           "type": [
             "array",
             "null"
@@ -451,12 +774,26 @@
           }
         },
         "default": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PolicyAction"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
+        "deny": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "yolo_allow": {
+          "writeOnly": true,
           "type": [
             "array",
             "null"
@@ -481,9 +818,13 @@
           }
         },
         "default": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PolicyAction"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "deny_domains": {
@@ -543,6 +884,32 @@
     "ProfileConfig": {
       "type": "object",
       "properties": {
+        "max_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_turns": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ExecutionMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "model": {
           "type": [
             "string",
@@ -550,6 +917,26 @@
           ]
         },
         "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "top_p": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "variant": {
           "type": [
             "string",
             "null"
@@ -642,10 +1029,21 @@
           ]
         },
         "kind": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderKind"
+            },
+            {
+              "type": "null"
+            }
           ]
+        },
+        "models": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ModelDefinitionConfig"
+          }
         },
         "models_endpoint": {
           "type": [
@@ -658,9 +1056,61 @@
             "string",
             "null"
           ]
+        },
+        "request": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderRequestConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false
+    },
+    "ProviderKind": {
+      "type": "string"
+    },
+    "ProviderRequestConfig": {
+      "type": "object",
+      "properties": {
+        "stream_chunk_timeout_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "timeout_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReasoningEffort": {
+      "type": "string",
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ]
+    },
+    "SandboxType": {
+      "type": "string",
+      "enum": [
+        "none",
+        "docker"
+      ]
     },
     "SkillsConfig": {
       "type": "object",
@@ -689,6 +1139,15 @@
       },
       "additionalProperties": false
     },
+    "TextVerbosity": {
+      "type": "string",
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ]
+    },
     "ToolsConfig": {
       "type": "object",
       "properties": {
@@ -700,19 +1159,13 @@
           "format": "uint64",
           "minimum": 0.0
         },
-        "max_output_tokens": {
+        "default_timeout_secs": {
           "type": [
             "integer",
             "null"
           ],
-          "format": "uint",
+          "format": "uint64",
           "minimum": 0.0
-        },
-        "sandbox_type": {
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "ignore_patterns": {
           "type": [
@@ -722,6 +1175,40 @@
           "items": {
             "type": "string"
           }
+        },
+        "max_output_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_parallel_calls": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "sandbox_type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxType"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false

@@ -11,7 +11,7 @@ use gestalt_cli::{
     models::{inspect_model, list_models, refresh_models, search_models},
     output::{
         AuthDoctorReport, AuthResolveReport, CliErrorPayload, CliReport, ConfigExplainReport,
-        ConfigShowReport, ConfigValidateReport, ContextExplainReport, CostReportWrapper,
+        ConfigShowReport, ConfigValidateReport, ConfigPathsReport, ContextExplainReport, CostReportWrapper,
         ExportFormat, ExtensionActionReport, ExtensionInspectReport, ExtensionsListReport,
         JsonEnvelope, ModelsInspectReport, ModelsListReport, ModelsRefreshReport,
         ModelsSearchReport, ModelsSelectReport, OutputFormat, PolicyExplainReport,
@@ -420,6 +420,7 @@ enum ConfigSubcommand {
         source: bool,
     },
     Explain,
+    Paths,
 }
 
 #[derive(Args)]
@@ -843,6 +844,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(ConfigExplainReport { explain_map })
                 })(
                 );
+                handle_result(res, format, quiet)?;
+            }
+            ConfigSubcommand::Paths => {
+                let res: Result<ConfigPathsReport, Box<dyn std::error::Error>> = (|| {
+                    let workspace_root = overrides
+                        .workspace
+                        .clone()
+                        .unwrap_or(std::env::current_dir()?);
+                    let global_path = gestalt_cli::config::global_config_path();
+                    let legacy_global_path = gestalt_cli::config::legacy_global_config_path();
+                    let workspace_path = gestalt_cli::config::workspace_config_path(&workspace_root);
+                    let legacy_workspace_path = gestalt_cli::config::legacy_workspace_config_path(&workspace_root);
+                    let legacy_policies_path = gestalt_cli::config::legacy_workspace_policies_path(&workspace_root);
+
+                    let global_exists = global_path.exists();
+                    let legacy_global_exists = legacy_global_path.exists();
+                    let workspace_exists = workspace_path.exists();
+                    let legacy_workspace_exists = legacy_workspace_path.exists();
+                    let legacy_policies_exists = legacy_policies_path.exists();
+
+                    let mut ambiguities = Vec::new();
+                    if global_exists && legacy_global_exists {
+                        ambiguities.push(format!(
+                            "Both global configs exist. '{}' takes precedence over '{}'.",
+                            global_path.display(),
+                            legacy_global_path.display()
+                        ));
+                    }
+                    if workspace_exists && legacy_workspace_exists {
+                        ambiguities.push(format!(
+                            "Both workspace configs exist. '{}' takes precedence over '{}'.",
+                            workspace_path.display(),
+                            legacy_workspace_path.display()
+                        ));
+                    }
+
+                    Ok(ConfigPathsReport {
+                        global_path,
+                        global_exists,
+                        legacy_global_path,
+                        legacy_global_exists,
+                        workspace_path,
+                        workspace_exists,
+                        legacy_workspace_path,
+                        legacy_workspace_exists,
+                        legacy_policies_path,
+                        legacy_policies_exists,
+                        ambiguities,
+                    })
+                })();
                 handle_result(res, format, quiet)?;
             }
         },

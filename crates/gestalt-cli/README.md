@@ -28,7 +28,7 @@ Binary entry point and command surface for the `gestalt` CLI tool. Local-first A
 | `gestalt runtime inspect` | Show runtime configuration and registered capabilities |
 | `gestalt runtime events` | Show runtime event history |
 | `gestalt runtime doctor` | Diagnose runtime configuration issues |
-| `gestalt policy validate | explain | test` | Inspect and test policy configuration |
+| `gestalt policy validate` | Inspect and test policy configuration |
 | `gestalt context explain` | Show what context the agent sees |
 
 ### Sessions

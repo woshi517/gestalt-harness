@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "defaults": {
+    "provider": "openai",
+    "unknown_defaults_key": 123
+  }
+}

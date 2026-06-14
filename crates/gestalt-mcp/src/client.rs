@@ -27,16 +27,31 @@ impl McpClient {
     ) -> Result<Self> {
         let server_id = McpServerId(config.name.clone());
         let transport: Arc<dyn McpTransport> = match &config.transport {
-            McpTransportConfig::Stdio { command, args, env } => {
+            McpTransportConfig::Stdio { command, args, cwd, env } => {
                 let mut merged_env = env.clone();
                 for (k, v) in &config.env {
                     merged_env.insert(k.clone(), v.clone());
                 }
-                let stdio = StdioTransport::spawn(&config.name, command, args, &merged_env).await?;
+                let resolved_cwd = cwd.as_ref().map(|dir| {
+                    let path = std::path::Path::new(dir);
+                    if path.is_relative() {
+                        workspace_root.join(path).to_string_lossy().into_owned()
+                    } else {
+                        dir.clone()
+                    }
+                });
+                let stdio = StdioTransport::spawn(
+                    &config.name,
+                    command,
+                    args,
+                    resolved_cwd.as_deref(),
+                    &merged_env,
+                )
+                .await?;
                 Arc::new(stdio)
             }
-            McpTransportConfig::Sse { .. } => {
-                return Err(McpError::Config("SSE transport is not supported in this version".to_string()));
+            McpTransportConfig::Http { .. } => {
+                return Err(McpError::Config("HTTP transport is not supported in this version".to_string()));
             }
         };
 

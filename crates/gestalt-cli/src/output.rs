@@ -1363,6 +1363,50 @@ impl CliReport for VerifyRunReport {
     }
 }
 
+fn redact_effective_config(mut config: crate::config::EffectiveConfig) -> crate::config::EffectiveConfig {
+    for (_, prov) in config.providers.iter_mut() {
+        if let Some(ref mut headers) = prov.headers {
+            for (k, v) in headers.iter_mut() {
+                let lower_k = k.to_lowercase();
+                if lower_k.contains("auth")
+                    || lower_k.contains("key")
+                    || lower_k.contains("token")
+                    || lower_k.contains("secret")
+                    || lower_k.contains("credential")
+                    || lower_k.contains("sig")
+                {
+                    *v = "[REDACTED]".to_string();
+                }
+            }
+        }
+        if prov.auth_ref.is_some() {
+            prov.auth_ref = Some("[REDACTED]".to_string());
+        }
+    }
+    config
+}
+
+fn redact_explain_map(
+    mut map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>
+) -> std::collections::HashMap<String, crate::config::ConfigSourceInfo> {
+    for (k, info) in map.iter_mut() {
+        let lower_k = k.to_lowercase();
+        if lower_k.contains("auth_ref") || lower_k.contains("api_key") || lower_k.contains("headers") {
+            if !lower_k.contains("api_key_env") {
+                match &mut info.value {
+                    Value::String(s) => {
+                        *s = "[REDACTED]".to_string();
+                    }
+                    other => {
+                        *other = Value::String("[REDACTED]".to_string());
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
 #[derive(Serialize)]
 pub struct ConfigShowReport {
     pub config: crate::config::EffectiveConfig,
@@ -1378,6 +1422,7 @@ impl CliReport for ConfigShowReport {
     fn render_text(&self) -> String {
         if self.source {
             if let Some(ref map) = self.explain_map {
+                let redacted_map = redact_explain_map(map.clone());
                 let mut lines = vec![
                     format!(
                         "{:<35} | {:<25} | {:<25}",
@@ -1385,10 +1430,10 @@ impl CliReport for ConfigShowReport {
                     ),
                     "-".repeat(91),
                 ];
-                let mut keys: Vec<&String> = map.keys().collect();
+                let mut keys: Vec<&String> = redacted_map.keys().collect();
                 keys.sort();
                 for k in keys {
-                    if let Some(info) = map.get(k) {
+                    if let Some(info) = redacted_map.get(k) {
                         let val_str = match &info.value {
                             Value::Null => "null".to_string(),
                             Value::String(s) => s.clone(),
@@ -1402,7 +1447,8 @@ impl CliReport for ConfigShowReport {
                 "No source information available".to_string()
             }
         } else {
-            toml::to_string(&self.config).unwrap_or_else(|_| "Serialization error".to_string())
+            let redacted_config = redact_effective_config(self.config.clone());
+            toml::to_string(&redacted_config).unwrap_or_else(|_| "Serialization error".to_string())
         }
     }
 }
@@ -1418,20 +1464,63 @@ impl CliReport for ConfigExplainReport {
     }
 
     fn render_text(&self) -> String {
+        let redacted_map = redact_explain_map(self.explain_map.clone());
         let mut lines = vec![
             "Precedence Order: CLI Override > Env Var > Workspace Config File > Global Config File > Default".to_string(),
             String::new(),
         ];
-        let mut keys: Vec<&String> = self.explain_map.keys().collect();
+        let mut keys: Vec<&String> = redacted_map.keys().collect();
         keys.sort();
         for k in keys {
-            if let Some(info) = self.explain_map.get(k) {
+            if let Some(info) = redacted_map.get(k) {
                 let val_str = match &info.value {
                     Value::Null => "null".to_string(),
                     Value::String(s) => s.clone(),
                     other => other.to_string(),
                 };
                 lines.push(format!("{} = {} (Active: {})", k, val_str, info.source));
+            }
+        }
+        lines.join("\n")
+    }
+}
+#[derive(Serialize)]
+pub struct ConfigPathsReport {
+    pub global_path: std::path::PathBuf,
+    pub global_exists: bool,
+    pub legacy_global_path: std::path::PathBuf,
+    pub legacy_global_exists: bool,
+    pub workspace_path: std::path::PathBuf,
+    pub workspace_exists: bool,
+    pub legacy_workspace_path: std::path::PathBuf,
+    pub legacy_workspace_exists: bool,
+    pub legacy_policies_path: std::path::PathBuf,
+    pub legacy_policies_exists: bool,
+    pub ambiguities: Vec<String>,
+}
+
+impl CliReport for ConfigPathsReport {
+    fn kind(&self) -> &'static str {
+        "config.paths"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![
+            "Config Paths and Discovery:".to_string(),
+            String::new(),
+            format!("  Global JSON Config:        {} (exists: {})", self.global_path.display(), self.global_exists),
+            format!("  Global Legacy TOML:        {} (exists: {})", self.legacy_global_path.display(), self.legacy_global_exists),
+            format!("  Workspace JSON Config:     {} (exists: {})", self.workspace_path.display(), self.workspace_exists),
+            format!("  Workspace Legacy TOML:     {} (exists: {})", self.legacy_workspace_path.display(), self.legacy_workspace_exists),
+            format!("  Workspace Legacy Policies: {} (exists: {})", self.legacy_policies_path.display(), self.legacy_policies_exists),
+            String::new(),
+        ];
+        if self.ambiguities.is_empty() {
+            lines.push("  No ambiguity issues detected.".to_string());
+        } else {
+            lines.push("  Ambiguity Warnings:".to_string());
+            for amb in &self.ambiguities {
+                lines.push(format!("    - [WARNING] {amb}"));
             }
         }
         lines.join("\n")

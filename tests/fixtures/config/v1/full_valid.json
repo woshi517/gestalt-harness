@@ -1,0 +1,111 @@
+{
+  "$schema": "docs/schemas/gestalt.schema.json",
+  "version": 1,
+  "defaults": {
+    "provider": "openai",
+    "model": "gpt-5.5-preview",
+    "mode": "yolo",
+    "max_turns": 5,
+    "profile": "default",
+    "max_output_tokens": 4096,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "variant": "high"
+  },
+  "tools": {
+    "default_timeout_secs": 60,
+    "bash_timeout_secs": 120,
+    "max_output_bytes": 1048576,
+    "max_output_tokens": 4000,
+    "max_parallel_calls": 4,
+    "sandbox_type": "docker",
+    "ignore_patterns": [
+      "*.log",
+      "tmp/*"
+    ]
+  },
+  "context": {
+    "context_window_override": 120000,
+    "reserved_output_tokens": 8000,
+    "safety_margin_tokens": 2048,
+    "workspace_file": ".gestalt/workspace.md",
+    "memory_file": ".gestalt/memory.md"
+  },
+  "observe": {
+    "run_log_dir": ".gestalt/runs",
+    "log_format": "jsonl"
+  },
+  "providers": {
+    "openai": {
+      "id": "openai",
+      "display_name": "OpenAI Official",
+      "protocol": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "default_model": "gpt-5.5-preview",
+      "api_key_env": "OPENAI_API_KEY",
+      "kind": "openai-compatible",
+      "models": {
+        "gpt-5.5-preview": {
+          "display_name": "GPT-5.5 Preview",
+          "variants": {
+            "high": {
+              "options": {
+                "reasoning_effort": "high",
+                "text_verbosity": "medium"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "profiles": {
+    "default": {
+      "provider": "openai",
+      "model": "gpt-5.5-preview",
+      "mode": "yolo",
+      "max_turns": 5,
+      "max_output_tokens": 4096,
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "variant": "high"
+    }
+  },
+  "policies": {
+    "paths": {
+      "allow_read": ["/bin"],
+      "allow_write": ["/tmp"]
+    },
+    "bash": {
+      "allow": ["git"],
+      "confirm": ["rm"]
+    },
+    "network": {
+      "allow_domains": ["github.com"]
+    }
+  },
+  "extensions": {
+    "explicit_loads": ["ext-1"],
+    "disabled": ["ext-2"],
+    "trusted": ["ext-1"],
+    "allow_untrusted": true
+  },
+  "skills": {
+    "explicit_paths": ["skills/skill-1"],
+    "active": ["skill-1"],
+    "trusted": ["skill-1"]
+  },
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "name": "filesystem",
+        "enabled": true,
+        "transport": {
+          "type": "stdio",
+          "command": "npx",
+          "args": ["@modelcontextprotocol/server-filesystem", "/tmp"]
+        }
+      }
+    }
+  }
+}

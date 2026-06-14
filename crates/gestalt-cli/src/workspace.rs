@@ -145,7 +145,13 @@ pub fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusRepor
             let active_mode = config
                 .defaults
                 .mode
-                .clone()
+                .map(|m| match m {
+                    gestalt_core::ExecutionMode::Confirm => "confirm".to_string(),
+                    gestalt_core::ExecutionMode::Yolo => "yolo".to_string(),
+                    gestalt_core::ExecutionMode::Human => "human".to_string(),
+                    gestalt_core::ExecutionMode::DryRun => "dry_run".to_string(),
+                    gestalt_core::ExecutionMode::Replay => "replay".to_string(),
+                })
                 .or_else(|| Some("confirm".to_string()));
 
             // Check files presence

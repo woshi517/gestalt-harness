@@ -52,7 +52,7 @@ async fn test_chat_exits_on_cancelled_token() {
     cancel_token.cancel(); // cancel it before starting
 
     let res = run_chat(&overrides, None, None, cancel_token).await;
-    assert!(res.is_ok());
+    res.unwrap();
 }
 
 #[tokio::test]
