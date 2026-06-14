@@ -44,6 +44,50 @@ pub struct RuntimeConfig {
     pub reasoning_effort: Option<gestalt_core::provider::ReasoningEffort>,
     pub text_verbosity: Option<gestalt_core::provider::TextVerbosity>,
     pub metadata: serde_json::Value,
+    #[serde(default)]
+    pub extension_timeouts: ExtensionTimeoutsConfig,
+    #[serde(default)]
+    pub extension_limits: ExtensionLimitsConfig,
+    #[serde(default)]
+    pub effective_config_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtensionTimeoutsConfig {
+    pub initialize_ms: Option<u64>,
+    pub hook_ms: Option<u64>,
+    pub context_ms: Option<u64>,
+    pub tool_ms: Option<u64>,
+    pub shutdown_ms: Option<u64>,
+}
+
+impl Default for ExtensionTimeoutsConfig {
+    fn default() -> Self {
+        Self {
+            initialize_ms: Some(10000),
+            hook_ms: Some(5000),
+            context_ms: Some(15000),
+            tool_ms: Some(60000),
+            shutdown_ms: Some(5000),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtensionLimitsConfig {
+    pub max_message_bytes: Option<usize>,
+    pub max_pending_requests: Option<usize>,
+    pub max_protocol_errors: Option<usize>,
+}
+
+impl Default for ExtensionLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_message_bytes: Some(8388608),
+            max_pending_requests: Some(16),
+            max_protocol_errors: Some(3),
+        }
+    }
 }
 
 impl Default for RuntimeConfig {
@@ -74,6 +118,9 @@ impl Default for RuntimeConfig {
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            extension_timeouts: ExtensionTimeoutsConfig::default(),
+            extension_limits: ExtensionLimitsConfig::default(),
+            effective_config_fingerprint: None,
         }
     }
 }

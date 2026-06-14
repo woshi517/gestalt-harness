@@ -242,6 +242,8 @@ pub enum AgentEvent {
         model: String,
         #[serde(default)]
         provider: Option<String>,
+        #[serde(default)]
+        variant: Option<String>,
     },
     NextTurnBlocked {
         reason: String,

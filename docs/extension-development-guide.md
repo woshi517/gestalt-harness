@@ -677,10 +677,10 @@ From `crates/gestalt-cli/src/config.rs`:
 
 ### 8.3 Trust Model
 
-- Extensions placed in a project-local `.gestalt/extensions/` directory are project-level dependencies — they may require user approval depending on `allow_untrusted`.
-- Extensions loaded via `explicit_loads` or the global extensions directory are treated as user-approved.
-- The `trusted` list provides an explicit opt-in for specific extension IDs.
-- The `disabled` list allows users to suppress extensions they don't want without removing the files.
+- Discovered extensions require explicit trust verification. Trust is determined by matching the extension ID or integrity hash against the `extensions.trusted` list.
+- If an extension is not trusted, it is rejected unless `extensions.allow_untrusted` is set to `true`.
+- Untrusted extensions loaded when `allow_untrusted` is `true` run as untrusted and do not receive elevated capabilities.
+- The `disabled` list allows users to suppress extensions they do not want without removing the files.
 
 ---
 

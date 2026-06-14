@@ -109,6 +109,7 @@ async fn test_prepare_next_turn_switch_model() {
             Ok(HookOutcome::SwitchModel {
                 model: "cheaper-model".to_string(),
                 provider: None,
+                variant: None,
             })
         }
 

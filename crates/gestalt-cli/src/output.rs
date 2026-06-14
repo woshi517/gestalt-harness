@@ -1509,10 +1509,10 @@ impl CliReport for ConfigPathsReport {
             "Config Paths and Discovery:".to_string(),
             String::new(),
             format!("  Global JSON Config:        {} (exists: {})", self.global_path.display(), self.global_exists),
-            format!("  Global Legacy TOML:        {} (exists: {})", self.legacy_global_path.display(), self.legacy_global_exists),
+            format!("  Global Legacy TOML:        {} (exists: {}) [DEPRECATED]", self.legacy_global_path.display(), self.legacy_global_exists),
             format!("  Workspace JSON Config:     {} (exists: {})", self.workspace_path.display(), self.workspace_exists),
-            format!("  Workspace Legacy TOML:     {} (exists: {})", self.legacy_workspace_path.display(), self.legacy_workspace_exists),
-            format!("  Workspace Legacy Policies: {} (exists: {})", self.legacy_policies_path.display(), self.legacy_policies_exists),
+            format!("  Workspace Legacy TOML:     {} (exists: {}) [DEPRECATED]", self.legacy_workspace_path.display(), self.legacy_workspace_exists),
+            format!("  Workspace Legacy Policies: {} (exists: {}) [DEPRECATED]", self.legacy_policies_path.display(), self.legacy_policies_exists),
             String::new(),
         ];
         if self.ambiguities.is_empty() {
@@ -1991,6 +1991,16 @@ impl CliReport for RuntimeInspectReport {
 
         if let Some(ref sink) = self.inspect.trace_sink_kind {
             lines.push(format!("Trace Sink Kind:     {}", sink));
+        }
+
+        if let Some(ref fp) = self.inspect.effective_config_fingerprint {
+            lines.push(format!("Effective Config FP: {}", fp));
+        }
+        if let Some(ref fp) = self.inspect.variant_fingerprint {
+            lines.push(format!("Model Variant FP:    {}", fp));
+        }
+        if let Some(ref fp) = self.inspect.negotiated_protocol_fingerprint {
+            lines.push(format!("Negotiated Proto FP: {}", fp));
         }
 
         lines.push(String::new());

@@ -23,6 +23,7 @@ fn dummy_manifest() -> ExtensionManifest {
             tools: true,
             hooks: false,
             context: false,
+            ..Default::default()
         },
         permissions: Permissions {
             allow_network: vec!["github.com".to_string()],

@@ -57,6 +57,7 @@ pub struct AgentRuntime {
     pub mcp_registry: Arc<gestalt_mcp::McpRegistry>,
     pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
     steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
+    pub extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
 }
 
 impl AgentRuntime {
@@ -75,6 +76,7 @@ impl AgentRuntime {
         event_bus: RuntimeEventBus,
         mcp_registry: Arc<gestalt_mcp::McpRegistry>,
         mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
+        extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     ) -> Self {
         Self {
             provider,
@@ -92,6 +94,7 @@ impl AgentRuntime {
             mcp_registry,
             mcp_discovery_state,
             steering_queue: Arc::new(crate::session_queue::InMemorySteeringQueue::new()),
+            extensions,
         }
     }
 
@@ -475,6 +478,40 @@ impl AgentRuntime {
             Some(format!("{:x}", hasher.finalize()))
         };
 
+        let effective_config_fingerprint = self.config.effective_config_fingerprint.clone();
+        
+        let variant_fingerprint = Some(crate::inspect::compute_variant_fingerprint(
+            &self.config.model,
+            &self.config.provider,
+            self.config.max_tokens,
+            self.config.temperature,
+            self.config.top_p,
+            self.config.reasoning_effort.as_ref(),
+            self.config.text_verbosity.as_ref(),
+        ));
+        
+        let mut negotiated_fingerprints = Vec::new();
+        for ext in &self.extensions {
+            if let Some(pe) = ext.as_process_extension() {
+                let negotiated_version = pe.broker.negotiated_version();
+                let negotiated_caps = pe.broker.negotiated_capabilities();
+                let caps_json = serde_json::to_string(&negotiated_caps).unwrap_or_default();
+                negotiated_fingerprints.push(format!("{}:{}:{}:{}", pe.manifest.id, pe.manifest.protocol_version.as_deref().unwrap_or(""), negotiated_version, caps_json));
+            }
+        }
+        let negotiated_protocol_fingerprint = if negotiated_fingerprints.is_empty() {
+            None
+        } else {
+            use sha2::{Digest, Sha256};
+            negotiated_fingerprints.sort();
+            let mut hasher = Sha256::new();
+            for s in &negotiated_fingerprints {
+                hasher.update(s.as_bytes());
+                hasher.update(b";");
+            }
+            Some(format!("{:x}", hasher.finalize()))
+        };
+
         let discovery_threshold = self.config.mcp_discovery_threshold.unwrap_or(5);
         let mcp_servers = self.mcp_registry.get_all_states(discovery_threshold);
 
@@ -502,6 +539,9 @@ impl AgentRuntime {
             skill_fingerprint,
             mcp_servers,
             mcp_discovery_threshold: self.config.mcp_discovery_threshold,
+            effective_config_fingerprint,
+            variant_fingerprint,
+            negotiated_protocol_fingerprint,
         }
     }
 

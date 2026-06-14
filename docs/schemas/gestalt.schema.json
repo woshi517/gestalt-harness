@@ -328,6 +328,82 @@
         "replay"
       ]
     },
+    "ExtensionLimitsConfig": {
+      "type": "object",
+      "properties": {
+        "max_message_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_pending_requests": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_protocol_errors": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExtensionTimeoutsConfig": {
+      "type": "object",
+      "properties": {
+        "context_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "hook_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "initialize_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "shutdown_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "tool_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
     "ExtensionsConfig": {
       "type": "object",
       "properties": {
@@ -348,6 +424,32 @@
           "items": {
             "type": "string"
           }
+        },
+        "limits": {
+          "default": {
+            "max_message_bytes": null,
+            "max_pending_requests": null,
+            "max_protocol_errors": null
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExtensionLimitsConfig"
+            }
+          ]
+        },
+        "timeouts": {
+          "default": {
+            "context_ms": null,
+            "hook_ms": null,
+            "initialize_ms": null,
+            "shutdown_ms": null,
+            "tool_ms": null
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExtensionTimeoutsConfig"
+            }
+          ]
         },
         "trusted": {
           "default": [],

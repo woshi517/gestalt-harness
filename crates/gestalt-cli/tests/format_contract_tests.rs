@@ -327,6 +327,9 @@ fn test_runtime_inspect_report_contract() {
         skill_fingerprint: None,
         mcp_servers: vec![],
         mcp_discovery_threshold: Some(5),
+        effective_config_fingerprint: None,
+        variant_fingerprint: None,
+        negotiated_protocol_fingerprint: None,
     };
 
     let report = RuntimeInspectReport { inspect };

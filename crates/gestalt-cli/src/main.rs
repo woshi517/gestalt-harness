@@ -879,6 +879,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             legacy_workspace_path.display()
                         ));
                     }
+                    if legacy_global_exists {
+                        ambiguities.push(format!(
+                            "Legacy global TOML configuration '{}' is deprecated. Please migrate to gestalt.json.",
+                            legacy_global_path.display()
+                        ));
+                    }
+                    if legacy_workspace_exists {
+                        ambiguities.push(format!(
+                            "Legacy workspace TOML configuration '{}' is deprecated. Please migrate to gestalt.json.",
+                            legacy_workspace_path.display()
+                        ));
+                    }
+                    if legacy_policies_exists {
+                        ambiguities.push(format!(
+                            "Legacy workspace TOML policies configuration '{}' is deprecated. Please migrate to gestalt.json.",
+                            legacy_policies_path.display()
+                        ));
+                    }
 
                     Ok(ConfigPathsReport {
                         global_path,
