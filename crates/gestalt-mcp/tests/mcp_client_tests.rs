@@ -10,9 +10,11 @@ async fn test_mock_mcp_server_integration() {
     
     let config = McpServerConfig {
         name: "mock-server".to_string(),
+        enabled: true,
         transport: McpTransportConfig::Stdio {
             command: "cargo".to_string(),
             args: vec!["run", "--package", "gestalt-mcp", "--bin", "mock_mcp_server"].into_iter().map(String::from).collect(),
+            cwd: None,
             env: std::collections::HashMap::new(),
         },
         lifecycle: McpLifecycleMode::Lazy,
@@ -20,6 +22,8 @@ async fn test_mock_mcp_server_integration() {
         allow_sampling: false,
         env: std::collections::HashMap::new(),
         tool_annotations: std::collections::HashMap::new(),
+        timeouts: None,
+        display_name: None,
     };
     configs.insert("mock-server".to_string(), config);
 

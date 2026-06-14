@@ -48,9 +48,13 @@ impl StdioTransport {
         server_name: &str,
         command: &str,
         args: &[String],
+        cwd: Option<&str>,
         custom_env: &HashMap<String, String>,
     ) -> Result<Self> {
         let mut cmd = Command::new(command);
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        }
         cmd.args(args);
         cmd.env_clear();
 

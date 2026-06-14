@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use schemars::JsonSchema;
 
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct McpTimeoutsConfig {
+    pub connect_ms: Option<u64>,
+    pub request_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum McpTransportConfig {
@@ -10,10 +21,15 @@ pub enum McpTransportConfig {
         #[serde(default)]
         args: Vec<String>,
         #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
         env: HashMap<String, String>,
     },
-    Sse {
+    #[serde(alias = "sse", alias = "remote")]
+    Http {
         url: String,
+        #[serde(default)]
+        headers: HashMap<String, String>,
     },
 }
 
@@ -28,7 +44,10 @@ pub enum McpLifecycleMode {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct McpServerConfig {
+    #[serde(default)]
     pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub transport: McpTransportConfig,
     #[serde(default)]
     pub lifecycle: McpLifecycleMode,
@@ -40,6 +59,9 @@ pub struct McpServerConfig {
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub tool_annotations: HashMap<String, HashMap<String, String>>,
+    #[serde(default)]
+    pub timeouts: Option<McpTimeoutsConfig>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]

@@ -438,18 +438,20 @@ mod tests {
                 mode: None,
                 max_turns: None,
                 profile: None,
+                ..Default::default()
             },
             tools: ToolsConfig {
                 bash_timeout_secs: None,
                 max_output_tokens: None,
                 sandbox_type: None,
                 ignore_patterns: None,
+                ..Default::default()
             },
             context: ContextConfig {
-                max_context_window: None,
                 reserved_output_tokens: None,
                 workspace_file: None,
                 memory_file: None,
+                ..Default::default()
             },
             observe: ObserveConfig {
                 run_log_dir: None,
