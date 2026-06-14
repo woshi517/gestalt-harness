@@ -33,6 +33,7 @@ struct JsonRpcErrorDetail {
     data: Option<Value>,
 }
 
+#[allow(clippy::type_complexity)]
 pub struct StdioTransport {
     child: Arc<Mutex<Option<Child>>>,
     tx_request: mpsc::Sender<(Value, oneshot::Sender<std::result::Result<Value, String>>)>,

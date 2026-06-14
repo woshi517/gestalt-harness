@@ -132,19 +132,16 @@ impl ToolCatalogPlanner {
                 } else {
                     Vec::new()
                 };
-                final_filtered = final_filtered
-                    .into_iter()
-                    .filter(|desc| {
-                        match &desc.id.namespace {
-                            gestalt_core::tool_descriptor::ToolNamespace::Mcp(_) => {
-                                // Only keep if it is in the selected tools list by canonical ID or unique provider name
-                                let provider_name = gestalt_core::tool_name_mapping::ToolNameMapping::generate_provider_name(&desc.id);
-                                selected.contains(&desc.id.to_string()) || selected.contains(&provider_name)
-                            }
-                            _ => true,
+                final_filtered.retain(|desc| {
+                    match &desc.id.namespace {
+                        gestalt_core::tool_descriptor::ToolNamespace::Mcp(_) => {
+                            // Only keep if it is in the selected tools list by canonical ID or unique provider name
+                            let provider_name = gestalt_core::tool_name_mapping::ToolNameMapping::generate_provider_name(&desc.id);
+                            selected.contains(&desc.id.to_string()) || selected.contains(&provider_name)
                         }
-                    })
-                    .collect();
+                        _ => true,
+                    }
+                });
             }
         }
 
