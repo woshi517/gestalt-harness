@@ -63,7 +63,7 @@ pub async fn build_cli_runtime(
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
 
-    let mut trusted_extension_ids: Vec<String> = config.extensions.trusted.clone();
+    let mut trusted_extension_ids: Vec<String> = Vec::new();
 
     if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
         for ext in &discovered {
@@ -71,12 +71,35 @@ pub async fn build_cli_runtime(
                 continue;
             }
 
-            let is_explicit = explicit_loads
-                .iter()
-                .any(|p| p == &ext.manifest_path || p.parent() == Some(&ext.manifest_path));
-            let is_trusted = is_explicit
-                || config.extensions.trusted.contains(&ext.manifest.id)
-                || config.extensions.allow_untrusted;
+            let mut is_trusted = false;
+            if config.extensions.allow_untrusted {
+                is_trusted = true;
+            } else {
+                for trusted_entry in &config.extensions.trusted {
+                    if trusted_entry == &ext.manifest.id {
+                        eprintln!(
+                            "Warning: Extension '{}' is trusted using a legacy ID-only entry. Please migrate to integrity-aware trust by specifying '{}:{}'",
+                            ext.manifest.id, ext.manifest.id, ext.manifest_hash
+                        );
+                        is_trusted = true;
+                        break;
+                    } else if trusted_entry.starts_with(&format!("{}:", ext.manifest.id)) {
+                        let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
+                        if parts.len() == 2 {
+                            let expected_hash = parts[1];
+                            if expected_hash == ext.manifest_hash {
+                                is_trusted = true;
+                            } else {
+                                eprintln!(
+                                    "Warning: Extension '{}' trust invalid: manifest integrity hash has changed (expected '{}', found '{}')",
+                                    ext.manifest.id, expected_hash, ext.manifest_hash
+                                );
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
 
             if is_trusted && !trusted_extension_ids.contains(&ext.manifest.id) {
                 trusted_extension_ids.push(ext.manifest.id.clone());

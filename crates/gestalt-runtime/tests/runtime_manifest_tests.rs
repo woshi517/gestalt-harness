@@ -205,9 +205,94 @@ runtime = "stdio"
 command = "python"
 args = ["-c", "print('hi')"]
 [capabilities]
-[permissions]
 allow_shell = false
 "#;
     let manifest = ExtensionManifest::parse(valid_toml).unwrap();
     assert!(manifest.validate(true).is_ok());
+}
+
+#[test]
+fn test_new_manifest_validation_rules() {
+    // 1. Duplicate tool names
+    let duplicate_tools = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "bin"
+[capabilities]
+tools = true
+[[tools]]
+name = "t1"
+description = "desc"
+input_schema = {}
+[[tools]]
+name = "t1"
+description = "desc2"
+input_schema = {}
+"#;
+    let manifest = ExtensionManifest::parse(duplicate_tools).unwrap();
+    assert!(manifest.validate(true).is_err());
+
+    // 2. Invalid ID characters (uppercase)
+    let invalid_id_uppercase = r#"
+id = "Invalid-Ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "bin"
+[capabilities]
+"#;
+    let manifest = ExtensionManifest::parse(invalid_id_uppercase).unwrap();
+    assert!(manifest.validate(true).is_err());
+
+    // 3. ID starting with reserved namespace
+    let reserved_id = r#"
+id = "gestalt-helper"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "bin"
+[capabilities]
+"#;
+    let manifest = ExtensionManifest::parse(reserved_id).unwrap();
+    assert!(manifest.validate(true).is_err());
+
+    // 4. Invalid lifecycle point
+    let invalid_lifecycle = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "bin"
+[capabilities]
+hooks = true
+[[hooks]]
+name = "h1"
+lifecycle_point = "non_existent_point"
+"#;
+    let manifest = ExtensionManifest::parse(invalid_lifecycle).unwrap();
+    assert!(manifest.validate(true).is_err());
+
+    // 5. Empty tool description
+    let empty_desc = r#"
+id = "ext"
+name = "ext"
+version = "1.0.0"
+runtime = "stdio"
+[entrypoint]
+command = "bin"
+[capabilities]
+tools = true
+[[tools]]
+name = "t1"
+description = ""
+input_schema = {}
+"#;
+    let manifest = ExtensionManifest::parse(empty_desc).unwrap();
+    assert!(manifest.validate(true).is_err());
 }

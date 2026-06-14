@@ -12,6 +12,8 @@ fn dummy_manifest() -> ExtensionManifest {
         id: "test-ext".to_string(),
         name: "Test Extension".to_string(),
         version: "0.1.0".to_string(),
+        manifest_version: None,
+        protocol_version: None,
         runtime: "stdio".to_string(),
         entrypoint: Entrypoint {
             command: "echo".to_string(),
