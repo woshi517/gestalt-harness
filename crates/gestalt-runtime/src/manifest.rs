@@ -7,9 +7,15 @@ pub struct ExtensionManifest {
     pub id: String,
     pub name: String,
     pub version: String,
+    #[serde(default)]
+    pub manifest_version: Option<String>,
+    #[serde(default)]
+    pub protocol_version: Option<String>,
     pub runtime: String, // e.g., "stdio"
     pub entrypoint: Entrypoint,
+    #[serde(default)]
     pub capabilities: Capabilities,
+    #[serde(default)]
     pub permissions: Permissions,
     #[serde(default)]
     pub tools: Vec<ToolDeclaration>,
@@ -26,7 +32,7 @@ pub struct Entrypoint {
     pub args: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Capabilities {
     #[serde(default)]
     pub tools: bool,
@@ -36,7 +42,7 @@ pub struct Capabilities {
     pub context: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Permissions {
     #[serde(default)]
     pub allow_network: Vec<String>,
@@ -90,9 +96,25 @@ impl ExtensionManifest {
     }
 
     pub fn validate(&self, _deny_unknown_permissions: bool) -> std::result::Result<(), String> {
-        if self.id.trim().is_empty() {
-            return Err("Extension ID cannot be empty".to_string());
+        if self.id.is_empty() || self.id.len() > 64 {
+            return Err("Extension ID must be between 1 and 64 characters".to_string());
         }
+        let mut chars = self.id.chars();
+        let Some(first) = chars.next() else {
+            return Err("Extension ID cannot be empty".to_string());
+        };
+        if !first.is_ascii_lowercase() {
+            return Err("Extension ID must start with a lowercase letter".to_string());
+        }
+        for c in chars {
+            if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '.' && c != '-' {
+                return Err(format!("Extension ID '{}' contains invalid characters. Only lowercase alphanumeric, dots, and hyphens are allowed.", self.id));
+            }
+        }
+        if self.id.starts_with("gestalt") || self.id.starts_with("harness") {
+            return Err(format!("Extension ID '{}' starts with a reserved namespace ('gestalt' or 'harness')", self.id));
+        }
+
         if self.name.trim().is_empty() {
             return Err("Extension Name cannot be empty".to_string());
         }
@@ -104,6 +126,59 @@ impl ExtensionManifest {
         }
         if self.entrypoint.command.trim().is_empty() {
             return Err("Entrypoint command cannot be empty".to_string());
+        }
+
+        if let Some(ref mv) = self.manifest_version {
+            if mv.trim().is_empty() {
+                return Err("manifest_version cannot be empty".to_string());
+            }
+        }
+        if let Some(ref pv) = self.protocol_version {
+            if pv.trim().is_empty() {
+                return Err("protocol_version cannot be empty".to_string());
+            }
+        }
+
+        if self.manifest_version.is_none() || self.protocol_version.is_none() {
+            eprintln!("Warning: Extension '{}' manifest is missing manifest_version or protocol_version. Falling back to protocol 1.0 compatibility mode.", self.id);
+        }
+
+        // Validate duplicates
+        let mut seen_tools = std::collections::HashSet::new();
+        for tool in &self.tools {
+            if !seen_tools.insert(&tool.name) {
+                return Err(format!("Duplicate tool name '{}' declared in manifest", tool.name));
+            }
+            if tool.description.trim().is_empty() {
+                return Err(format!("Tool '{}' must have a non-empty description", tool.name));
+            }
+            if let Some(ref risk) = tool.risk {
+                match risk.as_str() {
+                    "low" | "medium" | "high" | "critical" => {}
+                    other => return Err(format!("Invalid risk level '{}' for tool '{}'", other, tool.name)),
+                }
+            }
+            if !tool.input_schema.is_object() {
+                return Err(format!("Tool '{}' input_schema must be a valid JSON Schema object", tool.name));
+            }
+        }
+
+        let mut seen_hooks = std::collections::HashSet::new();
+        for hook in &self.hooks {
+            if !seen_hooks.insert(&hook.name) {
+                return Err(format!("Duplicate hook name '{}' declared in manifest", hook.name));
+            }
+            match hook.lifecycle_point.as_str() {
+                "before_context_build" | "after_context_build" | "before_tool_policy" | "after_tool_result" | "prepare_next_turn" | "on_event" => {}
+                other => return Err(format!("Invalid lifecycle point '{}' for hook '{}'", other, hook.name)),
+            }
+        }
+
+        let mut seen_injectors = std::collections::HashSet::new();
+        for inj in &self.context_injectors {
+            if !seen_injectors.insert(&inj.name) {
+                return Err(format!("Duplicate context injector name '{}' declared in manifest", inj.name));
+            }
         }
 
         // Capability check: tools declared but capabilities.tools is false
@@ -133,6 +208,17 @@ impl ExtensionManifest {
                 "Context injector '{}' must declare stability",
                 injector.name
             ));
+        }
+
+        for host in &self.permissions.allow_network {
+            if host.trim().is_empty() {
+                return Err("allow_network contains empty host".to_string());
+            }
+        }
+        for path in &self.permissions.allowed_paths {
+            if path.trim().is_empty() {
+                return Err("allowed_paths contains empty path".to_string());
+            }
         }
 
         validate_shell_entrypoint(&self.entrypoint, self.permissions.allow_shell)?;
