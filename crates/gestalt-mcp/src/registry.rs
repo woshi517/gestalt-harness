@@ -9,14 +9,11 @@ use crate::model::{
     McpCallResult, McpConnectionState, McpServerConfig, McpServerId, McpServerState, McpToolSchema,
 };
 
-type McpClientResult = std::result::Result<Arc<McpClient>, McpError>;
-type McpClientOnceCell = tokio::sync::OnceCell<McpClientResult>;
-type McpClientMap = HashMap<String, Arc<McpClientOnceCell>>;
-
+#[allow(clippy::type_complexity)]
 pub struct McpRegistry {
     workspace_root: PathBuf,
     configs: HashMap<String, McpServerConfig>,
-    clients: Arc<Mutex<McpClientMap>>,
+    clients: Arc<Mutex<HashMap<String, Arc<tokio::sync::OnceCell<std::result::Result<Arc<McpClient>, McpError>>>>>>,
     failures: Arc<Mutex<HashMap<String, String>>>, // server_name -> error_msg
     event_callback: Arc<std::sync::Mutex<Option<crate::model::McpEventCallback>>>,
 }

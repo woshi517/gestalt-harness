@@ -33,13 +33,11 @@ struct JsonRpcErrorDetail {
     data: Option<Value>,
 }
 
-type StdioRequestTx = mpsc::Sender<(Value, oneshot::Sender<std::result::Result<Value, String>>)>;
-type StdioNotificationRx = mpsc::Receiver<(String, Option<Value>)>;
-
+#[allow(clippy::type_complexity)]
 pub struct StdioTransport {
     child: Arc<Mutex<Option<Child>>>,
-    tx_request: StdioRequestTx,
-    rx_notification: Arc<Mutex<StdioNotificationRx>>,
+    tx_request: mpsc::Sender<(Value, oneshot::Sender<std::result::Result<Value, String>>)>,
+    rx_notification: Arc<Mutex<mpsc::Receiver<(String, Option<Value>)>>>,
     next_id: AtomicU64,
 }
 

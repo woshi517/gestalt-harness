@@ -717,21 +717,18 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "history": context.history.clone(),
                         }
                     });
-                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
-                        Ok(outcome) => {
-                            let outcome = match outcome {
-                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                    metadata: serde_json::json!({ pe.name(): metadata })
-                                },
-                                other => other,
-                            };
-                            match outcome {
-                                HookOutcome::Block { .. } => return Ok(outcome),
-                                HookOutcome::Continue => {}
-                                _ => outcomes.push(outcome),
-                            }
+                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        let outcome = match outcome {
+                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                metadata: serde_json::json!({ pe.name(): metadata })
+                            },
+                            other => other,
+                        };
+                        match outcome {
+                            HookOutcome::Block { .. } => return Ok(outcome),
+                            HookOutcome::Continue => {}
+                            _ => outcomes.push(outcome),
                         }
-                        Err(_) => {}
                     }
                 }
             }
@@ -781,21 +778,18 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "packet": context.packet.clone(),
                         }
                     });
-                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
-                        Ok(outcome) => {
-                            let outcome = match outcome {
-                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                    metadata: serde_json::json!({ pe.name(): metadata })
-                                },
-                                other => other,
-                            };
-                            match outcome {
-                                HookOutcome::Block { .. } => return Ok(outcome),
-                                HookOutcome::Continue => {}
-                                _ => outcomes.push(outcome),
-                            }
+                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        let outcome = match outcome {
+                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                metadata: serde_json::json!({ pe.name(): metadata })
+                            },
+                            other => other,
+                        };
+                        match outcome {
+                            HookOutcome::Block { .. } => return Ok(outcome),
+                            HookOutcome::Continue => {}
+                            _ => outcomes.push(outcome),
                         }
-                        Err(_) => {}
                     }
                 }
             }
@@ -845,21 +839,18 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "tool_input": context.tool_input.clone(),
                         }
                     });
-                    match call_hook_with_policy(pe, hook_decl, params, "closed").await? {
-                        Ok(outcome) => {
-                            let outcome = match outcome {
-                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                    metadata: serde_json::json!({ pe.name(): metadata })
-                                },
-                                other => other,
-                            };
-                            match outcome {
-                                HookOutcome::Block { .. } => return Ok(outcome),
-                                HookOutcome::Continue => {}
-                                _ => outcomes.push(outcome),
-                            }
+                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "closed").await? {
+                        let outcome = match outcome {
+                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                metadata: serde_json::json!({ pe.name(): metadata })
+                            },
+                            other => other,
+                        };
+                        match outcome {
+                            HookOutcome::Block { .. } => return Ok(outcome),
+                            HookOutcome::Continue => {}
+                            _ => outcomes.push(outcome),
                         }
-                        Err(_) => {}
                     }
                 }
             }
@@ -909,21 +900,18 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "result": context.result.clone(),
                         }
                     });
-                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
-                        Ok(outcome) => {
-                            let outcome = match outcome {
-                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                    metadata: serde_json::json!({ pe.name(): metadata })
-                                },
-                                other => other,
-                            };
-                            match outcome {
-                                HookOutcome::Block { .. } => return Ok(outcome),
-                                HookOutcome::Continue => {}
-                                _ => outcomes.push(outcome),
-                            }
+                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        let outcome = match outcome {
+                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                metadata: serde_json::json!({ pe.name(): metadata })
+                            },
+                            other => other,
+                        };
+                        match outcome {
+                            HookOutcome::Block { .. } => return Ok(outcome),
+                            HookOutcome::Continue => {}
+                            _ => outcomes.push(outcome),
                         }
-                        Err(_) => {}
                     }
                 }
             }
@@ -984,38 +972,35 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "current_provider": context.current_provider.clone(),
                         }
                     });
-                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
-                        Ok(outcome) => {
-                            let outcome = match outcome {
-                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                    metadata: serde_json::json!({ pe.name(): metadata })
-                                },
-                                other => other,
-                            };
-                            match outcome {
-                                HookOutcome::Block { .. } => return Ok(outcome),
-                                HookOutcome::SwitchModel { model, provider, variant } => {
-                                    if let Some(ref existing_model) = current_model {
-                                        if existing_model != &model || current_provider.as_ref() != provider.as_ref() {
-                                            let msg = format!(
-                                                "Conflict: SwitchModel requested by extension '{}' for model='{}', provider='{:?}' conflicts with previous override model='{}', provider='{:?}'",
-                                                pe.name(), model, provider, existing_model, current_provider
-                                            );
-                                            eprintln!("Warning: {}", msg);
-                                            pe.broker.event_bus.publish(RuntimeEvent::RuntimeError {
-                                                message: msg,
-                                            });
-                                        }
+                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        let outcome = match outcome {
+                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                metadata: serde_json::json!({ pe.name(): metadata })
+                            },
+                            other => other,
+                        };
+                        match outcome {
+                            HookOutcome::Block { .. } => return Ok(outcome),
+                            HookOutcome::SwitchModel { model, provider, variant } => {
+                                if let Some(ref existing_model) = current_model {
+                                    if existing_model != &model || current_provider.as_ref() != provider.as_ref() {
+                                        let msg = format!(
+                                            "Conflict: SwitchModel requested by extension '{}' for model='{}', provider='{:?}' conflicts with previous override model='{}', provider='{:?}'",
+                                            pe.name(), model, provider, existing_model, current_provider
+                                        );
+                                        eprintln!("Warning: {}", msg);
+                                        pe.broker.event_bus.publish(RuntimeEvent::RuntimeError {
+                                            message: msg,
+                                        });
                                     }
-                                    current_model = Some(model.clone());
-                                    current_provider = provider.clone();
-                                    outcomes.push(HookOutcome::SwitchModel { model, provider, variant });
                                 }
-                                HookOutcome::Continue => {}
-                                _ => outcomes.push(outcome),
+                                current_model = Some(model.clone());
+                                current_provider = provider.clone();
+                                outcomes.push(HookOutcome::SwitchModel { model, provider, variant });
                             }
+                            HookOutcome::Continue => {}
+                            _ => outcomes.push(outcome),
                         }
-                        Err(_) => {}
                     }
                 }
             }

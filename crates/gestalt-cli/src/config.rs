@@ -25,11 +25,10 @@ fn version_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema
 fn is_json_output() -> bool {
     let args: Vec<String> = std::env::args().collect();
     for i in 0..args.len() {
-        if (args[i] == "--format" || args[i] == "-f") && i + 1 < args.len() {
-            if args[i + 1] == "json" {
+        if (args[i] == "--format" || args[i] == "-f") && i + 1 < args.len()
+            && args[i + 1] == "json" {
                 return true;
             }
-        }
     }
     false
 }
@@ -77,10 +76,10 @@ impl schemars::JsonSchema for ProviderKind {
 impl From<String> for ProviderKind {
     fn from(s: String) -> Self {
         match s.as_str() {
-            "openai" => ProviderKind::Openai,
-            "anthropic" => ProviderKind::Anthropic,
-            "openai-compatible" => ProviderKind::OpenaiCompatible,
-            _ => ProviderKind::Custom(s),
+            "openai" => Self::Openai,
+            "anthropic" => Self::Anthropic,
+            "openai-compatible" => Self::OpenaiCompatible,
+            _ => Self::Custom(s),
         }
     }
 }
@@ -414,7 +413,7 @@ impl Default for ToolsConfig {
         Self {
             default_timeout_secs: Some(60),
             bash_timeout_secs: Some(60),
-            max_output_bytes: Some(1048576),
+            max_output_bytes: Some(1_048_576),
             max_output_tokens: Some(4000),
             max_parallel_calls: Some(4),
             sandbox_type: Some(SandboxType::None),
@@ -896,41 +895,38 @@ impl WorkspaceConfig {
                 reason: err.to_string(),
             })
         })?;
-        let cfg: Self = match path.extension().and_then(|ext| ext.to_str()) {
-            Some("json") => {
-                let v: serde_json::Value = serde_json::from_str(&input).map_err(|err| {
-                    HarnessError::Config(ConfigError::InvalidValue {
-                        field: path.display().to_string(),
-                        reason: err.to_string(),
-                    })
-                })?;
-                if v.get("version").is_none() {
-                    return Err(HarnessError::Config(ConfigError::InvalidValue {
-                        field: "version".to_string(),
-                        reason: "missing field `version`".to_string(),
-                    }));
-                }
-                serde_json::from_value(v).map_err(|err| {
-                    HarnessError::Config(ConfigError::InvalidValue {
-                        field: path.display().to_string(),
-                        reason: err.to_string(),
-                    })
-                })?
+        let cfg: Self = if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+            let v: serde_json::Value = serde_json::from_str(&input).map_err(|err| {
+                HarnessError::Config(ConfigError::InvalidValue {
+                    field: path.display().to_string(),
+                    reason: err.to_string(),
+                })
+            })?;
+            if v.get("version").is_none() {
+                return Err(HarnessError::Config(ConfigError::InvalidValue {
+                    field: "version".to_string(),
+                    reason: "missing field `version`".to_string(),
+                }));
             }
-            _ => {
-                if !is_json_output() {
-                    eprintln!(
-                        "Warning: Loading legacy TOML configuration from '{}' is deprecated and will be removed in a future version. Please migrate to gestalt.json.",
-                        path.display()
-                    );
-                }
-                toml::from_str(&input).map_err(|err| {
-                    HarnessError::Config(ConfigError::InvalidValue {
-                        field: path.display().to_string(),
-                        reason: err.to_string(),
-                    })
-                })?
+            serde_json::from_value(v).map_err(|err| {
+                HarnessError::Config(ConfigError::InvalidValue {
+                    field: path.display().to_string(),
+                    reason: err.to_string(),
+                })
+            })?
+        } else {
+            if !is_json_output() {
+                eprintln!(
+                    "Warning: Loading legacy TOML configuration from '{}' is deprecated and will be removed in a future version. Please migrate to gestalt.json.",
+                    path.display()
+                );
             }
+            toml::from_str(&input).map_err(|err| {
+                HarnessError::Config(ConfigError::InvalidValue {
+                    field: path.display().to_string(),
+                    reason: err.to_string(),
+                })
+            })?
         };
         if cfg.version != 1 {
             return Err(HarnessError::Config(ConfigError::InvalidValue {
@@ -1034,10 +1030,10 @@ impl WorkspaceConfig {
             let mut self_policies = self.policies.unwrap_or_default();
 
             // validate allow list subset constraint:
-            validate_subset(&self_policies.paths.allow_read, &other_policies.paths.allow_read, "policies.paths.allow_read")?;
-            validate_subset(&self_policies.paths.allow_write, &other_policies.paths.allow_write, "policies.paths.allow_write")?;
-            validate_subset(&self_policies.bash.allow, &other_policies.bash.allow, "policies.bash.allow")?;
-            validate_subset(&self_policies.network.allow_domains, &other_policies.network.allow_domains, "policies.network.allow_domains")?;
+            validate_subset(self_policies.paths.allow_read.as_ref(), other_policies.paths.allow_read.as_ref(), "policies.paths.allow_read")?;
+            validate_subset(self_policies.paths.allow_write.as_ref(), other_policies.paths.allow_write.as_ref(), "policies.paths.allow_write")?;
+            validate_subset(self_policies.bash.allow.as_ref(), other_policies.bash.allow.as_ref(), "policies.bash.allow")?;
+            validate_subset(self_policies.network.allow_domains.as_ref(), other_policies.network.allow_domains.as_ref(), "policies.network.allow_domains")?;
 
             // Replace allow lists with non-empty overrides:
             if other_policies.paths.allow_read.is_some() {
@@ -1174,8 +1170,8 @@ fn merge_unions(a: Option<Vec<String>>, b: Option<Vec<String>>) -> Option<Vec<St
 }
 
 fn validate_subset(
-    global: &Option<Vec<String>>,
-    workspace: &Option<Vec<String>>,
+    global: Option<&Vec<String>>,
+    workspace: Option<&Vec<String>>,
     field_name: &str,
 ) -> Result<(), HarnessError> {
     if let (Some(g), Some(w)) = (global, workspace) {
@@ -1419,6 +1415,7 @@ impl ResolvedProvider {
 }
 
 impl EffectiveConfig {
+    #[allow(clippy::cast_possible_truncation)]
     pub fn resolve_provider(&self) -> Result<ResolvedProvider, HarnessError> {
         let active_profile = self.defaults.profile.clone();
         let active_provider = self.defaults.provider.clone();
@@ -1901,8 +1898,8 @@ pub fn explain_config(
         "defaults.mode",
         overrides.mode,
         Some("GESTALT_MODE"),
-        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.mode.clone())),
-        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.mode.clone())),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.mode)),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.mode)),
         "confirm"
     );
 
@@ -1937,8 +1934,8 @@ pub fn explain_config(
         "tools.sandbox_type",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type.clone())),
-        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type.clone())),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type)),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.sandbox_type)),
         "none"
     );
 
@@ -2065,8 +2062,8 @@ pub fn explain_config(
         "policies.bash.default",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.default.clone())),
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.default.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.default)),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.default)),
         "confirm"
     );
 
@@ -2130,8 +2127,8 @@ pub fn explain_config(
         "policies.network.default",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.network.default.clone())),
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.network.default.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.network.default)),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.network.default)),
         "confirm"
     );
 
@@ -2178,8 +2175,8 @@ pub fn explain_config(
         "observe.log_format",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format.clone())),
-        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format.clone())),
+        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format)),
+        (|c: &WorkspaceConfig| c.observe.as_ref().and_then(|d| d.log_format)),
         "jsonl"
     );
 
