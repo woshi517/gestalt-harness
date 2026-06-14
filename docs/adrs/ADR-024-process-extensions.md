@@ -15,7 +15,7 @@ Implement process-backed extensions executed in separate child processes over st
 - Introduce `ExtensionDiscovery` with three-tier lookup: explicit CLI paths → project-local (`.gestalt/extensions/`) → global (`~/.config/gestalt/extensions/`). Deduplicated by extension `id`.
 - Introduce `RuntimeEvent` variants (`ExtensionDiscovered`, `ExtensionLoaded`, `ExtensionRejected`, `ProcessSpawned`, `ProcessExited`, `RpcRequest`, `RpcResponse`, `PermissionDecision`) for auditability of the extension lifecycle.
 - Implement recursive input argument scanning: before forwarding tool calls, the broker recursively walks the JSON input for path-like and network-like keys and enforces declared permissions.
-- Implement trust model: explicitly loaded and global extensions are always trusted; project-local extensions require `trusted` list entry or `allow_untrusted = true`.
+- Implement trust model: all extensions (including explicit loads and global directories) require explicit trust verification via entry in `extensions.trusted` (by ID or integrity hash) or through setting `extensions.allow_untrusted` to true (which runs them in an untrusted state). *(Note: This supersedes the initial legacy trust model described below where explicit loads were automatically trusted).*
 - Restrict subprocess environments by calling `env_clear()` and only forwarding a safe allowlist of environment variables (PATH, HOME, USER, LOGNAME, SHELL, TERM, LANG, LC_ALL, LC_CTYPE, TMPDIR, TEMP, TMP).
 - Reject known shell executables (sh, bash, zsh, cmd, powershell, etc.) as entrypoints when `allow_shell` is false.
 

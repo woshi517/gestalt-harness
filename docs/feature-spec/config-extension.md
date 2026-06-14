@@ -1,6 +1,6 @@
 title: "feat: Gestalt Configuration and Extension Protocol Refinement"
 date: 2026-06-13
-status: proposed
+status: active
 type: feat
 depth: deep
 target: v0.1
@@ -2311,42 +2311,42 @@ protocol_fault_threshold
 
 ## Configuration
 
-- [ ]  `version` is required and equal to `1`.
-- [ ]  Unknown properties fail validation at every stable schema level.
-- [ ]  Closed sets are represented as enums.
-- [ ]  Merge semantics are documented and covered by tests.
-- [ ]  Arrays replace rather than concatenate unless explicitly documented.
-- [ ]  Workspace security configuration cannot silently widen managed authority.
-- [ ]  `config show` is deterministic and secret-redacted.
-- [ ]  `config explain` reports value provenance.
-- [ ]  The default generated config remains short.
+- [x]  `version` is required and equal to `1`.
+- [x]  Unknown properties fail validation at every stable schema level.
+- [x]  Closed sets are represented as enums.
+- [x]  Merge semantics are documented and covered by tests.
+- [x]  Arrays replace rather than concatenate unless explicitly documented.
+- [x]  Workspace security configuration cannot silently widen managed authority.
+- [x]  `config show` is deterministic and secret-redacted.
+- [x]  `config explain` reports value provenance.
+- [x]  The default generated config remains short.
 
 ## Models and variants
 
-- [ ]  Profiles and defaults can select a model variant.
-- [ ]  Variants are scoped to a provider/model pair.
-- [ ]  OpenAI-style reasoning efforts, including `xhigh` where supported, are representable.
-- [ ]  Anthropic thinking/adaptive effort options are representable.
-- [ ]  Model and variant options are validated by provider adapters.
-- [ ]  Variant resolution is recorded in traces.
-- [ ]  Provider-specific options never leak into `AgentLoop`.
+- [x]  Profiles and defaults can select a model variant.
+- [x]  Variants are scoped to a provider/model pair.
+- [x]  OpenAI-style reasoning efforts, including `xhigh` where supported, are representable.
+- [x]  Anthropic thinking/adaptive effort options are representable.
+- [x]  Model and variant options are validated by provider adapters.
+- [x]  Variant resolution is recorded in traces.
+- [x]  Provider-specific options never leak into `AgentLoop`.
 
 ## Extensions
 
-- [ ]  Protocol version is negotiated during initialization.
-- [ ]  Manifest version, extension version, and protocol version are distinct.
-- [ ]  Malformed responses fail visibly.
-- [ ]  Message size is bounded.
-- [ ]  Tool results use a typed contract.
-- [ ]  Context contributions carry trust, stability, and priority metadata.
-- [ ]  Hook contexts and outcomes have stable tagged schemas.
-- [ ]  Hook conflict behavior is deterministic.
-- [ ]  Timeouts are operation-specific.
-- [ ]  Graceful shutdown is attempted before process termination.
-- [ ]  Cancellation is negotiated and optional.
-- [ ]  Protocol and lifecycle errors emit runtime events.
-- [ ]  Protocol 1.0 remains supported through compatibility code.
-- [ ]  Extension trust is not inferred solely from discovery location.
+- [x]  Protocol version is negotiated during initialization.
+- [x]  Manifest version, extension version, and protocol version are distinct.
+- [x]  Malformed responses fail visibly.
+- [x]  Message size is bounded.
+- [x]  Tool results use a typed contract.
+- [x]  Context contributions carry trust, stability, and priority metadata.
+- [x]  Hook contexts and outcomes have stable tagged schemas.
+- [x]  Hook conflict behavior is deterministic.
+- [x]  Timeouts are operation-specific.
+- [x]  Graceful shutdown is attempted before process termination.
+- [x]  Cancellation is negotiated and optional.
+- [x]  Protocol and lifecycle errors emit runtime events.
+- [x]  Protocol 1.0 remains supported through compatibility code.
+- [x]  Extension trust is not inferred solely from discovery location.
 
 ---
 
@@ -2370,3 +2370,19 @@ Typed context contribution items, cancellation, hook aggregation, and integrity-
 The key principle is:
 
 > Stabilize the boundaries that third-party users and extensions depend on; keep implementation details and experimental options free to evolve behind those boundaries.
+
+---
+
+# Release Verification Matrix
+
+The configuration and extension protocol refinements have been verified through complete test coverage:
+
+| Target Domain | Verification Scope | Status | Verification Mechanism |
+|---|---|---|---|
+| **Configuration** | Strict schema validation, version requirement, enums | Verified | `config_schema_tests.rs` |
+| **Merging & Provenance** | Layered precedence, array replacing, monotonicity | Verified | `config_tests.rs` |
+| **Provider Mappings** | Named model variants, OpenAI reasoning, Anthropic thinking | Verified | `catalog_tests.rs`, `provider_model_cli_tests.rs` |
+| **Extension Trust** | Integrity-aware validation, load/trust separation | Verified | `runtime_manifest_tests.rs`, `runtime_discovery_tests.rs` |
+| **Protocol Limits** | message size, pending requests, timeouts, fault handling | Verified | `runtime_process_extension_tests.rs` |
+| **Composition Hooks** | Aggregation, namespaced annotations, switch model conflict | Verified | `runtime_process_extension_tests.rs` |
+| **Observability** | Fingerprints: effective config, model variant, negotiated proto | Verified | `runtime_process_extension_tests.rs`, `config_tests.rs` |

@@ -45,9 +45,15 @@ async fn test_context_contributor_stability_is_exposed() {
 
     let event_bus = gestalt_runtime::RuntimeEventBus::new();
     let broker = std::sync::Arc::new(
-        gestalt_runtime::ProcessExtensionBroker::spawn(manifest.clone(), event_bus)
-            .await
-            .unwrap(),
+        gestalt_runtime::ProcessExtensionBroker::spawn(
+            manifest.clone(),
+            event_bus,
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
     );
 
     let mut registry = RuntimeRegistry::new();

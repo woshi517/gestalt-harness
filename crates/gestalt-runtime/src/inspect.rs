@@ -25,6 +25,12 @@ pub struct RuntimeInspect {
     pub skill_fingerprint: Option<String>,
     pub mcp_servers: Vec<gestalt_mcp::McpServerState>,
     pub mcp_discovery_threshold: Option<usize>,
+    #[serde(default)]
+    pub effective_config_fingerprint: Option<String>,
+    #[serde(default)]
+    pub variant_fingerprint: Option<String>,
+    #[serde(default)]
+    pub negotiated_protocol_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,3 +65,39 @@ pub fn compute_policy_fingerprint(policies_content: &str) -> String {
     hasher.update(policies_content.as_bytes());
     format!("{:x}", hasher.finalize())
 }
+
+pub fn compute_variant_fingerprint(
+    model: &str,
+    provider: &str,
+    max_tokens: u32,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    reasoning_effort: Option<&gestalt_core::provider::ReasoningEffort>,
+    text_verbosity: Option<&gestalt_core::provider::TextVerbosity>,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(model.as_bytes());
+    hasher.update(b"|");
+    hasher.update(provider.as_bytes());
+    hasher.update(b"|");
+    hasher.update(max_tokens.to_string().as_bytes());
+    hasher.update(b"|");
+    if let Some(t) = temperature {
+        hasher.update(t.to_string().as_bytes());
+    }
+    hasher.update(b"|");
+    if let Some(p) = top_p {
+        hasher.update(p.to_string().as_bytes());
+    }
+    hasher.update(b"|");
+    if let Some(re) = reasoning_effort {
+        hasher.update(format!("{:?}", re).as_bytes());
+    }
+    hasher.update(b"|");
+    if let Some(tv) = text_verbosity {
+        hasher.update(format!("{:?}", tv).as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+

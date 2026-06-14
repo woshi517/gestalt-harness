@@ -22,6 +22,18 @@ fn version_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema
     schemars::schema::Schema::Object(schema)
 }
 
+fn is_json_output() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 0..args.len() {
+        if (args[i] == "--format" || args[i] == "-f") && i + 1 < args.len() {
+            if args[i + 1] == "json" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxType {
@@ -226,6 +238,24 @@ impl Default for WorkspaceConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ExtensionTimeoutsConfig {
+    pub initialize_ms: Option<u64>,
+    pub hook_ms: Option<u64>,
+    pub context_ms: Option<u64>,
+    pub tool_ms: Option<u64>,
+    pub shutdown_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExtensionLimitsConfig {
+    pub max_message_bytes: Option<usize>,
+    pub max_pending_requests: Option<usize>,
+    pub max_protocol_errors: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExtensionsConfig {
     #[serde(default)]
     pub explicit_loads: Vec<String>,
@@ -235,6 +265,10 @@ pub struct ExtensionsConfig {
     pub trusted: Vec<String>,
     #[serde(default)]
     pub allow_untrusted: bool,
+    #[serde(default)]
+    pub timeouts: ExtensionTimeoutsConfig,
+    #[serde(default)]
+    pub limits: ExtensionLimitsConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -616,6 +650,12 @@ fn load_workspace_config_file(path: &Path) -> Result<WorkspaceConfig, HarnessErr
 }
 
 fn load_legacy_policies_file(path: &Path) -> Result<WorkspaceConfig, HarnessError> {
+    if !is_json_output() {
+        eprintln!(
+            "Warning: Loading legacy TOML policies configuration from '{}' is deprecated and will be removed in a future version. Please migrate to gestalt.json.",
+            path.display()
+        );
+    }
     let input = fs::read_to_string(path).map_err(|err| {
         HarnessError::Config(ConfigError::InvalidValue {
             field: path.display().to_string(),
@@ -803,6 +843,51 @@ pub struct EffectiveConfig {
     pub mcp: Option<McpConfig>,
 }
 
+impl EffectiveConfig {
+    pub fn compute_fingerprint(&self) -> String {
+        #[derive(Serialize)]
+        struct StableConfig<'a> {
+            defaults: &'a DefaultsConfig,
+            tools: &'a ToolsConfig,
+            context: &'a ContextConfig,
+            observe: &'a ObserveConfig,
+            providers: &'a HashMap<String, ProviderConfig>,
+            profiles: &'a HashMap<String, ProfileConfig>,
+            prompt: &'a PromptConfig,
+            policies: &'a PoliciesConfig,
+            provider_override: &'a Option<String>,
+            model_override: &'a Option<String>,
+            tui: &'a TuiConfig,
+            extensions: &'a ExtensionsConfig,
+            skills: &'a SkillsConfig,
+            mcp: &'a Option<McpConfig>,
+        }
+        
+        let stable = StableConfig {
+            defaults: &self.defaults,
+            tools: &self.tools,
+            context: &self.context,
+            observe: &self.observe,
+            providers: &self.providers,
+            profiles: &self.profiles,
+            prompt: &self.prompt,
+            policies: &self.policies,
+            provider_override: &self.provider_override,
+            model_override: &self.model_override,
+            tui: &self.tui,
+            extensions: &self.extensions,
+            skills: &self.skills,
+            mcp: &self.mcp,
+        };
+
+        use sha2::{Digest, Sha256};
+        let serialized = serde_json::to_string(&stable).unwrap_or_default();
+        let mut hasher = Sha256::new();
+        hasher.update(serialized.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+}
+
 impl WorkspaceConfig {
     pub fn from_file(path: &Path) -> Result<Self, HarnessError> {
         let input = fs::read_to_string(path).map_err(|err| {
@@ -812,18 +897,40 @@ impl WorkspaceConfig {
             })
         })?;
         let cfg: Self = match path.extension().and_then(|ext| ext.to_str()) {
-            Some("json") => serde_json::from_str(&input).map_err(|err| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: path.display().to_string(),
-                    reason: err.to_string(),
-                })
-            })?,
-            _ => toml::from_str(&input).map_err(|err| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: path.display().to_string(),
-                    reason: err.to_string(),
-                })
-            })?,
+            Some("json") => {
+                let v: serde_json::Value = serde_json::from_str(&input).map_err(|err| {
+                    HarnessError::Config(ConfigError::InvalidValue {
+                        field: path.display().to_string(),
+                        reason: err.to_string(),
+                    })
+                })?;
+                if v.get("version").is_none() {
+                    return Err(HarnessError::Config(ConfigError::InvalidValue {
+                        field: "version".to_string(),
+                        reason: "missing field `version`".to_string(),
+                    }));
+                }
+                serde_json::from_value(v).map_err(|err| {
+                    HarnessError::Config(ConfigError::InvalidValue {
+                        field: path.display().to_string(),
+                        reason: err.to_string(),
+                    })
+                })?
+            }
+            _ => {
+                if !is_json_output() {
+                    eprintln!(
+                        "Warning: Loading legacy TOML configuration from '{}' is deprecated and will be removed in a future version. Please migrate to gestalt.json.",
+                        path.display()
+                    );
+                }
+                toml::from_str(&input).map_err(|err| {
+                    HarnessError::Config(ConfigError::InvalidValue {
+                        field: path.display().to_string(),
+                        reason: err.to_string(),
+                    })
+                })?
+            }
         };
         if cfg.version != 1 {
             return Err(HarnessError::Config(ConfigError::InvalidValue {
@@ -831,15 +938,17 @@ impl WorkspaceConfig {
                 reason: format!("version must be 1, found {}", cfg.version),
             }));
         }
-        if let Some(ref p) = cfg.policies {
-            if p.bash.yolo_allow.is_some() {
-                eprintln!("Warning: 'yolo_allow' is deprecated, please use 'allow' instead.");
-            }
-            if p.bash.always_confirm.is_some() {
-                eprintln!("Warning: 'always_confirm' is deprecated, please use 'confirm' instead.");
-            }
-            if p.bash.always_deny.is_some() {
-                eprintln!("Warning: 'always_deny' is deprecated, please use 'deny' instead.");
+        if !is_json_output() {
+            if let Some(ref p) = cfg.policies {
+                if p.bash.yolo_allow.is_some() {
+                    eprintln!("Warning: 'yolo_allow' is deprecated, please use 'allow' instead.");
+                }
+                if p.bash.always_confirm.is_some() {
+                    eprintln!("Warning: 'always_confirm' is deprecated, please use 'confirm' instead.");
+                }
+                if p.bash.always_deny.is_some() {
+                    eprintln!("Warning: 'always_deny' is deprecated, please use 'deny' instead.");
+                }
             }
         }
         Ok(cfg)
@@ -989,6 +1098,35 @@ impl WorkspaceConfig {
             self_extensions.trusted.extend(other_extensions.trusted);
             self_extensions.allow_untrusted =
                 other_extensions.allow_untrusted || self_extensions.allow_untrusted;
+
+            // Merge timeouts
+            if other_extensions.timeouts.initialize_ms.is_some() {
+                self_extensions.timeouts.initialize_ms = other_extensions.timeouts.initialize_ms;
+            }
+            if other_extensions.timeouts.hook_ms.is_some() {
+                self_extensions.timeouts.hook_ms = other_extensions.timeouts.hook_ms;
+            }
+            if other_extensions.timeouts.context_ms.is_some() {
+                self_extensions.timeouts.context_ms = other_extensions.timeouts.context_ms;
+            }
+            if other_extensions.timeouts.tool_ms.is_some() {
+                self_extensions.timeouts.tool_ms = other_extensions.timeouts.tool_ms;
+            }
+            if other_extensions.timeouts.shutdown_ms.is_some() {
+                self_extensions.timeouts.shutdown_ms = other_extensions.timeouts.shutdown_ms;
+            }
+
+            // Merge limits
+            if other_extensions.limits.max_message_bytes.is_some() {
+                self_extensions.limits.max_message_bytes = other_extensions.limits.max_message_bytes;
+            }
+            if other_extensions.limits.max_pending_requests.is_some() {
+                self_extensions.limits.max_pending_requests = other_extensions.limits.max_pending_requests;
+            }
+            if other_extensions.limits.max_protocol_errors.is_some() {
+                self_extensions.limits.max_protocol_errors = other_extensions.limits.max_protocol_errors;
+            }
+
             self.extensions = Some(self_extensions);
         }
 

@@ -825,7 +825,7 @@ impl AgentLoop {
                 Ok(events) => {
                     for ev in events {
                         match &ev {
-                            AgentEvent::NextTurnOverrideRequested { model, provider } => {
+                            AgentEvent::NextTurnOverrideRequested { model, provider, variant } => {
                                 let effective_model = if model.is_empty() {
                                     session.config.model.clone()
                                 } else {
@@ -835,6 +835,7 @@ impl AgentLoop {
                                     Some(crate::session::NextTurnOverride {
                                         model: effective_model,
                                         provider: provider.clone(),
+                                        variant: variant.clone(),
                                     });
                             }
                             AgentEvent::NextTurnBlocked { reason } => {

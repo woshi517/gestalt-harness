@@ -122,12 +122,7 @@ impl AgentRuntimeBuilder {
             ));
         }
 
-        // Wire the trusted-extension allow-list before any extension
-        // descriptor is built, so `build_extension_tool_descriptor`
-        // can promote annotations to `BuiltInTrusted`.
-        crate::extension_trust::set_trusted_extension_ids(
-            self.config.trusted_extension_ids.iter().cloned(),
-        );
+
 
         // Apply extensions before constructing AgentRuntime
         for ext in &self.extensions {
@@ -357,6 +352,7 @@ impl AgentRuntimeBuilder {
             self.event_bus,
             mcp_registry,
             mcp_discovery_state,
+            self.extensions.clone(),
         );
         Ok(match skill_state_handle {
             Some(state) => runtime.with_skill_state(state),

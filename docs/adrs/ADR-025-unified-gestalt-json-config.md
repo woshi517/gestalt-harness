@@ -38,7 +38,7 @@ Layering precedence (lowest to highest): built-in defaults < global `gestalt.jso
 ### Migration strategy
 
 1. JSON-first loading: prefer `gestalt.json` for both global and workspace layers.
-2. Legacy TOML fallback: when no `gestalt.json` exists, the loader reverts to `.gestalt/config.toml` + `.gestalt/policies.toml` (workspace) or `~/.config/gestalt/config.toml` (global).
+2. Legacy TOML fallback: when no `gestalt.json` exists, the loader reverts to `.gestalt/config.toml` + `.gestalt/policies.toml` (workspace) or `~/.config/gestalt/config.toml` (global). Loading legacy TOML files prints a visible deprecation warning advising migration to `gestalt.json`.
 3. Transparent seeding: when a mutating command (`profiles use`, `connect`, `runtime enable/disable`) writes `gestalt.json` for the first time, it seeds from the existing legacy TOML files so no data is lost.
 4. Global bootstrap: if neither the canonical JSON nor the legacy TOML global config exists, `load_effective_config()` creates a minimal `~/.config/gestalt/gestalt.json` (`{"version": 1}`).
 
