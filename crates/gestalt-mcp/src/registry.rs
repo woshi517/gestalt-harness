@@ -9,6 +9,7 @@ use crate::model::{
     McpCallResult, McpConnectionState, McpServerConfig, McpServerId, McpServerState, McpToolSchema,
 };
 
+#[allow(clippy::type_complexity)]
 pub struct McpRegistry {
     workspace_root: PathBuf,
     configs: HashMap<String, McpServerConfig>,

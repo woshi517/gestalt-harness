@@ -1364,7 +1364,7 @@ impl CliReport for VerifyRunReport {
 }
 
 fn redact_effective_config(mut config: crate::config::EffectiveConfig) -> crate::config::EffectiveConfig {
-    for (_, prov) in config.providers.iter_mut() {
+    for prov in config.providers.values_mut() {
         if let Some(ref mut headers) = prov.headers {
             for (k, v) in headers.iter_mut() {
                 let lower_k = k.to_lowercase();
@@ -1389,10 +1389,10 @@ fn redact_effective_config(mut config: crate::config::EffectiveConfig) -> crate:
 fn redact_explain_map(
     mut map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>
 ) -> std::collections::HashMap<String, crate::config::ConfigSourceInfo> {
-    for (k, info) in map.iter_mut() {
+    for (k, info) in &mut map {
         let lower_k = k.to_lowercase();
-        if lower_k.contains("auth_ref") || lower_k.contains("api_key") || lower_k.contains("headers") {
-            if !lower_k.contains("api_key_env") {
+        if (lower_k.contains("auth_ref") || lower_k.contains("api_key") || lower_k.contains("headers"))
+            && !lower_k.contains("api_key_env") {
                 match &mut info.value {
                     Value::String(s) => {
                         *s = "[REDACTED]".to_string();
@@ -1402,7 +1402,6 @@ fn redact_explain_map(
                     }
                 }
             }
-        }
     }
     map
 }
