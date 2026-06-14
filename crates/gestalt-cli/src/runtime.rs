@@ -138,14 +138,44 @@ pub async fn build_cli_runtime(
         (std::collections::HashMap::new(), Some(5))
     };
 
+    let mut meta_map = serde_json::Map::new();
+    if let Some(ref thinking) = resolved_provider.resolved_options.thinking {
+        meta_map.insert("thinking".to_string(), serde_json::to_value(thinking).unwrap_or_default());
+    }
+    if let Some(ref adapter_opts) = resolved_provider.resolved_options.adapter_options {
+        for (k, v) in adapter_opts {
+            meta_map.insert(k.clone(), v.clone());
+        }
+    }
+    let metadata = serde_json::Value::Object(meta_map);
+
+    fn to_core_reasoning_effort(e: Option<crate::config::ReasoningEffort>) -> Option<gestalt_core::provider::ReasoningEffort> {
+        e.map(|v| match v {
+            crate::config::ReasoningEffort::None => gestalt_core::provider::ReasoningEffort::None,
+            crate::config::ReasoningEffort::Low => gestalt_core::provider::ReasoningEffort::Low,
+            crate::config::ReasoningEffort::Medium => gestalt_core::provider::ReasoningEffort::Medium,
+            crate::config::ReasoningEffort::High => gestalt_core::provider::ReasoningEffort::High,
+            crate::config::ReasoningEffort::Xhigh => gestalt_core::provider::ReasoningEffort::Xhigh,
+        })
+    }
+
+    fn to_core_text_verbosity(v: Option<crate::config::TextVerbosity>) -> Option<gestalt_core::provider::TextVerbosity> {
+        v.map(|val| match val {
+            crate::config::TextVerbosity::None => gestalt_core::provider::TextVerbosity::None,
+            crate::config::TextVerbosity::Low => gestalt_core::provider::TextVerbosity::Low,
+            crate::config::TextVerbosity::Medium => gestalt_core::provider::TextVerbosity::Medium,
+            crate::config::TextVerbosity::High => gestalt_core::provider::TextVerbosity::High,
+        })
+    }
+
     let runtime_config = RuntimeConfig {
         workspace_root: config.workspace_root.clone(),
         execution_mode: mode,
         max_turns,
         model,
         provider: resolved_provider.provider_name.clone(),
-        max_tokens: 4096,
-        temperature: Some(0.0),
+        max_tokens: resolved_provider.resolved_options.max_output_tokens.unwrap_or(4096),
+        temperature: resolved_provider.resolved_options.temperature,
         max_context_window: config.context.max_context_window,
         reserved_output_tokens: config.context.reserved_output_tokens,
         bash_timeout_secs: config.tools.bash_timeout_secs,
@@ -160,6 +190,10 @@ pub async fn build_cli_runtime(
         mcp_servers,
         mcp_discovery_threshold,
         ignore_patterns: config.tools.ignore_patterns.clone().unwrap_or_default(),
+        top_p: resolved_provider.resolved_options.top_p,
+        reasoning_effort: to_core_reasoning_effort(resolved_provider.resolved_options.reasoning_effort),
+        text_verbosity: to_core_text_verbosity(resolved_provider.resolved_options.text_verbosity),
+        metadata,
     };
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();

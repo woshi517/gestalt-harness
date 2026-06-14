@@ -110,6 +110,21 @@ impl OpenAiProvider {
             .and_then(|h| serde_json::from_value::<HashMap<String, String>>(h.clone()).ok())
             .unwrap_or_default();
 
+        let mut capabilities = ProviderCapabilities {
+            supports_parallel_tools: true,
+            supports_vision: true,
+            supports_thinking: false,
+            supports_usage_reporting: true,
+            supports_streaming: true,
+            supports_strict_schema: true,
+            ..ProviderCapabilities::default()
+        };
+        if let Some(caps) = config.get("capabilities") {
+            if let Ok(c) = serde_json::from_value::<ProviderCapabilities>(caps.clone()) {
+                capabilities = c;
+            }
+        }
+
         Ok(Self {
             client: reqwest::Client::new(),
             id,
@@ -118,15 +133,7 @@ impl OpenAiProvider {
             default_model,
             auth,
             resolver,
-            capabilities: ProviderCapabilities {
-                supports_parallel_tools: true,
-                supports_vision: true,
-                supports_thinking: false,
-                supports_usage_reporting: true,
-                supports_streaming: true,
-                supports_strict_schema: true,
-                ..ProviderCapabilities::default()
-            },
+            capabilities,
             headers,
         })
     }
@@ -203,6 +210,38 @@ impl OpenAiProvider {
         }
         if !request.stop_sequences.is_empty() {
             body["stop"] = json!(request.stop_sequences);
+        }
+
+        let is_openai_compatible = self.id == "openai-compatible";
+        let supports_reasoning = !is_openai_compatible || self.capabilities.supports_thinking;
+
+        if supports_reasoning {
+            if let Some(effort) = request.reasoning_effort {
+                let effort_str = match effort {
+                    gestalt_core::provider::ReasoningEffort::None => "none",
+                    gestalt_core::provider::ReasoningEffort::Low => "low",
+                    gestalt_core::provider::ReasoningEffort::Medium => "medium",
+                    gestalt_core::provider::ReasoningEffort::High => "high",
+                    gestalt_core::provider::ReasoningEffort::Xhigh => "xhigh",
+                };
+                body["reasoning"] = json!({ "effort": effort_str });
+            }
+            if let Some(verbosity) = request.text_verbosity {
+                let verbosity_str = match verbosity {
+                    gestalt_core::provider::TextVerbosity::None => "none",
+                    gestalt_core::provider::TextVerbosity::Low => "low",
+                    gestalt_core::provider::TextVerbosity::Medium => "medium",
+                    gestalt_core::provider::TextVerbosity::High => "high",
+                };
+                body["text"] = json!({ "verbosity": verbosity_str });
+            }
+        } else {
+            if request.reasoning_effort.is_some() {
+                eprintln!("Warning: reasoning_effort ignored because the provider '{}' does not support thinking/reasoning capability", self.id);
+            }
+            if request.text_verbosity.is_some() {
+                eprintln!("Warning: text_verbosity ignored because the provider '{}' does not support verbosity capability", self.id);
+            }
         }
         body
     }
@@ -605,6 +644,8 @@ mod tests {
             stop_sequences: vec![],
             cache_plan: Some(plan),
             metadata: serde_json::Value::Null,
+            reasoning_effort: None,
+            text_verbosity: None,
         }
     }
 

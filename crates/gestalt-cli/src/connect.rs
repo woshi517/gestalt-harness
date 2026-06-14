@@ -200,6 +200,7 @@ pub fn connect_provider(
             models_endpoint,
             headers,
             request: None,
+            capabilities: None,
             models: HashMap::new(),
         };
         ws_cfg.providers.insert(conn_name.clone(), prov_config);

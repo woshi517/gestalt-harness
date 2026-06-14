@@ -144,6 +144,10 @@ fn make_session() -> Session {
             max_tokens: 100,
             temperature: None,
             max_turns: 2,
+            top_p: None,
+            reasoning_effort: None,
+            text_verbosity: None,
+            metadata: serde_json::Value::Null,
         },
         TokenBudget {
             model_limit: 1000,
