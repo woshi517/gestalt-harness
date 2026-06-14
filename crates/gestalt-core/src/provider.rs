@@ -131,6 +131,25 @@ impl Default for ProviderCapabilities {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    None,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextVerbosity {
+    None,
+    Low,
+    Medium,
+    High,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderToolSchema {
     pub name: String,
@@ -152,6 +171,8 @@ pub struct ProviderRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_plan: Option<PromptCachePlan>,
     pub metadata: Value,
+    pub reasoning_effort: Option<ReasoningEffort>,
+    pub text_verbosity: Option<TextVerbosity>,
 }
 
 impl Default for ProviderRequest {
@@ -167,6 +188,9 @@ impl Default for ProviderRequest {
             stop_sequences: Vec::new(),
             cache_plan: None,
             metadata: Value::Null,
+            reasoning_effort: None,
+            text_verbosity: None,
         }
     }
 }
+

@@ -448,10 +448,12 @@ impl AgentLoop {
             tool_name_map,
             max_tokens: session.config.max_tokens,
             temperature: session.config.temperature,
-            top_p: None,
+            top_p: session.config.top_p,
             stop_sequences: Vec::new(),
             cache_plan: packet.cache_plan.clone(),
-            metadata: serde_json::Value::Null,
+            metadata: session.config.metadata.clone(),
+            reasoning_effort: session.config.reasoning_effort,
+            text_verbosity: session.config.text_verbosity,
         };
 
         let serialized_request = serde_json::to_string(&request).unwrap_or_default();

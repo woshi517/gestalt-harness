@@ -82,6 +82,14 @@ pub struct SessionConfig {
     pub max_tokens: u32,
     pub temperature: Option<f32>,
     pub max_turns: usize,
+    #[serde(default)]
+    pub top_p: Option<f32>,
+    #[serde(default)]
+    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    #[serde(default)]
+    pub text_verbosity: Option<crate::provider::TextVerbosity>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

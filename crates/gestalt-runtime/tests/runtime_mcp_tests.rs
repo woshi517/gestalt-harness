@@ -148,6 +148,10 @@ async fn test_runtime_mcp_policy_check_and_execution() {
             max_tokens: 100,
             temperature: None,
             max_turns: 10,
+            top_p: None,
+            reasoning_effort: None,
+            text_verbosity: None,
+            metadata: serde_json::Value::Null,
         },
         gestalt_core::context::TokenBudget {
             model_limit: 1000,

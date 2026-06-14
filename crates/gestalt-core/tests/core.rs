@@ -159,6 +159,8 @@ fn test_provider_request_with_provider_tool_schema() {
         stop_sequences: vec![],
         cache_plan: None,
         metadata: serde_json::Value::Null,
+        reasoning_effort: None,
+        text_verbosity: None,
     };
 
     assert_eq!(req.tools.len(), 1);

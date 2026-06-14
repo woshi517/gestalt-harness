@@ -138,6 +138,10 @@ impl AgentRuntime {
                 max_tokens: self.config.max_tokens,
                 temperature: self.config.temperature,
                 max_turns: self.config.max_turns,
+                top_p: self.config.top_p,
+                reasoning_effort: self.config.reasoning_effort,
+                text_verbosity: self.config.text_verbosity,
+                metadata: self.config.metadata.clone(),
             },
             TokenBudget {
                 model_limit: self.config.max_context_window.unwrap_or(120_000),

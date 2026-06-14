@@ -40,6 +40,10 @@ pub struct RuntimeConfig {
     /// Configured ignore patterns for file discovery and text search
     #[serde(default)]
     pub ignore_patterns: Vec<String>,
+    pub top_p: Option<f32>,
+    pub reasoning_effort: Option<gestalt_core::provider::ReasoningEffort>,
+    pub text_verbosity: Option<gestalt_core::provider::TextVerbosity>,
+    pub metadata: serde_json::Value,
 }
 
 impl Default for RuntimeConfig {
@@ -66,6 +70,10 @@ impl Default for RuntimeConfig {
             mcp_servers: HashMap::new(),
             mcp_discovery_threshold: Some(5),
             ignore_patterns: Vec::new(),
+            top_p: None,
+            reasoning_effort: None,
+            text_verbosity: None,
+            metadata: serde_json::Value::Null,
         }
     }
 }
