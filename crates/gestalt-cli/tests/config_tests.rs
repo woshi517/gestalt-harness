@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use gestalt_cli::config::{
-    explain_config, load_effective_config, validate_workspace_config, CliOverrides,
+    explain_config, load_effective_config, validate_workspace_config, CliOverrides, SandboxType,
 };
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
@@ -106,7 +106,7 @@ max_context_window = 60000
     assert_eq!(config.tools.max_output_tokens, Some(5000));
 
     // Check that workspace overrides/extends global values
-    assert_eq!(config.tools.sandbox_type.as_deref(), Some("docker"));
+    assert_eq!(config.tools.sandbox_type, Some(SandboxType::Docker));
     assert_eq!(config.context.max_context_window, Some(60000));
 
     // Check that default values are used for unspecified fields
@@ -188,3 +188,52 @@ fn test_provider_model_cli_overrides_beat_profile() {
     assert_eq!(resolved.kind, "openai");
     assert_eq!(resolved.model, "gpt-4o-custom");
 }
+
+#[test]
+fn test_policy_monotonicity_enforcement() {
+    use gestalt_cli::config::WorkspaceConfig;
+    let global_toml = r#"
+[policies.paths]
+allow_read = ["/a", "/b"]
+"#;
+    let workspace_toml = r#"
+[policies.paths]
+allow_read = ["/a", "/c"]
+"#;
+
+    let global: WorkspaceConfig = toml::from_str(global_toml).unwrap();
+    let workspace: WorkspaceConfig = toml::from_str(workspace_toml).unwrap();
+
+    let merge_res = global.merge(workspace);
+    assert!(merge_res.is_err());
+    let err = merge_res.unwrap_err();
+    assert!(
+        err.to_string().contains("workspace policy tries to widen authority"),
+        "expected widening error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_policy_deny_union_merge() {
+    use gestalt_cli::config::WorkspaceConfig;
+    let global_toml = r#"
+[policies.paths]
+deny_read = ["/secret1"]
+"#;
+    let workspace_toml = r#"
+[policies.paths]
+deny_read = ["/secret2"]
+"#;
+
+    let global: WorkspaceConfig = toml::from_str(global_toml).unwrap();
+    let workspace: WorkspaceConfig = toml::from_str(workspace_toml).unwrap();
+
+    let merged = global.merge(workspace).expect("merge succeeds");
+    let paths = merged.policies.unwrap().paths;
+    let deny_read = paths.deny_read.unwrap();
+    assert!(deny_read.contains(&"/secret1".to_string()));
+    assert!(deny_read.contains(&"/secret2".to_string()));
+    assert_eq!(deny_read.len(), 2);
+}
+

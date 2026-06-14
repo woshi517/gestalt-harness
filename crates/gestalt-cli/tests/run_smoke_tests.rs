@@ -81,6 +81,8 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
 
 #[tokio::test]
 async fn test_cli_smoke_prompt_source() {
+    std::env::set_var("OPENAI_API_KEY", "mock-key");
+    std::env::set_var("OPENAI_COMPATIBLE_API_KEY", "mock-key");
     let _ = gestalt_models::registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
@@ -231,6 +233,8 @@ default = "confirm"
 
 #[tokio::test]
 async fn test_cli_smoke_custom_provider_via_profile() {
+    std::env::set_var("OPENAI_API_KEY", "mock-key");
+    std::env::set_var("OPENAI_COMPATIBLE_API_KEY", "mock-key");
     let _ = gestalt_models::registry::register(
         "custom-mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),

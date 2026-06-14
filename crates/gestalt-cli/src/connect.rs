@@ -2,9 +2,11 @@ use crate::auth::{delete_keychain_secret, set_keychain_secret};
 use crate::config::{
     global_config_path, legacy_global_config_path, mutate_workspace_config_file,
     write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig,
+    ProviderKind,
 };
 use crate::output::{ConnectReport, DisconnectReport};
 use gestalt_core::{ConfigError, HarnessError};
+use std::collections::HashMap;
 use std::io::IsTerminal;
 
 pub fn connect_provider(
@@ -66,7 +68,7 @@ pub fn connect_provider(
                 let builtin = crate::provider_catalog::get_builtin_provider("openrouter").unwrap();
                 (
                     "openrouter".to_string(),
-                    "openai-compatible".to_string(),
+                    ProviderKind::OpenaiCompatible,
                     builtin.base_url.unwrap(),
                     builtin.default_model.unwrap(),
                     builtin.api_key_env,
@@ -107,7 +109,7 @@ pub fn connect_provider(
                 });
                 (
                     conn_name,
-                    "openai-compatible".to_string(),
+                    ProviderKind::OpenaiCompatible,
                     base_url,
                     default_model,
                     env_val,
@@ -121,7 +123,7 @@ pub fn connect_provider(
                         provider.to_string(),
                         builtin
                             .kind
-                            .unwrap_or_else(|| "openai-compatible".to_string()),
+                            .unwrap_or(ProviderKind::OpenaiCompatible),
                         builtin.base_url.unwrap_or_default(),
                         builtin.default_model.unwrap_or_default(),
                         builtin.api_key_env.or_else(|| {
@@ -197,6 +199,8 @@ pub fn connect_provider(
             kind: Some(kind),
             models_endpoint,
             headers,
+            request: None,
+            models: HashMap::new(),
         };
         ws_cfg.providers.insert(conn_name.clone(), prov_config);
 
@@ -213,6 +217,7 @@ pub fn connect_provider(
             let profile_cfg = ProfileConfig {
                 provider: Some(conn_name.clone()),
                 model: None,
+                ..ProfileConfig::default()
             };
             ws_cfg.profiles.insert(profile_name.clone(), profile_cfg);
             profile_created = Some(profile_name);

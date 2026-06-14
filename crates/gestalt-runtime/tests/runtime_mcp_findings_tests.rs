@@ -64,9 +64,11 @@ fn build_runtime_config(servers: Vec<(&str, McpLifecycleMode)>) -> RuntimeConfig
     for (name, lifecycle) in servers {
         config.mcp_servers.insert(name.to_string(), McpServerConfig {
             name: name.to_string(),
+            enabled: true,
             transport: McpTransportConfig::Stdio {
                 command: "cargo".to_string(),
                 args: vec!["run", "--package", "gestalt-mcp", "--bin", "mock_mcp_server"].into_iter().map(String::from).collect(),
+                cwd: None,
                 env: std::collections::HashMap::new(),
             },
             lifecycle,
@@ -74,6 +76,8 @@ fn build_runtime_config(servers: Vec<(&str, McpLifecycleMode)>) -> RuntimeConfig
             allow_sampling: false,
             env: std::collections::HashMap::new(),
             tool_annotations: std::collections::HashMap::new(),
+            timeouts: None,
+            display_name: None,
         });
     }
     config
@@ -236,9 +240,11 @@ async fn test_findings_failure_reporting_in_discovery() {
     let mut config = RuntimeConfig::default();
     config.mcp_servers.insert("broken-server".to_string(), McpServerConfig {
         name: "broken-server".to_string(),
+        enabled: true,
         transport: McpTransportConfig::Stdio {
             command: "non_existent_command_12345".to_string(),
             args: vec![],
+            cwd: None,
             env: std::collections::HashMap::new(),
         },
         lifecycle: McpLifecycleMode::Lazy,
@@ -246,6 +252,8 @@ async fn test_findings_failure_reporting_in_discovery() {
         allow_sampling: false,
         env: std::collections::HashMap::new(),
         tool_annotations: std::collections::HashMap::new(),
+        timeouts: None,
+        display_name: None,
     });
 
     let runtime = AgentRuntimeBuilder::new()
@@ -353,9 +361,11 @@ async fn test_findings_risk_reduction_requires_annotations() {
     // Server A: High trust, but NO tool annotations
     config.mcp_servers.insert("server-high-no-ann".to_string(), McpServerConfig {
         name: "server-high-no-ann".to_string(),
+        enabled: true,
         transport: McpTransportConfig::Stdio {
             command: "cargo".to_string(),
             args: vec!["run", "--package", "gestalt-mcp", "--bin", "mock_mcp_server"].into_iter().map(String::from).collect(),
+            cwd: None,
             env: std::collections::HashMap::new(),
         },
         lifecycle: McpLifecycleMode::Lazy,
@@ -363,6 +373,8 @@ async fn test_findings_risk_reduction_requires_annotations() {
         allow_sampling: false,
         env: std::collections::HashMap::new(),
         tool_annotations: std::collections::HashMap::new(),
+        timeouts: None,
+        display_name: None,
     });
 
     // Server B: High trust, WITH read_only tool annotation
@@ -373,9 +385,11 @@ async fn test_findings_risk_reduction_requires_annotations() {
 
     config.mcp_servers.insert("server-high-with-ann".to_string(), McpServerConfig {
         name: "server-high-with-ann".to_string(),
+        enabled: true,
         transport: McpTransportConfig::Stdio {
             command: "cargo".to_string(),
             args: vec!["run", "--package", "gestalt-mcp", "--bin", "mock_mcp_server"].into_iter().map(String::from).collect(),
+            cwd: None,
             env: std::collections::HashMap::new(),
         },
         lifecycle: McpLifecycleMode::Lazy,
@@ -383,6 +397,8 @@ async fn test_findings_risk_reduction_requires_annotations() {
         allow_sampling: false,
         env: std::collections::HashMap::new(),
         tool_annotations: annotations,
+        timeouts: None,
+        display_name: None,
     });
 
     let runtime = AgentRuntimeBuilder::new()

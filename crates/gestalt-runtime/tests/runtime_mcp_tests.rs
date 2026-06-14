@@ -77,9 +77,11 @@ async fn test_runtime_mcp_policy_check_and_execution() {
     let mut config = RuntimeConfig::default();
     config.mcp_servers.insert("mock-server".to_string(), McpServerConfig {
         name: "mock-server".to_string(),
+        enabled: true,
         transport: McpTransportConfig::Stdio {
             command: "cargo".to_string(),
             args: vec!["run", "--package", "gestalt-mcp", "--bin", "mock_mcp_server"].into_iter().map(String::from).collect(),
+            cwd: None,
             env: std::collections::HashMap::new(),
         },
         lifecycle: McpLifecycleMode::Lazy,
@@ -87,6 +89,8 @@ async fn test_runtime_mcp_policy_check_and_execution() {
         allow_sampling: false,
         env: std::collections::HashMap::new(),
         tool_annotations: std::collections::HashMap::new(),
+        timeouts: None,
+        display_name: None,
     });
 
     let called = Arc::new(AtomicBool::new(false));
