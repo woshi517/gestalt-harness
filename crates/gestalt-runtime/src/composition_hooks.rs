@@ -1,6 +1,7 @@
 use crate::context::ContextContributor;
 use crate::error::Result;
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
+use crate::extension::GestaltExtension;
 use async_trait::async_trait;
 use gestalt_core::{
     context::{ContextPacket, PromptSnapshot},
@@ -12,6 +13,7 @@ use gestalt_core::{
 };
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HookOutcome {
@@ -28,7 +30,9 @@ pub enum HookOutcome {
     SwitchModel {
         model: String,
         provider: Option<String>,
+        variant: Option<String>,
     },
+    Aggregated(Vec<HookOutcome>),
 }
 
 pub struct BeforeContextBuildCtx {
@@ -127,22 +131,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                     lifecycle_point: "before_context_build".to_string(),
                     outcome: format!("{:?}", outcome),
                 });
-                match outcome {
-                    HookOutcome::AddContext { message } => {
-                        let mut store = self.patch_store.lock().unwrap();
-                        store.push(crate::context::ContextPatch::new(
-                            message,
-                            ContextStability::TurnDynamic,
-                        ));
-                    }
-                    HookOutcome::Block { reason } => {
-                        if let Some(ref br) = self.block_reason {
-                            let mut lock = br.lock().unwrap();
-                            *lock = Some(reason.clone());
-                        }
-                    }
-                    _ => {}
-                }
+                apply_outcome(outcome, &self.patch_store, &self.block_reason);
             }
             Err(err) => {
                 self.event_bus.publish(RuntimeEvent::HookFailed {
@@ -207,22 +196,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                     lifecycle_point: "after_context_build".to_string(),
                     outcome: format!("{:?}", outcome),
                 });
-                match outcome {
-                    HookOutcome::AddContext { message } => {
-                        let mut store = self.patch_store.lock().unwrap();
-                        store.push(crate::context::ContextPatch::new(
-                            message,
-                            ContextStability::TurnDynamic,
-                        ));
-                    }
-                    HookOutcome::Block { reason } => {
-                        if let Some(ref br) = self.block_reason {
-                            let mut lock = br.lock().unwrap();
-                            *lock = Some(reason.clone());
-                        }
-                    }
-                    _ => {}
-                }
+                apply_outcome(outcome, &self.patch_store, &self.block_reason);
             }
             Err(err) => {
                 self.event_bus.publish(RuntimeEvent::HookFailed {
@@ -292,6 +266,34 @@ pub struct RuntimeNextTurnHookAdapter {
     pub event_bus: RuntimeEventBus,
 }
 
+fn collect_next_turn_events(outcome: &HookOutcome, default_model: &str) -> Vec<AgentEvent> {
+    match outcome {
+        HookOutcome::SwitchModel { model, provider, variant } => {
+            let override_model = if model.is_empty() {
+                default_model.to_string()
+            } else {
+                model.clone()
+            };
+            vec![AgentEvent::NextTurnOverrideRequested {
+                model: override_model,
+                provider: provider.clone(),
+                variant: variant.clone(),
+            }]
+        }
+        HookOutcome::Block { reason } => {
+            vec![AgentEvent::NextTurnBlocked { reason: reason.clone() }]
+        }
+        HookOutcome::Aggregated(list) => {
+            let mut events = Vec::new();
+            for item in list {
+                events.extend(collect_next_turn_events(item, default_model));
+            }
+            events
+        }
+        _ => Vec::new(),
+    }
+}
+
 #[async_trait]
 impl gestalt_core::hook::NextTurnHook for RuntimeNextTurnHookAdapter {
     async fn prepare_next_turn(
@@ -333,27 +335,7 @@ impl gestalt_core::hook::NextTurnHook for RuntimeNextTurnHookAdapter {
                     outcome: format!("{:?}", outcome),
                 });
 
-                match outcome {
-                    HookOutcome::SwitchModel { model, provider } => {
-                        let override_model = if model.is_empty() {
-                            session.config.model.clone()
-                        } else {
-                            model
-                        };
-                        let pending = gestalt_core::session::NextTurnOverride {
-                            model: override_model,
-                            provider,
-                        };
-                        Ok(vec![AgentEvent::NextTurnOverrideRequested {
-                            model: pending.model.clone(),
-                            provider: pending.provider.clone(),
-                        }])
-                    }
-                    HookOutcome::Block { reason } => {
-                        Ok(vec![AgentEvent::NextTurnBlocked { reason }])
-                    }
-                    _ => Ok(Vec::new()),
-                }
+                Ok(collect_next_turn_events(&outcome, &session.config.model))
             }
             Err(err) => {
                 self.event_bus.publish(RuntimeEvent::HookFailed {
@@ -485,7 +467,78 @@ impl gestalt_core::hook::TraceHook for RuntimeTraceHookAdapter {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "lifecycle_point", content = "context")]
+pub enum HookRequest {
+    #[serde(rename = "before_context_build")]
+    BeforeContextBuild {
+        session_id: String,
+        history: Vec<Message>,
+    },
+    #[serde(rename = "after_context_build")]
+    AfterContextBuild {
+        session_id: String,
+        history: Vec<Message>,
+        packet: ContextPacket,
+    },
+    #[serde(rename = "before_tool_policy")]
+    BeforeToolPolicy {
+        session_id: String,
+        tool_name: String,
+        tool_input: serde_json::Value,
+    },
+    #[serde(rename = "after_tool_result")]
+    AfterToolResult {
+        session_id: String,
+        tool_name: String,
+        result: ToolExecutionResult,
+    },
+    #[serde(rename = "prepare_next_turn")]
+    PrepareNextTurn {
+        session_id: String,
+        history: Vec<Message>,
+        turn_index: usize,
+        current_model: String,
+        current_provider: String,
+    },
+    #[serde(rename = "on_event")]
+    OnEvent {
+        session_id: String,
+        event: AgentEvent,
+    },
+}
+
 fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum Helper {
+        Continue,
+        Block {
+            reason: String,
+        },
+        AddContext {
+            message: Message,
+        },
+        Annotate {
+            metadata: serde_json::Value,
+        },
+        SwitchModel {
+            model: String,
+            provider: Option<String>,
+            variant: Option<String>,
+        },
+    }
+
+    if let Ok(helper) = serde_json::from_value::<Helper>(val.clone()) {
+        return match helper {
+            Helper::Continue => HookOutcome::Continue,
+            Helper::Block { reason } => HookOutcome::Block { reason },
+            Helper::AddContext { message } => HookOutcome::AddContext { message },
+            Helper::Annotate { metadata } => HookOutcome::Annotate { metadata },
+            Helper::SwitchModel { model, provider, variant } => HookOutcome::SwitchModel { model, provider, variant },
+        };
+    }
+
     if let Some(s) = val.as_str() {
         if s == "continue" {
             return HookOutcome::Continue;
@@ -526,13 +579,102 @@ fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
                         .get("provider")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    return HookOutcome::SwitchModel { model, provider };
+                    let variant = obj
+                        .get("variant")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    return HookOutcome::SwitchModel { model, provider, variant };
                 }
                 _ => {}
             }
         }
     }
     HookOutcome::Continue
+}
+
+fn apply_outcome(
+    outcome: HookOutcome,
+    patch_store: &Arc<Mutex<Vec<crate::context::ContextPatch>>>,
+    block_reason: &Option<Arc<Mutex<Option<String>>>>,
+) {
+    match outcome {
+        HookOutcome::AddContext { message } => {
+            let mut store = patch_store.lock().unwrap();
+            store.push(crate::context::ContextPatch::new(
+                message,
+                ContextStability::TurnDynamic,
+            ));
+        }
+        HookOutcome::Block { reason } => {
+            if let Some(ref br) = block_reason {
+                let mut lock = br.lock().unwrap();
+                *lock = Some(reason.clone());
+            }
+        }
+        HookOutcome::Aggregated(list) => {
+            for item in list {
+                apply_outcome(item, patch_store, block_reason);
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn call_hook_with_policy(
+    pe: &crate::process_extension::ProcessExtension,
+    hook_decl: &crate::manifest::HookDeclaration,
+    params: serde_json::Value,
+    default_mode: &str,
+) -> Result<std::result::Result<HookOutcome, String>> {
+    let timeout_ms = hook_decl.timeout_ms.unwrap_or(
+        match hook_decl.lifecycle_point.as_str() {
+            "before_tool_policy" => 3000,
+            _ => 5000,
+        }
+    );
+    let timeout_dur = Duration::from_millis(timeout_ms);
+    let call_fut = pe.broker.call("hooks/call", Some(params));
+
+    let res = match tokio::time::timeout(timeout_dur, call_fut).await {
+        Ok(Ok(val)) => Ok(parse_hook_outcome(val)),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err("Request timed out".to_string()),
+    };
+
+    match res {
+        Ok(outcome) => Ok(Ok(outcome)),
+        Err(e) => {
+            let mode = hook_decl.failure_mode.as_deref().unwrap_or(default_mode);
+            match mode {
+                "stop_session" => Err(crate::error::RuntimeError::Extension("Session stopped by hook failure".to_string())),
+                "closed" => {
+                    if hook_decl.lifecycle_point == "before_tool_policy" || hook_decl.lifecycle_point == "prepare_next_turn" {
+                        Ok(Ok(HookOutcome::Block { reason: format!("Hook '{}' failed: {}", hook_decl.name, e) }))
+                    } else {
+                        Err(crate::error::RuntimeError::Extension(format!("Hook '{}' failed closed: {}", hook_decl.name, e)))
+                    }
+                }
+                "open" => {
+                    eprintln!("Warning: Hook '{}' failed (open): {}", hook_decl.name, e);
+                    pe.broker.event_bus.publish(RuntimeEvent::HookFailed {
+                        hook_name: hook_decl.name.clone(),
+                        lifecycle_point: hook_decl.lifecycle_point.clone(),
+                        error: e.clone(),
+                    });
+                    Ok(Err(e))
+                }
+                _ => {
+                    eprintln!("Warning: Hook '{}' failed (unknown failure mode: {}): {}", hook_decl.name, mode, e);
+                    pe.broker.event_bus.publish(RuntimeEvent::HookFailed {
+                        hook_name: hook_decl.name.clone(),
+                        lifecycle_point: hook_decl.lifecycle_point.clone(),
+                        error: e.clone(),
+                    });
+                    Ok(Err(e))
+                }
+            }
+        }
+    }
 }
 
 pub struct ComposedCompositionHooks {
@@ -543,14 +685,17 @@ pub struct ComposedCompositionHooks {
 #[async_trait]
 impl CompositionHooks for ComposedCompositionHooks {
     async fn before_context_build(&self, context: &BeforeContextBuildCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
         if let Some(ref user) = self.user_hooks {
             let res = user.before_context_build(context).await?;
-            if !matches!(res, HookOutcome::Continue) {
-                return Ok(res);
+            match res {
+                HookOutcome::Continue => {}
+                HookOutcome::Block { .. } => return Ok(res),
+                _ => outcomes.push(res),
             }
         }
 
-        let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
                 if let Some(hook_decl) = pe
@@ -559,39 +704,60 @@ impl CompositionHooks for ComposedCompositionHooks {
                     .iter()
                     .find(|h| h.lifecycle_point == "before_context_build")
                 {
+                    let request = HookRequest::BeforeContextBuild {
+                        session_id: context.session_id.clone(),
+                        history: context.history.clone(),
+                    };
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "before_context_build",
+                        "payload": request,
                         "context": {
                             "session_id": context.session_id.clone(),
                             "history": context.history.clone(),
                         }
                     });
-                    if let Ok(res_val) = pe.broker.call("hooks/call", Some(params)).await {
-                        let outcome = parse_hook_outcome(res_val);
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::AddContext { .. } | HookOutcome::Annotate { .. } => {
-                                final_outcome = outcome;
+                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        Ok(outcome) => {
+                            let outcome = match outcome {
+                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                    metadata: serde_json::json!({ pe.name(): metadata })
+                                },
+                                other => other,
+                            };
+                            match outcome {
+                                HookOutcome::Block { .. } => return Ok(outcome),
+                                HookOutcome::Continue => {}
+                                _ => outcomes.push(outcome),
                             }
-                            _ => {}
                         }
+                        Err(_) => {}
                     }
                 }
             }
         }
-        Ok(final_outcome)
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
     }
 
     async fn after_context_build(&self, context: &AfterContextBuildCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
         if let Some(ref user) = self.user_hooks {
             let res = user.after_context_build(context).await?;
-            if !matches!(res, HookOutcome::Continue) {
-                return Ok(res);
+            match res {
+                HookOutcome::Continue => {}
+                HookOutcome::Block { .. } => return Ok(res),
+                _ => outcomes.push(res),
             }
         }
 
-        let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
                 if let Some(hook_decl) = pe
@@ -600,40 +766,62 @@ impl CompositionHooks for ComposedCompositionHooks {
                     .iter()
                     .find(|h| h.lifecycle_point == "after_context_build")
                 {
+                    let request = HookRequest::AfterContextBuild {
+                        session_id: context.session_id.clone(),
+                        history: context.history.clone(),
+                        packet: context.packet.clone(),
+                    };
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "after_context_build",
+                        "payload": request,
                         "context": {
                             "session_id": context.session_id.clone(),
                             "history": context.history.clone(),
                             "packet": context.packet.clone(),
                         }
                     });
-                    if let Ok(res_val) = pe.broker.call("hooks/call", Some(params)).await {
-                        let outcome = parse_hook_outcome(res_val);
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::AddContext { .. } | HookOutcome::Annotate { .. } => {
-                                final_outcome = outcome;
+                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        Ok(outcome) => {
+                            let outcome = match outcome {
+                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                    metadata: serde_json::json!({ pe.name(): metadata })
+                                },
+                                other => other,
+                            };
+                            match outcome {
+                                HookOutcome::Block { .. } => return Ok(outcome),
+                                HookOutcome::Continue => {}
+                                _ => outcomes.push(outcome),
                             }
-                            _ => {}
                         }
+                        Err(_) => {}
                     }
                 }
             }
         }
-        Ok(final_outcome)
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
     }
 
     async fn before_tool_policy(&self, context: &BeforeToolPolicyCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
         if let Some(ref user) = self.user_hooks {
             let res = user.before_tool_policy(context).await?;
-            if !matches!(res, HookOutcome::Continue) {
-                return Ok(res);
+            match res {
+                HookOutcome::Continue => {}
+                HookOutcome::Block { .. } => return Ok(res),
+                _ => outcomes.push(res),
             }
         }
 
-        let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
                 if let Some(hook_decl) = pe
@@ -642,40 +830,62 @@ impl CompositionHooks for ComposedCompositionHooks {
                     .iter()
                     .find(|h| h.lifecycle_point == "before_tool_policy")
                 {
+                    let request = HookRequest::BeforeToolPolicy {
+                        session_id: context.session_id.clone(),
+                        tool_name: context.tool_name.clone(),
+                        tool_input: context.tool_input.clone(),
+                    };
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "before_tool_policy",
+                        "payload": request,
                         "context": {
                             "session_id": context.session_id.clone(),
                             "tool_name": context.tool_name.clone(),
                             "tool_input": context.tool_input.clone(),
                         }
                     });
-                    if let Ok(res_val) = pe.broker.call("hooks/call", Some(params)).await {
-                        let outcome = parse_hook_outcome(res_val);
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::AddContext { .. } | HookOutcome::Annotate { .. } => {
-                                final_outcome = outcome;
+                    match call_hook_with_policy(pe, hook_decl, params, "closed").await? {
+                        Ok(outcome) => {
+                            let outcome = match outcome {
+                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                    metadata: serde_json::json!({ pe.name(): metadata })
+                                },
+                                other => other,
+                            };
+                            match outcome {
+                                HookOutcome::Block { .. } => return Ok(outcome),
+                                HookOutcome::Continue => {}
+                                _ => outcomes.push(outcome),
                             }
-                            _ => {}
                         }
+                        Err(_) => {}
                     }
                 }
             }
         }
-        Ok(final_outcome)
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
     }
 
     async fn after_tool_result(&self, context: &AfterToolResultCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
         if let Some(ref user) = self.user_hooks {
             let res = user.after_tool_result(context).await?;
-            if !matches!(res, HookOutcome::Continue) {
-                return Ok(res);
+            match res {
+                HookOutcome::Continue => {}
+                HookOutcome::Block { .. } => return Ok(res),
+                _ => outcomes.push(res),
             }
         }
 
-        let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
                 if let Some(hook_decl) = pe
@@ -684,40 +894,69 @@ impl CompositionHooks for ComposedCompositionHooks {
                     .iter()
                     .find(|h| h.lifecycle_point == "after_tool_result")
                 {
+                    let request = HookRequest::AfterToolResult {
+                        session_id: context.session_id.clone(),
+                        tool_name: context.tool_name.clone(),
+                        result: context.result.clone(),
+                    };
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "after_tool_result",
+                        "payload": request,
                         "context": {
                             "session_id": context.session_id.clone(),
                             "tool_name": context.tool_name.clone(),
                             "result": context.result.clone(),
                         }
                     });
-                    if let Ok(res_val) = pe.broker.call("hooks/call", Some(params)).await {
-                        let outcome = parse_hook_outcome(res_val);
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::AddContext { .. } | HookOutcome::Annotate { .. } => {
-                                final_outcome = outcome;
+                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        Ok(outcome) => {
+                            let outcome = match outcome {
+                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                    metadata: serde_json::json!({ pe.name(): metadata })
+                                },
+                                other => other,
+                            };
+                            match outcome {
+                                HookOutcome::Block { .. } => return Ok(outcome),
+                                HookOutcome::Continue => {}
+                                _ => outcomes.push(outcome),
                             }
-                            _ => {}
                         }
+                        Err(_) => {}
                     }
                 }
             }
         }
-        Ok(final_outcome)
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
     }
 
     async fn prepare_next_turn(&self, context: &PrepareNextTurnCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+        let mut current_model = None;
+        let mut current_provider = None;
+
         if let Some(ref user) = self.user_hooks {
             let res = user.prepare_next_turn(context).await?;
-            if !matches!(res, HookOutcome::Continue) {
-                return Ok(res);
+            match res {
+                HookOutcome::Continue => {}
+                HookOutcome::Block { .. } => return Ok(res),
+                HookOutcome::SwitchModel { ref model, ref provider, .. } => {
+                    current_model = Some(model.clone());
+                    current_provider = provider.clone();
+                    outcomes.push(res);
+                }
+                _ => outcomes.push(res),
             }
         }
 
-        let mut final_outcome = HookOutcome::Continue;
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
                 if let Some(hook_decl) = pe
@@ -726,9 +965,17 @@ impl CompositionHooks for ComposedCompositionHooks {
                     .iter()
                     .find(|h| h.lifecycle_point == "prepare_next_turn")
                 {
+                    let request = HookRequest::PrepareNextTurn {
+                        session_id: context.session_id.clone(),
+                        history: context.history.clone(),
+                        turn_index: context.turn_index,
+                        current_model: context.current_model.clone(),
+                        current_provider: context.current_provider.clone(),
+                    };
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "prepare_next_turn",
+                        "payload": request,
                         "context": {
                             "session_id": context.session_id.clone(),
                             "history": context.history.clone(),
@@ -737,20 +984,50 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "current_provider": context.current_provider.clone(),
                         }
                     });
-                    if let Ok(res_val) = pe.broker.call("hooks/call", Some(params)).await {
-                        let outcome = parse_hook_outcome(res_val);
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::SwitchModel { .. } | HookOutcome::Annotate { .. } => {
-                                final_outcome = outcome;
+                    match call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                        Ok(outcome) => {
+                            let outcome = match outcome {
+                                HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
+                                    metadata: serde_json::json!({ pe.name(): metadata })
+                                },
+                                other => other,
+                            };
+                            match outcome {
+                                HookOutcome::Block { .. } => return Ok(outcome),
+                                HookOutcome::SwitchModel { model, provider, variant } => {
+                                    if let Some(ref existing_model) = current_model {
+                                        if existing_model != &model || current_provider.as_ref() != provider.as_ref() {
+                                            let msg = format!(
+                                                "Conflict: SwitchModel requested by extension '{}' for model='{}', provider='{:?}' conflicts with previous override model='{}', provider='{:?}'",
+                                                pe.name(), model, provider, existing_model, current_provider
+                                            );
+                                            eprintln!("Warning: {}", msg);
+                                            pe.broker.event_bus.publish(RuntimeEvent::RuntimeError {
+                                                message: msg,
+                                            });
+                                        }
+                                    }
+                                    current_model = Some(model.clone());
+                                    current_provider = provider.clone();
+                                    outcomes.push(HookOutcome::SwitchModel { model, provider, variant });
+                                }
+                                HookOutcome::Continue => {}
+                                _ => outcomes.push(outcome),
                             }
-                            _ => {}
                         }
+                        Err(_) => {}
                     }
                 }
             }
         }
-        Ok(final_outcome)
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
     }
 
     async fn on_event(&self, context: &OnEventCtx) -> Result<()> {
@@ -766,9 +1043,14 @@ impl CompositionHooks for ComposedCompositionHooks {
                     .iter()
                     .find(|h| h.lifecycle_point == "on_event")
                 {
+                    let request = HookRequest::OnEvent {
+                        session_id: context.session_id.clone(),
+                        event: context.event.clone(),
+                    };
                     let params = serde_json::json!({
                         "name": hook_decl.name.clone(),
                         "lifecycle_point": "on_event",
+                        "payload": request,
                         "context": {
                             "session_id": context.session_id.clone(),
                             "event": context.event.clone(),

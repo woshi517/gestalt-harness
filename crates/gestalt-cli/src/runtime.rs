@@ -72,32 +72,19 @@ pub async fn build_cli_runtime(
             }
 
             let mut is_trusted = false;
-            if config.extensions.allow_untrusted {
-                is_trusted = true;
-            } else {
-                for trusted_entry in &config.extensions.trusted {
-                    if trusted_entry == &ext.manifest.id {
-                        eprintln!(
-                            "Warning: Extension '{}' is trusted using a legacy ID-only entry. Please migrate to integrity-aware trust by specifying '{}:{}'",
-                            ext.manifest.id, ext.manifest.id, ext.manifest_hash
-                        );
-                        is_trusted = true;
-                        break;
-                    } else if trusted_entry.starts_with(&format!("{}:", ext.manifest.id)) {
-                        let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            let expected_hash = parts[1];
-                            if expected_hash == ext.manifest_hash {
-                                is_trusted = true;
-                            } else {
-                                eprintln!(
-                                    "Warning: Extension '{}' trust invalid: manifest integrity hash has changed (expected '{}', found '{}')",
-                                    ext.manifest.id, expected_hash, ext.manifest_hash
-                                );
-                            }
+            for trusted_entry in &config.extensions.trusted {
+                if trusted_entry == &ext.manifest.id {
+                    is_trusted = true;
+                    break;
+                } else if trusted_entry.starts_with(&format!("{}:", ext.manifest.id)) {
+                    let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
+                    if parts.len() == 2 {
+                        let expected_hash = parts[1];
+                        if expected_hash == ext.manifest_hash {
+                            is_trusted = true;
                         }
-                        break;
                     }
+                    break;
                 }
             }
 
@@ -217,6 +204,19 @@ pub async fn build_cli_runtime(
         reasoning_effort: to_core_reasoning_effort(resolved_provider.resolved_options.reasoning_effort),
         text_verbosity: to_core_text_verbosity(resolved_provider.resolved_options.text_verbosity),
         metadata,
+        extension_timeouts: gestalt_runtime::config::ExtensionTimeoutsConfig {
+            initialize_ms: config.extensions.timeouts.initialize_ms,
+            hook_ms: config.extensions.timeouts.hook_ms,
+            context_ms: config.extensions.timeouts.context_ms,
+            tool_ms: config.extensions.timeouts.tool_ms,
+            shutdown_ms: config.extensions.timeouts.shutdown_ms,
+        },
+        extension_limits: gestalt_runtime::config::ExtensionLimitsConfig {
+            max_message_bytes: config.extensions.limits.max_message_bytes,
+            max_pending_requests: config.extensions.limits.max_pending_requests,
+            max_protocol_errors: config.extensions.limits.max_protocol_errors,
+        },
+        effective_config_fingerprint: Some(config.compute_fingerprint()),
     };
 
     let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
@@ -245,6 +245,9 @@ pub async fn build_cli_runtime(
         );
         core_hooks.register_session_hook(evaluator_hook);
     }
+
+    let extension_timeouts = runtime_config.extension_timeouts.clone();
+    let extension_limits = runtime_config.extension_limits.clone();
 
     let mut builder = AgentRuntimeBuilder::new()
         .provider(provider)
@@ -277,21 +280,36 @@ pub async fn build_cli_runtime(
                 continue;
             }
 
-            let is_explicit = explicit_loads
-                .iter()
-                .any(|p| p == &ext.manifest_path || p.parent() == Some(&ext.manifest_path));
-            let is_trusted = is_explicit
-                || config.extensions.trusted.contains(&ext.manifest.id)
-                || config.extensions.allow_untrusted;
+            let mut is_trusted_by_config = false;
+            for trusted_entry in &config.extensions.trusted {
+                if trusted_entry == &ext.manifest.id {
+                    eprintln!(
+                        "Warning: Extension '{}' is trusted using a legacy ID-only entry. Please migrate to integrity-aware trust by specifying '{}:{}'",
+                        ext.manifest.id, ext.manifest.id, ext.manifest_hash
+                    );
+                    is_trusted_by_config = true;
+                    break;
+                } else if trusted_entry.starts_with(&format!("{}:", ext.manifest.id)) {
+                    let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
+                    if parts.len() == 2 {
+                        let expected_hash = parts[1];
+                        if expected_hash == ext.manifest_hash {
+                            is_trusted_by_config = true;
+                        } else {
+                            eprintln!(
+                                "Warning: Extension '{}' trust invalid: manifest integrity hash has changed (expected '{}', found '{}')",
+                                ext.manifest.id, expected_hash, ext.manifest_hash
+                            );
+                        }
+                    }
+                    break;
+                }
+            }
 
-            let is_project_local = ext
-                .manifest_path
-                .starts_with(config.workspace_root.join(".gestalt/extensions"));
-
-            if is_project_local && !is_trusted {
+            if !is_trusted_by_config && !config.extensions.allow_untrusted {
                 builder.event_bus.publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
                     extension_id: ext.manifest.id.clone(),
-                    reason: "Untrusted project extension ignored. Enable it by adding its ID to 'extensions.trusted' in gestalt.json".to_string(),
+                    reason: "Untrusted extension ignored. Enable it by adding its ID/hash to 'extensions.trusted' in gestalt.json or setting 'extensions.allow_untrusted' to true.".to_string(),
                 });
                 continue;
             }
@@ -299,6 +317,9 @@ pub async fn build_cli_runtime(
             let broker_res = gestalt_runtime::ProcessExtensionBroker::spawn(
                 ext.manifest.clone(),
                 builder.event_bus.clone(),
+                extension_timeouts.clone(),
+                extension_limits.clone(),
+                is_trusted_by_config,
             )
             .await;
 

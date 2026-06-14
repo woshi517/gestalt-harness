@@ -272,7 +272,7 @@ allowed_paths = []
         gestalt_runtime::RuntimeEvent::ExtensionRejected {
             extension_id,
             reason,
-        } => extension_id == "local-ext" && reason.contains("Untrusted project extension ignored"),
+        } => extension_id == "local-ext" && (reason.contains("Untrusted project extension ignored") || reason.contains("Untrusted extension ignored")),
         _ => false,
     });
     assert!(

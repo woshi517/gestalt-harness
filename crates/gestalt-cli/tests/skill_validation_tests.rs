@@ -32,6 +32,7 @@ fn overrides_with_workspace(workspace: &Path) -> CliOverrides {
 fn write_gestalt_json(workspace: &Path, skills: SkillsConfig) {
     let path = workspace.join("gestalt.json");
     let wrapper = serde_json::json!({
+        "version": 1,
         "providers": {},
         "profiles": {},
         "tools": {},

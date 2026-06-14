@@ -13,6 +13,8 @@ pub struct NextTurnOverride {
     pub model: String,
     #[serde(default)]
     pub provider: Option<String>,
+    #[serde(default)]
+    pub variant: Option<String>,
 }
 
 #[derive(Debug, Clone)]

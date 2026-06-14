@@ -40,6 +40,8 @@ pub struct Capabilities {
     pub hooks: bool,
     #[serde(default)]
     pub context: bool,
+    #[serde(default)]
+    pub supports_cancellation: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -81,6 +83,10 @@ pub struct ToolDeclaration {
 pub struct HookDeclaration {
     pub name: String,
     pub lifecycle_point: String,
+    #[serde(default)]
+    pub failure_mode: Option<String>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

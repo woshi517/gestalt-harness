@@ -215,12 +215,12 @@ Users control which extensions run via `gestalt.json` under `extensions`:
 }
 ```
 
-- **`trusted`**: Extensions in this list bypass the trust gate. Loaded even if they're project-local.
-- **`allow_untrusted`**: When `true`, all project-local extensions are loaded regardless of trust. Off by default.
-- **`explicit_loads`**: Paths to extension directories that should be discovered regardless of their location.
+- **`trusted`**: Extensions in this list bypass the trust gate and are fully trusted. Can match by extension ID or integrity-aware ID:hash format.
+- **`allow_untrusted`**: When `true`, untrusted extensions can run but remain untrusted (marked `is_trusted = false` and not promoted to trusted status). Off by default.
+- **`explicit_loads`**: Paths to extension directories that should be discovered regardless of their location. Discovery does not imply trust.
 - **`disabled`**: Extensions whose IDs match are loaded but immediately disabled.
 
-The trust gate works as follows: after discovery, each extension is marked as project-local if it lives under the project directory. Project-local extensions are rejected unless their ID is in `trusted` or `allow_untrusted` is `true`. Explicitly-loaded extensions are always trusted.
+The trust gate works as follows: after discovery, each extension is validated against the `extensions.trusted` list (either by exact ID or by `<id>:<manifest_hash>` integrity format). Extensions that do not match the trusted list are rejected unless `allow_untrusted` is set to `true`. Unlike the legacy model, explicitly loaded and global extensions do not automatically bypass the trust gate.
 
 ## Skills
 
