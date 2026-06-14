@@ -232,6 +232,8 @@ async fn test_process_extension_rejects_shell_bypass_in_args() {
         id: "shell-bypass".to_string(),
         name: "Shell Bypass".to_string(),
         version: "0.1.0".to_string(),
+        manifest_version: None,
+        protocol_version: None,
         runtime: "stdio".to_string(),
         entrypoint: Entrypoint {
             command: "env".to_string(),

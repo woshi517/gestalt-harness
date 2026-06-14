@@ -145,6 +145,8 @@ mod tests {
             id: id.to_string(),
             name: format!("{id} test"),
             version: "0.0.1".to_string(),
+            manifest_version: None,
+            protocol_version: None,
             runtime: "stdio".to_string(),
             entrypoint: Entrypoint {
                 command: "/bin/echo".to_string(),
