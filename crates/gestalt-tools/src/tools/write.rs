@@ -9,12 +9,22 @@ use super::common::{invalid_input, parse_input, tool_schema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WriteInput {
+    /// The path to the file to write.
     pub path: String,
+    /// The content to write to the file.
     pub content: String,
+    /// Return a unified diff of the changes. Defaults to true.
     #[serde(default = "super::common::default_true")]
     pub show_diff: bool,
+    /// Automatically create parent directories if they do not exist. Defaults to true.
     #[serde(default = "super::common::default_true")]
     pub create_dirs: bool,
+    /// Verify the file's current SHA-256 matches this hash before writing.
+    #[serde(default)]
+    pub expected_hash: Option<String>,
+    /// Validate inputs and compute the diff without making any actual changes. Defaults to false.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -63,7 +73,9 @@ impl Tool for WriteTool {
             .ok_or_else(|| invalid_input(self.name(), "write path has no parent"))?;
         if !parent.exists() {
             if input.create_dirs {
-                std::fs::create_dir_all(parent).map_err(ToolError::ExecutionFailed)?;
+                if !input.dry_run {
+                    std::fs::create_dir_all(parent).map_err(ToolError::ExecutionFailed)?;
+                }
             } else {
                 return Err(invalid_input(
                     self.name(),
@@ -77,18 +89,25 @@ impl Tool for WriteTool {
         } else {
             String::new()
         };
-        std::fs::write(&path, input.content.as_bytes()).map_err(ToolError::ExecutionFailed)?;
+
+        super::common::check_expected_hash(self.name(), &old, input.expected_hash.as_deref())?;
 
         let diff = if input.show_diff {
             make_diff(&input.path, &old, &input.content)
         } else {
             String::new()
         };
+
+        if !input.dry_run {
+            super::common::atomic_write(&path, &input.content).map_err(ToolError::ExecutionFailed)?;
+        }
+
         Ok(ToolOutput::Text {
             content: json!({
                 "path": input.path,
-                "bytes_written": input.content.len(),
+                "bytes_written": if input.dry_run { 0 } else { input.content.len() },
                 "diff": diff,
+                "dry_run": input.dry_run,
             })
             .to_string(),
         })
@@ -146,5 +165,79 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(ToolError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn write_with_matching_expected_hash_should_succeed() {
+        let root = temp_workspace("write-matching-hash");
+        let path = root.join("a.txt");
+        std::fs::write(&path, "original\n").expect("setup");
+
+        let hash = super::super::common::calculate_sha256("original\n");
+
+        let _output = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": "new\n",
+                    "expected_hash": hash,
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("matching hash succeeds");
+
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "new\n");
+    }
+
+    #[tokio::test]
+    async fn write_with_mismatched_expected_hash_should_fail() {
+        let root = temp_workspace("write-mismatched-hash");
+        let path = root.join("a.txt");
+        std::fs::write(&path, "original\n").expect("setup");
+
+        let result = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": "new\n",
+                    "expected_hash": "wronghash",
+                }),
+                &ctx(&root),
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "original\n");
+    }
+
+    #[tokio::test]
+    async fn write_dry_run_should_not_modify_file() {
+        let root = temp_workspace("write-dry-run");
+        let path = root.join("a.txt");
+        std::fs::write(&path, "original\n").expect("setup");
+
+        let output = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": "new\n",
+                    "dry_run": true,
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("dry run succeeds");
+
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "original\n");
+
+        match output {
+            ToolOutput::Text { content } => {
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert_eq!(parsed["path"], "a.txt");
+                assert!(parsed["diff"].as_str().unwrap().contains("+new"));
+            }
+            _ => panic!("Expected text response"),
+        }
     }
 }

@@ -80,3 +80,55 @@ pub(super) fn limit_tokens(content: &str, max_tokens: usize) -> String {
         content.len()
     )
 }
+
+pub(super) fn calculate_sha256(content: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+pub(super) fn check_expected_hash(
+    tool_name: &str,
+    current_content: &str,
+    expected_hash: Option<&str>,
+) -> Result<(), ToolError> {
+    if let Some(expected) = expected_hash {
+        let actual = calculate_sha256(current_content);
+        if actual != expected {
+            return Err(invalid_input(
+                tool_name,
+                format!("conflict: expected_hash mismatch (expected: {expected}, actual: {actual})"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn atomic_write(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
+    })?;
+
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_name = format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "temp".to_string()),
+        now
+    );
+    let temp_path = parent.join(temp_name);
+
+    std::fs::write(&temp_path, content.as_bytes())?;
+    if let Err(err) = std::fs::rename(&temp_path, path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(err);
+    }
+    Ok(())
+}
+
