@@ -15,5 +15,6 @@ mod tools;
 pub use registry::ToolRegistry;
 pub use tools::{
     default_registry, BashInput, BashTool, FindFilesInput, FindFilesTool, PatchInput, PatchTool,
-    ReadInput, ReadTool, SearchInput, SearchTool, WebFetchInput, WebFetchTool, WriteInput, WriteTool,
+    ReadInput, ReadTool, SearchInput, SearchTool, WebFetchInput, WebFetchTool, WriteInput,
+    WriteTool,
 };

@@ -50,7 +50,8 @@ impl Tool for WriteTool {
 
     fn descriptor(&self) -> gestalt_core::tool_descriptor::ToolDescriptor {
         crate::builtin_descriptors::make_builtin_descriptor(
-            self, false, // read_only
+            self,
+            false, // read_only
             false, // idempotent
             None,  // no retries
             &[],
@@ -99,7 +100,8 @@ impl Tool for WriteTool {
         };
 
         if !input.dry_run {
-            super::common::atomic_write(&path, &input.content).map_err(ToolError::ExecutionFailed)?;
+            super::common::atomic_write(&path, &input.content)
+                .map_err(ToolError::ExecutionFailed)?;
         }
 
         Ok(ToolOutput::Text {

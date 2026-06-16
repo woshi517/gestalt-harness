@@ -3,8 +3,8 @@ use serde_json::Value;
 
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
-use crate::path::{validate_child_dir, PathFilter};
 use crate::backends::{default_text_search_backend, TextSearchRequest};
+use crate::path::{validate_child_dir, PathFilter};
 
 use super::common::{parse_input, tool_schema};
 
@@ -91,7 +91,7 @@ impl Tool for SearchTool {
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let input = parse_input::<SearchInput>(self.name(), input)?;
         let root = validate_child_dir(input.path.as_deref(), ctx)?;
-        
+
         let case_insensitive = input.case_insensitive;
         let is_regex = input.is_regex;
         let context_before = input.context_before;
@@ -112,8 +112,12 @@ impl Tool for SearchTool {
             file_glob: input.file_glob.clone(),
         };
 
-        let raw_results = backend.search(&request).await
-            .map_err(|e| ToolError::ExecutionFailed(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        let raw_results = backend.search(&request).await.map_err(|e| {
+            ToolError::ExecutionFailed(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
 
         let filter = PathFilter::new(ctx, &root, include_hidden, respect_gitignore);
         let mut results = Vec::new();
@@ -148,12 +152,7 @@ impl Tool for SearchTool {
                     ));
                 }
 
-                results.push(format!(
-                    "{}:{}:{}",
-                    rel_path,
-                    r.line_number,
-                    r.line_content
-                ));
+                results.push(format!("{}:{}:{}", rel_path, r.line_number, r.line_content));
 
                 for (idx, ctx_line) in r.context_after.iter().enumerate() {
                     results.push(format!(
@@ -231,10 +230,7 @@ mod tests {
         fs::write(root.join("src/.hidden.rs"), "TargetContent").unwrap();
 
         let output = SearchTool
-            .execute(
-                json!({"pattern": "TargetContent"}),
-                &ctx(&root),
-            )
+            .execute(json!({"pattern": "TargetContent"}), &ctx(&root))
             .await
             .expect("search succeeds");
 
@@ -295,9 +291,21 @@ mod tests {
 
         match output {
             ToolOutput::Text { content } => {
-                assert!(content.contains("src/main.rs"), "Expected main.rs match: {}", content);
-                assert!(!content.contains(".env"), "Expected no .env match: {}", content);
-                assert!(!content.contains("secret.key"), "Expected no secret.key match: {}", content);
+                assert!(
+                    content.contains("src/main.rs"),
+                    "Expected main.rs match: {}",
+                    content
+                );
+                assert!(
+                    !content.contains(".env"),
+                    "Expected no .env match: {}",
+                    content
+                );
+                assert!(
+                    !content.contains("secret.key"),
+                    "Expected no secret.key match: {}",
+                    content
+                );
             }
             _ => panic!("Expected text output"),
         }
@@ -312,10 +320,7 @@ mod tests {
         fs::write(root.join(".gitignore"), "src/ignored.rs\n").unwrap();
 
         let output = SearchTool
-            .execute(
-                json!({"pattern": "TargetContent"}),
-                &ctx(&root),
-            )
+            .execute(json!({"pattern": "TargetContent"}), &ctx(&root))
             .await
             .expect("search succeeds");
 

@@ -3,8 +3,8 @@ use serde_json::Value;
 
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
-use crate::path::{validate_child_dir, PathFilter};
 use crate::backends::{default_file_search_backend, FileSearchRequest};
+use crate::path::{validate_child_dir, PathFilter};
 
 use super::common::{parse_input, tool_schema};
 
@@ -76,7 +76,7 @@ impl Tool for FindFilesTool {
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let input = parse_input::<FindFilesInput>(self.name(), input)?;
         let root = validate_child_dir(input.path.as_deref(), ctx)?;
-        
+
         let include_hidden = input.include_hidden;
         let respect_gitignore = input.respect_gitignore;
         let max_results = input.max_results;
@@ -89,8 +89,12 @@ impl Tool for FindFilesTool {
             file_glob: input.file_glob.clone(),
         };
 
-        let raw_results = backend.search(&request).await
-            .map_err(|e| ToolError::ExecutionFailed(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        let raw_results = backend.search(&request).await.map_err(|e| {
+            ToolError::ExecutionFailed(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
 
         let filter = PathFilter::new(ctx, &root, include_hidden, respect_gitignore);
         let mut filtered_lines = Vec::new();
@@ -144,13 +148,16 @@ mod tests {
         fs::write(root.join("src/utils/helper.rs"), "").unwrap();
 
         let tool = FindFilesTool::new();
-        let output = tool.execute(
-            json!({
-                "query": "helper",
-                "path": "src"
-            }),
-            &ctx(&root)
-        ).await.unwrap();
+        let output = tool
+            .execute(
+                json!({
+                    "query": "helper",
+                    "path": "src"
+                }),
+                &ctx(&root),
+            )
+            .await
+            .unwrap();
 
         match output {
             ToolOutput::Text { content } => {
@@ -169,13 +176,16 @@ mod tests {
         fs::write(root.join("src/README.md"), "").unwrap();
 
         let tool = FindFilesTool::new();
-        let output = tool.execute(
-            json!({
-                "query": "main",
-                "file_glob": "*.rs"
-            }),
-            &ctx(&root)
-        ).await.unwrap();
+        let output = tool
+            .execute(
+                json!({
+                    "query": "main",
+                    "file_glob": "*.rs"
+                }),
+                &ctx(&root),
+            )
+            .await
+            .unwrap();
 
         match output {
             ToolOutput::Text { content } => {
@@ -194,12 +204,15 @@ mod tests {
         fs::write(root.join("src/.hidden.rs"), "").unwrap();
 
         let tool = FindFilesTool::new();
-        let output = tool.execute(
-            json!({
-                "query": "hidden",
-            }),
-            &ctx(&root)
-        ).await.unwrap();
+        let output = tool
+            .execute(
+                json!({
+                    "query": "hidden",
+                }),
+                &ctx(&root),
+            )
+            .await
+            .unwrap();
 
         match output {
             ToolOutput::Text { content } => {
@@ -217,13 +230,16 @@ mod tests {
         fs::write(root.join("src/.hidden.rs"), "").unwrap();
 
         let tool = FindFilesTool::new();
-        let output = tool.execute(
-            json!({
-                "query": "hidden",
-                "include_hidden": true
-            }),
-            &ctx(&root)
-        ).await.unwrap();
+        let output = tool
+            .execute(
+                json!({
+                    "query": "hidden",
+                    "include_hidden": true
+                }),
+                &ctx(&root),
+            )
+            .await
+            .unwrap();
 
         match output {
             ToolOutput::Text { content } => {
@@ -242,19 +258,34 @@ mod tests {
         fs::write(root.join("src/secret.key"), "").unwrap();
 
         let tool = FindFilesTool::new();
-        let output = tool.execute(
-            json!({
-                "query": "",
-                "include_hidden": true
-            }),
-            &ctx(&root)
-        ).await.unwrap();
+        let output = tool
+            .execute(
+                json!({
+                    "query": "",
+                    "include_hidden": true
+                }),
+                &ctx(&root),
+            )
+            .await
+            .unwrap();
 
         match output {
             ToolOutput::Text { content } => {
-                assert!(content.contains("src/main.rs"), "Expected main.rs in results: {}", content);
-                assert!(!content.contains(".env"), "Expected .env to be filtered out: {}", content);
-                assert!(!content.contains("secret.key"), "Expected secret.key to be filtered out: {}", content);
+                assert!(
+                    content.contains("src/main.rs"),
+                    "Expected main.rs in results: {}",
+                    content
+                );
+                assert!(
+                    !content.contains(".env"),
+                    "Expected .env to be filtered out: {}",
+                    content
+                );
+                assert!(
+                    !content.contains("secret.key"),
+                    "Expected secret.key to be filtered out: {}",
+                    content
+                );
             }
             _ => panic!("Expected text output"),
         }
@@ -269,12 +300,15 @@ mod tests {
         fs::write(root.join(".gitignore"), "src/ignored.rs\n").unwrap();
 
         let tool = FindFilesTool::new();
-        let output = tool.execute(
-            json!({
-                "query": "ignored",
-            }),
-            &ctx(&root)
-        ).await.unwrap();
+        let output = tool
+            .execute(
+                json!({
+                    "query": "ignored",
+                }),
+                &ctx(&root),
+            )
+            .await
+            .unwrap();
 
         match output {
             ToolOutput::Text { content } => {
@@ -283,13 +317,16 @@ mod tests {
             _ => panic!("Expected text output"),
         }
 
-        let output2 = tool.execute(
-            json!({
-                "query": "ignored",
-                "respect_gitignore": false
-            }),
-            &ctx(&root)
-        ).await.unwrap();
+        let output2 = tool
+            .execute(
+                json!({
+                    "query": "ignored",
+                    "respect_gitignore": false
+                }),
+                &ctx(&root),
+            )
+            .await
+            .unwrap();
 
         match output2 {
             ToolOutput::Text { content } => {
@@ -310,12 +347,15 @@ mod tests {
         custom_ctx.ignore_patterns = vec!["custom_ignored.rs".to_string()];
 
         let tool = FindFilesTool::new();
-        let output = tool.execute(
-            json!({
-                "query": "custom_ignored",
-            }),
-            &custom_ctx
-        ).await.unwrap();
+        let output = tool
+            .execute(
+                json!({
+                    "query": "custom_ignored",
+                }),
+                &custom_ctx,
+            )
+            .await
+            .unwrap();
 
         match output {
             ToolOutput::Text { content } => {

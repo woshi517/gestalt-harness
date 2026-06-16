@@ -5,9 +5,7 @@ use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSche
 
 use crate::path::validate_existing_path;
 
-use super::common::{
-    decode_text, invalid_input, limit_tokens, parse_input, tool_schema,
-};
+use super::common::{decode_text, invalid_input, limit_tokens, parse_input, tool_schema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReadInput {
