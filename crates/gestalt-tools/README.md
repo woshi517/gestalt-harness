@@ -22,10 +22,10 @@ Reads a file with optional line range and token limit. Rejects paths outside the
 
 ```rust
 pub struct ReadInput {
-    pub path: PathBuf,
-    pub start_line: Option<usize>,
+    pub path: String,
+    pub start_line: usize,
     pub end_line: Option<usize>,
-    pub max_tokens: Option<usize>,
+    pub max_tokens: usize,
 }
 ```
 
@@ -38,13 +38,13 @@ pub struct SearchInput {
     pub pattern: String,
     pub path: Option<String>,
     pub file_glob: Option<String>,
-    pub case_insensitive: Option<bool>,
-    pub is_regex: Option<bool>,
-    pub context_before: Option<usize>,
-    pub context_after: Option<usize>,
-    pub include_hidden: Option<bool>,
-    pub respect_gitignore: Option<bool>,
-    pub max_results: Option<usize>,
+    pub case_insensitive: bool,
+    pub is_regex: bool,
+    pub context_before: usize,
+    pub context_after: usize,
+    pub include_hidden: bool,
+    pub respect_gitignore: bool,
+    pub max_results: usize,
 }
 ```
 
@@ -57,33 +57,37 @@ pub struct FindFilesInput {
     pub query: String,
     pub path: Option<String>,
     pub file_glob: Option<String>,
-    pub include_hidden: Option<bool>,
-    pub respect_gitignore: Option<bool>,
-    pub max_results: Option<usize>,
+    pub include_hidden: bool,
+    pub respect_gitignore: bool,
+    pub max_results: usize,
 }
 ```
 
 ### `write` — Write File
 
-Writes content to a file with optional diff display and directory creation. Fails fast when the parent directory is missing and `create_dirs` is false.
+Writes content to a file with optional diff display, directory creation, conflict checks (`expected_hash`), and dry runs (`dry_run`). Fails fast when the parent directory is missing and `create_dirs` is false.
 
 ```rust
 pub struct WriteInput {
-    pub path: PathBuf,
+    pub path: String,
     pub content: String,
-    pub show_diff: Option<bool>,
-    pub create_dirs: Option<bool>,
+    pub show_diff: bool,
+    pub create_dirs: bool,
+    pub expected_hash: Option<String>,
+    pub dry_run: bool,
 }
 ```
 
 ### `patch` — Apply Patch
 
-Applies a unified diff to a file. Returns the full patched content on success; structured error with context mismatch detection on failure.
+Applies a unified diff to a file with optional conflict checks (`expected_hash`) and dry runs (`dry_run`). Returns the full patched content on success; structured error with context mismatch detection on failure.
 
 ```rust
 pub struct PatchInput {
-    pub path: PathBuf,
+    pub path: String,
     pub patch: String,
+    pub expected_hash: Option<String>,
+    pub dry_run: bool,
 }
 ```
 
@@ -99,7 +103,7 @@ Executes a shell command with a configurable timeout and working directory. Clas
 ```rust
 pub struct BashInput {
     pub command: String,
-    pub cwd: Option<PathBuf>,
+    pub cwd: Option<String>,
     pub timeout_secs: Option<u64>,
 }
 ```
@@ -111,8 +115,8 @@ Fetches and returns text content from a URL. DNS-level private IP blocking, only
 ```rust
 pub struct WebFetchInput {
     pub url: String,
-    pub max_tokens: Option<usize>,
-    pub raw: Option<bool>,
+    pub max_tokens: usize,
+    pub raw: bool,
 }
 ```
 
