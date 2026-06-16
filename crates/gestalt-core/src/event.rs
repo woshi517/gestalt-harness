@@ -254,6 +254,70 @@ pub enum AgentEvent {
     SessionMessageQueueDrained {
         count: usize,
     },
+    ContextContributorResolved {
+        name: String,
+        stability: String,
+    },
+    WorkspaceContextLoaded {
+        path: String,
+        bytes: usize,
+        tokens: usize,
+    },
+    WorkspaceContextSkipped {
+        reason: String,
+    },
+    WorkspaceContextRejected {
+        reason: String,
+    },
+    WorkspaceContextLoadFailed {
+        error: String,
+    },
+    MemoryContextLoadFailed {
+        error: String,
+    },
+    MemoryContextLoaded {
+        path: String,
+        bytes: usize,
+        tokens: usize,
+        strategy: String,
+    },
+    MemoryContextSkipped {
+        reason: String,
+    },
+    MemoryContextRejected {
+        reason: String,
+    },
+    MemoryEntriesSelected {
+        total_entries: usize,
+        selected_entries: usize,
+        pinned_entries: usize,
+    },
+    ContextSnapshotCreated {
+        hash: String,
+    },
+    MemoryProposalCreated {
+        session_id: String,
+        proposal_id: String,
+        operation_count: usize,
+    },
+    MemoryProposalDecisionRecorded {
+        proposal_id: String,
+        decision: String,
+        accepted_operations: Vec<String>,
+    },
+    MemoryWriteSucceeded {
+        path: String,
+        bytes: usize,
+    },
+    MemoryWriteConflict {
+        path: String,
+        expected_hash: String,
+        actual_hash: String,
+    },
+    MemoryWriteFailed {
+        path: String,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

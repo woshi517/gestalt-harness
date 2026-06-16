@@ -180,6 +180,15 @@ pub struct ProviderConfig {
     pub models: HashMap<String, ModelDefinitionConfig>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceMetaConfig {
+    #[serde(default)]
+    pub initialized: bool,
+    #[serde(default)]
+    pub format_version: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceConfig {
@@ -188,6 +197,8 @@ pub struct WorkspaceConfig {
     #[serde(default = "default_version")]
     #[schemars(schema_with = "version_schema")]
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceMetaConfig>,
     #[serde(default)]
     pub defaults: Option<DefaultsConfig>,
     #[serde(default)]
@@ -219,6 +230,7 @@ impl Default for WorkspaceConfig {
         Self {
             schema: None,
             version: 1,
+            workspace: None,
             defaults: None,
             tools: None,
             context: None,
@@ -422,7 +434,12 @@ impl Default for ToolsConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub use gestalt_runtime::workspace_context::{
+    ContextSnapshotMode, MemoryContextConfig, MemorySelectionStrategy, MemoryWriteMode,
+    WorkspaceContextConfig,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ContextConfig {
     pub context_window_override: Option<usize>,
@@ -432,6 +449,10 @@ pub struct ContextConfig {
     pub memory_file: Option<String>,
     #[serde(default, skip_serializing)]
     pub max_context_window: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceContextConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<MemoryContextConfig>,
 }
 
 impl Default for ContextConfig {
@@ -440,9 +461,11 @@ impl Default for ContextConfig {
             context_window_override: Some(120_000),
             reserved_output_tokens: Some(8_000),
             safety_margin_tokens: Some(2048),
-            workspace_file: Some(".gestalt/workspace.md".to_string()),
-            memory_file: Some(".gestalt/memory.md".to_string()),
+            workspace_file: None,
+            memory_file: None,
             max_context_window: None,
+            workspace: None,
+            memory: None,
         }
     }
 }
@@ -563,6 +586,7 @@ impl PoliciesConfig {
                     default_network.deny_domains,
                 ),
             },
+            memory_paths: Vec::new(),
         }
     }
 
@@ -775,9 +799,12 @@ fn bootstrap_global_config(path: &Path) -> Result<(), HarnessError> {
 pub fn default_workspace_config() -> WorkspaceConfig {
     let mut scaffold_policies = gestalt_policy::PolicyConfig::default();
     scaffold_policies.paths.allow_write = vec!["docs/".to_string(), ".gestalt/".to_string()];
-
     WorkspaceConfig {
         version: 1,
+        workspace: Some(WorkspaceMetaConfig {
+            initialized: true,
+            format_version: 1,
+        }),
         defaults: Some(DefaultsConfig {
             provider: None,
             model: None,
@@ -946,6 +973,40 @@ impl WorkspaceConfig {
                     eprintln!("Warning: 'always_deny' is deprecated, please use 'deny' instead.");
                 }
             }
+            if let Some(ref c) = cfg.context {
+                if c.workspace_file.is_some() {
+                    if c.workspace.is_some() {
+                        eprintln!("Warning: Both 'context.workspace_file' and 'context.workspace' are specified. 'context.workspace' takes precedence.");
+                    } else {
+                        eprintln!("Warning: 'context.workspace_file' is deprecated. Please migrate to 'context.workspace.path'.");
+                    }
+                }
+                if c.memory_file.is_some() {
+                    if c.memory.is_some() {
+                        eprintln!("Warning: Both 'context.memory_file' and 'context.memory' are specified. 'context.memory' takes precedence.");
+                    } else {
+                        eprintln!("Warning: 'context.memory_file' is deprecated. Please migrate to 'context.memory.path'.");
+                    }
+                }
+            }
+        }
+        if let Some(ref c) = cfg.context {
+            if let Some(ref w) = c.workspace {
+                if w.enabled == Some(false) && w.required == Some(true) {
+                    return Err(HarnessError::Config(ConfigError::InvalidValue {
+                        field: "context.workspace".to_string(),
+                        reason: "cannot set workspace.enabled = false while workspace.required = true".to_string(),
+                    }));
+                }
+            }
+            if let Some(ref m) = c.memory {
+                if m.enabled == Some(false) && m.required == Some(true) {
+                    return Err(HarnessError::Config(ConfigError::InvalidValue {
+                        field: "context.memory".to_string(),
+                        reason: "cannot set memory.enabled = false while memory.required = true".to_string(),
+                    }));
+                }
+            }
         }
         Ok(cfg)
     }
@@ -1006,6 +1067,38 @@ impl WorkspaceConfig {
             self_context.workspace_file =
                 other_context.workspace_file.or(self_context.workspace_file);
             self_context.memory_file = other_context.memory_file.or(self_context.memory_file);
+
+            self_context.workspace = match (self_context.workspace.take(), other_context.workspace) {
+                (Some(s_w), Some(o_w)) => Some(WorkspaceContextConfig {
+                    enabled: o_w.enabled.or(s_w.enabled),
+                    path: o_w.path.or(s_w.path),
+                    required: o_w.required.or(s_w.required),
+                    max_tokens: o_w.max_tokens.or(s_w.max_tokens),
+                    max_bytes: o_w.max_bytes.or(s_w.max_bytes),
+                    snapshot: o_w.snapshot.or(s_w.snapshot),
+                }),
+                (Some(s_w), None) => Some(s_w),
+                (None, Some(o_w)) => Some(o_w),
+                (None, None) => None,
+            };
+
+            self_context.memory = match (self_context.memory.take(), other_context.memory) {
+                (Some(s_m), Some(o_m)) => Some(MemoryContextConfig {
+                    enabled: o_m.enabled.or(s_m.enabled),
+                    path: o_m.path.or(s_m.path),
+                    required: o_m.required.or(s_m.required),
+                    strategy: o_m.strategy.or(s_m.strategy),
+                    max_tokens: o_m.max_tokens.or(s_m.max_tokens),
+                    max_bytes: o_m.max_bytes.or(s_m.max_bytes),
+                    pinned_section: o_m.pinned_section.or(s_m.pinned_section),
+                    snapshot: o_m.snapshot.or(s_m.snapshot),
+                    write_mode: o_m.write_mode.or(s_m.write_mode),
+                }),
+                (Some(s_m), None) => Some(s_m),
+                (None, Some(o_m)) => Some(o_m),
+                (None, None) => None,
+            };
+
             self.context = Some(self_context);
         }
 
@@ -1304,6 +1397,44 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         c.safety_margin_tokens = c.safety_margin_tokens.or(d.safety_margin_tokens);
         c.workspace_file = c.workspace_file.or(d.workspace_file);
         c.memory_file = c.memory_file.or(d.memory_file);
+
+        // Resolve structured workspace config
+        let mut w = c.workspace.unwrap_or_default();
+        let resolved_workspace_path = if let Some(ref sp) = w.path {
+            sp.clone()
+        } else if let Some(ref lp) = c.workspace_file {
+            PathBuf::from(lp)
+        } else {
+            PathBuf::from(".gestalt/workspace.md")
+        };
+        w.enabled = Some(w.enabled.unwrap_or(true));
+        w.path = Some(resolved_workspace_path);
+        w.required = Some(w.required.unwrap_or(false));
+        w.max_tokens = Some(w.max_tokens.unwrap_or(12000));
+        w.max_bytes = Some(w.max_bytes.unwrap_or(131072));
+        w.snapshot = Some(w.snapshot.unwrap_or(ContextSnapshotMode::Session));
+        c.workspace = Some(w);
+
+        // Resolve structured memory config
+        let mut m = c.memory.unwrap_or_default();
+        let resolved_memory_path = if let Some(ref sp) = m.path {
+            sp.clone()
+        } else if let Some(ref lp) = c.memory_file {
+            PathBuf::from(lp)
+        } else {
+            PathBuf::from(".gestalt/memory.md")
+        };
+        m.enabled = Some(m.enabled.unwrap_or(true));
+        m.path = Some(resolved_memory_path);
+        m.required = Some(m.required.unwrap_or(false));
+        m.strategy = Some(m.strategy.unwrap_or(MemorySelectionStrategy::Budgeted));
+        m.max_tokens = Some(m.max_tokens.unwrap_or(8000));
+        m.max_bytes = Some(m.max_bytes.unwrap_or(524288));
+        m.pinned_section = Some(m.pinned_section.unwrap_or_else(|| "Facts".to_string()));
+        m.snapshot = Some(m.snapshot.unwrap_or(ContextSnapshotMode::Session));
+        m.write_mode = Some(m.write_mode.unwrap_or(MemoryWriteMode::Proposal));
+        c.memory = Some(m);
+
         c
     };
 
@@ -1743,13 +1874,17 @@ impl EffectiveConfig {
         let relative = match name {
             "workspace.md" => self
                 .context
-                .workspace_file
-                .clone()
+                .workspace
+                .as_ref()
+                .and_then(|w| w.path.clone())
+                .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|| ".gestalt/workspace.md".to_string()),
             "memory.md" => self
                 .context
-                .memory_file
-                .clone()
+                .memory
+                .as_ref()
+                .and_then(|m| m.path.clone())
+                .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|| ".gestalt/memory.md".to_string()),
             other => format!(".gestalt/{other}"),
         };
@@ -1972,7 +2107,7 @@ pub fn explain_config(
         None::<&str>,
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace_file.clone())),
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace_file.clone())),
-        ".gestalt/workspace.md"
+        Value::Null
     );
 
     resolve!(
@@ -1981,7 +2116,222 @@ pub fn explain_config(
         None::<&str>,
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory_file.clone())),
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory_file.clone())),
-        ".gestalt/memory.md"
+        Value::Null
+    );
+
+    resolve!(
+        "context.workspace.enabled",
+        None::<bool>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.enabled)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.enabled)),
+        true
+    );
+
+    {
+        let mut active_source = "Default".to_string();
+        let mut active_value = json!(".gestalt/workspace.md");
+
+        if let Some(ref g) = global_cfg {
+            if let Some(ref c) = g.context {
+                if let Some(ref w) = c.workspace {
+                    if let Some(ref path) = w.path {
+                        active_source = "Global Config File".to_string();
+                        active_value = json!(path);
+                    }
+                }
+                if active_source == "Default" {
+                    if let Some(ref path) = c.workspace_file {
+                        active_source = "Global Config File (via deprecated context.workspace_file)".to_string();
+                        active_value = json!(path);
+                    }
+                }
+            }
+        }
+
+        if let Some(ref w_cfg) = ws_cfg {
+            if let Some(ref c) = w_cfg.context {
+                let mut source_set = false;
+                if let Some(ref w) = c.workspace {
+                    if let Some(ref path) = w.path {
+                        active_source = "Workspace Config File".to_string();
+                        active_value = json!(path);
+                        source_set = true;
+                    }
+                }
+                if !source_set {
+                    if let Some(ref path) = c.workspace_file {
+                        active_source = "Workspace Config File (via deprecated context.workspace_file)".to_string();
+                        active_value = json!(path);
+                    }
+                }
+            }
+        }
+
+        map.insert(
+            "context.workspace.path".to_string(),
+            ConfigSourceInfo {
+                value: active_value,
+                source: active_source,
+            },
+        );
+    }
+
+    resolve!(
+        "context.workspace.required",
+        None::<bool>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.required)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.required)),
+        false
+    );
+
+    resolve!(
+        "context.workspace.max_tokens",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_tokens)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_tokens)),
+        12000
+    );
+
+    resolve!(
+        "context.workspace.max_bytes",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_bytes)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_bytes)),
+        131072
+    );
+
+    resolve!(
+        "context.workspace.snapshot",
+        None::<ContextSnapshotMode>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.snapshot)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.snapshot)),
+        ContextSnapshotMode::Session
+    );
+
+    resolve!(
+        "context.memory.enabled",
+        None::<bool>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.enabled)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.enabled)),
+        true
+    );
+
+    {
+        let mut active_source = "Default".to_string();
+        let mut active_value = json!(".gestalt/memory.md");
+
+        if let Some(ref g) = global_cfg {
+            if let Some(ref c) = g.context {
+                if let Some(ref m) = c.memory {
+                    if let Some(ref path) = m.path {
+                        active_source = "Global Config File".to_string();
+                        active_value = json!(path);
+                    }
+                }
+                if active_source == "Default" {
+                    if let Some(ref path) = c.memory_file {
+                        active_source = "Global Config File (via deprecated context.memory_file)".to_string();
+                        active_value = json!(path);
+                    }
+                }
+            }
+        }
+
+        if let Some(ref w_cfg) = ws_cfg {
+            if let Some(ref c) = w_cfg.context {
+                let mut source_set = false;
+                if let Some(ref m) = c.memory {
+                    if let Some(ref path) = m.path {
+                        active_source = "Workspace Config File".to_string();
+                        active_value = json!(path);
+                        source_set = true;
+                    }
+                }
+                if !source_set {
+                    if let Some(ref path) = c.memory_file {
+                        active_source = "Workspace Config File (via deprecated context.memory_file)".to_string();
+                        active_value = json!(path);
+                    }
+                }
+            }
+        }
+
+        map.insert(
+            "context.memory.path".to_string(),
+            ConfigSourceInfo {
+                value: active_value,
+                source: active_source,
+            },
+        );
+    }
+
+    resolve!(
+        "context.memory.required",
+        None::<bool>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.required)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.required)),
+        false
+    );
+
+    resolve!(
+        "context.memory.strategy",
+        None::<MemorySelectionStrategy>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.strategy)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.strategy)),
+        MemorySelectionStrategy::Budgeted
+    );
+
+    resolve!(
+        "context.memory.max_tokens",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_tokens)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_tokens)),
+        8000
+    );
+
+    resolve!(
+        "context.memory.max_bytes",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_bytes)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_bytes)),
+        524288
+    );
+
+    resolve!(
+        "context.memory.pinned_section",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.pinned_section.clone())),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.pinned_section.clone())),
+        "Facts"
+    );
+
+    resolve!(
+        "context.memory.snapshot",
+        None::<ContextSnapshotMode>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.snapshot)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.snapshot)),
+        ContextSnapshotMode::Session
+    );
+
+    resolve!(
+        "context.memory.write_mode",
+        None::<MemoryWriteMode>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.write_mode)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.write_mode)),
+        MemoryWriteMode::Proposal
     );
 
     resolve!(

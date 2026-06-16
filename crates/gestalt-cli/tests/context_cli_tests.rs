@@ -82,3 +82,82 @@ async fn test_context_explain_run() {
 
     let _ = fs::remove_dir_all(&temp_root);
 }
+
+#[tokio::test]
+async fn test_context_explain_prompt_budget_behavior() {
+    let temp_root = create_temp_workspace();
+    let gestalt_dir = temp_root.join(".gestalt");
+    fs::create_dir_all(&gestalt_dir).unwrap();
+
+    fs::write(
+        temp_root.join("gestalt.json"),
+        r#"{
+            "version": 1,
+            "defaults": {
+                "provider": "anthropic",
+                "mode": "confirm"
+            },
+            "context": {
+                "memory": {
+                    "enabled": true,
+                    "max_tokens": 10
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    fs::write(
+        gestalt_dir.join("workspace.md"),
+        "# Workspace instructions\nThis is the workspace instructions content.",
+    )
+    .unwrap();
+
+    fs::write(
+        gestalt_dir.join("memory.md"),
+        r#"# Memory
+
+## Facts
+- <!-- gestalt-memory-id: pin1 --> this is a pinned entry
+
+## General
+- <!-- gestalt-memory-id: unpin1 --> this is an unpinned entry that takes way too many tokens to fit in the small budget of ten tokens
+"#,
+    )
+    .unwrap();
+
+    let overrides = CliOverrides {
+        workspace: Some(temp_root.clone()),
+        ..CliOverrides::default()
+    };
+
+    let res = explain_context(
+        &overrides,
+        Some("Testing context explain budget behavior"),
+        None,
+    )
+    .await;
+
+    assert!(res.is_ok(), "explain_context failed: {:?}", res.err());
+    let rep = res.unwrap();
+
+    // 1. Verify sources are present
+    let sources = rep.sources;
+    assert!(sources.iter().any(|s| s.kind == "workspace" && s.path_or_label.contains("workspace.md")));
+    assert!(sources.iter().any(|s| s.kind == "memory" && s.path_or_label.contains("memory.md")));
+
+    // 2. Verify pinned entry is in system_prompt while unpinned is not
+    let system_prompt = rep.system_prompt.expect("system_prompt is missing");
+    assert!(system_prompt.contains("this is a pinned entry"), "system_prompt should contain the pinned entry");
+    assert!(!system_prompt.contains("this is an unpinned entry"), "system_prompt should NOT contain the unpinned entry");
+
+    // 3. Verify unpinned entry appears in omissions as budget_exhausted
+    let omissions = rep.omissions;
+    assert!(
+        omissions.iter().any(|o| o.kind == "memory" && o.path_or_label == "mem_id:unpin1" && o.reason == "budget_exhausted"),
+        "Omissions should report the unpinned memory being budget-exhausted: {:?}",
+        omissions
+    );
+
+    let _ = fs::remove_dir_all(&temp_root);
+}

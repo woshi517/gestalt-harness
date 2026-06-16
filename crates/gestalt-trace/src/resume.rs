@@ -409,6 +409,7 @@ mod tests {
             hook_contract_hash: "hook".to_string(),
             execution_mode: "Yolo".to_string(),
             skill_fingerprint: None,
+            workspace_context_snapshot_hash: None,
         }
     }
 

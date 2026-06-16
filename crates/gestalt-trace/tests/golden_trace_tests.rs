@@ -779,6 +779,7 @@ async fn test_persisted_steering_replay_and_resume() {
         hook_contract_hash: "mock".to_string(),
         execution_mode: "Yolo".to_string(),
         skill_fingerprint: None,
+        workspace_context_snapshot_hash: None,
     };
     let manifest = RunManifest {
         v: 1,
@@ -898,6 +899,7 @@ async fn test_persisted_steering_resume_flow() {
         hook_contract_hash: "mock".to_string(),
         execution_mode: "Yolo".to_string(),
         skill_fingerprint: None,
+        workspace_context_snapshot_hash: None,
     };
     let manifest = RunManifest {
         v: 1,

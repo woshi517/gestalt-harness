@@ -29,7 +29,26 @@
     "reserved_output_tokens": 8000,
     "safety_margin_tokens": 2048,
     "workspace_file": ".gestalt/workspace.md",
-    "memory_file": ".gestalt/memory.md"
+    "memory_file": ".gestalt/memory.md",
+    "workspace": {
+      "enabled": true,
+      "path": ".gestalt/workspace.md",
+      "required": false,
+      "max_tokens": 12000,
+      "max_bytes": 131072,
+      "snapshot": "session"
+    },
+    "memory": {
+      "enabled": true,
+      "path": ".gestalt/memory.md",
+      "required": false,
+      "strategy": "budgeted",
+      "max_tokens": 8000,
+      "max_bytes": 524288,
+      "pinned_section": "Pinned",
+      "snapshot": "session",
+      "write_mode": "proposal"
+    }
   },
   "observe": {
     "run_log_dir": ".gestalt/runs",

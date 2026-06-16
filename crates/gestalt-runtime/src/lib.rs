@@ -21,6 +21,7 @@ pub mod session_queue;
 pub mod skill_contributor;
 pub mod tool_catalog;
 pub mod tool_catalog_planner;
+pub mod workspace_context;
 
 pub mod mcp;
 pub mod mcp_discovery;
@@ -62,4 +63,9 @@ pub use tool_catalog::ComposedToolCatalog;
 pub use tool_catalog_planner::{ToolCatalogPlanner, ToolProfile};
 pub use mcp::McpBackedTool;
 pub use mcp_discovery::{McpDiscoveryState, SearchToolsTool, GetToolDetailsTool};
+pub use workspace_context::{
+    ContextSnapshotMode, MemoryContextConfig, MemorySelectionStrategy, MemoryWriteMode,
+    WorkspaceContextConfig, WorkspaceContextLoader, WorkspaceContextError, WorkspaceContextSnapshot,
+    load_and_snapshot_workspace_context,
+};
 

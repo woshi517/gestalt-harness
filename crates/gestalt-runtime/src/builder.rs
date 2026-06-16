@@ -28,6 +28,7 @@ pub struct AgentRuntimeBuilder {
     pub extensions: Vec<Arc<dyn GestaltExtension>>,
     pub event_bus: RuntimeEventBus,
     pub mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
+    pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
 }
 
 impl Default for AgentRuntimeBuilder {
@@ -52,7 +53,13 @@ impl AgentRuntimeBuilder {
             extensions: Vec::new(),
             event_bus: RuntimeEventBus::new(),
             mcp_registry: None,
+            workspace_context_snapshot: None,
         }
+    }
+
+    pub fn workspace_context_snapshot(mut self, snapshot: crate::workspace_context::WorkspaceContextSnapshot) -> Self {
+        self.workspace_context_snapshot = Some(snapshot);
+        self
     }
 
     pub fn composition_hooks(mut self, hooks: Arc<dyn CompositionHooks>) -> Self {
@@ -338,7 +345,7 @@ impl AgentRuntimeBuilder {
                 extensions: self.extensions.clone(),
             });
 
-        let runtime = AgentRuntime::new(
+        let mut runtime = AgentRuntime::new(
             provider,
             composed_tools,
             middleware,
@@ -354,6 +361,7 @@ impl AgentRuntimeBuilder {
             mcp_discovery_state,
             self.extensions.clone(),
         );
+        runtime.workspace_context_snapshot = self.workspace_context_snapshot;
         Ok(match skill_state_handle {
             Some(state) => runtime.with_skill_state(state),
             None => runtime,

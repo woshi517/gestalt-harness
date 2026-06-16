@@ -3,6 +3,9 @@ use crate::output::ContextExplainReport;
 use gestalt_core::ToolCatalog;
 use gestalt_core::{context::ContextPipeline, Message, TokenBudget};
 use gestalt_tools::default_registry;
+use std::sync::{Arc, Mutex};
+use gestalt_runtime::context::{ContextContributor, RuntimeContextPipeline, ContextPatch};
+use gestalt_runtime::workspace_context::load_and_snapshot_workspace_context;
 
 pub async fn explain_context(
     overrides: &CliOverrides,
@@ -33,6 +36,59 @@ pub async fn explain_context(
             minimum_turn_budget: 16,
         };
 
+        // Load workspace and memory contributors using load_and_snapshot_workspace_context.
+        let workspace_cfg = config.context.workspace.clone().unwrap_or_default();
+        let memory_cfg = config.context.memory.clone().unwrap_or_default();
+        let event_bus = gestalt_runtime::event_bus::RuntimeEventBus::new();
+        
+        let policy = Arc::new(crate::run::build_policy(&config));
+        let (ws_contrib, mem_contrib, _) = load_and_snapshot_workspace_context(
+            &config.workspace_root,
+            Some(policy as Arc<dyn gestalt_core::policy::PolicyEngine>),
+            &event_bus,
+            &workspace_cfg,
+            &memory_cfg,
+        ).await?;
+
+        let mut patches = Vec::new();
+        if let Some(contrib) = ws_contrib {
+            let msg = contrib.contribute(&config.workspace_root).await?;
+            let content_str = match &msg {
+                Message::System { content } => content.clone(),
+                _ => String::new(),
+            };
+            let source = contrib.source(&config.workspace_root, &content_str);
+            let omissions = contrib.omissions(&config.workspace_root);
+            patches.push(ContextPatch::new_with_metadata(
+                msg,
+                contrib.stability(),
+                source,
+                omissions,
+            ));
+        }
+
+        if let Some(contrib) = mem_contrib {
+            let msg = contrib.contribute(&config.workspace_root).await?;
+            let content_str = match &msg {
+                Message::System { content } => content.clone(),
+                _ => String::new(),
+            };
+            let source = contrib.source(&config.workspace_root, &content_str);
+            let omissions = contrib.omissions(&config.workspace_root);
+            patches.push(ContextPatch::new_with_metadata(
+                msg,
+                contrib.stability(),
+                source,
+                omissions,
+            ));
+        }
+
+        let patch_store = Arc::new(Mutex::new(patches));
+        let runtime_pipeline = RuntimeContextPipeline {
+            base: Arc::new(pipeline),
+            patch_store,
+        };
+
         let history = vec![Message::User {
             content: vec![gestalt_core::ContentBlock::Text {
                 text: prompt.to_string(),
@@ -40,7 +96,17 @@ pub async fn explain_context(
             metadata: None,
         }];
 
-        let packet = pipeline.build_packet(&history, &budget);
+        let packet = runtime_pipeline.build_packet(&history, &budget);
+
+        let system_prompt_str = packet
+            .messages
+            .iter()
+            .filter_map(|msg| match msg {
+                gestalt_core::Message::System { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
 
         Ok(ContextExplainReport {
             prompt: Some(prompt.to_string()),
@@ -49,6 +115,7 @@ pub async fn explain_context(
             packet_hash: packet.packet_hash,
             pipeline_version: packet.pipeline_version,
             prompt_source: packet.prompt_source,
+            system_prompt: Some(system_prompt_str),
             sources: packet.sources,
             omissions: packet.omissions,
         })
@@ -80,6 +147,7 @@ pub async fn explain_context(
                     packet_hash: packet_hash.clone().unwrap_or_default(),
                     pipeline_version: packet_id.clone(),
                     prompt_source: prompt_source.clone(),
+                    system_prompt: None,
                     sources: sources.clone().unwrap_or_default(),
                     omissions: omissions.clone().unwrap_or_default(),
                 });

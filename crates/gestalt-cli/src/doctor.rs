@@ -68,11 +68,43 @@ pub async fn diagnose_workspace(
     {
         missing_files.push("gestalt.json".to_string());
     }
-    if !config.workspace_file("workspace.md").exists() {
-        missing_files.push("workspace.md".to_string());
+
+    let policy = std::sync::Arc::new(crate::run::build_policy(&config));
+    let loader = gestalt_runtime::workspace_context::WorkspaceContextLoader::new(
+        workspace_root.clone(),
+        Some(policy as std::sync::Arc<dyn gestalt_core::policy::PolicyEngine>),
+    );
+
+    let ws_cfg = config.context.workspace.clone().unwrap_or_default();
+    let ws_enabled = ws_cfg.enabled.unwrap_or(true);
+    if ws_enabled {
+        match loader.load_workspace_instructions(&ws_cfg).await {
+            Ok(_) => {}
+            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
+                let display_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                missing_files.push(display_name);
+            }
+            Err(err) => {
+                config_valid = false;
+                config_error = Some(format!("Workspace instructions error: {}", err));
+            }
+        }
     }
-    if !config.workspace_file("memory.md").exists() {
-        missing_files.push("memory.md".to_string());
+
+    let mem_cfg = config.context.memory.clone().unwrap_or_default();
+    let mem_enabled = mem_cfg.enabled.unwrap_or(true);
+    if mem_enabled {
+        match loader.load_memory(&mem_cfg).await {
+            Ok(_) => {}
+            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
+                let display_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                missing_files.push(display_name);
+            }
+            Err(err) => {
+                config_valid = false;
+                config_error = Some(format!("Memory error: {}", err));
+            }
+        }
     }
 
     // 4. Provider auth/live checks
@@ -113,6 +145,40 @@ pub async fn diagnose_workspace(
         None
     };
 
+    // Memory writability check
+    let mut memory_writable = None;
+    let mut memory_write_error = None;
+    if mem_enabled && mem_cfg.write_mode.unwrap_or(crate::config::MemoryWriteMode::Proposal) == crate::config::MemoryWriteMode::Proposal {
+        let mem_path = mem_cfg.path.clone().unwrap_or_else(|| PathBuf::from(".gestalt/memory.md"));
+        let resolved_mem = if mem_path.is_absolute() { mem_path } else { workspace_root.join(mem_path) };
+        let path_to_check = if resolved_mem.exists() {
+            resolved_mem.clone()
+        } else if let Some(parent) = resolved_mem.parent() {
+            parent.to_path_buf()
+        } else {
+            resolved_mem.clone()
+        };
+
+        if path_to_check.exists() {
+            match fs::metadata(&path_to_check) {
+                Ok(metadata) => {
+                    let is_writable = !metadata.permissions().readonly();
+                    memory_writable = Some(is_writable);
+                    if !is_writable {
+                        memory_write_error = Some("Destination path is read-only".to_string());
+                    }
+                }
+                Err(err) => {
+                    memory_writable = Some(false);
+                    memory_write_error = Some(format!("Failed to read metadata: {}", err));
+                }
+            }
+        } else {
+            memory_writable = Some(false);
+            memory_write_error = Some("Parent directory does not exist".to_string());
+        }
+    }
+
     // 6. Selected model check
     let selected_model = config.selected_model();
     let mut model_valid = true;
@@ -137,6 +203,8 @@ pub async fn diagnose_workspace(
         selected_model,
         model_valid,
         model_error,
+        memory_writable,
+        memory_write_error,
     };
 
     Ok(GlobalDoctorReport {

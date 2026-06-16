@@ -147,9 +147,17 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
             match contributor.contribute(&self.workspace_root).await {
                 Ok(msg) => {
                     let mut store = self.patch_store.lock().unwrap();
-                    store.push(crate::context::ContextPatch::new(
+                    let content_str = match &msg {
+                        Message::System { content } => content.clone(),
+                        _ => String::new(),
+                    };
+                    let source = contributor.source(&self.workspace_root, &content_str);
+                    let omissions = contributor.omissions(&self.workspace_root);
+                    store.push(crate::context::ContextPatch::new_with_metadata(
                         msg,
                         contributor.stability(),
+                        source,
+                        omissions,
                     ));
                 }
                 Err(err) => {

@@ -253,10 +253,49 @@ pub async fn build_cli_runtime(
         .provider(provider)
         .tools(tools.clone())
         .middleware(pipeline)
-        .policy(policy)
+        .policy(policy.clone())
         .approval(approval)
         .config(runtime_config)
         .hooks(core_hooks);
+
+    let workspace_cfg = config.context.workspace.clone().unwrap_or_default();
+    let memory_cfg = config.context.memory.clone().unwrap_or_default();
+
+    let (ws_contrib, mem_contrib, ws_snapshot) =
+        gestalt_runtime::workspace_context::load_and_snapshot_workspace_context(
+            &config.workspace_root,
+            Some(policy.clone() as Arc<dyn gestalt_core::policy::PolicyEngine>),
+            &builder.event_bus,
+            &workspace_cfg,
+            &memory_cfg,
+        )
+        .await
+        .map_err(|e| gestalt_core::error::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+            field: "workspace_context".to_string(),
+            reason: e.to_string(),
+        }))?;
+
+    if let Some(contrib) = ws_contrib {
+        builder.registry.register_context_contributor(
+            "00_workspace_instructions".to_string(),
+            Arc::new(contrib),
+        ).map_err(|e| gestalt_core::error::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+            field: "registry".to_string(),
+            reason: e.to_string(),
+        }))?;
+    }
+
+    if let Some(contrib) = mem_contrib {
+        builder.registry.register_context_contributor(
+            "01_markdown_memory".to_string(),
+            Arc::new(contrib),
+        ).map_err(|e| gestalt_core::error::HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
+            field: "registry".to_string(),
+            reason: e.to_string(),
+        }))?;
+    }
+
+    builder = builder.workspace_context_snapshot(ws_snapshot);
 
     if let Some(ref sink) = trace_sink {
         builder = builder.trace_sink(sink.clone());

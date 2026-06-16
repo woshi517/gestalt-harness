@@ -132,7 +132,7 @@ pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, H
     })
 }
 
-pub fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusReport, HarnessError> {
+pub async fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusReport, HarnessError> {
     let config_res = load_effective_config(overrides);
     let mut warnings = Vec::new();
     let mut auth_summary = std::collections::HashMap::new();
@@ -162,11 +162,46 @@ pub fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusRepor
             {
                 warnings.push("gestalt.json is missing".to_string());
             }
-            if !config.workspace_file("workspace.md").exists() {
-                warnings.push("workspace.md is missing".to_string());
+
+            let policy = std::sync::Arc::new(crate::run::build_policy(&config));
+            let loader = gestalt_runtime::workspace_context::WorkspaceContextLoader::new(
+                workspace_root.clone(),
+                Some(policy as std::sync::Arc<dyn gestalt_core::policy::PolicyEngine>),
+            );
+
+            let ws_cfg = config.context.workspace.clone().unwrap_or_default();
+            let ws_enabled = ws_cfg.enabled.unwrap_or(true);
+            if ws_enabled {
+                match loader.load_workspace_instructions(&ws_cfg).await {
+                    Ok(_) => {}
+                    Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
+                        warnings.push(format!("workspace instructions file '{}' is missing", path.display()));
+                    }
+                    Err(err) => {
+                        warnings.push(format!("workspace instructions file error: {}", err));
+                    }
+                }
             }
-            if !config.workspace_file("memory.md").exists() {
-                warnings.push("memory.md is missing".to_string());
+
+            let mem_cfg = config.context.memory.clone().unwrap_or_default();
+            let mem_enabled = mem_cfg.enabled.unwrap_or(true);
+            if mem_enabled {
+                match loader.load_memory(&mem_cfg).await {
+                    Ok(_) => {}
+                    Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
+                        warnings.push(format!("memory file '{}' is missing", path.display()));
+                    }
+                    Err(err) => {
+                        warnings.push(format!("memory file error: {}", err));
+                    }
+                }
+            }
+
+            if config.context.workspace_file.is_some() {
+                warnings.push("context.workspace_file is deprecated. Please migrate to context.workspace.path".to_string());
+            }
+            if config.context.memory_file.is_some() {
+                warnings.push("context.memory_file is deprecated. Please migrate to context.memory.path".to_string());
             }
 
             // Count runs
@@ -250,120 +285,7 @@ pub async fn snapshot_workspace(
     Ok(WorkspaceSnapshotReport { snapshot })
 }
 
-pub fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorReport, HarnessError> {
-    let config_res = load_effective_config(overrides);
-    let mut config_valid = true;
-    let mut config_error = None;
-    let mut policies_valid = true;
-    let mut policies_error = None;
-    let mut missing_files = Vec::new();
-    let mut auth_summary = std::collections::HashMap::new();
-
-    // Use derived or fallback root
-    let workspace_root = overrides
-        .workspace
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-
-    let gestalt_dir = workspace_root.join(".gestalt");
-
-    // 1. Config syntax check
-    let config = match config_res {
-        Ok(cfg) => cfg,
-        Err(err) => {
-            config_valid = false;
-            config_error = Some(err.to_string());
-            // Create dummy config for downstream fallback where needed
-            crate::config::EffectiveConfig {
-                workspace_root: workspace_root.clone(),
-                config_path: workspace_root.join("gestalt.json"),
-                defaults: crate::config::DefaultsConfig::default(),
-                tools: crate::config::ToolsConfig::default(),
-                context: crate::config::ContextConfig::default(),
-                observe: crate::config::ObserveConfig::default(),
-                providers: std::collections::HashMap::new(),
-                profiles: std::collections::HashMap::new(),
-                prompt: crate::config::PromptConfig::default(),
-                policies: crate::config::PoliciesConfig::default(),
-                provider_override: None,
-                model_override: None,
-                tui: crate::config::TuiConfig::default(),
-                extensions: Default::default(),
-                skills: Default::default(),
-                mcp: None,
-            }
-        }
-    };
-
-    // 2. Policies syntax check
-    let policies_path = gestalt_dir.join("policies.toml");
-    if policies_path.exists() {
-        if let Err(err) = gestalt_policy::PolicyConfig::from_file(&policies_path) {
-            policies_valid = false;
-            policies_error = Some(err.to_string());
-        }
-    }
-
-    // 3. Required files check
-    if !workspace_root.join("gestalt.json").exists()
-        && !gestalt_dir.join("config.toml").exists()
-        && !policies_path.exists()
-    {
-        missing_files.push("gestalt.json".to_string());
-    }
-    if !config.workspace_file("workspace.md").exists() {
-        missing_files.push("workspace.md".to_string());
-    }
-    if !config.workspace_file("memory.md").exists() {
-        missing_files.push("memory.md".to_string());
-    }
-
-    // 4. Provider auth checks
-    let providers = crate::providers::list_providers(&config);
-    for provider in &providers {
-        let status = match resolve_auth(&config, provider) {
-            Ok(auth_report) => auth_report.status,
-            Err(err) => format!("error: {}", err),
-        };
-        auth_summary.insert(provider.clone(), status);
-    }
-
-    // 5. Writability test (non-mutating/read-only)
-    let run_log_dir = config.run_log_dir();
-    let run_dir_exists = run_log_dir.exists();
-    let run_dir_writable = if run_dir_exists {
-        if let Ok(metadata) = fs::metadata(&run_log_dir) {
-            Some(!metadata.permissions().readonly())
-        } else {
-            Some(false)
-        }
-    } else {
-        None
-    };
-
-    // 6. Selected model check
-    let selected_model = config.selected_model();
-    let mut model_valid = true;
-    let mut model_error = None;
-    if let Some(ref model_id) = selected_model {
-        if gestalt_models::ModelCatalog::new().get(model_id).is_none() {
-            model_valid = false;
-            model_error = Some(format!("selected model '{model_id}' is not in the catalog"));
-        }
-    }
-
-    Ok(WorkspaceDoctorReport {
-        workspace_root,
-        config_valid,
-        config_error,
-        policies_valid,
-        policies_error,
-        missing_files,
-        auth_summary,
-        run_dir_exists,
-        run_dir_writable,
-        selected_model,
-        model_valid,
-        model_error,
-    })
+pub async fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorReport, HarnessError> {
+    let global_report = crate::doctor::diagnose_workspace(overrides, false).await?;
+    Ok(global_report.workspace_doctor)
 }

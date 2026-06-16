@@ -26,6 +26,7 @@ pub struct PolicyConfig {
     pub paths: PathPolicy,
     pub bash: BashPolicy,
     pub network: NetworkPolicy,
+    pub memory_paths: Vec<std::path::PathBuf>,
 }
 
 impl PolicyConfig {
@@ -182,6 +183,7 @@ impl RawPolicyConfig {
                 allow_domains: self.network.allow_domains.unwrap_or_default(),
                 deny_domains: self.network.deny_domains.unwrap_or_default(),
             },
+            memory_paths: Vec::new(),
         }
     }
 }
@@ -315,6 +317,49 @@ impl MinimalPolicyEngine {
                 }
             }
         };
+
+        if access == PathAccess::Write {
+            let path_obj = Path::new(path);
+            let absolute_path = if path_obj.is_absolute() {
+                path_obj.to_path_buf()
+            } else {
+                request.working_dir.join(path_obj)
+            };
+            let mut matches_memory = false;
+            if let Ok(canonical_path) = absolute_path.canonicalize() {
+                for mem_path in &self.config.memory_paths {
+                    let canonical_mem = if mem_path.is_absolute() {
+                        mem_path.clone()
+                    } else if let Some(ref ws_root) = request.workspace_root {
+                        ws_root.join(mem_path)
+                    } else {
+                        mem_path.clone()
+                    };
+                    if let Ok(canonical_mem) = canonical_mem.canonicalize() {
+                        if canonical_path == canonical_mem {
+                            matches_memory = true;
+                            break;
+                        }
+                    } else if canonical_path.ends_with(mem_path) || absolute_path.ends_with(mem_path) {
+                        matches_memory = true;
+                        break;
+                    }
+                }
+            } else {
+                for mem_path in &self.config.memory_paths {
+                    if absolute_path.ends_with(mem_path) || path_obj.ends_with(mem_path) {
+                        matches_memory = true;
+                        break;
+                    }
+                }
+            }
+            if matches_memory {
+                return confirm(
+                    format!("direct write to memory file is restricted; use memory proposal instead: {}", path),
+                    "policies.toml:paths.memory_write_restricted",
+                );
+            }
+        }
 
         if is_denied_secret_path(path) || self.path_matches_deny(path, access) {
             return deny(
@@ -461,7 +506,7 @@ impl MinimalPolicyEngine {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PathAccess {
     Read,
     Write,

@@ -643,6 +643,8 @@ pub struct WorkspaceDoctorReport {
     pub selected_model: Option<String>,
     pub model_valid: bool,
     pub model_error: Option<String>,
+    pub memory_writable: Option<bool>,
+    pub memory_write_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -814,6 +816,12 @@ impl CliReport for WorkspaceDoctorReport {
             None => "unknown",
         };
         lines.push(format!("run_dir_writable={}", writable_str));
+        if let Some(writable) = self.memory_writable {
+            lines.push(format!("memory_writable={}", writable));
+        }
+        if let Some(ref err) = self.memory_write_error {
+            lines.push(format!("memory_write_error={}", err));
+        }
         lines.join("\n")
     }
 }
@@ -1627,6 +1635,7 @@ pub struct ContextExplainReport {
     pub packet_hash: String,
     pub pipeline_version: String,
     pub prompt_source: Option<String>,
+    pub system_prompt: Option<String>,
     pub sources: Vec<gestalt_core::context::ContextSourceRef>,
     pub omissions: Vec<gestalt_core::context::ContextOmission>,
 }
@@ -1679,6 +1688,14 @@ impl CliReport for ContextExplainReport {
                     o.kind, o.path_or_label, o.trust, o.token_estimate, o.reason
                 ));
             }
+        }
+
+        if let Some(ref sys) = self.system_prompt {
+            lines.push(String::new());
+            lines.push("System Prompt:".to_string());
+            lines.push("-".repeat(91));
+            lines.push(sys.clone());
+            lines.push("-".repeat(91));
         }
 
         lines.join("\n")

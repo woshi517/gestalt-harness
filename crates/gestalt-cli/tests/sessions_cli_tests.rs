@@ -30,6 +30,7 @@ async fn test_sessions_list_inspect_history() {
         hook_contract_hash: "hook1".to_string(),
         execution_mode: "Yolo".to_string(),
         skill_fingerprint: None,
+        workspace_context_snapshot_hash: None,
     };
 
     let manifest1 = RunManifest {
@@ -276,6 +277,7 @@ model = "mock-model"
         },
         execution_mode: "Yolo".to_string(),
         skill_fingerprint: None,
+        workspace_context_snapshot_hash: None,
     };
 
     let manifest_root = RunManifest {
