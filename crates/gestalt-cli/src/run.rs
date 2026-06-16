@@ -81,6 +81,7 @@ pub async fn run_prompt(
                 &runtime.config.discovered_skills,
                 Some(prompt),
             ),
+            workspace_context_snapshot_hash: runtime.workspace_context_snapshot.as_ref().map(|s| s.compute_hash()),
         },
     };
     initial_manifest
@@ -256,19 +257,18 @@ pub fn build_pipeline(
         pipeline = pipeline.with_prompt_override_file(file_path, content);
     }
 
-    let workspace_md = config.workspace_file("workspace.md");
-    if let Ok(content) = fs::read_to_string(workspace_md) {
-        pipeline = pipeline.with_workspace_md(content);
-    }
-    let memory_md = config.workspace_file("memory.md");
-    if let Ok(content) = fs::read_to_string(memory_md) {
-        pipeline = pipeline.with_memory_md(content);
-    }
     Ok(pipeline)
 }
 
 pub(crate) fn build_policy(config: &EffectiveConfig) -> MinimalPolicyEngine {
-    let policy = config.policies.to_policy_config();
+    let mut policy = config.policies.to_policy_config();
+    let mem_path = config
+        .context
+        .memory
+        .as_ref()
+        .and_then(|m| m.path.clone())
+        .unwrap_or_else(|| std::path::PathBuf::from(".gestalt/memory.md"));
+    policy.memory_paths = vec![mem_path];
     MinimalPolicyEngine::new(policy)
 }
 

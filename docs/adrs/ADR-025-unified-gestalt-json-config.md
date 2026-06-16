@@ -31,7 +31,7 @@ Layering precedence (lowest to highest): built-in defaults < global `gestalt.jso
 
 - **`gestalt.extension.toml`** — extension manifests remain TOML. They describe extension packages, not workspace choices.
 - **System keychain** — API key secrets. Config only stores an `auth_ref: "secret:provider/<name>"` pointer.
-- **`.gestalt/workspace.md` / `.gestalt/memory.md`** — content files, with paths configurable from `context.workspace_file` and `context.memory_file`.
+- **`.gestalt/workspace.md` / `.gestalt/memory.md`** — content files, with paths configurable under structured config `context.workspace.path` and `context.memory.path` (with fallback compatibility for legacy `context.workspace_file` and `context.memory_file`).
 - **`.gestalt/runs/`** — runtime artifacts.
 - **Model catalog** — compiled into `gestalt-models` crate.
 
@@ -51,7 +51,7 @@ Layering precedence (lowest to highest): built-in defaults < global `gestalt.jso
   "profiles": { "default": { "provider": "openrouter", "model": "openrouter/free" } },
   "providers": { "openrouter": { "kind": "openrouter", "base_url": "...", "api_key_env": "..." } },
   "tools": { "bash_timeout_secs": 60, "max_output_tokens": 4000, "sandbox_type": "none" },
-  "context": { "max_context_window": 120000, "reserved_output_tokens": 8000, "workspace_file": ".gestalt/workspace.md", "memory_file": ".gestalt/memory.md" },
+  "context": { "max_context_window": 120000, "reserved_output_tokens": 8000, "workspace": { "enabled": true, "path": ".gestalt/workspace.md" }, "memory": { "enabled": true, "path": ".gestalt/memory.md", "strategy": "budgeted", "max_tokens": 8000 } },
   "observe": { "run_log_dir": ".gestalt/runs", "log_format": "jsonl" },
   "prompt": { "override": null, "override_file": null },
   "policies": { "paths": { ... }, "bash": { ... }, "network": { ... } },

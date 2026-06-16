@@ -122,6 +122,8 @@ fn test_workspace_doctor_report_contract() {
         selected_model: Some("openai/gpt-4".to_string()),
         model_valid: true,
         model_error: None,
+        memory_writable: Some(true),
+        memory_write_error: None,
     };
     assert_eq!(report.kind(), "workspace.doctor");
     assert!(report.render_text().contains("policies_valid=false"));

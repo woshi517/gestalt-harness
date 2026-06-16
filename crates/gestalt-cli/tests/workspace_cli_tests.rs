@@ -74,8 +74,9 @@ fn test_init_workspace_scaffolding() {
     let _ = fs::remove_dir_all(&temp_root);
 }
 
-#[test]
-fn test_status_workspace() {
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_status_workspace() {
     let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
     init_workspace(&temp_root, false).unwrap();
@@ -85,7 +86,7 @@ fn test_status_workspace() {
         ..CliOverrides::default()
     };
 
-    let report = status_workspace(&overrides).unwrap();
+    let report = status_workspace(&overrides).await.unwrap();
     assert!(report.config_valid);
     assert_eq!(report.active_provider.as_deref(), Some("openrouter"));
     assert_eq!(report.active_model.as_deref(), Some("openrouter/free"));
@@ -97,7 +98,7 @@ fn test_status_workspace() {
     fs::create_dir_all(&runs_dir).unwrap();
     fs::write(runs_dir.join("trace.jsonl"), "{}").unwrap();
 
-    let report2 = status_workspace(&overrides).unwrap();
+    let report2 = status_workspace(&overrides).await.unwrap();
     assert_eq!(report2.recent_runs_count, 1);
 
     let _ = fs::remove_dir_all(&temp_root);
@@ -202,8 +203,9 @@ async fn test_snapshot_workspace() {
     let _ = fs::remove_dir_all(&temp_root);
 }
 
-#[test]
-fn test_doctor_workspace() {
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_doctor_workspace() {
     let _guard = ENV_MUTEX.lock().unwrap();
     let temp_root = create_temp_workspace();
     init_workspace(&temp_root, false).unwrap();
@@ -214,7 +216,7 @@ fn test_doctor_workspace() {
     };
 
     // Prove doctor_workspace does not create .gestalt/runs/ when absent
-    let report = doctor_workspace(&overrides).unwrap();
+    let report = doctor_workspace(&overrides).await.unwrap();
     assert!(report.config_valid);
     assert!(report.policies_valid);
     assert!(report.missing_files.is_empty());
@@ -225,28 +227,35 @@ fn test_doctor_workspace() {
     // Creating .gestalt/runs should update status to exists/writable
     let runs_dir = temp_root.join(".gestalt/runs");
     fs::create_dir_all(&runs_dir).unwrap();
-    let report_with_runs = doctor_workspace(&overrides).unwrap();
+    let report_with_runs = doctor_workspace(&overrides).await.unwrap();
     assert!(report_with_runs.run_dir_exists);
     assert_eq!(report_with_runs.run_dir_writable, Some(true));
 
     // Test with missing memory.md
+    let gestalt_json_path = temp_root.join("gestalt.json");
+    let mut config_val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&gestalt_json_path).unwrap()).unwrap();
+    config_val["context"]["memory"] = serde_json::json!({
+        "required": true
+    });
+    fs::write(&gestalt_json_path, serde_json::to_string_pretty(&config_val).unwrap()).unwrap();
+
     fs::remove_file(temp_root.join(".gestalt/memory.md")).unwrap();
-    let report_missing = doctor_workspace(&overrides).unwrap();
+    let report_missing = doctor_workspace(&overrides).await.unwrap();
     assert_eq!(report_missing.missing_files, vec!["memory.md".to_string()]);
 
     // Test with malformed policies.toml
     fs::write(temp_root.join(".gestalt/policies.toml"), "invalid = [toml").unwrap();
-    let report_malformed = doctor_workspace(&overrides).unwrap();
+    let report_malformed = doctor_workspace(&overrides).await.unwrap();
     assert!(!report_malformed.policies_valid);
     assert!(report_malformed.policies_error.is_some());
 
     // Test with malformed gestalt.json (invalid-config branch in status and doctor)
     fs::write(temp_root.join("gestalt.json"), "invalid = [json").unwrap();
-    let report_invalid_config = doctor_workspace(&overrides).unwrap();
+    let report_invalid_config = doctor_workspace(&overrides).await.unwrap();
     assert!(!report_invalid_config.config_valid);
     assert!(report_invalid_config.config_error.is_some());
 
-    let status_invalid_config = status_workspace(&overrides).unwrap();
+    let status_invalid_config = status_workspace(&overrides).await.unwrap();
     assert!(!status_invalid_config.config_valid);
     assert!(!status_invalid_config.warnings.is_empty());
 

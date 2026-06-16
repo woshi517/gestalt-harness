@@ -256,7 +256,7 @@ Mode can be set in `gestalt.json`, in `workspace.md` front matter, via a CLI fla
 On startup, `gestalt` assembles initial workspace state from the project directory:
 
 1. **`.gestalt/workspace.md`** — Prepended as the system prompt prefix. Defines the project's operating goals, output standards, and tone. Treated as a trusted instruction. If absent, gestalt starts with a default system prompt (defining identity, environment, tool-use policy, and output rules) which can be overridden in `gestalt.json` via `prompt.override` or `prompt.override_file`.
-2. **`.gestalt/memory.md`** — Prepended as persistent context. Contains accumulated facts from prior sessions that the user has approved.
+2. **`.gestalt/memory.md`** — Evaluated as a budget-aware, persistent context source. Contains accumulated facts from prior sessions. Pinned memory entries (e.g. under the `## Facts` section) survive trimming and are always included, while other entries are included in source order up to the configured token budget.
 3. **`/sources/`** — Enumerated to build a file index (names, sizes, types) for token-budget-aware loading.
 4. **`/docs/`** — Enumerated as the deliverables index.
 5. **`.gestalt/skills/`** — Skill names and descriptions loaded on startup (not full bodies). Full bodies are loaded on activation only.

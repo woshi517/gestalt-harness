@@ -24,7 +24,7 @@ pub enum LifecycleState {
     Interrupted,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompatibilityFingerprint {
     pub context_pipeline_version: String,
     pub tool_schema_hash: String,
@@ -34,6 +34,22 @@ pub struct CompatibilityFingerprint {
     /// Skill state fingerprint: hash of active skill identifiers and manifest hashes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_context_snapshot_hash: Option<String>,
+}
+
+impl PartialEq for CompatibilityFingerprint {
+    fn eq(&self, other: &Self) -> bool {
+        self.context_pipeline_version == other.context_pipeline_version
+            && self.tool_schema_hash == other.tool_schema_hash
+            && self.policy_fingerprint == other.policy_fingerprint
+            && self.hook_contract_hash == other.hook_contract_hash
+            && self.execution_mode == other.execution_mode
+            && self.skill_fingerprint == other.skill_fingerprint
+            && (self.workspace_context_snapshot_hash.is_none()
+                || other.workspace_context_snapshot_hash.is_none()
+                || self.workspace_context_snapshot_hash == other.workspace_context_snapshot_hash)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

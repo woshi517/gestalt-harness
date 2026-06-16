@@ -148,6 +148,22 @@ pub fn inspect_trace(
             AgentEvent::NextTurnBlocked { .. } => "next_turn_blocked",
             AgentEvent::SessionMessageInjected { .. } => "session_message_injected",
             AgentEvent::SessionMessageQueueDrained { .. } => "session_message_queue_drained",
+            AgentEvent::ContextContributorResolved { .. } => "context_contributor_resolved",
+            AgentEvent::WorkspaceContextLoaded { .. } => "workspace_context_loaded",
+            AgentEvent::WorkspaceContextSkipped { .. } => "workspace_context_skipped",
+            AgentEvent::WorkspaceContextRejected { .. } => "workspace_context_rejected",
+            AgentEvent::WorkspaceContextLoadFailed { .. } => "workspace_context_load_failed",
+            AgentEvent::MemoryContextLoadFailed { .. } => "memory_context_load_failed",
+            AgentEvent::MemoryContextLoaded { .. } => "memory_context_loaded",
+            AgentEvent::MemoryContextSkipped { .. } => "memory_context_skipped",
+            AgentEvent::MemoryContextRejected { .. } => "memory_context_rejected",
+            AgentEvent::MemoryEntriesSelected { .. } => "memory_entries_selected",
+            AgentEvent::ContextSnapshotCreated { .. } => "context_snapshot_created",
+            AgentEvent::MemoryProposalCreated { .. } => "memory_proposal_created",
+            AgentEvent::MemoryProposalDecisionRecorded { .. } => "memory_proposal_decision_recorded",
+            AgentEvent::MemoryWriteSucceeded { .. } => "memory_write_succeeded",
+            AgentEvent::MemoryWriteConflict { .. } => "memory_write_conflict",
+            AgentEvent::MemoryWriteFailed { .. } => "memory_write_failed",
         };
 
         *event_types.entry(variant_name.to_string()).or_insert(0) += 1;
