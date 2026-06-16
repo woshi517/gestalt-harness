@@ -15,9 +15,12 @@ const WEB_RESPONSE_CAP_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WebFetchInput {
+    /// The HTTP(S) URL to fetch.
     pub url: String,
-    #[serde(default)]
-    pub max_tokens: Option<usize>,
+    /// The maximum number of tokens to return before truncating.
+    #[serde(default = "super::common::default_max_tokens")]
+    pub max_tokens: usize,
+    /// Return the raw HTML content instead of extracting text. Defaults to false.
     #[serde(default)]
     pub raw: bool,
 }
@@ -113,7 +116,7 @@ impl Tool for WebFetchTool {
             );
         }
 
-        let body = limit_tokens(&body, input.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS));
+        let body = limit_tokens(&body, input.max_tokens);
         let redirect_header = if redirects.is_empty() {
             String::new()
         } else {
