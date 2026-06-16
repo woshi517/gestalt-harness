@@ -63,6 +63,20 @@ pub async fn run_chat(
         let discovered_skills = skill_discovery
             .discover_all(&skill_explicit)
             .unwrap_or_default();
+        let workspace_cfg = config.context.workspace.clone().unwrap_or_default();
+        let memory_cfg = config.context.memory.clone().unwrap_or_default();
+        let event_bus = gestalt_runtime::event_bus::RuntimeEventBus::new();
+        let workspace_context_snapshot_hash = match gestalt_runtime::workspace_context::load_and_snapshot_workspace_context(
+            &config.workspace_root,
+            None,
+            &event_bus,
+            &workspace_cfg,
+            &memory_cfg,
+        ).await {
+            Ok((_, _, snapshot)) => Some(snapshot.compute_hash()),
+            Err(_) => None,
+        };
+
         let expected_fingerprint = CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
             tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
@@ -84,6 +98,7 @@ pub async fn run_chat(
                 &discovered_skills,
                 None,
             ),
+            workspace_context_snapshot_hash,
         };
 
         let analysis = ResumeAnalyzer::analyze(

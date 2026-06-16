@@ -96,6 +96,7 @@ async fn test_slash_cost_calculation() {
         hook_contract_hash: "hook".to_string(),
         execution_mode: "Yolo".to_string(),
         skill_fingerprint: None,
+        workspace_context_snapshot_hash: None,
     };
     let m1 = RunManifest {
         v: 1,

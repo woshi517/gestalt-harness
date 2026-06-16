@@ -297,4 +297,56 @@ fn test_variant_fingerprint_changes() {
     assert_ne!(fp1, fp3, "Variant fingerprint must change when text verbosity changes");
 }
 
+#[test]
+fn test_structured_config_validation_and_precedence() {
+    let _guard = ENV_MUTEX.lock().unwrap();
+    clear_env_vars();
+
+    let unique_id = uuid::Uuid::new_v4().to_string();
+    let temp_dir = std::env::temp_dir().join(format!("gestalt_test_{}", unique_id));
+    let workspace_dir = temp_dir.join("workspace");
+    let workspace_config_dir = workspace_dir.join(".gestalt");
+    fs::create_dir_all(&workspace_config_dir).unwrap();
+
+    // 1. Structured overrides legacy
+    let workspace_toml = r#"[context]
+workspace_file = ".gestalt/legacy_workspace.md"
+[context.workspace]
+path = ".gestalt/structured_workspace.md"
+"#;
+    fs::write(workspace_config_dir.join("config.toml"), workspace_toml).unwrap();
+
+    let overrides = CliOverrides {
+        workspace: Some(workspace_dir.clone()),
+        ..CliOverrides::default()
+    };
+    let config = load_effective_config(&overrides).expect("load config");
+    assert_eq!(
+        config.context.workspace.as_ref().unwrap().path.as_ref().unwrap(),
+        &PathBuf::from(".gestalt/structured_workspace.md")
+    );
+
+    // 2. Legacy falls back correctly
+    let workspace_toml2 = r#"[context]
+workspace_file = ".gestalt/legacy_workspace.md"
+"#;
+    fs::write(workspace_config_dir.join("config.toml"), workspace_toml2).unwrap();
+    let config2 = load_effective_config(&overrides).expect("load config");
+    assert_eq!(
+        config2.context.workspace.as_ref().unwrap().path.as_ref().unwrap(),
+        &PathBuf::from(".gestalt/legacy_workspace.md")
+    );
+
+    // 3. Validation error: enabled=false + required=true
+    let workspace_toml3 = r#"[context.workspace]
+enabled = false
+required = true
+"#;
+    fs::write(workspace_config_dir.join("config.toml"), workspace_toml3).unwrap();
+    let config3 = load_effective_config(&overrides);
+    assert!(config3.is_err(), "enabled=false combined with required=true must fail");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
 

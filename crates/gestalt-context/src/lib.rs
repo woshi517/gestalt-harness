@@ -289,6 +289,7 @@ impl ContextPipeline for MinimalContextPipeline {
                 trust: "trusted".to_string(),
                 token_estimate: ws_tokens,
                 included: true,
+                authority: None,
             });
         }
 
@@ -300,6 +301,7 @@ impl ContextPipeline for MinimalContextPipeline {
                 trust: "trusted".to_string(),
                 token_estimate: mem_tokens,
                 included: true,
+                authority: None,
             });
         }
 
@@ -338,6 +340,7 @@ impl ContextPipeline for MinimalContextPipeline {
                     trust: trust.clone(),
                     token_estimate: msg_tokens,
                     included: false,
+                    authority: None,
                 });
                 omissions.push(ContextOmission {
                     kind: "history".to_string(),
@@ -345,6 +348,7 @@ impl ContextPipeline for MinimalContextPipeline {
                     trust,
                     reason: "budget_exhausted".to_string(),
                     token_estimate: msg_tokens,
+                    authority: None,
                 });
             } else {
                 sources.push(ContextSourceRef {
@@ -353,6 +357,7 @@ impl ContextPipeline for MinimalContextPipeline {
                     trust,
                     token_estimate: msg_tokens,
                     included: true,
+                    authority: None,
                 });
             }
         }

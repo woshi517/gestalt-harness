@@ -137,6 +137,16 @@
       "default": 1,
       "type": "integer",
       "const": 1
+    },
+    "workspace": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WorkspaceMetaConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -217,6 +227,16 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MemoryContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "memory_file": {
           "type": [
             "string",
@@ -239,6 +259,16 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "workspace": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceContextConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "workspace_file": {
           "type": [
             "string",
@@ -247,6 +277,12 @@
         }
       },
       "additionalProperties": false
+    },
+    "ContextSnapshotMode": {
+      "type": "string",
+      "enum": [
+        "session"
+      ]
     },
     "DefaultsConfig": {
       "type": "object",
@@ -656,6 +692,96 @@
             }
           }
         }
+      ]
+    },
+    "MemoryContextConfig": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "max_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pinned_section": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ContextSnapshotMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MemorySelectionStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "write_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MemoryWriteMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "MemorySelectionStrategy": {
+      "type": "string",
+      "enum": [
+        "full",
+        "budgeted"
+      ]
+    },
+    "MemoryWriteMode": {
+      "type": "string",
+      "enum": [
+        "disabled",
+        "proposal"
       ]
     },
     "ModelDefinitionConfig": {
@@ -1343,6 +1469,72 @@
           ],
           "format": "uint",
           "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkspaceContextConfig": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "max_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ContextSnapshotMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkspaceMetaConfig": {
+      "type": "object",
+      "properties": {
+        "format_version": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "initialized": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "additionalProperties": false

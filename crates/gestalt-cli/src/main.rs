@@ -1091,7 +1091,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         Command::Status => {
-            let res = status_workspace(&overrides);
+            let res = status_workspace(&overrides).await;
             handle_result(
                 res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                 format,
@@ -1117,7 +1117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             }
             WorkspaceSubcommand::Doctor => {
-                let res = doctor_workspace(&overrides);
+                let res = doctor_workspace(&overrides).await;
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,

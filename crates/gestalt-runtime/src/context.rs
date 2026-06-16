@@ -1,7 +1,7 @@
 use crate::error::Result;
 use gestalt_core::context::{
-    ContextPipeline, PromptAssemblyStrategy, PromptCachePlan, PromptSegment, PromptSegmentKind,
-    PromptSnapshot, TokenBudget,
+    ContextOmission, ContextPipeline, ContextSourceRef, PromptAssemblyStrategy, PromptCachePlan,
+    PromptSegment, PromptSegmentKind, PromptSnapshot, TokenBudget,
 };
 use gestalt_core::message::Message;
 use gestalt_core::ContextStability;
@@ -12,11 +12,32 @@ use std::sync::{Arc, Mutex};
 pub struct ContextPatch {
     pub message: Message,
     pub stability: ContextStability,
+    pub source: Option<ContextSourceRef>,
+    pub omissions: Vec<ContextOmission>,
 }
 
 impl ContextPatch {
     pub fn new(message: Message, stability: ContextStability) -> Self {
-        Self { message, stability }
+        Self {
+            message,
+            stability,
+            source: None,
+            omissions: Vec::new(),
+        }
+    }
+
+    pub fn new_with_metadata(
+        message: Message,
+        stability: ContextStability,
+        source: Option<ContextSourceRef>,
+        omissions: Vec<ContextOmission>,
+    ) -> Self {
+        Self {
+            message,
+            stability,
+            source,
+            omissions,
+        }
     }
 }
 
@@ -25,6 +46,14 @@ pub trait ContextContributor: Send + Sync {
     fn name(&self) -> &str;
     fn stability(&self) -> ContextStability;
     async fn contribute(&self, workspace_root: &Path) -> Result<gestalt_core::message::Message>;
+
+    fn source(&self, _workspace_root: &Path, _content: &str) -> Option<ContextSourceRef> {
+        None
+    }
+
+    fn omissions(&self, _workspace_root: &Path) -> Vec<ContextOmission> {
+        Vec::new()
+    }
 }
 
 pub struct RuntimeContextPipeline {
@@ -54,6 +83,12 @@ impl ContextPipeline for RuntimeContextPipeline {
             let (messages, stable_prefix_len) =
                 Self::compose_messages_with_prefix(packet.messages.clone(), &patches);
             packet = Self::rebuild_packet(packet, messages, stable_prefix_len);
+            for patch in &patches {
+                if let Some(src) = &patch.source {
+                    packet.sources.push(src.clone());
+                }
+                packet.omissions.extend(patch.omissions.clone());
+            }
         }
         packet
     }

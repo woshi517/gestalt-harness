@@ -168,6 +168,8 @@ pub struct ContextSourceRef {
     pub trust: String,
     pub token_estimate: usize,
     pub included: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,6 +179,8 @@ pub struct ContextOmission {
     pub trust: String,
     pub reason: String,
     pub token_estimate: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority: Option<String>,
 }
 
 pub trait ContextPipeline: Send + Sync {

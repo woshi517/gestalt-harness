@@ -58,6 +58,7 @@ pub struct AgentRuntime {
     pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
     steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
     pub extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
+    pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
 }
 
 impl AgentRuntime {
@@ -95,6 +96,7 @@ impl AgentRuntime {
             mcp_discovery_state,
             steering_queue: Arc::new(crate::session_queue::InMemorySteeringQueue::new()),
             extensions,
+            workspace_context_snapshot: None,
         }
     }
 
