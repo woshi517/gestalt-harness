@@ -26,7 +26,6 @@ pub(super) fn default_find_files_max_results() -> usize {
     50
 }
 
-
 pub(super) fn tool_schema<T>(name: &str, description: &str) -> ToolSchema
 where
     T: JsonSchema,
@@ -98,7 +97,9 @@ pub(super) fn check_expected_hash(
         if actual != expected {
             return Err(invalid_input(
                 tool_name,
-                format!("conflict: expected_hash mismatch (expected: {expected}, actual: {actual})"),
+                format!(
+                    "conflict: expected_hash mismatch (expected: {expected}, actual: {actual})"
+                ),
             ));
         }
     }
@@ -113,13 +114,11 @@ pub(super) fn atomic_write(path: &std::path::Path, content: &str) -> std::io::Re
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_nanos());
     let temp_name = format!(
         ".{}.{}.tmp",
         path.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "temp".to_string()),
+            .map_or_else(|| "temp".to_string(), |n| n.to_string_lossy().to_string()),
         now
     );
     let temp_path = parent.join(temp_name);
@@ -131,4 +130,3 @@ pub(super) fn atomic_write(path: &std::path::Path, content: &str) -> std::io::Re
     }
     Ok(())
 }
-
