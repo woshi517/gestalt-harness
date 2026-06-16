@@ -1665,17 +1665,17 @@ pub struct ReadInput {
     /// Absolute or workspace-relative file path.
     pub path: String,
 
-    /// First line to return, 1-indexed inclusive. Defaults to start of file.
-    #[serde(default)]
-    pub start_line: Option<usize>,
+    /// First line to return, 1-indexed inclusive. Defaults to 1.
+    #[serde(default = "default_start_line")]
+    pub start_line: usize,
 
     /// Last line to return, 1-indexed inclusive. Defaults to end of file.
     #[serde(default)]
     pub end_line: Option<usize>,
 
-    /// Maximum approximate tokens. Returns truncated result with notice if exceeded.
-    #[serde(default)]
-    pub max_tokens: Option<usize>,
+    /// Maximum approximate tokens. Default: 4000.
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: usize,
 }
 
 // ── WriteTool ────────────────────────────────────────────────────────────────
@@ -1692,6 +1692,12 @@ pub struct WriteInput {
     /// Create parent directories if missing. Default: true.
     #[serde(default = "default_true")]
     pub create_dirs: bool,
+    /// Verify file hash matches before writing.
+    #[serde(default)]
+    pub expected_hash: Option<String>,
+    /// Dry run write validation.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 // ── PatchTool ────────────────────────────────────────────────────────────────
@@ -1702,6 +1708,12 @@ pub struct PatchInput {
     pub path: String,
     /// Unified diff format patch to apply.
     pub patch: String,
+    /// Verify file hash matches before patching.
+    #[serde(default)]
+    pub expected_hash: Option<String>,
+    /// Dry run patch validation.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 // ── WebFetchTool ─────────────────────────────────────────────────────────────
@@ -1711,8 +1723,8 @@ pub struct WebFetchInput {
     /// HTTP or HTTPS URL. Respects ToolContext.allow_network.
     pub url: String,
     /// Maximum approximate tokens. Default: 4000.
-    #[serde(default)]
-    pub max_tokens: Option<usize>,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: usize,
     /// Return raw HTML instead of stripped text inside a <source> envelope. Default: false.
     #[serde(default)]
     pub raw: bool,
@@ -1728,19 +1740,19 @@ pub struct SearchInput {
     #[serde(default)]
     pub file_glob: Option<String>,
     #[serde(default)]
-    pub case_insensitive: Option<bool>,
+    pub case_insensitive: bool,
     #[serde(default)]
-    pub is_regex: Option<bool>,
+    pub is_regex: bool,
     #[serde(default)]
-    pub context_before: Option<usize>,
+    pub context_before: usize,
     #[serde(default)]
-    pub context_after: Option<usize>,
+    pub context_after: usize,
     #[serde(default)]
-    pub include_hidden: Option<bool>,
-    #[serde(default)]
-    pub respect_gitignore: Option<bool>,
-    #[serde(default)]
-    pub max_results: Option<usize>,
+    pub include_hidden: bool,
+    #[serde(default = "default_true")]
+    pub respect_gitignore: bool,
+    #[serde(default = "default_search_max_results")]
+    pub max_results: usize,
 }
 
 // ── FindFilesTool ─────────────────────────────────────────────────────────────
@@ -1753,15 +1765,20 @@ pub struct FindFilesInput {
     #[serde(default)]
     pub file_glob: Option<String>,
     #[serde(default)]
-    pub include_hidden: Option<bool>,
-    #[serde(default)]
-    pub respect_gitignore: Option<bool>,
-    #[serde(default)]
-    pub max_results: Option<usize>,
+    pub include_hidden: bool,
+    #[serde(default = "default_true")]
+    pub respect_gitignore: bool,
+    #[serde(default = "default_find_files_max_results")]
+    pub max_results: usize,
 }
 
 fn default_true() -> bool { true }
+fn default_start_line() -> usize { 1 }
+fn default_max_tokens() -> usize { 4000 }
+fn default_search_max_results() -> usize { 100 }
+fn default_find_files_max_results() -> usize { 50 }
 ```
+
 
 ### 9.7 Default Risk Levels
 
