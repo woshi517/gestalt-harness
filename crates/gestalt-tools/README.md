@@ -80,7 +80,7 @@ pub struct WriteInput {
 
 ### `patch` — Apply Patch
 
-Applies a unified diff to a file with optional conflict checks (`expected_hash`) and dry runs (`dry_run`). Returns the full patched content on success; structured error with context mismatch detection on failure.
+Applies a unified diff to a file with optional conflict checks (`expected_hash`) and dry runs (`dry_run`). Returns a structured JSON summary on success; structured error with context mismatch detection on failure.
 
 ```rust
 pub struct PatchInput {
@@ -171,7 +171,7 @@ Each built-in descriptor includes:
 - **search:** Includes result count, matched lines with line numbers, and file references.
 - **bash:** Includes exit status, stderr/stdout summary, duration, and truncation state.
 - **web_fetch:** Includes fetch duration, byte count, and truncation notice.
-- **write / patch:** Includes diff display and byte count.
+- **write / patch:** Natively return structured JSON summaries containing path, diff (for write), and execution metadata rather than passing through response shaping.
 
 Shaped output keeps session history compact while still communicating enough detail for the model to reason about results.
 

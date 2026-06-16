@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
@@ -74,11 +74,12 @@ impl Tool for PatchTool {
         }
 
         Ok(ToolOutput::Text {
-            content: format!(
-                "patch applied: {}{}",
-                input.path,
-                if input.dry_run { " (dry_run)" } else { "" }
-            ),
+            content: serde_json::json!({
+                "path": input.path,
+                "patch_applied": !input.dry_run,
+                "dry_run": input.dry_run,
+            })
+            .to_string(),
         })
     }
 }
@@ -269,8 +270,10 @@ mod tests {
 
         match output {
             ToolOutput::Text { content } => {
-                assert!(content.contains("dry_run"));
-                assert!(content.contains("a.txt"));
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert_eq!(parsed["path"], "a.txt");
+                assert_eq!(parsed["patch_applied"], false);
+                assert_eq!(parsed["dry_run"], true);
             }
             _ => panic!("Expected text output"),
         }
