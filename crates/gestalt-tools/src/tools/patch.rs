@@ -9,8 +9,16 @@ use super::common::{invalid_input, parse_input, tool_schema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PatchInput {
+    /// The path to the file to patch.
     pub path: String,
+    /// The unified diff patch to apply.
     pub patch: String,
+    /// Verify the file's current SHA-256 matches this hash before patching.
+    #[serde(default)]
+    pub expected_hash: Option<String>,
+    /// Validate inputs and compute the patched results without writing to the file. Defaults to false.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -55,10 +63,21 @@ impl Tool for PatchTool {
         let input = parse_input::<PatchInput>(self.name(), input)?;
         let path = validate_existing_path(&input.path, ctx)?;
         let old = std::fs::read_to_string(&path).map_err(ToolError::ExecutionFailed)?;
+
+        super::common::check_expected_hash(self.name(), &old, input.expected_hash.as_deref())?;
+
         let patched = apply_unified_patch(&old, &input.patch)?;
-        std::fs::write(&path, patched.as_bytes()).map_err(ToolError::ExecutionFailed)?;
+
+        if !input.dry_run {
+            super::common::atomic_write(&path, &patched).map_err(ToolError::ExecutionFailed)?;
+        }
+
         Ok(ToolOutput::Text {
-            content: format!("patch applied: {}", input.path),
+            content: format!(
+                "patch applied: {}{}",
+                input.path,
+                if input.dry_run { " (dry_run)" } else { "" }
+            ),
         })
     }
 }
@@ -138,7 +157,7 @@ fn ensure_line_matches(lines: &[String], cursor: usize, expected: &str) -> Resul
 mod tests {
     use super::super::test_support::{ctx, temp_workspace};
     use super::PatchTool;
-    use gestalt_core::{Tool, ToolError};
+    use gestalt_core::{Tool, ToolError, ToolOutput};
     use serde_json::json;
     use std::fs;
 
@@ -170,5 +189,89 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(ToolError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn patch_with_matching_expected_hash_should_succeed() {
+        let root = temp_workspace("patch-matching-hash");
+        let path = root.join("a.txt");
+        fs::write(&path, "one\ntwo\nthree\n").expect("write fixture");
+        let hash = super::super::common::calculate_sha256("one\ntwo\nthree\n");
+        let patch = "--- a.txt\n+++ a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three";
+
+        PatchTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "patch": patch,
+                    "expected_hash": hash,
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("patch succeeds");
+
+        assert_eq!(
+            fs::read_to_string(&path).expect("read patched"),
+            "one\nTWO\nthree\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_with_mismatched_expected_hash_should_fail() {
+        let root = temp_workspace("patch-mismatched-hash");
+        let path = root.join("a.txt");
+        fs::write(&path, "one\ntwo\nthree\n").expect("write fixture");
+        let patch = "--- a.txt\n+++ a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three";
+
+        let result = PatchTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "patch": patch,
+                    "expected_hash": "wronghash",
+                }),
+                &ctx(&root),
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(&path).expect("read patched"),
+            "one\ntwo\nthree\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_dry_run_should_not_modify_file() {
+        let root = temp_workspace("patch-dry-run");
+        let path = root.join("a.txt");
+        fs::write(&path, "one\ntwo\nthree\n").expect("write fixture");
+        let patch = "--- a.txt\n+++ a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three";
+
+        let output = PatchTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "patch": patch,
+                    "dry_run": true,
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("dry run succeeds");
+
+        assert_eq!(
+            fs::read_to_string(&path).expect("read patched"),
+            "one\ntwo\nthree\n"
+        );
+
+        match output {
+            ToolOutput::Text { content } => {
+                assert!(content.contains("dry_run"));
+                assert!(content.contains("a.txt"));
+            }
+            _ => panic!("Expected text output"),
+        }
     }
 }

@@ -25,6 +25,8 @@ url = { workspace = true }
 walkdir = "2"
 regex = "1"
 thiserror = { workspace = true }
+sha2 = { workspace = true }
+
 
 [dev-dependencies]
 gestalt-policy = { path = "../gestalt-policy" }

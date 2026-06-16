@@ -8,7 +8,7 @@ use regex::{Regex, RegexSet};
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
 use super::common::{
-    decode_text, invalid_input, limit_tokens, parse_input, tool_schema, DEFAULT_MAX_TOKENS,
+    decode_text, invalid_input, limit_tokens, parse_input, tool_schema,
 };
 
 const WEB_RESPONSE_CAP_BYTES: usize = 10 * 1024 * 1024;
