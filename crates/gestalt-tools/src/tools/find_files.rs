@@ -10,17 +10,23 @@ use super::common::{parse_input, tool_schema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FindFilesInput {
+    /// Fuzzy query pattern to filter file paths.
     pub query: String,
+    /// Scopes the file search to a specific subdirectory. Defaults to the workspace root.
     #[serde(default)]
     pub path: Option<String>,
+    /// Optional glob pattern to filter file paths.
     #[serde(default)]
     pub file_glob: Option<String>,
+    /// Include hidden files in the search results. Defaults to false.
     #[serde(default)]
-    pub include_hidden: Option<bool>,
-    #[serde(default)]
-    pub respect_gitignore: Option<bool>,
-    #[serde(default)]
-    pub max_results: Option<usize>,
+    pub include_hidden: bool,
+    /// Respect the workspace's `.gitignore` rules. Defaults to true.
+    #[serde(default = "super::common::default_true")]
+    pub respect_gitignore: bool,
+    /// Maximum number of search results to return. Defaults to 50.
+    #[serde(default = "super::common::default_find_files_max_results")]
+    pub max_results: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -71,9 +77,9 @@ impl Tool for FindFilesTool {
         let input = parse_input::<FindFilesInput>(self.name(), input)?;
         let root = validate_child_dir(input.path.as_deref(), ctx)?;
         
-        let include_hidden = input.include_hidden.unwrap_or(false);
-        let respect_gitignore = input.respect_gitignore.unwrap_or(true);
-        let max_results = input.max_results.unwrap_or(50);
+        let include_hidden = input.include_hidden;
+        let respect_gitignore = input.respect_gitignore;
+        let max_results = input.max_results;
 
         let backend = default_file_search_backend();
         let request = FileSearchRequest {

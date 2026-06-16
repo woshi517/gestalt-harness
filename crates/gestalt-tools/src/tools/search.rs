@@ -10,25 +10,35 @@ use super::common::{parse_input, tool_schema};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SearchInput {
+    /// The search pattern (literal string or regex).
     pub pattern: String,
+    /// Scopes the search to a specific subdirectory. Defaults to the workspace root.
     #[serde(default)]
     pub path: Option<String>,
+    /// Optional glob pattern to filter files.
     #[serde(default)]
     pub file_glob: Option<String>,
+    /// Whether to perform case-insensitive matching. Defaults to false.
     #[serde(default)]
-    pub case_insensitive: Option<bool>,
+    pub case_insensitive: bool,
+    /// Treat the pattern as a regular expression. Defaults to false.
     #[serde(default)]
-    pub is_regex: Option<bool>,
+    pub is_regex: bool,
+    /// Number of context lines to return before each match. Defaults to 0.
     #[serde(default)]
-    pub context_before: Option<usize>,
+    pub context_before: usize,
+    /// Number of context lines to return after each match. Defaults to 0.
     #[serde(default)]
-    pub context_after: Option<usize>,
+    pub context_after: usize,
+    /// Include hidden files in the search. Defaults to false.
     #[serde(default)]
-    pub include_hidden: Option<bool>,
-    #[serde(default)]
-    pub respect_gitignore: Option<bool>,
-    #[serde(default)]
-    pub max_results: Option<usize>,
+    pub include_hidden: bool,
+    /// Respect the workspace's `.gitignore` rules. Defaults to true.
+    #[serde(default = "super::common::default_true")]
+    pub respect_gitignore: bool,
+    /// Maximum number of search results to return. Defaults to 100.
+    #[serde(default = "super::common::default_search_max_results")]
+    pub max_results: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -82,13 +92,13 @@ impl Tool for SearchTool {
         let input = parse_input::<SearchInput>(self.name(), input)?;
         let root = validate_child_dir(input.path.as_deref(), ctx)?;
         
-        let case_insensitive = input.case_insensitive.unwrap_or(false);
-        let is_regex = input.is_regex.unwrap_or(false);
-        let context_before = input.context_before.unwrap_or(0);
-        let context_after = input.context_after.unwrap_or(0);
-        let include_hidden = input.include_hidden.unwrap_or(false);
-        let respect_gitignore = input.respect_gitignore.unwrap_or(true);
-        let max_results = input.max_results.unwrap_or(100);
+        let case_insensitive = input.case_insensitive;
+        let is_regex = input.is_regex;
+        let context_before = input.context_before;
+        let context_after = input.context_after;
+        let include_hidden = input.include_hidden;
+        let respect_gitignore = input.respect_gitignore;
+        let max_results = input.max_results;
 
         let backend = default_text_search_backend();
         let request = TextSearchRequest {

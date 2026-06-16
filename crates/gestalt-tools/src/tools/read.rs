@@ -11,13 +11,17 @@ use super::common::{
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReadInput {
+    /// The path to the file to read.
     pub path: String,
-    #[serde(default)]
-    pub start_line: Option<usize>,
+    /// The 1-indexed line number to start reading from (inclusive).
+    #[serde(default = "super::common::default_start_line")]
+    pub start_line: usize,
+    /// The 1-indexed line number to end reading at (inclusive). If omitted, reads to the end of the file.
     #[serde(default)]
     pub end_line: Option<usize>,
-    #[serde(default)]
-    pub max_tokens: Option<usize>,
+    /// The maximum number of tokens to return before truncating.
+    #[serde(default = "super::common::default_max_tokens")]
+    pub max_tokens: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -64,17 +68,17 @@ impl Tool for ReadTool {
         let bytes = std::fs::read(&path).map_err(ToolError::ExecutionFailed)?;
         let content = decode_text(self.name(), &bytes)?;
         let selected = select_line_range(&content, input.start_line, input.end_line)?;
-        let output = limit_tokens(&selected, input.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS));
+        let output = limit_tokens(&selected, input.max_tokens);
         Ok(ToolOutput::Text { content: output })
     }
 }
 
 fn select_line_range(
     content: &str,
-    start_line: Option<usize>,
+    start_line: usize,
     end_line: Option<usize>,
 ) -> Result<String, ToolError> {
-    let start = start_line.unwrap_or(1);
+    let start = start_line;
     let end = end_line.unwrap_or(usize::MAX);
     if start == 0 || end < start {
         return Err(invalid_input("read", "invalid line range"));

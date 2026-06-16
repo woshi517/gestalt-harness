@@ -10,6 +10,23 @@ pub(super) fn default_true() -> bool {
     true
 }
 
+pub(super) fn default_start_line() -> usize {
+    1
+}
+
+pub(super) fn default_max_tokens() -> usize {
+    DEFAULT_MAX_TOKENS
+}
+
+pub(super) fn default_search_max_results() -> usize {
+    100
+}
+
+pub(super) fn default_find_files_max_results() -> usize {
+    50
+}
+
+
 pub(super) fn tool_schema<T>(name: &str, description: &str) -> ToolSchema
 where
     T: JsonSchema,
