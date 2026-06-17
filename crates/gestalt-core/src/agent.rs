@@ -722,11 +722,11 @@ impl AgentLoop {
                 output: result.content.clone(),
                 is_error: result.is_error,
                 truncated: result.truncated,
-                tool_name: tool_name_opt,
+                tool_name: tool_name_opt.clone(),
                 working_dir,
                 duration_ms: Some(duration_ms),
-                output_hash: Some(output_hash),
-                artifact_refs,
+                output_hash: Some(output_hash.clone()),
+                artifact_refs: artifact_refs.clone(),
                 policy_source: Some(policy_source),
                 failure: result.failure.clone(),
             })?;
@@ -796,6 +796,9 @@ impl AgentLoop {
                 content: result.content,
                 is_error: result.is_error,
                 failure: result.failure,
+                tool_name: tool_name_opt,
+                output_hash: Some(output_hash),
+                artifact_refs,
             });
         }
 

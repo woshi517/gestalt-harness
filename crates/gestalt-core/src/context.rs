@@ -258,3 +258,27 @@ impl TokenBudget {
         self.used_history = input_tokens.saturating_sub(non_history);
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct HistoryRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl HistoryRange {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    pub fn len(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start >= self.end
+    }
+
+    pub fn contains(&self, idx: usize) -> bool {
+        idx >= self.start && idx < self.end
+    }
+}

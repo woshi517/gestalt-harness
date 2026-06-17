@@ -232,6 +232,7 @@ impl ToolOutput {
             output_hash,
             metadata: Value::Null,
             failure,
+            tool_name: None,
         })
     }
 }
@@ -254,6 +255,8 @@ pub struct ToolExecutionResult {
     /// sees a structured payload even at the leaves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<ToolErrorReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
 }
 
 impl ToolExecutionResult {
@@ -273,6 +276,7 @@ impl ToolExecutionResult {
             output_hash: None,
             metadata: Value::Null,
             failure: Some(failure),
+            tool_name: None,
         }
     }
 
@@ -287,6 +291,7 @@ impl ToolExecutionResult {
             output_hash: None,
             metadata: Value::Null,
             failure: Some(failure),
+            tool_name: None,
         }
     }
 
@@ -300,6 +305,7 @@ impl ToolExecutionResult {
             output_hash: None,
             metadata: Value::Null,
             failure: None,
+            tool_name: None,
         }
     }
 

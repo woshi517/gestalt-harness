@@ -102,6 +102,10 @@ pub enum ContextError {
     InvalidBudget(String),
     #[error("context pipeline failed: {0}")]
     PipelineFailed(String),
+    #[error("critical context exhausted: {0}")]
+    Exhausted(String),
+    #[error("durability contract failed: {0}")]
+    DurabilityFailed(String),
 }
 
 #[derive(Debug, Error)]
