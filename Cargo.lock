@@ -1164,6 +1164,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "gestalt-core",
+ "gestalt-tools",
  "pulldown-cmark",
  "serde",
  "serde_json",

@@ -154,15 +154,43 @@ impl gestalt_core::hook::ToolHook for VerificationToolHook {
             return Ok(vec![]);
         };
 
-        let Some(target_path) = input.get("path").and_then(serde_json::Value::as_str) else {
-            return Ok(vec![]);
-        };
+        let mut targets = Vec::new();
+        let mut deleted_paths = std::collections::HashSet::new();
+        if tool_name == "patch" {
+            if let Some(patch_str) = input.get("patch").and_then(serde_json::Value::as_str) {
+                if let Ok(operations) = gestalt_tools::parse_patch("patch", patch_str) {
+                    for op in operations {
+                        match op {
+                            gestalt_tools::PatchOperation::Add { path, .. } => {
+                                targets.push(path);
+                            }
+                            gestalt_tools::PatchOperation::Update { path, .. } => {
+                                targets.push(path);
+                            }
+                            gestalt_tools::PatchOperation::Delete { path } => {
+                                deleted_paths.insert(path);
+                            }
+                            gestalt_tools::PatchOperation::Move { from, to } => {
+                                deleted_paths.insert(from);
+                                targets.push(to);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        let path = resolve_tool_path(&session.tool_ctx.working_dir, target_path);
-        let artifact_ref = ArtifactRef {
-            path,
-            mime_type: mime_type_for_path(target_path),
-        };
+        // Deduplicate targets, filtering out any deleted/moved-from paths
+        targets.retain(|t| !deleted_paths.contains(t));
+        targets.sort();
+        targets.dedup();
+
+        if targets.is_empty() {
+            if let Some(target_path) = input.get("path").and_then(serde_json::Value::as_str) {
+                targets.push(target_path.to_string());
+            }
+        }
+
         let workspace_root = session
             .tool_ctx
             .workspace_root
@@ -178,41 +206,49 @@ impl gestalt_core::hook::ToolHook for VerificationToolHook {
             run_dir,
         };
 
-        let verifier_results = self.registry.run_all(&artifact_ref, &ctx).await;
         let mut events = Vec::new();
-        for (name, res) in verifier_results {
-            let report = if res.findings.is_empty() {
-                res.report
-            } else {
-                let mut rep = format!("Verifier: {name}\nFindings:\n");
-                for f in &res.findings {
-                    let _ = writeln!(
-                        rep,
-                        "- [{:?}] {}{}",
-                        f.severity,
-                        f.message,
-                        f.location
-                            .as_ref()
-                            .map_or(String::new(), |loc| format!(" at {loc}"))
-                    );
-                }
-                if let Some(r) = res.report {
-                    let _ = write!(rep, "\nReport:\n{r}");
-                }
-                Some(rep)
+        for target_path in &targets {
+            let path = resolve_tool_path(&session.tool_ctx.working_dir, target_path);
+            let artifact_ref = ArtifactRef {
+                path,
+                mime_type: mime_type_for_path(target_path),
             };
 
-            events.push(AgentEvent::VerificationResult {
-                status: res.status,
-                checks: res.findings.len(),
-                failed: res
-                    .findings
-                    .iter()
-                    .filter(|f| matches!(f.severity, FindingSeverity::Error))
-                    .count(),
-                report,
-                findings: Some(res.findings),
-            });
+            let verifier_results = self.registry.run_all(&artifact_ref, &ctx).await;
+            for (name, res) in verifier_results {
+                let report = if res.findings.is_empty() {
+                    res.report
+                } else {
+                    let mut rep = format!("Verifier: {name}\nFindings:\n");
+                    for f in &res.findings {
+                        let _ = writeln!(
+                            rep,
+                            "- [{:?}] {}{}",
+                            f.severity,
+                            f.message,
+                            f.location
+                                .as_ref()
+                                .map_or(String::new(), |loc| format!(" at {loc}"))
+                        );
+                    }
+                    if let Some(r) = res.report {
+                        let _ = write!(rep, "\nReport:\n{r}");
+                    }
+                    Some(rep)
+                };
+
+                events.push(AgentEvent::VerificationResult {
+                    status: res.status,
+                    checks: res.findings.len(),
+                    failed: res
+                        .findings
+                        .iter()
+                        .filter(|f| matches!(f.severity, FindingSeverity::Error))
+                        .count(),
+                    report,
+                    findings: Some(res.findings),
+                });
+            }
         }
         Ok(events)
     }
