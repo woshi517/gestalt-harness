@@ -65,7 +65,7 @@ pub struct FindFilesInput {
 
 ### `write` — Write File
 
-Writes content to a file with optional diff display, directory creation, conflict checks (`expected_hash`), and dry runs (`dry_run`). Fails fast when the parent directory is missing and `create_dirs` is false.
+Writes full replacement content to a file with optional change preview, parent directory creation, conflict checks (`expected_hash`), and dry runs (`dry_run`). Fails fast when the parent directory is missing and `create_dirs` is false. If the existing file is not valid UTF-8, it rejects the write explicitly. If the file's content is unchanged, it skips writing to disk to optimize execution.
 
 ```rust
 pub struct WriteInput {
@@ -77,6 +77,23 @@ pub struct WriteInput {
     pub dry_run: bool,
 }
 ```
+
+**Output JSON Structure:**
+Returns a structured JSON summary instead of passing through default response shaping:
+```json
+{
+  "path": "path/to/file",
+  "bytes_written": 120,
+  "status": "updated",
+  "diff": "...",
+  "diff_truncated": false,
+  "lines_added": 5,
+  "lines_removed": 2,
+  "dry_run": false
+}
+```
+* **Change Preview:** `diff` contains a bounded human-readable line-based minimal unified diff. This preview may be truncated with an explicit placeholder if it exceeds 200 lines or 16 KB.
+* **Metadata:** Contains structured counts for added/removed lines, written byte count, write status (`created`, `updated`, or `unchanged`), and truncation flags.
 
 ### `patch` — Apply Patch
 
