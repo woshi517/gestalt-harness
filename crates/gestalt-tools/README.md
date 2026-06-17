@@ -80,7 +80,7 @@ pub struct WriteInput {
 
 ### `patch` — Apply Patch
 
-Applies a unified diff to a file with optional conflict checks (`expected_hash`) and dry runs (`dry_run`). Returns a structured JSON summary on success; structured error with context mismatch detection on failure.
+Applies a high-level patch document to workspace files, expressing operations like Add, Update, Delete, or Move directly. Supports optional conflict checks (`expected_hash`) and dry runs (`dry_run`).
 
 ```rust
 pub struct PatchInput {
@@ -90,6 +90,35 @@ pub struct PatchInput {
     pub dry_run: bool,
 }
 ```
+
+The patch document uses block envelopes to represent operations:
+
+```text
+<<< ADD FILE: path/to/file >>>
+file contents here
+<<< END ADD FILE >>>
+
+<<< UPDATE FILE: path/to/file >>>
+<<<<<<< SEARCH
+old content
+=======
+new content
+>>>>>>>
+<<< END UPDATE FILE >>>
+
+<<< DELETE FILE: path/to/file >>>
+<<< END DELETE FILE >>>
+
+<<< MOVE FILE: path/to/old >>>
+<<< TO: path/to/new >>>
+<<< END MOVE FILE >>>
+```
+
+**Key Safety and Execution Characteristics:**
+- **Expected Hash Check:** The `expected_hash` check is evaluated once against the primary target file (`path`) before any operations are validated or applied, preventing destructive actions (e.g. Delete, Move) or content updates on stale files.
+- **Failure Atomicity:** Staged failure-atomically. Writes are staged to temporary files alongside destination paths. If any write or validation fails, all temp files are cleaned up, leaving the workspace completely unmodified.
+- **Ordered Sequence Capabilities:** Allows delete-then-recreate flows (e.g., delete `b.txt`, then move `a.txt` to `b.txt`) inside the same patch document.
+- **Post-Mutation Verification:** Structural parser is shared with the verification engine. Deleted files and moved-from source paths are filtered out, so post-mutation verification (e.g. `FileExistsVerifier`) only inspects files that should exist.
 
 ### `bash` — Execute Shell Command
 

@@ -208,13 +208,13 @@ flowchart TD
 - [x] Implement `ReadTool` with path validation, line ranges, encoding handling, and token/output limits.
 - [x] Implement `SearchTool` using fast local search semantics.
 - [x] Implement `WriteTool` with full replacement, parent directory creation, and diff preview support.
-- [x] Implement `PatchTool` for unified diff application.
+- [x] Implement `PatchTool` for high-level patch document application.
 - [x] Implement `BashTool` as fresh subprocess execution.
 - [x] Implement `WebFetchTool` with HTTP/HTTPS-only fetch, response size cap, redirect recording, readability extraction, and untrusted output tagging.
 - [x] Derive JSON Schema for all tool inputs via `schemars`.
 
 **Depends on:** P1.1, P1.6 for subprocess execution. Coordinate with P1.5 for shared path, risk, and policy integration.  
-**Tests:** schema snapshot tests; path traversal rejection; symlink escape rejection; read line ranges; write diff; patch success/failure; bash timeout/output cap; web SSRF/private IP/scheme rejection; truncation artifact behavior.  
+**Tests:** schema snapshot tests; path traversal rejection; symlink escape rejection; read line ranges; write diff; patch success/failure (including Add, Update, Delete, Move); bash timeout/output cap; web SSRF/private IP/scheme rejection; truncation artifact behavior.  
 **Done when:** all Phase 1 tools are policy-aware and safe by default.
 
 ### P1.5 Minimal Policy and Approval

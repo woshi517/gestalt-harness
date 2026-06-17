@@ -11,7 +11,7 @@ mod write;
 
 pub use bash::{BashInput, BashTool};
 pub use find_files::{FindFilesInput, FindFilesTool};
-pub use patch::{PatchInput, PatchTool};
+pub use patch::{PatchInput, PatchTool, PatchOperation, SearchReplace, parse_patch};
 pub use read::{ReadInput, ReadTool};
 pub use search::{SearchInput, SearchTool};
 pub use web_fetch::{WebFetchInput, WebFetchTool};

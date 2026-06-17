@@ -339,7 +339,7 @@ For complete interface contracts and schema definitions, see the architecture do
 |`BashTool`|Execute a shell command as a fresh subprocess. The primary execution substrate.|Context-dependent (see §10.3)|
 |`ReadTool`|Read a file from the workspace with optional line-range selection and token limiting.|Low|
 |`WriteTool`|Write full replacement content to a file. Shows a diff by default.|Medium|
-|`PatchTool`|Apply a unified diff patch to a file. Safer than full replacement for code edits.|Medium|
+|`PatchTool`|Apply a high-level patch document to workspace files (Add, Update, Delete, Move). Safer than full replacement.|Medium|
 |`SearchTool`|Fast local search over the workspace with glob filtering.|Low|
 |`WebFetchTool`|Fetch a URL and return stripped text inside a <source> envelope. Respects network policy.|Medium|
 |`FindFilesTool`|Fuzzy find files inside the workspace relative to a directory root.|Low|

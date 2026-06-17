@@ -1702,11 +1702,15 @@ pub struct WriteInput {
 
 // ── PatchTool ────────────────────────────────────────────────────────────────
 
-/// Apply a unified diff patch to a file. Safer than full replacement for code.
+/// Apply a high-level patch document to workspace files, expressing operations like Add, Update, Delete, or Move directly.
+/// Evaluated failure-atomically (writes are staged to temp files first, aborting if any fail).
+/// expected_hash protects the primary file (path) once before any mutations are performed.
+/// Allows ordered sequence flows like deleting a file and recreating it via Add/Move in the same patch.
+/// Verification hook uses shared parsing, skipping verifications for deleted/moved-from files.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PatchInput {
     pub path: String,
-    /// Unified diff format patch to apply.
+    /// High-level block envelope format patch to apply.
     pub patch: String,
     /// Verify file hash matches before patching.
     #[serde(default)]
