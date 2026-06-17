@@ -1686,7 +1686,7 @@ pub struct WriteInput {
     pub path: String,
     /// Full replacement content.
     pub content: String,
-    /// Show unified diff against existing file before writing. Default: true.
+    /// Show a change preview diff against the existing file before writing. Default: true.
     #[serde(default = "default_true")]
     pub show_diff: bool,
     /// Create parent directories if missing. Default: true.
@@ -1697,6 +1697,26 @@ pub struct WriteInput {
     pub expected_hash: Option<String>,
     /// Dry run write validation.
     #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WriteOutput {
+    /// The path to the file written.
+    pub path: String,
+    /// Number of bytes written to the file (0 if dry run or unchanged).
+    pub bytes_written: usize,
+    /// Status of the file write: "created", "updated", or "unchanged".
+    pub status: String,
+    /// A bounded, minimal line-based unified diff preview of changes. Empty if show_diff is false or status is unchanged. Truncated at 200 lines / 16 KB.
+    pub diff: String,
+    /// True if the diff was truncated due to line or byte limits.
+    pub diff_truncated: bool,
+    /// Number of lines added.
+    pub lines_added: usize,
+    /// Number of lines removed.
+    pub lines_removed: usize,
+    /// Whether this was a dry run.
     pub dry_run: bool,
 }
 

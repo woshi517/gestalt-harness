@@ -13,7 +13,7 @@ pub struct WriteInput {
     pub path: String,
     /// The content to write to the file.
     pub content: String,
-    /// Return a unified diff of the changes. Defaults to true.
+    /// Return a change preview diff. Defaults to true.
     #[serde(default = "super::common::default_true")]
     pub show_diff: bool,
     /// Automatically create parent directories if they do not exist. Defaults to true.
@@ -22,7 +22,7 @@ pub struct WriteInput {
     /// Verify the file's current SHA-256 matches this hash before writing.
     #[serde(default)]
     pub expected_hash: Option<String>,
-    /// Validate inputs and compute the diff without making any actual changes. Defaults to false.
+    /// Validate inputs and compute the diff preview without making any actual changes. Defaults to false.
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -37,7 +37,7 @@ impl Tool for WriteTool {
     }
 
     fn description(&self) -> &str {
-        "Write full replacement content to a workspace file."
+        "Write full replacement content to a workspace file, returning a bounded change preview."
     }
 
     fn schema(&self) -> ToolSchema {
@@ -86,20 +86,41 @@ impl Tool for WriteTool {
         }
 
         let old = if path.exists() {
-            std::fs::read_to_string(&path).map_err(ToolError::ExecutionFailed)?
+            match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(_) => {
+                    return Err(invalid_input(self.name(), "existing file is not valid UTF-8 text"));
+                }
+            }
         } else {
             String::new()
         };
 
         super::common::check_expected_hash(self.name(), &old, input.expected_hash.as_deref())?;
 
+        let status = if !path.exists() {
+            "created"
+        } else if old == input.content {
+            "unchanged"
+        } else {
+            "updated"
+        };
+
+        let (diff_str, diff_truncated, lines_added, lines_removed) = make_diff(&input.path, &old, &input.content);
+        
         let diff = if input.show_diff {
-            make_diff(&input.path, &old, &input.content)
+            diff_str
         } else {
             String::new()
         };
 
-        if !input.dry_run {
+        let bytes_written = if input.dry_run || status == "unchanged" {
+            0
+        } else {
+            input.content.len()
+        };
+
+        if !input.dry_run && status != "unchanged" {
             super::common::atomic_write(&path, &input.content)
                 .map_err(ToolError::ExecutionFailed)?;
         }
@@ -107,8 +128,12 @@ impl Tool for WriteTool {
         Ok(ToolOutput::Text {
             content: json!({
                 "path": input.path,
-                "bytes_written": if input.dry_run { 0 } else { input.content.len() },
+                "bytes_written": bytes_written,
+                "status": status,
                 "diff": diff,
+                "diff_truncated": diff_truncated,
+                "lines_added": lines_added,
+                "lines_removed": lines_removed,
                 "dry_run": input.dry_run,
             })
             .to_string(),
@@ -116,22 +141,47 @@ impl Tool for WriteTool {
     }
 }
 
-fn make_diff(path: &str, old: &str, new: &str) -> String {
+fn make_diff(path: &str, old: &str, new: &str) -> (String, bool, usize, usize) {
     if old == new {
-        return String::new();
+        return (String::new(), false, 0, 0);
     }
-    let mut diff = format!("--- {path}\n+++ {path}\n");
-    for line in old.lines() {
-        diff.push('-');
-        diff.push_str(line);
-        diff.push('\n');
+
+    use similar::{ChangeTag, TextDiff};
+
+    let diff = TextDiff::from_lines(old, new);
+    let mut lines_added = 0;
+    let mut lines_removed = 0;
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Delete => lines_removed += 1,
+            ChangeTag::Insert => lines_added += 1,
+            ChangeTag::Equal => {}
+        }
     }
-    for line in new.lines() {
-        diff.push('+');
-        diff.push_str(line);
-        diff.push('\n');
+
+    let raw_diff = diff.unified_diff().context_radius(3).header(path, path).to_string();
+    let mut diff_str = String::new();
+    let mut diff_truncated = false;
+    let mut printed_lines = 0;
+    const MAX_PREVIEW_LINES: usize = 200;
+    const MAX_PREVIEW_BYTES: usize = 16384;
+
+    for line in raw_diff.lines() {
+        if printed_lines >= MAX_PREVIEW_LINES || diff_str.len() + line.len() + 1 >= MAX_PREVIEW_BYTES {
+            diff_truncated = true;
+            break;
+        }
+        diff_str.push_str(line);
+        diff_str.push('\n');
+        printed_lines += 1;
     }
-    diff
+
+    if diff_truncated {
+        diff_str.push_str("\n... [Diff truncated] ...\n");
+    }
+
+    (diff_str, diff_truncated, lines_added, lines_removed)
 }
 
 #[cfg(test)]
@@ -238,6 +288,153 @@ mod tests {
                 let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
                 assert_eq!(parsed["path"], "a.txt");
                 assert!(parsed["diff"].as_str().unwrap().contains("+new"));
+            }
+            _ => panic!("Expected text response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn write_should_return_bounded_minimal_diff() {
+        let root = temp_workspace("write-minimal-diff");
+        let path = root.join("a.txt");
+        std::fs::write(&path, "one\ntwo\nthree\n").expect("setup");
+
+        let output = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": "one\nTWO\nthree\n",
+                    "show_diff": true,
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("write succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert_eq!(parsed["status"], "updated");
+                assert_eq!(parsed["lines_added"], 1);
+                assert_eq!(parsed["lines_removed"], 1);
+                let diff = parsed["diff"].as_str().unwrap();
+                assert!(diff.contains("@@ -1,3 +1,3 @@"));
+                assert!(diff.contains("-two"));
+                assert!(diff.contains("+TWO"));
+            }
+            _ => panic!("Expected text response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn write_unchanged_should_return_empty_diff_and_zero_bytes_written() {
+        let root = temp_workspace("write-unchanged");
+        let path = root.join("a.txt");
+        std::fs::write(&path, "same\n").expect("setup");
+
+        let output = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": "same\n",
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("write succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert_eq!(parsed["status"], "unchanged");
+                assert_eq!(parsed["bytes_written"], 0);
+                assert_eq!(parsed["diff"], "");
+            }
+            _ => panic!("Expected text response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn write_new_file_should_show_only_additions() {
+        let root = temp_workspace("write-new-file");
+        let output = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": "hello world\n",
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("write succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert_eq!(parsed["status"], "created");
+                assert_eq!(parsed["lines_removed"], 0);
+                assert_eq!(parsed["lines_added"], 1);
+            }
+            _ => panic!("Expected text response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn write_large_content_should_truncate_diff() {
+        let root = temp_workspace("write-truncate");
+        let path = root.join("a.txt");
+        std::fs::write(&path, "old\n").expect("setup");
+
+        let mut large_content = String::new();
+        for i in 0..300 {
+            large_content.push_str(&format!("line {}\n", i));
+        }
+
+        let output = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": large_content,
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("write succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert_eq!(parsed["diff_truncated"], true);
+                assert!(parsed["diff"].as_str().unwrap().contains("[Diff truncated]"));
+            }
+            _ => panic!("Expected text response"),
+        }
+    }
+
+    #[tokio::test]
+    async fn write_should_honor_show_diff_false() {
+        let root = temp_workspace("write-show-diff-false");
+        let path = root.join("a.txt");
+        std::fs::write(&path, "old\n").expect("setup");
+
+        let output = WriteTool
+            .execute(
+                json!({
+                    "path": "a.txt",
+                    "content": "new\n",
+                    "show_diff": false,
+                }),
+                &ctx(&root),
+            )
+            .await
+            .expect("write succeeds");
+
+        match output {
+            ToolOutput::Text { content } => {
+                let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+                assert_eq!(parsed["diff"], "");
+                assert_eq!(parsed["lines_added"], 1);
+                assert_eq!(parsed["lines_removed"], 1);
             }
             _ => panic!("Expected text response"),
         }
