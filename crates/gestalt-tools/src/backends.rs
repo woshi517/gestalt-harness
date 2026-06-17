@@ -1,6 +1,6 @@
 //! Internal backend abstractions for file discovery and text search.
 //!
-//! These traits define the contract between tool wrappers (find_files, search)
+//! These traits define the contract between tool wrappers (`find_files`, `search`)
 //! and their underlying search implementations. Backend selection is internal
 //! to this crate — no user-facing backend config is exposed.
 
@@ -39,9 +39,6 @@ pub struct FileSearchRequest {
 /// and output formatting.
 #[async_trait::async_trait]
 pub trait FileSearchBackend: Send + Sync {
-    /// Returns a human-readable identifier for this backend (e.g., "walkdir").
-    fn backend_id(&self) -> &str;
-
     /// Execute a file search and return matching paths.
     async fn search(
         &self,
@@ -92,9 +89,6 @@ pub struct TextSearchRequest {
 /// and output formatting.
 #[async_trait::async_trait]
 pub trait TextSearchBackend: Send + Sync {
-    /// Returns a human-readable identifier for this backend (e.g., "ripgrep", "walkdir-grep").
-    fn backend_id(&self) -> &str;
-
     /// Execute a text search and return matching lines.
     async fn search(
         &self,
@@ -112,14 +106,6 @@ pub enum BackendError {
     /// An I/O error occurred during search.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-
-    /// The backend binary is not available (for subprocess-based backends).
-    #[error("Backend not available: {0}")]
-    NotAvailable(String),
-
-    /// An unexpected backend error.
-    #[error("Backend error: {0}")]
-    Other(String),
 }
 
 // --- Default Backend Constructors ---
@@ -152,10 +138,6 @@ struct WalkdirFileSearchBackend;
 
 #[async_trait::async_trait]
 impl FileSearchBackend for WalkdirFileSearchBackend {
-    fn backend_id(&self) -> &str {
-        "walkdir"
-    }
-
     async fn search(
         &self,
         request: &FileSearchRequest,
@@ -272,7 +254,8 @@ fn fuzzy_score(query: &str, target: &str) -> f64 {
     }
 
     // Normalize by query length so longer queries don't auto-score higher
-    score / query_chars.len() as f64
+    let query_len = u32::try_from(query_chars.len()).unwrap_or(u32::MAX);
+    score / f64::from(query_len)
 }
 
 /// Text search using walkdir + regex for grep-like content search.
@@ -283,10 +266,6 @@ struct WalkdirTextSearchBackend;
 
 #[async_trait::async_trait]
 impl TextSearchBackend for WalkdirTextSearchBackend {
-    fn backend_id(&self) -> &str {
-        "walkdir-grep"
-    }
-
     async fn search(
         &self,
         request: &TextSearchRequest,
@@ -361,7 +340,7 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
                         let start = line_idx.saturating_sub(request.context_before);
                         lines[start..line_idx]
                             .iter()
-                            .map(|s| s.to_string())
+                            .map(|s| (*s).to_string())
                             .collect()
                     } else {
                         Vec::new()
@@ -371,7 +350,7 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
                         let end = (line_idx + 1 + request.context_after).min(lines.len());
                         lines[line_idx + 1..end]
                             .iter()
-                            .map(|s| s.to_string())
+                            .map(|s| (*s).to_string())
                             .collect()
                     } else {
                         Vec::new()
@@ -380,7 +359,7 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
                     results.push(TextSearchResult {
                         path: path.to_path_buf(),
                         line_number: line_idx + 1, // 1-based
-                        line_content: line.to_string(),
+                        line_content: (*line).to_string(),
                         context_before,
                         context_after,
                     });
@@ -437,12 +416,6 @@ mod tests {
         use super::*;
 
         #[tokio::test]
-        async fn returns_walkdir_as_backend_id() {
-            let backend = WalkdirFileSearchBackend;
-            assert_eq!(backend.backend_id(), "walkdir");
-        }
-
-        #[tokio::test]
         async fn finds_files_matching_query() {
             let dir = setup_test_dir();
             let backend = WalkdirFileSearchBackend;
@@ -471,7 +444,7 @@ mod tests {
             let dir = setup_test_dir();
             let backend = WalkdirFileSearchBackend;
             let request = FileSearchRequest {
-                query: "".to_string(), // match all
+                query: String::new(), // match all
                 root: dir.path().to_path_buf(),
                 max_results: 50,
                 file_glob: Some("*.rs".to_string()),
@@ -491,7 +464,7 @@ mod tests {
             let dir = setup_test_dir();
             let backend = WalkdirFileSearchBackend;
             let request = FileSearchRequest {
-                query: "".to_string(),
+                query: String::new(),
                 root: dir.path().to_path_buf(),
                 max_results: 2,
                 file_glob: None,
@@ -522,12 +495,6 @@ mod tests {
 
     mod text_search_backend {
         use super::*;
-
-        #[tokio::test]
-        async fn returns_walkdir_grep_as_backend_id() {
-            let backend = WalkdirTextSearchBackend;
-            assert_eq!(backend.backend_id(), "walkdir-grep");
-        }
 
         #[tokio::test]
         async fn finds_literal_text_match() {
@@ -701,7 +668,7 @@ mod tests {
             let dir = setup_test_dir();
             let backend = WalkdirTextSearchBackend;
             let request = TextSearchRequest {
-                pattern: "".to_string(), // match every line
+                pattern: String::new(), // match every line
                 root: dir.path().to_path_buf(),
                 is_regex: false,
                 case_insensitive: false,
@@ -732,7 +699,7 @@ mod tests {
 
         #[test]
         fn nonexistent_chars_score_zero() {
-            assert_eq!(fuzzy_score("zzz", "abc"), 0.0);
+            assert!(fuzzy_score("zzz", "abc").abs() < f64::EPSILON);
         }
 
         #[test]

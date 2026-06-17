@@ -159,7 +159,11 @@ pub fn draw_chat_screen(f: &mut Frame, state: &TuiAppState) {
     );
 
     // 6. Draw status bar and input prompt
-    let system_mode = state.config.defaults.mode.as_deref().unwrap_or("confirm");
+    let system_mode = state
+        .config
+        .defaults
+        .mode
+        .map_or("confirm", gestalt_core::ExecutionMode::as_str);
     let session_title = if state.has_started_session() {
         crate::tui::widgets::event_log::derive_session_title(&state.chat.events, &state.session_id)
             .trim()

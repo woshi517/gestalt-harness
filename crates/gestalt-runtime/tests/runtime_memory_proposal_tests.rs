@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use tokio;
 
 use gestalt_core::event::AgentEvent;
 use gestalt_runtime::event_bus::RuntimeEventBus;
@@ -195,7 +194,7 @@ async fn test_memory_write_mode_disabled() {
     let proposal = MemoryProposal {
         proposal_id: "prop_disabled".to_string(),
         source_session_id: "sess_123".to_string(),
-        base_hash: "".to_string(),
+        base_hash: String::new(),
         operations: vec![MemoryOperation::Add {
             section: "Facts".to_string(),
             content: "should not be written".to_string(),
@@ -247,7 +246,7 @@ async fn test_memory_path_escape() {
     let proposal = MemoryProposal {
         proposal_id: "prop_escape".to_string(),
         source_session_id: "sess_123".to_string(),
-        base_hash: "".to_string(),
+        base_hash: String::new(),
         operations: vec![MemoryOperation::Add {
             section: "Facts".to_string(),
             content: "escaped content".to_string(),

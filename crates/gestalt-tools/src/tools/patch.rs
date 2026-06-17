@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
@@ -206,8 +206,6 @@ impl Tool for PatchTool {
 
         // Apply mutations if not a dry run.
         if !input.dry_run {
-            let mut temp_writes = Vec::new();
-
             struct TempCleanup {
                 paths: Vec<(std::path::PathBuf, std::path::PathBuf)>,
             }
@@ -252,7 +250,7 @@ impl Tool for PatchTool {
             }
 
             // All writes succeeded, transfer temp paths and disable automatic cleanup
-            temp_writes = std::mem::take(&mut cleanup.paths);
+            let temp_writes = std::mem::take(&mut cleanup.paths);
             std::mem::forget(cleanup);
 
             // Process deletions first.
@@ -547,7 +545,7 @@ fn apply_replacements(
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{ctx, temp_workspace};
-    use super::{PatchOperation, PatchTool, SearchReplace};
+    use super::PatchTool;
     use gestalt_core::{Tool, ToolError, ToolOutput};
     use serde_json::json;
     use std::fs;

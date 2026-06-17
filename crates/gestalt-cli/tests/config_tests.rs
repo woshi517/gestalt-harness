@@ -362,10 +362,10 @@ workspace_file = ".gestalt/legacy_workspace.md"
     );
 
     // 3. Validation error: enabled=false + required=true
-    let workspace_toml3 = r#"[context.workspace]
+    let workspace_toml3 = r"[context.workspace]
 enabled = false
 required = true
-"#;
+";
     fs::write(workspace_config_dir.join("config.toml"), workspace_toml3).unwrap();
     let config3 = load_effective_config(&overrides);
     assert!(

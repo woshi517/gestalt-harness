@@ -8,6 +8,7 @@ use gestalt_core::{
 };
 use gestalt_trace::CompactionCheckpoint;
 use sha2::{Digest as _, Sha256};
+use std::fmt::Write as _;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct CompactorOutput {
@@ -32,7 +33,7 @@ pub fn build_compactor_prompt(
     if let Some(prev) = previous_checkpoint {
         prompt_content.push_str("Here is the PREVIOUS checkpoint summary which summarizes the history prior to the current chunk:\n");
         prompt_content.push_str(&prev.render_markdown());
-        prompt_content.push_str("\n");
+        prompt_content.push('\n');
     }
 
     prompt_content.push_str("Please summarize the following new sequence of messages. Integrate it with any previous checkpoint details to produce the NEW consolidated checkpoint summary.\n\n");
@@ -57,8 +58,9 @@ pub fn build_compactor_prompt(
 
     prompt_content.push_str("--- Messages to Compact ---\n");
     for (idx, msg) in history_to_compact.iter().enumerate() {
-        prompt_content.push_str(&format!(
-            "Message {} ({}):\n",
+        let _ = writeln!(
+            prompt_content,
+            "Message {} ({}):",
             idx,
             match msg {
                 Message::System { .. } => "System",
@@ -66,7 +68,7 @@ pub fn build_compactor_prompt(
                 Message::Assistant { .. } => "Assistant",
                 Message::ToolResult { .. } => "ToolResult",
             }
-        ));
+        );
 
         match msg {
             Message::System { content } => {
@@ -86,8 +88,8 @@ pub fn build_compactor_prompt(
                     if let ContentBlock::Text { text } = block {
                         prompt_content.push_str(text);
                     } else if let ContentBlock::ToolUse { name, input, .. } = block {
-                        prompt_content
-                            .push_str(&format!("Tool Use: {} with input: {}\n", name, input));
+                        let _ =
+                            writeln!(prompt_content, "Tool Use: {} with input: {}", name, input);
                     }
                 }
             }
@@ -102,10 +104,11 @@ pub fn build_compactor_prompt(
                 let success = if *is_error { "failed" } else { "succeeded" };
                 let hash = output_hash.as_deref().unwrap_or("none");
                 let snippet: String = content.chars().take(300).collect();
-                prompt_content.push_str(&format!(
+                let _ = write!(
+                    prompt_content,
                     "Tool Result: {} ({})\nOutput Hash: {}\nSnippet: {}\n",
                     name, success, hash, snippet
-                ));
+                );
             }
         }
         prompt_content.push_str("\n\n");

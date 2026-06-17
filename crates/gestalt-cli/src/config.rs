@@ -507,17 +507,6 @@ fn with_default<T>(value: Option<Vec<T>>, default: Vec<T>) -> Vec<T> {
     value.filter(|items| !items.is_empty()).unwrap_or(default)
 }
 
-fn parse_policy_action(
-    value: Option<&str>,
-    default: gestalt_policy::PolicyAction,
-) -> gestalt_policy::PolicyAction {
-    match value {
-        Some("allow" | "allowed" | "auto") => gestalt_policy::PolicyAction::Allow,
-        Some("deny" | "denied") => gestalt_policy::PolicyAction::Deny,
-        _ => default,
-    }
-}
-
 impl PoliciesConfig {
     pub fn to_policy_config(&self) -> gestalt_policy::PolicyConfig {
         let default_paths = gestalt_policy::PathPolicy::default();
@@ -1476,7 +1465,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         w.path = Some(resolved_workspace_path);
         w.required = Some(w.required.unwrap_or(false));
         w.max_tokens = Some(w.max_tokens.unwrap_or(12000));
-        w.max_bytes = Some(w.max_bytes.unwrap_or(131072));
+        w.max_bytes = Some(w.max_bytes.unwrap_or(131_072));
         w.snapshot = Some(w.snapshot.unwrap_or(ContextSnapshotMode::Session));
         c.workspace = Some(w);
 
@@ -1494,7 +1483,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         m.required = Some(m.required.unwrap_or(false));
         m.strategy = Some(m.strategy.unwrap_or(MemorySelectionStrategy::Budgeted));
         m.max_tokens = Some(m.max_tokens.unwrap_or(8000));
-        m.max_bytes = Some(m.max_bytes.unwrap_or(524288));
+        m.max_bytes = Some(m.max_bytes.unwrap_or(524_288));
         m.pinned_section = Some(m.pinned_section.unwrap_or_else(|| "Facts".to_string()));
         m.snapshot = Some(m.snapshot.unwrap_or(ContextSnapshotMode::Session));
         m.write_mode = Some(m.write_mode.unwrap_or(MemoryWriteMode::Proposal));
@@ -2317,7 +2306,7 @@ pub fn explain_config(
             .as_ref()
             .and_then(|d| d.workspace.as_ref())
             .and_then(|w| w.max_bytes)),
-        131072
+        131_072
     );
 
     resolve!(
@@ -2471,7 +2460,7 @@ pub fn explain_config(
             .as_ref()
             .and_then(|d| d.memory.as_ref())
             .and_then(|m| m.max_bytes)),
-        524288
+        524_288
     );
 
     resolve!(

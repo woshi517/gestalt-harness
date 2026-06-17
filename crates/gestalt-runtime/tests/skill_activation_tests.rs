@@ -215,20 +215,19 @@ async fn test_resolve_active_emits_skill_activated_event() {
     // The trigger should auto-activate the "pdf" skill because its description
     // contains the word "PDF" which appears in the task hint.
     let mut guard = state.lock().unwrap();
-    let (_resolved, diff) = guard.resolve_active(Some("Please extract text from a PDF"));
-    assert_eq!(_resolved, vec!["pdf".to_string()]);
+    let (resolved, diff) = guard.resolve_active(Some("Please extract text from a PDF"));
+    assert_eq!(resolved, vec!["pdf".to_string()]);
     assert_eq!(diff.newly_active.len(), 1);
     assert_eq!(diff.newly_active[0].0, "pdf");
     guard.publish_diff(&diff);
     drop(guard);
 
     let history = bus.history();
-    let activations: Vec<&RuntimeEvent> = history
-        .iter()
-        .filter(|e| matches!(e, RuntimeEvent::SkillActivated { .. }))
-        .collect();
     assert_eq!(
-        activations.len(),
+        history
+            .iter()
+            .filter(|e| matches!(e, RuntimeEvent::SkillActivated { .. }))
+            .count(),
         1,
         "expected exactly one SkillActivated event"
     );
@@ -264,22 +263,16 @@ async fn test_resolve_active_emits_skill_deactivated_event() {
     drop(guard);
 
     let history = bus.history();
-    let deactivations: Vec<&RuntimeEvent> = history
-        .iter()
-        .filter(|e| matches!(e, RuntimeEvent::SkillDeactivated { .. }))
-        .collect();
     assert!(
-        !deactivations.is_empty(),
+        history
+            .iter()
+            .any(|e| matches!(e, RuntimeEvent::SkillDeactivated { .. })),
         "expected at least one deactivation event"
     );
-    let names: Vec<String> = deactivations
-        .iter()
-        .map(|e| match e {
-            RuntimeEvent::SkillDeactivated { skill_name, .. } => skill_name.clone(),
-            _ => unreachable!(),
-        })
-        .collect();
-    assert!(names.contains(&"pdf".to_string()));
+    assert!(history.iter().any(|e| matches!(
+        e,
+        RuntimeEvent::SkillDeactivated { skill_name, .. } if skill_name == "pdf"
+    )));
 }
 
 #[tokio::test]
@@ -309,12 +302,11 @@ async fn test_build_active_instructions_emits_skill_rejected_on_load_failure() {
     drop(guard);
 
     let history = bus.history();
-    let rejections: Vec<&RuntimeEvent> = history
-        .iter()
-        .filter(|e| matches!(e, RuntimeEvent::SkillRejected { .. }))
-        .collect();
     assert_eq!(
-        rejections.len(),
+        history
+            .iter()
+            .filter(|e| matches!(e, RuntimeEvent::SkillRejected { .. }))
+            .count(),
         1,
         "expected exactly one SkillRejected event for the failed load"
     );
@@ -334,11 +326,13 @@ async fn test_resource_recorder_emits_skill_resource_accessed() {
     recorder("pdf", "references/PDF_TOOLS.md");
 
     let history = bus.history();
-    let accesses: Vec<&RuntimeEvent> = history
-        .iter()
-        .filter(|e| matches!(e, RuntimeEvent::SkillResourceAccessed { .. }))
-        .collect();
-    assert_eq!(accesses.len(), 1);
+    assert_eq!(
+        history
+            .iter()
+            .filter(|e| matches!(e, RuntimeEvent::SkillResourceAccessed { .. }))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -378,11 +372,13 @@ async fn test_context_hook_adapter_resolves_activation_on_before_context_build()
     // The hook should have published exactly one SkillActivated event for the
     // first turn.
     let history = bus.history();
-    let activations: Vec<&RuntimeEvent> = history
-        .iter()
-        .filter(|e| matches!(e, RuntimeEvent::SkillActivated { .. }))
-        .collect();
-    assert_eq!(activations.len(), 1);
+    assert_eq!(
+        history
+            .iter()
+            .filter(|e| matches!(e, RuntimeEvent::SkillActivated { .. }))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

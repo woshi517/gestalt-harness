@@ -32,7 +32,7 @@ pub enum HookOutcome {
         provider: Option<String>,
         variant: Option<String>,
     },
-    Aggregated(Vec<HookOutcome>),
+    Aggregated(Vec<Self>),
 }
 
 pub struct BeforeContextBuildCtx {
@@ -131,7 +131,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                     lifecycle_point: "before_context_build".to_string(),
                     outcome: format!("{:?}", outcome),
                 });
-                apply_outcome(outcome, &self.patch_store, &self.block_reason);
+                apply_outcome(outcome, &self.patch_store, self.block_reason.as_ref());
             }
             Err(err) => {
                 self.event_bus.publish(RuntimeEvent::HookFailed {
@@ -204,7 +204,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                     lifecycle_point: "after_context_build".to_string(),
                     outcome: format!("{:?}", outcome),
                 });
-                apply_outcome(outcome, &self.patch_store, &self.block_reason);
+                apply_outcome(outcome, &self.patch_store, self.block_reason.as_ref());
             }
             Err(err) => {
                 self.event_bus.publish(RuntimeEvent::HookFailed {
@@ -621,7 +621,7 @@ fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
 fn apply_outcome(
     outcome: HookOutcome,
     patch_store: &Arc<Mutex<Vec<crate::context::ContextPatch>>>,
-    block_reason: &Option<Arc<Mutex<Option<String>>>>,
+    block_reason: Option<&Arc<Mutex<Option<String>>>>,
 ) {
     match outcome {
         HookOutcome::AddContext { message } => {
@@ -632,7 +632,7 @@ fn apply_outcome(
             ));
         }
         HookOutcome::Block { reason } => {
-            if let Some(ref br) = block_reason {
+            if let Some(br) = block_reason {
                 let mut lock = br.lock().unwrap();
                 *lock = Some(reason.clone());
             }

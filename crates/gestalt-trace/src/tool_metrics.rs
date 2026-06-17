@@ -37,12 +37,12 @@ pub struct ToolMetricsReport {
 }
 
 fn token_cost(tokens: usize, rate_per_million: f64) -> f64 {
-    (tokens as f64) * rate_per_million / 1_000_000.0
+    usize_to_f64(tokens) * rate_per_million / 1_000_000.0
 }
 
-fn collect_trace_paths_flexible(path: &Path) -> std::io::Result<Vec<PathBuf>> {
+fn collect_trace_paths_flexible(path: &Path) -> Vec<PathBuf> {
     if path.is_file() {
-        return Ok(vec![path.to_path_buf()]);
+        return vec![path.to_path_buf()];
     }
 
     let mut traces = Vec::new();
@@ -80,18 +80,21 @@ fn collect_trace_paths_flexible(path: &Path) -> std::io::Result<Vec<PathBuf>> {
 
     traces.sort();
     traces.dedup();
-    Ok(traces)
+    traces
+}
+
+fn usize_to_f64(value: usize) -> f64 {
+    let narrowed = u32::try_from(value).unwrap_or(u32::MAX);
+    f64::from(narrowed)
 }
 
 pub fn analyze_tool_metrics(
     path: impl AsRef<Path>,
     resolver: impl Fn(&str) -> Option<ModelInfo>,
 ) -> Result<ToolMetricsReport, TraceError> {
-    let trace_paths =
-        collect_trace_paths_flexible(path.as_ref()).map_err(TraceError::WriteFailed)?;
+    let trace_paths = collect_trace_paths_flexible(path.as_ref());
 
     let mut report = ToolMetricsReport::default();
-    let mut cost_warnings = Vec::new();
     let mut pricing_failed = false;
     let mut total_cost = 0.0;
 
@@ -171,12 +174,9 @@ pub fn analyze_tool_metrics(
                                         + token_cost(output_tokens, output);
                                 } else {
                                     pricing_failed = true;
-                                    cost_warnings
-                                        .push(format!("missing pricing metadata for {model_id}"));
                                 }
                             } else {
                                 pricing_failed = true;
-                                cost_warnings.push(format!("unknown model pricing for {model_id}"));
                             }
                         }
                     }
@@ -200,24 +200,24 @@ pub fn analyze_tool_metrics(
 
     // Rates calculation
     if report.total_proposed_calls > 0 {
-        report.invalid_tool_call_rate =
-            report.total_validation_failures as f64 / report.total_proposed_calls as f64;
+        report.invalid_tool_call_rate = usize_to_f64(report.total_validation_failures)
+            / usize_to_f64(report.total_proposed_calls);
     }
     if report.total_policy_decisions > 0 {
         report.policy_denied_rate =
-            report.total_policy_denials as f64 / report.total_policy_decisions as f64;
+            usize_to_f64(report.total_policy_denials) / usize_to_f64(report.total_policy_decisions);
     }
     if report.total_tool_results > 0 {
         report.truncation_rate =
-            report.total_truncated_results as f64 / report.total_tool_results as f64;
+            usize_to_f64(report.total_truncated_results) / usize_to_f64(report.total_tool_results);
     }
     if report.total_executed_calls > 0 {
-        report.first_call_success_rate =
-            report.first_call_success_count as f64 / report.total_executed_calls as f64;
+        report.first_call_success_rate = usize_to_f64(report.first_call_success_count)
+            / usize_to_f64(report.total_executed_calls);
     }
     if report.total_turns_with_tool_selection > 0 {
-        report.tool_exposure_count_per_turn =
-            report.total_exposure_count as f64 / report.total_turns_with_tool_selection as f64;
+        report.tool_exposure_count_per_turn = usize_to_f64(report.total_exposure_count)
+            / usize_to_f64(report.total_turns_with_tool_selection);
     }
 
     if !pricing_failed {

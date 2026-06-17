@@ -681,9 +681,9 @@ pub async fn run_session_action(
     let metadata = serde_json::Value::Object(meta_map);
 
     fn to_core_reasoning_effort(
-        e: Option<crate::config::ReasoningEffort>,
-    ) -> Option<gestalt_core::provider::ReasoningEffort> {
-        e.map(|v| match v {
+        value: crate::config::ReasoningEffort,
+    ) -> gestalt_core::provider::ReasoningEffort {
+        match value {
             crate::config::ReasoningEffort::None => gestalt_core::provider::ReasoningEffort::None,
             crate::config::ReasoningEffort::Low => gestalt_core::provider::ReasoningEffort::Low,
             crate::config::ReasoningEffort::Medium => {
@@ -691,18 +691,18 @@ pub async fn run_session_action(
             }
             crate::config::ReasoningEffort::High => gestalt_core::provider::ReasoningEffort::High,
             crate::config::ReasoningEffort::Xhigh => gestalt_core::provider::ReasoningEffort::Xhigh,
-        })
+        }
     }
 
     fn to_core_text_verbosity(
-        v: Option<crate::config::TextVerbosity>,
-    ) -> Option<gestalt_core::provider::TextVerbosity> {
-        v.map(|val| match val {
+        value: crate::config::TextVerbosity,
+    ) -> gestalt_core::provider::TextVerbosity {
+        match value {
             crate::config::TextVerbosity::None => gestalt_core::provider::TextVerbosity::None,
             crate::config::TextVerbosity::Low => gestalt_core::provider::TextVerbosity::Low,
             crate::config::TextVerbosity::Medium => gestalt_core::provider::TextVerbosity::Medium,
             crate::config::TextVerbosity::High => gestalt_core::provider::TextVerbosity::High,
-        })
+        }
     }
 
     let mut session = Session::new(
@@ -717,12 +717,14 @@ pub async fn run_session_action(
             temperature: resolved_provider.resolved_options.temperature,
             max_turns,
             top_p: resolved_provider.resolved_options.top_p,
-            reasoning_effort: to_core_reasoning_effort(
-                resolved_provider.resolved_options.reasoning_effort,
-            ),
-            text_verbosity: to_core_text_verbosity(
-                resolved_provider.resolved_options.text_verbosity,
-            ),
+            reasoning_effort: resolved_provider
+                .resolved_options
+                .reasoning_effort
+                .map(to_core_reasoning_effort),
+            text_verbosity: resolved_provider
+                .resolved_options
+                .text_verbosity
+                .map(to_core_text_verbosity),
             metadata,
         },
         token_budget,

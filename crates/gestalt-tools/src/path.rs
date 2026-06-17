@@ -166,7 +166,6 @@ pub fn is_hidden_descendant(relative_path: &Path) -> bool {
 pub struct GitignorePattern {
     pattern: Pattern,
     is_bare: bool,
-    is_dir: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -187,17 +186,14 @@ impl GitignoreFilter {
             if is_anchored {
                 p.remove(0);
             }
-            let mut is_dir = false;
             if p.ends_with('/') {
                 p.pop();
-                is_dir = true;
             }
             let is_bare = !is_anchored && !p.contains('/');
             if let Ok(pat) = Pattern::new(&p) {
                 patterns.push(GitignorePattern {
                     pattern: pat,
                     is_bare,
-                    is_dir,
                 });
             }
         }
@@ -226,17 +222,14 @@ impl GitignoreFilter {
             if is_anchored {
                 p.remove(0);
             }
-            let mut is_dir = false;
             if p.ends_with('/') {
                 p.pop();
-                is_dir = true;
             }
             let is_bare = !is_anchored && !p.contains('/');
             if let Ok(pat) = Pattern::new(&p) {
                 patterns.push(GitignorePattern {
                     pattern: pat,
                     is_bare,
-                    is_dir,
                 });
             }
         }
@@ -296,10 +289,10 @@ impl PathFilter {
         } else {
             None
         };
-        let custom_ignore = if !ctx.ignore_patterns.is_empty() {
-            Some(GitignoreFilter::from_patterns(&ctx.ignore_patterns))
-        } else {
+        let custom_ignore = if ctx.ignore_patterns.is_empty() {
             None
+        } else {
+            Some(GitignoreFilter::from_patterns(&ctx.ignore_patterns))
         };
         Self {
             workspace_root,

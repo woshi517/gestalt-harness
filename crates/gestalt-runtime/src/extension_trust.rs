@@ -5,12 +5,11 @@ use gestalt_core::tool_descriptor::{
     ToolDescriptor, ToolNamespace, ToolResponseContract,
 };
 
-/// Build a `ToolDescriptor` for a tool declared by an extension
-/// process. The descriptor carries the canonical
-/// `extension:<id>:<tool>` id, an `ExtensionDeclared` annotation
-/// source for any extension-supplied hint, and the harness-side
-/// trust normalization (currently: an explicit allow-list of
-/// extension ids that may opt into `BuiltInTrusted`).
+/// Build a `ToolDescriptor` for a tool declared by an extension process.
+///
+/// The descriptor carries the canonical `extension:<id>:<tool>` id,
+/// an `ExtensionDeclared` annotation source for extension-supplied
+/// hints, and the harness-side trust normalization.
 pub fn build_extension_tool_descriptor(
     manifest: &ExtensionManifest,
     tool_decl: &ToolDeclaration,
@@ -67,16 +66,14 @@ pub fn build_extension_tool_descriptor(
         key: "read_only".to_string(),
         value: tool_decl
             .read_only
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "false".to_string()),
+            .map_or_else(|| "false".to_string(), |v| v.to_string()),
         source,
     });
     annotations.push(ToolAnnotation {
         key: "idempotent".to_string(),
         value: tool_decl
             .idempotent
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "false".to_string()),
+            .map_or_else(|| "false".to_string(), |v| v.to_string()),
         source,
     });
     // Always record the extension id so trace consumers and policy

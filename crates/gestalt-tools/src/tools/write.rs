@@ -389,13 +389,15 @@ mod tests {
 
     #[tokio::test]
     async fn write_large_content_should_truncate_diff() {
+        use std::fmt::Write as _;
+
         let root = temp_workspace("write-truncate");
         let path = root.join("a.txt");
         std::fs::write(&path, "old\n").expect("setup");
 
         let mut large_content = String::new();
         for i in 0..300 {
-            large_content.push_str(&format!("line {}\n", i));
+            let _ = writeln!(large_content, "line {i}");
         }
 
         let output = WriteTool

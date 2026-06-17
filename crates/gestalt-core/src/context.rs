@@ -318,18 +318,13 @@ pub struct ClearAction {
     pub output_hash: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DurabilityMode {
+    #[default]
     Required,
     BestEffort,
     Disabled,
-}
-
-impl Default for DurabilityMode {
-    fn default() -> Self {
-        Self::Required
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

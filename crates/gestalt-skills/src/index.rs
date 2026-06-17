@@ -42,7 +42,7 @@ impl SkillIndex {
     }
 
     /// Merge another index, with existing entries taking precedence.
-    pub fn merge(&mut self, other: SkillIndex) {
+    pub fn merge(&mut self, other: Self) {
         for skill in other.skills {
             if !self.by_name.contains_key(&skill.name) {
                 let idx = self.skills.len();

@@ -284,36 +284,35 @@ impl MinimalPolicyEngine {
 
     fn evaluate_path_tool(&self, request: &PolicyRequest, access: PathAccess) -> PolicyDecision {
         let path_buf;
-        let path = match extract_path(&request.input) {
-            Some(p) => p,
-            None => {
-                let name = request.tool_name.as_str();
-                if name == "search"
-                    || name == "builtin:search"
-                    || name == "find_files"
-                    || name == "builtin:find_files"
-                {
-                    path_buf = if let Some(ref ws_root) = request.workspace_root {
-                        if let Ok(rel) = request.working_dir.strip_prefix(ws_root) {
-                            let rel_str = rel.to_string_lossy().to_string();
-                            if rel_str.is_empty() {
-                                ".".to_string()
-                            } else {
-                                rel_str
-                            }
+        let path = if let Some(p) = extract_path(&request.input) {
+            p
+        } else {
+            let name = request.tool_name.as_str();
+            if name == "search"
+                || name == "builtin:search"
+                || name == "find_files"
+                || name == "builtin:find_files"
+            {
+                path_buf = if let Some(ref ws_root) = request.workspace_root {
+                    if let Ok(rel) = request.working_dir.strip_prefix(ws_root) {
+                        let rel_str = rel.to_string_lossy().to_string();
+                        if rel_str.is_empty() {
+                            ".".to_string()
                         } else {
-                            request.working_dir.to_string_lossy().to_string()
+                            rel_str
                         }
                     } else {
-                        ".".to_string()
-                    };
-                    &path_buf
+                        request.working_dir.to_string_lossy().to_string()
+                    }
                 } else {
-                    return deny(
-                        "missing path in tool input",
-                        "policies.toml:paths.invalid_input",
-                    );
-                }
+                    ".".to_string()
+                };
+                &path_buf
+            } else {
+                return deny(
+                    "missing path in tool input",
+                    "policies.toml:paths.invalid_input",
+                );
             }
         };
 

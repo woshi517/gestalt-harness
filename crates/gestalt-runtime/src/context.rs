@@ -633,7 +633,7 @@ impl RuntimeContextPipeline {
         let policy_cloned = policy.clone();
 
         let manifest_partial = gestalt_trace::ProjectionManifest {
-            manifest_id: "".to_string(),
+            manifest_id: String::new(),
             session_id: session_id.to_string(),
             run_id: run_id.to_string(),
             turn_id,

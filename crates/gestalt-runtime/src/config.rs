@@ -84,7 +84,7 @@ pub struct ExtensionLimitsConfig {
 impl Default for ExtensionLimitsConfig {
     fn default() -> Self {
         Self {
-            max_message_bytes: Some(8388608),
+            max_message_bytes: Some(8_388_608),
             max_pending_requests: Some(16),
             max_protocol_errors: Some(3),
         }

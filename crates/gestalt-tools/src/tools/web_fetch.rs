@@ -279,13 +279,13 @@ pub fn sanitize_shell_bootstrap(content: &str) -> SanitizeResult {
     // We define a RegexSet of dangerous shell bootstrap patterns
     let patterns = [
         // curl/wget piped to sh/bash/etc.
-        r#"(?i)\b(curl|wget)\b.*?\|\s*(sudo\s+)?(sh|bash|zsh|dash|ksh)\b"#,
+        r"(?i)\b(curl|wget)\b.*?\|\s*(sudo\s+)?(sh|bash|zsh|dash|ksh)\b",
         // wget output redirect to stdout piped to sh/bash/etc.
-        r#"(?i)\bwget\b.*?-O\s*-\s*.*?\|\s*(sudo\s+)?(sh|bash|zsh|dash|ksh)\b"#,
+        r"(?i)\bwget\b.*?-O\s*-\s*.*?\|\s*(sudo\s+)?(sh|bash|zsh|dash|ksh)\b",
         // Subshell execution: bash -c "$(curl ...)" or sh -c "$(wget ...)"
         r#"(?i)\b(sh|bash|zsh|dash|ksh)\b.*?-c\s*['"].*?\$\((curl|wget)\b.*?\)['"]"#,
         // Subshell process substitution: bash <(curl ...)
-        r#"(?i)\b(sh|bash|zsh|dash|ksh)\b.*?<\((curl|wget)\b.*?\)"#,
+        r"(?i)\b(sh|bash|zsh|dash|ksh)\b.*?<\((curl|wget)\b.*?\)",
     ];
 
     let set = RegexSet::new(patterns).unwrap();

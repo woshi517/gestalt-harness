@@ -202,11 +202,12 @@ impl AnthropicProvider {
             body.insert("stop_sequences".to_string(), json!(request.stop_sequences));
         }
 
-        let mut thinking_set = false;
-        if let Some(thinking) = request.metadata.get("thinking") {
+        let thinking_set = if let Some(thinking) = request.metadata.get("thinking") {
             body.insert("thinking".to_string(), thinking.clone());
-            thinking_set = true;
-        }
+            true
+        } else {
+            false
+        };
 
         if !thinking_set {
             if let Some(effort) = request.reasoning_effort {
@@ -673,7 +674,7 @@ mod tests {
         };
 
         let body = provider.body(&request);
-        assert!(body.get("system").map(Value::is_string).unwrap_or(false));
+        assert!(body.get("system").is_some_and(Value::is_string));
     }
 
     #[test]

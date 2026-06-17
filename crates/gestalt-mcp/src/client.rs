@@ -159,13 +159,12 @@ impl McpClient {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let input_schema = tool_val
-                .get("inputSchema")
-                .cloned()
-                .unwrap_or(serde_json::json!({
+            let input_schema = tool_val.get("inputSchema").cloned().unwrap_or_else(|| {
+                serde_json::json!({
                     "type": "object",
                     "properties": {}
-                }));
+                })
+            });
 
             tools.push(McpToolSchema {
                 name,

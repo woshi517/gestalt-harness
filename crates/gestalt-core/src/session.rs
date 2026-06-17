@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::{context::TokenBudget, message::Message, tool::ToolContext};
 
@@ -104,6 +105,25 @@ pub enum ExecutionMode {
     Human,
     DryRun,
     Replay,
+}
+
+impl ExecutionMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Confirm => "confirm",
+            Self::Yolo => "yolo",
+            Self::Human => "human",
+            Self::DryRun => "dry_run",
+            Self::Replay => "replay",
+        }
+    }
+}
+
+impl fmt::Display for ExecutionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str((*self).as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
