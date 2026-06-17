@@ -29,14 +29,28 @@ impl<'a> ContextAccountant<'a> {
     }
 
     pub fn tool_result_budget(&self) -> usize {
-        ((self.usable_limit() as f64) * self.policy.tool_result_budget_ratio) as usize
+        self.scaled_limit(self.policy.tool_result_budget_ratio)
     }
 
     pub fn compaction_target(&self) -> usize {
-        ((self.usable_limit() as f64) * self.policy.compaction_target_ratio) as usize
+        self.scaled_limit(self.policy.compaction_target_ratio)
     }
 
     pub fn needs_management(&self, current_total_tokens: usize) -> bool {
         self.policy.enabled && current_total_tokens > self.usable_limit()
+    }
+
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
+    fn scaled_limit(&self, ratio: f64) -> usize {
+        let clamped_ratio = if ratio.is_finite() {
+            ratio.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        ((self.usable_limit() as f64) * clamped_ratio).floor() as usize
     }
 }

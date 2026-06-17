@@ -2,7 +2,6 @@ use crate::estimate_message_tokens;
 use crate::tool_exchanges::group_tool_exchanges;
 use gestalt_core::context::ClearAction;
 use gestalt_core::message::Message;
-use serde::{Deserialize, Serialize};
 
 pub fn is_tool_eligible_for_clearing(tool_name: Option<&str>) -> bool {
     let Some(name) = tool_name else {

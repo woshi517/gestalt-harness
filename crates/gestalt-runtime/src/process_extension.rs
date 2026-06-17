@@ -25,7 +25,7 @@ pub struct ProcessExtensionBroker {
     )>,
     child: Arc<Mutex<Option<Child>>>,
     timeouts: ExtensionTimeoutsConfig,
-    limits: ExtensionLimitsConfig,
+    _limits: ExtensionLimitsConfig,
     is_trusted: bool,
     negotiated_version: Arc<Mutex<String>>,
     negotiated_capabilities: Arc<Mutex<Capabilities>>,
@@ -282,7 +282,7 @@ impl ProcessExtensionBroker {
             let mut stdout_reader = BufReader::new(stdout);
             let mut line = String::new();
 
-            let read_limit = limits_clone.max_message_bytes.unwrap_or(8388608);
+            let read_limit = limits_clone.max_message_bytes.unwrap_or(8_388_608);
             let max_errors = limits_clone.max_protocol_errors.unwrap_or(3);
             let mut protocol_errors = 0;
 
@@ -388,7 +388,7 @@ impl ProcessExtensionBroker {
             tx,
             child: child_arc,
             timeouts,
-            limits,
+            _limits: limits,
             is_trusted,
             negotiated_version: negotiated_version.clone(),
             negotiated_capabilities: negotiated_capabilities.clone(),
@@ -588,22 +588,20 @@ impl ProcessExtensionBroker {
         let mut lock = self.child.lock().await;
         if let Some(mut child) = lock.take() {
             let shutdown_timeout = self.timeouts.shutdown_ms.unwrap_or(5000);
-            match tokio::time::timeout(Duration::from_millis(shutdown_timeout), child.wait()).await
+            if let Ok(status) =
+                tokio::time::timeout(Duration::from_millis(shutdown_timeout), child.wait()).await
             {
-                Ok(status) => {
-                    self.event_bus.publish(RuntimeEvent::ProcessExited {
-                        extension_id: self.manifest.id.clone(),
-                        exit_code: status.ok().and_then(|s| s.code()),
-                    });
-                }
-                Err(_) => {
-                    let _ = child.kill().await;
-                    let status = child.wait().await;
-                    self.event_bus.publish(RuntimeEvent::ProcessExited {
-                        extension_id: self.manifest.id.clone(),
-                        exit_code: status.ok().and_then(|s| s.code()),
-                    });
-                }
+                self.event_bus.publish(RuntimeEvent::ProcessExited {
+                    extension_id: self.manifest.id.clone(),
+                    exit_code: status.ok().and_then(|s| s.code()),
+                });
+            } else {
+                let _ = child.kill().await;
+                let status = child.wait().await;
+                self.event_bus.publish(RuntimeEvent::ProcessExited {
+                    extension_id: self.manifest.id.clone(),
+                    exit_code: status.ok().and_then(|s| s.code()),
+                });
             }
         }
     }
@@ -762,7 +760,8 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
                     .and_then(|v| v.as_str())
                     .unwrap_or("text/plain");
                 let size_bytes =
-                    art.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    usize::try_from(art.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0))
+                        .unwrap_or(usize::MAX);
 
                 return Ok(gestalt_core::tool::ToolOutput::Artifact {
                     path: std::path::PathBuf::from(path),

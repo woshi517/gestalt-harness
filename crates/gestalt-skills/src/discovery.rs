@@ -49,7 +49,7 @@ impl SkillDiscovery {
                 SkillTrustLevel::Workspace,
                 &mut seen_names,
                 &mut discovered,
-            )?;
+            );
         }
 
         // 3. Workspace `.agents/skills/`
@@ -61,7 +61,7 @@ impl SkillDiscovery {
                 SkillTrustLevel::Workspace,
                 &mut seen_names,
                 &mut discovered,
-            )?;
+            );
         }
 
         // 4. Global `~/.config/gestalt/skills/`
@@ -74,7 +74,7 @@ impl SkillDiscovery {
                     SkillTrustLevel::Global,
                     &mut seen_names,
                     &mut discovered,
-                )?;
+                );
             }
         }
 
@@ -88,7 +88,7 @@ impl SkillDiscovery {
                     SkillTrustLevel::Global,
                     &mut seen_names,
                     &mut discovered,
-                )?;
+                );
             }
         }
 
@@ -148,7 +148,7 @@ impl SkillDiscovery {
         trust_level: SkillTrustLevel,
         seen_names: &mut HashSet<String>,
         discovered: &mut Vec<SkillDescriptor>,
-    ) -> Result<()> {
+    ) {
         let mut entries = Vec::new();
         if let Ok(rd) = std::fs::read_dir(dir) {
             for entry in rd.flatten() {
@@ -201,8 +201,6 @@ impl SkillDiscovery {
                 allowed_tools: file.manifest.allowed_tools,
             });
         }
-
-        Ok(())
     }
 }
 

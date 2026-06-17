@@ -520,8 +520,8 @@ pub async fn run_tui(
                                     });
                                 }
                                 TuiUiAction::ChangeMode(mode) => {
-                                    if crate::config::mode_from_str(&mode).is_ok() {
-                                        state.config.defaults.mode = Some(mode.clone());
+                                    if let Ok(parsed_mode) = crate::config::mode_from_str(&mode) {
+                                        state.config.defaults.mode = Some(parsed_mode);
                                         state.details.config = Some(state.config.clone());
                                         push_event(&mut state.chat.events, AgentEvent::ContextBuilt {
                                             packet_id: String::new(),
@@ -554,7 +554,7 @@ pub async fn run_tui(
                                         workspace: Some(state.config.workspace_root.clone()),
                                         provider: state.config.provider_override.clone(),
                                         model: state.config.model_override.clone(),
-                                        mode: state.config.defaults.mode.clone(),
+                                        mode: state.config.defaults.mode.map(|mode| mode.to_string()),
                                         max_turns: state.config.defaults.max_turns,
                                         profile: state.config.defaults.profile.clone(),
                                         ..crate::config::CliOverrides::default()

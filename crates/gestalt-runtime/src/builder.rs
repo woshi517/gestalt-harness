@@ -148,7 +148,9 @@ impl AgentRuntimeBuilder {
         }
 
         // Register skill context contributors if skills are configured
-        let skill_state_handle = if !self.config.discovered_skills.is_empty() {
+        let skill_state_handle = if self.config.discovered_skills.is_empty() {
+            None
+        } else {
             let skill_state = Arc::new(std::sync::Mutex::new(
                 crate::skill_contributor::SkillContributorState::new(
                     self.config.discovered_skills.clone(),
@@ -169,8 +171,6 @@ impl AgentRuntimeBuilder {
                 )),
             );
             Some(skill_state)
-        } else {
-            None
         };
 
         // Initialize MCP Registry

@@ -4,8 +4,9 @@ use gestalt_core::{
     ContextManagementPolicy, DurabilityMode, TraceError,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MessageMetadataRef {
@@ -56,58 +57,56 @@ impl CompactionCheckpoint {
     /// Renders the checkpoint summary as a structured Markdown block
     pub fn render_markdown(&self) -> String {
         let mut md = String::new();
-        md.push_str(&format!(
+        let _ = write!(
+            md,
             "### Session Checkpoint Summary (ID: {})\n\n",
             self.checkpoint_id
-        ));
-        md.push_str(&format!("**Goal:** {}\n\n", self.goal));
+        );
+        let _ = write!(md, "**Goal:** {}\n\n", self.goal);
 
         md.push_str("**Constraints:**\n");
         for c in &self.constraints {
-            md.push_str(&format!("- {}\n", c));
+            let _ = writeln!(md, "- {c}");
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md.push_str("**Completed Work:**\n");
         for w in &self.completed_work {
-            md.push_str(&format!("- {}\n", w));
+            let _ = writeln!(md, "- {w}");
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md.push_str("**In Progress Work:**\n");
         for w in &self.in_progress_work {
-            md.push_str(&format!("- {}\n", w));
+            let _ = writeln!(md, "- {w}");
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md.push_str("**Blocked Items:**\n");
         for b in &self.blocked_items {
-            md.push_str(&format!("- {}\n", b));
+            let _ = writeln!(md, "- {b}");
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md.push_str("**Key Decisions:**\n");
         for d in &self.key_decisions {
-            md.push_str(&format!("- {}\n", d));
+            let _ = writeln!(md, "- {d}");
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md.push_str("**Next Steps:**\n");
         for s in &self.next_steps {
-            md.push_str(&format!("- {}\n", s));
+            let _ = writeln!(md, "- {s}");
         }
-        md.push_str("\n");
+        md.push('\n');
 
-        md.push_str(&format!(
-            "**Critical Context:**\n{}\n\n",
-            self.critical_context
-        ));
+        let _ = write!(md, "**Critical Context:**\n{}\n\n", self.critical_context);
 
         md.push_str("**Relevant References:**\n");
         for r in &self.relevant_references {
-            md.push_str(&format!("- {}\n", r));
+            let _ = writeln!(md, "- {r}");
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md
     }

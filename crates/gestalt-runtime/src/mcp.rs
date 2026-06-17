@@ -173,7 +173,7 @@ impl Tool for McpBackedTool {
                 tool_name: self.tool_name.clone(),
                 call_id: call_id.clone(),
                 success,
-                duration_ms: start_time.elapsed().as_millis() as u64,
+                duration_ms: u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX),
             });
         }
 

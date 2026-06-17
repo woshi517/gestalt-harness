@@ -594,6 +594,7 @@ fn handle_result<T: CliReport>(
     }
 }
 
+#[allow(clippy::large_stack_frames)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();

@@ -30,7 +30,7 @@ impl std::fmt::Debug for McpRegistry {
         f.debug_struct("McpRegistry")
             .field("workspace_root", &self.workspace_root)
             .field("configs", &self.configs)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

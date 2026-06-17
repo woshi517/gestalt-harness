@@ -81,10 +81,10 @@ pub fn rank_tools(
         .collect();
 
     ranked.sort_by(|a, b| {
-        if b.0 != a.0 {
-            b.0.cmp(&a.0)
-        } else {
+        if b.0 == a.0 {
             a.1 .0.to_string().cmp(&b.1 .0.to_string())
+        } else {
+            b.0.cmp(&a.0)
         }
     });
 

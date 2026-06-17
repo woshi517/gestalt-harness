@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_parse_full() {
-        let raw = r#"---
+        let raw = r"---
 name: data-analysis
 description: Analyze data files.
 license: MIT
@@ -142,7 +142,7 @@ allowed-tools: Read Search
 ---
 
 # Data Analysis
-"#;
+";
         let file = SkillManifest::parse(raw).unwrap();
         assert_eq!(file.manifest.name, "data-analysis");
         assert_eq!(file.manifest.license, Some("MIT".to_string()));

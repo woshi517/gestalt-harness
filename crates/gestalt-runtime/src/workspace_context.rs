@@ -198,7 +198,7 @@ pub fn parse_memory_markdown(
             while i < lines.len() {
                 let next_line = lines[i];
                 let trimmed = next_line.trim();
-                if next_line.starts_with("  ") || next_line.starts_with("\t") || trimmed.is_empty()
+                if next_line.starts_with("  ") || next_line.starts_with('\t') || trimmed.is_empty()
                 {
                     if trimmed.starts_with("## ")
                         || trimmed.starts_with("# ")
@@ -283,7 +283,7 @@ impl WorkspaceContextLoader {
 
         let content = std::fs::read_to_string(&resolved)?;
 
-        let max_bytes = config.max_bytes.unwrap_or(131072);
+        let max_bytes = config.max_bytes.unwrap_or(131_072);
         if content.len() > max_bytes {
             return Err(WorkspaceContextError::OversizedBytes {
                 source_kind: "workspace instructions".to_string(),
@@ -332,7 +332,7 @@ impl WorkspaceContextLoader {
 
         let content = std::fs::read_to_string(&resolved)?;
 
-        let max_bytes = config.max_bytes.unwrap_or(524288);
+        let max_bytes = config.max_bytes.unwrap_or(524_288);
         if content.len() > max_bytes {
             return Err(WorkspaceContextError::OversizedBytes {
                 source_kind: "workspace memory".to_string(),
@@ -379,7 +379,7 @@ impl WorkspaceContextLoader {
         if !is_inside {
             if let Some(ref policy) = self.policy {
                 let request = PolicyRequest {
-                    tool_call_id: "".to_string(),
+                    tool_call_id: String::new(),
                     tool_name: "builtin:read".to_string(),
                     namespace: gestalt_core::tool_descriptor::ToolNamespace::BuiltIn,
                     annotations: Default::default(),
@@ -576,16 +576,19 @@ pub fn format_memory_markdown(selected: &[MemoryEntry]) -> String {
         }
     }
 
+    use std::fmt::Write as _;
+
     let mut markdown = String::new();
     markdown.push_str("# Memory\n");
     for section in sections {
-        markdown.push_str(&format!("\n## {}\n\n", section));
+        let _ = write!(markdown, "\n## {}\n\n", section);
         for entry in selected {
             if entry.section == section {
-                markdown.push_str(&format!(
-                    "- <!-- gestalt-memory-id: {} --> {}\n",
+                let _ = writeln!(
+                    markdown,
+                    "- <!-- gestalt-memory-id: {} --> {}",
                     entry.id, entry.content
-                ));
+                );
             }
         }
     }

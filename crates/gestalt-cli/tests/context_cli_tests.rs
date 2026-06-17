@@ -115,14 +115,14 @@ async fn test_context_explain_prompt_budget_behavior() {
 
     fs::write(
         gestalt_dir.join("memory.md"),
-        r#"# Memory
+        r"# Memory
 
 ## Facts
 - <!-- gestalt-memory-id: pin1 --> this is a pinned entry
 
 ## General
 - <!-- gestalt-memory-id: unpin1 --> this is an unpinned entry that takes way too many tokens to fit in the small budget of ten tokens
-"#,
+",
     )
     .unwrap();
 

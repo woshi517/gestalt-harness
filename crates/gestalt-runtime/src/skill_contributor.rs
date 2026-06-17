@@ -54,7 +54,7 @@ impl std::fmt::Debug for SkillContributorState {
                 &self.loaded_bodies.keys().collect::<Vec<_>>(),
             )
             .field("failed_bodies", &self.failed_bodies)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

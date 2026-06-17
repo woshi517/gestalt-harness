@@ -627,11 +627,14 @@ mod tests {
         // 1. Verify Mode change handler logic
         let mut state = TuiAppState::new(config.clone(), "session-123".to_string(), None);
         let mode = "yolo".to_string();
-        if gestalt_cli::config::mode_from_str(&mode).is_ok() {
-            state.config.defaults.mode = Some(mode.clone());
+        if let Ok(parsed_mode) = gestalt_cli::config::mode_from_str(&mode) {
+            state.config.defaults.mode = Some(parsed_mode);
             state.details.config = Some(state.config.clone());
         }
-        assert_eq!(state.config.defaults.mode, Some("yolo".to_string()));
+        assert_eq!(
+            state.config.defaults.mode,
+            Some(gestalt_core::ExecutionMode::Yolo)
+        );
 
         // 2. Verify Explain Context handler logic
         let overrides = CliOverrides {

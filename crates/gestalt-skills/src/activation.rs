@@ -120,9 +120,9 @@ pub fn render_active_skill_instructions(active: &[ActiveSkill]) -> String {
     for skill in active {
         lines.push(format!("## Skill: {}", skill.descriptor.name));
         lines.push(skill.descriptor.description.clone());
-        lines.push("".to_string());
+        lines.push(String::new());
         lines.push(skill.full_body.clone());
-        lines.push("".to_string());
+        lines.push(String::new());
     }
     lines.push("</active_skills>".to_string());
     lines.join("\n")

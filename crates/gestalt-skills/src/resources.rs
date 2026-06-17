@@ -26,10 +26,11 @@ pub fn resolve_skill_resource(skill_root: &Path, resource_path: &str) -> Result<
 /// `RuntimeEvent::SkillResourceAccessed` event on the event bus.
 pub type ResourceAccessRecorder = std::sync::Arc<dyn Fn(&str, &str) + Send + Sync>;
 
-/// Resolve a resource and, on success, invoke the recorder so callers can
-/// surface a `SkillResourceAccessed` event. This is the canonical wrapper that
-/// runtime tools should use; the bare `resolve_skill_resource` remains
-/// available for tests and pure-path operations.
+/// Resolve a resource and invoke the recorder on success.
+///
+/// This is the canonical wrapper runtime tools should use. The bare
+/// `resolve_skill_resource` remains available for tests and pure-path
+/// operations.
 pub fn resolve_skill_resource_tracked(
     skill_name: &str,
     skill_root: &Path,
