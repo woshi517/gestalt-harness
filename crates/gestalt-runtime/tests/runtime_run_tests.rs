@@ -22,6 +22,15 @@ use gestalt_runtime::{
     RuntimeConfig, RuntimeContextHookAdapter, RuntimeContextPipeline, RuntimeEventBus, UserInput,
 };
 
+fn config_without_context_management() -> RuntimeConfig {
+    let mut config = RuntimeConfig::default();
+    config.context_management_policy = Some(gestalt_core::ContextManagementPolicy {
+        enabled: false,
+        ..Default::default()
+    });
+    config
+}
+
 struct NoopCompositionHooks;
 
 #[async_trait::async_trait]
@@ -274,7 +283,7 @@ async fn test_prepare_next_turn_switch_model() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(Arc::new(SwitchModelCompositionHooks))
         .build()
         .unwrap();
@@ -483,7 +492,7 @@ async fn test_prepare_next_turn_block_stops_session() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(Arc::new(BlockCompositionHooks))
         .build()
         .unwrap();
@@ -591,7 +600,7 @@ fn build_test_runtime() -> gestalt_runtime::runtime::AgentRuntime {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .build()
         .unwrap()
 }
@@ -681,6 +690,10 @@ async fn test_runtime_run_session_preserves_history() {
         gestalt_core::session::ExecutionMode::Yolo,
         snapshot,
     );
+    session.context_policy = gestalt_core::ContextManagementPolicy {
+        enabled: false,
+        ..Default::default()
+    };
 
     // Prepopulate session history
     session.history.push(Message::User {
@@ -1071,6 +1084,7 @@ async fn test_prepare_context_uses_full_history_when_management_enabled() {
         buffer_tokens: 0,
         keep_recent_tokens: usize::MAX,
         keep_recent_turns: usize::MAX,
+        durability: gestalt_core::DurabilityMode::BestEffort,
         ..Default::default()
     };
     let request_template = ProviderRequest {
@@ -1153,6 +1167,7 @@ async fn test_prepare_context_counts_tool_schema_overhead() {
                 buffer_tokens: 0,
                 keep_recent_tokens: usize::MAX,
                 keep_recent_turns: usize::MAX,
+                durability: gestalt_core::DurabilityMode::BestEffort,
                 ..Default::default()
             },
             None,

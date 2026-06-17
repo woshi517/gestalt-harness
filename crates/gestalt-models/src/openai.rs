@@ -665,4 +665,59 @@ mod tests {
         assert!(body.get("messages").is_some());
         assert!(body.get("system").is_none());
     }
+
+    #[test]
+    fn body_preserves_assistant_tool_call_and_tombstoned_tool_result_order() {
+        let provider = OpenAiProvider::default();
+        let request = ProviderRequest {
+            model: "gpt-4o-mini".to_string(),
+            messages: vec![
+                Message::Assistant {
+                    content: vec![ContentBlock::ToolUse {
+                        id: "tool-1".to_string(),
+                        name: "view_file".to_string(),
+                        input: serde_json::json!({"path": "src/lib.rs"}),
+                    }],
+                },
+                Message::ToolResult {
+                    tool_use_id: "tool-1".to_string(),
+                    content:
+                        "<tombstone tool_use_id=\"tool-1\" tool_name=\"view_file\" output_hash=\"abc\" />"
+                            .to_string(),
+                    is_error: false,
+                    failure: None,
+                    tool_name: Some("view_file".to_string()),
+                    output_hash: Some("abc".to_string()),
+                    artifact_refs: None,
+                },
+            ],
+            tools: vec![],
+            tool_name_map: vec![],
+            max_tokens: 512,
+            temperature: None,
+            top_p: None,
+            stop_sequences: vec![],
+            cache_plan: None,
+            metadata: serde_json::Value::Null,
+            reasoning_effort: None,
+            text_verbosity: None,
+        };
+
+        let body = provider.body(&request);
+        let messages = body.get("messages").and_then(Value::as_array).unwrap();
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(
+            messages[0].get("role").and_then(Value::as_str),
+            Some("assistant")
+        );
+        assert_eq!(
+            messages[1].get("role").and_then(Value::as_str),
+            Some("tool")
+        );
+        assert_eq!(
+            messages[1].get("tool_call_id").and_then(Value::as_str),
+            Some("tool-1")
+        );
+    }
 }

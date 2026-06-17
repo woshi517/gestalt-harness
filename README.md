@@ -120,6 +120,25 @@ Precedence (lowest to highest): built-in defaults < global `gestalt.json` < work
 
 The JSON Schema is available at `docs/schemas/gestalt.schema.json`.
 
+### Automatic Context Management
+
+When `context.management.enabled` is on, `gestalt-harness` may rewrite the provider-visible prompt before each turn to stay within the usable context window.
+
+- Canonical session history is not deleted.
+- Provider-visible context may replace older tool output with compact tombstones.
+- If pressure remains high, the runtime may replace an older history range with a structured checkpoint summary.
+- Recent turns remain protected by `keep_recent_turns` and `keep_recent_tokens`.
+- Projection manifests and compaction checkpoints are persisted to the run artifact directory when durability is enabled.
+
+This creates four practical layers:
+
+- Canonical history: the full committed conversation log.
+- Derived artifacts: projection manifests and checkpoint files persisted for replay and debugging.
+- Context preparation: the runtime step that clears or compacts older context to fit budget.
+- Provider-visible context: the exact prompt projection sent to the model for the next turn.
+
+If you see a tombstone or checkpoint in the prompt, it means the runtime reduced visible context size. The original committed history was not erased.
+
 ### Provider Connections and Profiles
 
 `gestalt-harness` features a provider connection and credential-backed profile system to securely manage API keys and switch between model environments without storing raw secrets in config files.

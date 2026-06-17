@@ -114,9 +114,12 @@ impl ContextPipeline for RuntimeContextPipeline {
                   + Send),
     ) -> std::result::Result<gestalt_core::context::ContextPacket, gestalt_core::error::HarnessError>
     {
+        policy.validate()?;
+
         let accountant =
             gestalt_context::accounting::ContextAccountant::new(budget, policy, history);
         let usable_limit = accountant.usable_limit();
+        let artifacts_dir = self.checked_artifacts_dir(policy, artifacts_dir)?;
 
         let packet = if policy.enabled && budget.model_limit > 0 && usable_limit > 0 {
             self.build_management_packet(history, budget)
@@ -138,9 +141,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                 Vec::new(),
                 0,
             );
-            if let Some(dir) = artifacts_dir {
-                gestalt_trace::persist_manifest(&manifest, dir, policy.durability)?;
-            }
+            self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(packet);
         }
 
@@ -151,7 +152,9 @@ impl ContextPipeline for RuntimeContextPipeline {
             current_estimate: packet_request_estimate,
         })?;
 
-        if packet_request_estimate <= usable_limit {
+        let projected_request_estimate =
+            packet_request_estimate.saturating_add(accountant.projected_next_turn_growth());
+        if projected_request_estimate <= usable_limit {
             let manifest = self.build_manifest(
                 &packet,
                 session_id,
@@ -162,9 +165,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                 Vec::new(),
                 0,
             );
-            if let Some(dir) = artifacts_dir {
-                gestalt_trace::persist_manifest(&manifest, dir, policy.durability)?;
-            }
+            self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(packet);
         }
 
@@ -214,9 +215,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                 clear_actions,
                 history_start_idx,
             );
-            if let Some(dir) = artifacts_dir {
-                gestalt_trace::persist_manifest(&manifest, dir, policy.durability)?;
-            }
+            self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(cleared_packet);
         }
 
@@ -284,11 +283,11 @@ impl ContextPipeline for RuntimeContextPipeline {
                         ));
                     }
 
-                    *self.current_checkpoint.lock().unwrap() = Some(checkpoint.clone());
-
                     if let Some(dir) = artifacts_dir {
                         gestalt_trace::persist_checkpoint(&checkpoint, dir, policy.durability)?;
                     }
+
+                    *self.current_checkpoint.lock().unwrap() = Some(checkpoint.clone());
 
                     emit(gestalt_core::event::AgentEvent::ContextCompacted {
                         checkpoint_id: checkpoint.checkpoint_id.clone(),
@@ -324,9 +323,11 @@ impl ContextPipeline for RuntimeContextPipeline {
                         range.end,
                     );
 
-                    if let Some(dir) = artifacts_dir {
-                        gestalt_trace::persist_manifest(&manifest, dir, policy.durability)?;
-                    }
+                    self.persist_manifest_if_configured(
+                        &manifest,
+                        artifacts_dir,
+                        policy.durability,
+                    )?;
 
                     if self.request_token_estimate(provider, request_template, &compacted_packet)?
                         > usable_limit
@@ -397,9 +398,7 @@ impl ContextPipeline for RuntimeContextPipeline {
             clear_actions,
             history_start_idx,
         );
-        if let Some(dir) = artifacts_dir {
-            gestalt_trace::persist_manifest(&manifest, dir, policy.durability)?;
-        }
+        self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
 
         Ok(cleared_packet)
     }
@@ -434,6 +433,38 @@ impl RuntimeContextPipeline {
             cache_plan: packet.cache_plan.clone(),
             ..request_template.clone()
         })
+    }
+
+    fn checked_artifacts_dir<'a>(
+        &self,
+        policy: &gestalt_core::ContextManagementPolicy,
+        artifacts_dir: Option<&'a Path>,
+    ) -> std::result::Result<Option<&'a Path>, gestalt_core::error::HarnessError> {
+        if policy.enabled
+            && matches!(policy.durability, gestalt_core::DurabilityMode::Required)
+            && artifacts_dir.is_none()
+        {
+            return Err(gestalt_core::error::ContextError::DurabilityFailed(
+                "context management durability is required but no artifact directory was provided"
+                    .to_string(),
+            )
+            .into());
+        }
+
+        Ok(artifacts_dir)
+    }
+
+    fn persist_manifest_if_configured(
+        &self,
+        manifest: &gestalt_trace::ProjectionManifest,
+        artifacts_dir: Option<&Path>,
+        durability: gestalt_core::DurabilityMode,
+    ) -> std::result::Result<(), gestalt_core::error::HarnessError> {
+        if let Some(dir) = artifacts_dir {
+            gestalt_trace::persist_manifest(manifest, dir, durability)?;
+        }
+
+        Ok(())
     }
 
     fn compose_messages(base_messages: Vec<Message>, patches: &[ContextPatch]) -> Vec<Message> {
@@ -646,7 +677,18 @@ impl RuntimeContextPipeline {
             messages_metadata,
         };
 
-        let manifest_serialized = serde_json::to_string(&manifest_partial).unwrap_or_default();
+        let manifest_serialized = serde_json::to_string(&serde_json::json!({
+            "session_id": &manifest_partial.session_id,
+            "run_id": &manifest_partial.run_id,
+            "turn_id": manifest_partial.turn_id,
+            "policy": &manifest_partial.policy,
+            "token_estimate": manifest_partial.token_estimate,
+            "stable_prefix_hash": &manifest_partial.stable_prefix_hash,
+            "checkpoint_ref": &manifest_partial.checkpoint_ref,
+            "cleared_results": &manifest_partial.cleared_results,
+            "messages_metadata": &manifest_partial.messages_metadata,
+        }))
+        .unwrap_or_default();
         let mut hasher = sha2::Sha256::new();
         hasher.update(manifest_serialized.as_bytes());
         let manifest_id = format!("{:x}", hasher.finalize());

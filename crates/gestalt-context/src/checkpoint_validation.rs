@@ -84,6 +84,36 @@ pub fn validate_checkpoint(
         ));
     }
 
+    let protected_anchors = extract_protected_anchors(source_range);
+    if !protected_anchors.is_empty() {
+        let checkpoint_text = render_checkpoint_text(checkpoint);
+        let matched = protected_anchors
+            .iter()
+            .filter(|anchor| checkpoint_mentions_anchor(&checkpoint_text, anchor))
+            .count();
+        let required_matches = protected_anchors.len().min(2);
+
+        if matched < required_matches {
+            return Err(ValidationError::ConstraintViolation(
+                "checkpoint omitted explicit protected context from the compacted range"
+                    .to_string(),
+            ));
+        }
+    }
+
+    let reference_anchors = extract_reference_anchors(source_range);
+    if !reference_anchors.is_empty() {
+        let references_text = normalize_text(&checkpoint.relevant_references.join(" "));
+        if !reference_anchors
+            .iter()
+            .any(|anchor| checkpoint_mentions_anchor(&references_text, anchor))
+        {
+            return Err(ValidationError::ConstraintViolation(
+                "checkpoint references do not preserve any source reference anchors".to_string(),
+            ));
+        }
+    }
+
     // 4. summary size check
     let original_tokens = source_range
         .iter()
@@ -128,4 +158,154 @@ fn message_has_untrusted_content(message: &Message) -> bool {
         Message::ToolResult { .. } => true,
         Message::System { .. } => false,
     }
+}
+
+fn render_checkpoint_text(checkpoint: &CompactionCheckpoint) -> String {
+    normalize_text(
+        &[
+            checkpoint.goal.as_str(),
+            checkpoint.critical_context.as_str(),
+            &checkpoint.constraints.join(" "),
+            &checkpoint.key_decisions.join(" "),
+            &checkpoint.next_steps.join(" "),
+        ]
+        .join(" "),
+    )
+}
+
+fn extract_protected_anchors(history: &[Message]) -> Vec<String> {
+    let mut anchors = Vec::new();
+
+    for message in history {
+        let blocks = match message {
+            Message::User { content, .. } => content,
+            _ => continue,
+        };
+
+        for block in blocks {
+            let text = match block {
+                ContentBlock::Text { text } => text,
+                ContentBlock::Document { source, .. } => &source.data,
+                _ => continue,
+            };
+
+            for line in text.lines() {
+                let trimmed = line.trim().trim_start_matches([
+                    '-', '*', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', ')', ' ',
+                ]);
+                if !looks_protected(trimmed) {
+                    continue;
+                }
+
+                anchors.push(trimmed.to_string());
+            }
+        }
+    }
+
+    anchors.sort_by_key(|anchor| std::cmp::Reverse(anchor.len()));
+    anchors.dedup();
+    anchors.truncate(4);
+    anchors
+}
+
+fn extract_reference_anchors(history: &[Message]) -> Vec<String> {
+    let mut anchors = Vec::new();
+
+    for message in history {
+        match message {
+            Message::User { content, .. } | Message::Assistant { content } => {
+                for block in content {
+                    if let ContentBlock::Document { title, source, .. } = block {
+                        if let Some(title) = title {
+                            anchors.push(title.clone());
+                        }
+                        anchors.push(source.data.lines().next().unwrap_or_default().to_string());
+                    }
+                }
+            }
+            Message::ToolResult { artifact_refs, .. } => {
+                if let Some(refs) = artifact_refs {
+                    anchors.extend(refs.iter().cloned());
+                }
+            }
+            Message::System { .. } => {}
+        }
+    }
+
+    anchors.retain(|anchor| !anchor.trim().is_empty());
+    anchors.truncate(4);
+    anchors
+}
+
+fn looks_protected(line: &str) -> bool {
+    let normalized = normalize_text(line);
+    if normalized.len() < 16 {
+        return false;
+    }
+
+    [
+        "must",
+        "should",
+        "do not",
+        "dont",
+        "never",
+        "always",
+        "required",
+        "important",
+        "keep",
+        "preserve",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker))
+}
+
+fn checkpoint_mentions_anchor(checkpoint_text: &str, anchor: &str) -> bool {
+    let anchor_words = significant_words(anchor);
+    if anchor_words.is_empty() {
+        return false;
+    }
+
+    anchor_words
+        .iter()
+        .filter(|word| checkpoint_text.contains(word.as_str()))
+        .count()
+        >= std::cmp::min(2, anchor_words.len())
+}
+
+fn significant_words(text: &str) -> Vec<String> {
+    normalize_text(text)
+        .split_whitespace()
+        .filter(|word| word.len() >= 4)
+        .filter(|word| {
+            !matches!(
+                *word,
+                "that"
+                    | "this"
+                    | "with"
+                    | "from"
+                    | "have"
+                    | "will"
+                    | "your"
+                    | "into"
+                    | "then"
+                    | "they"
+                    | "them"
+                    | "when"
+                    | "were"
+            )
+        })
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn normalize_text(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect()
 }
