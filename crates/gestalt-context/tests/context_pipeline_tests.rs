@@ -124,3 +124,89 @@ fn budget_exhaustion_is_modelled_as_ephemeral_tail() {
         .iter()
         .any(|segment| segment.kind == gestalt_core::context::PromptSegmentKind::Ephemeral));
 }
+
+#[test]
+fn test_tool_clearing_happy_path() {
+    use gestalt_context::tool_clearing::clear_eligible_tool_results;
+    use serde_json::json;
+
+    let history = vec![
+        Message::User {
+            content: vec![ContentBlock::Text { text: "please read the file".to_string() }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::ToolUse {
+                id: "view_1".to_string(),
+                name: "view_file".to_string(),
+                input: json!({"path": "src/lib.rs"}),
+            }],
+        },
+        Message::ToolResult {
+            tool_use_id: "view_1".to_string(),
+            content: "pub fn main() { println!(\"hello\"); }".repeat(50),
+            is_error: false,
+            failure: None,
+            tool_name: Some("view_file".to_string()),
+            output_hash: Some("some_hash".to_string()),
+            artifact_refs: Some(vec![]),
+        },
+        Message::User {
+            content: vec![ContentBlock::Text { text: "thanks".to_string() }],
+            metadata: None,
+        },
+    ];
+
+    // Total tool result tokens is large. Let's set a low tool_result_budget
+    let (projected, actions) = clear_eligible_tool_results(&history, 1000, 10, 1, 100);
+
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].tool_use_id, "view_1");
+    assert_eq!(actions[0].tool_name, "view_file");
+
+    if let Message::ToolResult { content, is_error, .. } = &projected[2] {
+        assert!(!is_error);
+        assert!(content.contains("<tombstone"));
+        assert!(content.contains("tool_name=\"view_file\""));
+    } else {
+        panic!("expected tool result");
+    }
+}
+
+#[test]
+fn test_tool_clearing_preserves_errors_and_recent_window() {
+    use gestalt_context::tool_clearing::clear_eligible_tool_results;
+    use serde_json::json;
+
+    let history = vec![
+        Message::User {
+            content: vec![ContentBlock::Text { text: "run it".to_string() }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::ToolUse {
+                id: "err_1".to_string(),
+                name: "view_file".to_string(),
+                input: json!({}),
+            }],
+        },
+        Message::ToolResult {
+            tool_use_id: "err_1".to_string(),
+            content: "error details".to_string(),
+            is_error: true,
+            failure: None,
+            tool_name: Some("view_file".to_string()),
+            output_hash: Some("err_hash".to_string()),
+            artifact_refs: None,
+        },
+        Message::User {
+            content: vec![ContentBlock::Text { text: "try again".to_string() }],
+            metadata: None,
+        },
+    ];
+
+    // Even with a budget of 0, active errors are preserved
+    let (projected, actions) = clear_eligible_tool_results(&history, 1000, 0, 1, 100);
+    assert!(actions.is_empty());
+    assert_eq!(projected, history);
+}

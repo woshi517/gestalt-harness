@@ -47,7 +47,7 @@ pub use approval::{
 };
 pub use cancel::CancelToken;
 pub use context::{
-    ContextPacket, ContextPipeline, ContextStability, PromptAssemblyStrategy, PromptCachePlan,
+    ContextPacket, ContextPipeline, ContextStability, HistoryRange, PromptAssemblyStrategy, PromptCachePlan,
     PromptSegment, PromptSegmentKind, PromptSnapshot, TokenBudget,
 };
 pub use error::{

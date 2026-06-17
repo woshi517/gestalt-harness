@@ -47,6 +47,12 @@ pub enum Message {
         is_error: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         failure: Option<ToolErrorReport>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_hash: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        artifact_refs: Option<Vec<String>>,
     },
 }
 

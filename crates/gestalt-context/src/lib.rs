@@ -6,6 +6,13 @@
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
 pub mod default_prompt;
+pub mod accounting;
+pub mod tool_exchanges;
+pub mod tool_clearing;
+
+pub use accounting::{ContextAccountant, ContextManagementPolicy, DurabilityMode};
+pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
+pub use tool_clearing::{clear_eligible_tool_results, ClearAction};
 
 use gestalt_core::{
     context::{
@@ -221,11 +228,17 @@ impl MinimalContextPipeline {
                 content,
                 is_error,
                 failure,
+                tool_name,
+                output_hash,
+                artifact_refs,
             } => Message::ToolResult {
                 tool_use_id: tool_use_id.clone(),
                 content: render_untrusted_text("tool_result", content),
                 is_error: *is_error,
                 failure: failure.clone(),
+                tool_name: tool_name.clone(),
+                output_hash: output_hash.clone(),
+                artifact_refs: artifact_refs.clone(),
             },
         }
     }
@@ -467,7 +480,7 @@ impl ContextPipeline for MinimalContextPipeline {
     }
 }
 
-fn estimate_message_tokens(message: &Message) -> usize {
+pub fn estimate_message_tokens(message: &Message) -> usize {
     match message {
         Message::System { content } => estimate_text_tokens(content).saturating_add(4),
         Message::User { content, .. } | Message::Assistant { content } => content
@@ -502,7 +515,7 @@ fn estimate_block_tokens(block: &ContentBlock) -> usize {
     }
 }
 
-fn estimate_text_tokens(text: &str) -> usize {
+pub fn estimate_text_tokens(text: &str) -> usize {
     text.len().saturating_add(3) / 4 + 1
 }
 
