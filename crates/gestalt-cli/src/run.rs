@@ -81,7 +81,10 @@ pub async fn run_prompt(
                 &runtime.config.discovered_skills,
                 Some(prompt),
             ),
-            workspace_context_snapshot_hash: runtime.workspace_context_snapshot.as_ref().map(|s| s.compute_hash()),
+            workspace_context_snapshot_hash: runtime
+                .workspace_context_snapshot
+                .as_ref()
+                .map(|s| s.compute_hash()),
         },
     };
     initial_manifest

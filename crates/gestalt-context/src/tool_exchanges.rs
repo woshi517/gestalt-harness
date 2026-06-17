@@ -78,7 +78,9 @@ mod tests {
     fn test_group_tool_exchanges_complete() {
         let history = vec![
             Message::User {
-                content: vec![ContentBlock::Text { text: "run tools".to_string() }],
+                content: vec![ContentBlock::Text {
+                    text: "run tools".to_string(),
+                }],
                 metadata: None,
             },
             Message::Assistant {
@@ -119,7 +121,10 @@ mod tests {
         assert_eq!(exchanges.len(), 1);
         assert_eq!(exchanges[0].assistant_message_idx, 1);
         assert_eq!(exchanges[0].tool_result_idxs, vec![2, 3]);
-        assert_eq!(exchanges[0].tool_use_ids, vec!["call_1".to_string(), "call_2".to_string()]);
+        assert_eq!(
+            exchanges[0].tool_use_ids,
+            vec!["call_1".to_string(), "call_2".to_string()]
+        );
         assert!(exchanges[0].is_complete());
     }
 
@@ -134,7 +139,9 @@ mod tests {
                 }],
             },
             Message::User {
-                content: vec![ContentBlock::Text { text: "interrupted".to_string() }],
+                content: vec![ContentBlock::Text {
+                    text: "interrupted".to_string(),
+                }],
                 metadata: None,
             },
         ];

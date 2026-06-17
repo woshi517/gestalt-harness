@@ -33,18 +33,12 @@ impl ComposedToolCatalog {
         self
     }
 
-    pub fn with_mcp(
-        mut self,
-        mcp_registry: Arc<gestalt_mcp::McpRegistry>,
-    ) -> Self {
+    pub fn with_mcp(mut self, mcp_registry: Arc<gestalt_mcp::McpRegistry>) -> Self {
         self.mcp_registry = Some(mcp_registry);
         self
     }
 
-    pub fn with_event_bus(
-        mut self,
-        event_bus: crate::event_bus::RuntimeEventBus,
-    ) -> Self {
+    pub fn with_event_bus(mut self, event_bus: crate::event_bus::RuntimeEventBus) -> Self {
         self.event_bus = Some(event_bus);
         self
     }
@@ -56,7 +50,7 @@ impl ToolCatalog for ComposedToolCatalog {
         for tool in self.extension_tools.values() {
             schemas.push(tool.schema());
         }
-        
+
         // Dynamic MCP schemas
         if let Some(ref mcp_reg) = self.mcp_registry {
             let cached = mcp_reg.get_cached_tools();
@@ -88,7 +82,7 @@ impl ToolCatalog for ComposedToolCatalog {
         if let Some(tool) = self.extension_tools.get(name) {
             return Some(tool.clone());
         }
-        
+
         // Check if name is a canonical ID string
         if let Ok(id) = name.parse::<gestalt_core::tool_descriptor::CanonicalToolId>() {
             if let Some(tool) = self.get_by_id(&id) {

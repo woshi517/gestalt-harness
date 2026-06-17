@@ -5,19 +5,19 @@
 
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
-pub mod default_prompt;
 pub mod accounting;
-pub mod tool_exchanges;
-pub mod tool_clearing;
-pub mod compaction;
 pub mod checkpoint_validation;
+pub mod compaction;
+pub mod default_prompt;
+pub mod tool_clearing;
+pub mod tool_exchanges;
 
 pub use accounting::{ContextAccountant, ContextManagementPolicy, DurabilityMode};
 pub use checkpoint_validation::{validate_checkpoint, ValidationError};
-pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
-pub use tool_clearing::clear_eligible_tool_results;
 pub use compaction::plan_compaction_range;
 pub use gestalt_core::ClearAction;
+pub use tool_clearing::clear_eligible_tool_results;
+pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
 
 use gestalt_core::{
     context::{
@@ -401,7 +401,9 @@ impl ContextPipeline for MinimalContextPipeline {
         let stable_prefix_len = messages
             .iter()
             .take_while(|message| {
-                !is_budget_notice(message) && matches!(message, Message::System { .. })
+                !is_budget_notice(message)
+                    && !is_checkpoint_message(message)
+                    && matches!(message, Message::System { .. })
             })
             .count();
 
@@ -554,6 +556,10 @@ fn split_tail_messages(messages: &[Message]) -> (&[Message], &[Message]) {
     } else {
         (messages, &[])
     }
+}
+
+fn is_checkpoint_message(message: &Message) -> bool {
+    matches!(message, Message::System { content } if content.starts_with("### Session Checkpoint Summary"))
 }
 
 #[cfg(test)]
@@ -945,5 +951,43 @@ mod tests {
         } else {
             panic!("First message is not system prompt");
         }
+    }
+
+    #[test]
+    fn test_checkpoint_message_does_not_enter_stable_prefix_snapshot() {
+        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+            .with_prompt_override("Stable prompt")
+            .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot);
+        let budget = TokenBudget {
+            model_limit: 1000,
+            reserved_output: 16,
+            used_system: 0,
+            used_history: 0,
+            used_sources: 0,
+            used_tools: 0,
+            used_memory: 0,
+            minimum_turn_budget: 8,
+        };
+
+        let baseline = pipeline.build_packet(&[], &budget);
+        let with_checkpoint = pipeline.build_packet(
+            &[Message::System {
+                content: "### Session Checkpoint Summary (ID: cmp_1)\n\n**Goal:** keep working"
+                    .to_string(),
+            }],
+            &budget,
+        );
+
+        assert_eq!(
+            baseline.cache_prefix_hash,
+            with_checkpoint.cache_prefix_hash
+        );
+        assert_eq!(
+            with_checkpoint
+                .cache_plan
+                .as_ref()
+                .map(|plan| plan.prefix_message_count),
+            Some(1)
+        );
     }
 }

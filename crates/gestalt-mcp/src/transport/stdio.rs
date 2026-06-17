@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -22,8 +22,6 @@ struct JsonRpcRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<Value>,
 }
-
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct JsonRpcErrorDetail {
@@ -78,7 +76,10 @@ impl StdioTransport {
         cmd.kill_on_drop(true);
 
         let mut child = cmd.spawn().map_err(|e| {
-            McpError::Initialization(format!("Failed to spawn MCP server '{}': {}", server_name, e))
+            McpError::Initialization(format!(
+                "Failed to spawn MCP server '{}': {}",
+                server_name, e
+            ))
         })?;
 
         let stdin = child
@@ -94,10 +95,8 @@ impl StdioTransport {
             .take()
             .ok_or_else(|| McpError::Initialization("Failed to open child stderr".to_string()))?;
 
-        let (tx_request, mut rx_request) = mpsc::channel::<(
-            Value,
-            oneshot::Sender<std::result::Result<Value, String>>,
-        )>(100);
+        let (tx_request, mut rx_request) =
+            mpsc::channel::<(Value, oneshot::Sender<std::result::Result<Value, String>>)>(100);
         let (tx_notification, rx_notification) = mpsc::channel::<(String, Option<Value>)>(100);
 
         let child_arc = Arc::new(Mutex::new(Some(child)));
@@ -136,11 +135,11 @@ impl StdioTransport {
                                 let id_str = msg.get("id")
                                     .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|i| i.to_string())))
                                     .unwrap_or_default();
-                                
+
                                 if !id_str.is_empty() {
                                     pending.insert(id_str.clone(), resp_tx);
                                 }
-                                
+
                                 let mut bytes = serde_json::to_vec(&msg).unwrap_or_default();
                                 bytes.push(b'\n');
                                 if stdin.write_all(&bytes).await.is_err() || stdin.flush().await.is_err() {
@@ -215,13 +214,14 @@ impl McpTransport for StdioTransport {
             id: Some(id_val.clone()),
         };
 
-        let req_val = serde_json::to_value(&req).map_err(|e| {
-            McpError::Protocol(format!("Failed to serialize request: {}", e))
-        })?;
+        let req_val = serde_json::to_value(&req)
+            .map_err(|e| McpError::Protocol(format!("Failed to serialize request: {}", e)))?;
 
         let (resp_tx, resp_rx) = oneshot::channel();
         if self.tx_request.send((req_val, resp_tx)).await.is_err() {
-            return Err(McpError::Transport("Failed to send request to backend handler".to_string()));
+            return Err(McpError::Transport(
+                "Failed to send request to backend handler".to_string(),
+            ));
         }
 
         // 30 seconds timeout
@@ -240,8 +240,12 @@ impl McpTransport for StdioTransport {
                 Ok(val.get("result").cloned().unwrap_or(Value::Null))
             }
             Ok(Ok(Err(e))) => Err(McpError::Execution(e)),
-            Ok(Err(_)) => Err(McpError::Transport("Response channel closed before receiving result".to_string())),
-            Err(_) => Err(McpError::Timeout("Request timed out after 30 seconds".to_string())),
+            Ok(Err(_)) => Err(McpError::Transport(
+                "Response channel closed before receiving result".to_string(),
+            )),
+            Err(_) => Err(McpError::Timeout(
+                "Request timed out after 30 seconds".to_string(),
+            )),
         }
     }
 
@@ -253,14 +257,16 @@ impl McpTransport for StdioTransport {
             id: None,
         };
 
-        let req_val = serde_json::to_value(&req).map_err(|e| {
-            McpError::Protocol(format!("Failed to serialize notification: {}", e))
-        })?;
+        let req_val = serde_json::to_value(&req)
+            .map_err(|e| McpError::Protocol(format!("Failed to serialize notification: {}", e)))?;
 
         let (resp_tx, _) = oneshot::channel();
-        self.tx_request.send((req_val, resp_tx)).await.map_err(|_| {
-            McpError::Transport("Failed to send notification to backend handler".to_string())
-        })?;
+        self.tx_request
+            .send((req_val, resp_tx))
+            .await
+            .map_err(|_| {
+                McpError::Transport("Failed to send notification to backend handler".to_string())
+            })?;
 
         Ok(())
     }

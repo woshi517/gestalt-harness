@@ -26,10 +26,21 @@ pub struct PatchTool;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatchOperation {
-    Add { path: String, content: String },
-    Update { path: String, replacements: Vec<SearchReplace> },
-    Delete { path: String },
-    Move { from: String, to: String },
+    Add {
+        path: String,
+        content: String,
+    },
+    Update {
+        path: String,
+        replacements: Vec<SearchReplace>,
+    },
+    Delete {
+        path: String,
+    },
+    Move {
+        from: String,
+        to: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,61 +87,84 @@ impl Tool for PatchTool {
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let input = parse_input::<PatchInput>(self.name(), input)?;
-        
+
         let operations = parse_patch(self.name(), &input.patch)?;
         if operations.is_empty() {
-            return Err(invalid_input(self.name(), "patch document contains no valid operations"));
+            return Err(invalid_input(
+                self.name(),
+                "patch document contains no valid operations",
+            ));
         }
 
         // Validate the expected_hash of the primary target file if provided
         if let Some(ref expected_hash) = input.expected_hash {
             let primary_path = validate_existing_path(&input.path, ctx)?;
-            let primary_content = std::fs::read_to_string(&primary_path).map_err(ToolError::ExecutionFailed)?;
+            let primary_content =
+                std::fs::read_to_string(&primary_path).map_err(ToolError::ExecutionFailed)?;
             super::common::check_expected_hash(self.name(), &primary_content, Some(expected_hash))?;
         }
 
         // In-memory representation of proposed changes.
         // key: absolute canonicalized/resolved path, value: (display_path, content)
-        let mut writes: std::collections::HashMap<std::path::PathBuf, (String, String)> = std::collections::HashMap::new();
-        let mut deletes: std::collections::HashMap<std::path::PathBuf, String> = std::collections::HashMap::new();
+        let mut writes: std::collections::HashMap<std::path::PathBuf, (String, String)> =
+            std::collections::HashMap::new();
+        let mut deletes: std::collections::HashMap<std::path::PathBuf, String> =
+            std::collections::HashMap::new();
 
         for op in &operations {
             match op {
                 PatchOperation::Add { path, content } => {
                     let abs_path = validate_write_path(path, ctx)?;
-                    let exists_and_not_deleted = abs_path.exists() && !deletes.contains_key(&abs_path);
+                    let exists_and_not_deleted =
+                        abs_path.exists() && !deletes.contains_key(&abs_path);
                     if exists_and_not_deleted || writes.contains_key(&abs_path) {
-                        return Err(invalid_input(self.name(), format!("destination file already exists: {}", path)));
+                        return Err(invalid_input(
+                            self.name(),
+                            format!("destination file already exists: {}", path),
+                        ));
                     }
                     writes.insert(abs_path, (path.clone(), content.clone()));
                 }
                 PatchOperation::Update { path, replacements } => {
                     let abs_path = validate_write_path(path, ctx)?;
                     if deletes.contains_key(&abs_path) {
-                        return Err(invalid_input(self.name(), format!("cannot update deleted path: {}", path)));
+                        return Err(invalid_input(
+                            self.name(),
+                            format!("cannot update deleted path: {}", path),
+                        ));
                     }
 
                     let current_content = if let Some((_, content)) = writes.get(&abs_path) {
                         content.clone()
                     } else {
                         if !abs_path.exists() {
-                            return Err(invalid_input(self.name(), format!("cannot update non-existent file: {}", path)));
+                            return Err(invalid_input(
+                                self.name(),
+                                format!("cannot update non-existent file: {}", path),
+                            ));
                         }
                         std::fs::read_to_string(&abs_path).map_err(ToolError::ExecutionFailed)?
                     };
 
-                    let new_content = apply_replacements(self.name(), &current_content, replacements)?;
+                    let new_content =
+                        apply_replacements(self.name(), &current_content, replacements)?;
                     writes.insert(abs_path, (path.clone(), new_content));
                 }
                 PatchOperation::Delete { path } => {
                     let abs_path = validate_write_path(path, ctx)?;
                     if deletes.contains_key(&abs_path) {
-                        return Err(invalid_input(self.name(), format!("cannot delete already deleted path: {}", path)));
+                        return Err(invalid_input(
+                            self.name(),
+                            format!("cannot delete already deleted path: {}", path),
+                        ));
                     }
 
                     let was_written = writes.remove(&abs_path).is_some();
                     if !was_written && !abs_path.exists() {
-                        return Err(invalid_input(self.name(), format!("cannot delete non-existent file: {}", path)));
+                        return Err(invalid_input(
+                            self.name(),
+                            format!("cannot delete non-existent file: {}", path),
+                        ));
                     }
                     deletes.insert(abs_path, path.clone());
                 }
@@ -140,17 +174,26 @@ impl Tool for PatchTool {
 
                     let exists_and_not_deleted = abs_to.exists() && !deletes.contains_key(&abs_to);
                     if exists_and_not_deleted || writes.contains_key(&abs_to) {
-                        return Err(invalid_input(self.name(), format!("destination file already exists: {}", to)));
+                        return Err(invalid_input(
+                            self.name(),
+                            format!("destination file already exists: {}", to),
+                        ));
                     }
                     if deletes.contains_key(&abs_from) {
-                        return Err(invalid_input(self.name(), format!("cannot move deleted path: {}", from)));
+                        return Err(invalid_input(
+                            self.name(),
+                            format!("cannot move deleted path: {}", from),
+                        ));
                     }
 
                     let content = if let Some((_, c)) = writes.remove(&abs_from) {
                         c
                     } else {
                         if !abs_from.exists() {
-                            return Err(invalid_input(self.name(), format!("source file does not exist: {}", from)));
+                            return Err(invalid_input(
+                                self.name(),
+                                format!("source file does not exist: {}", from),
+                            ));
                         }
                         std::fs::read_to_string(&abs_from).map_err(ToolError::ExecutionFailed)?
                     };
@@ -164,7 +207,7 @@ impl Tool for PatchTool {
         // Apply mutations if not a dry run.
         if !input.dry_run {
             let mut temp_writes = Vec::new();
-            
+
             struct TempCleanup {
                 paths: Vec<(std::path::PathBuf, std::path::PathBuf)>,
             }
@@ -197,12 +240,14 @@ impl Tool for PatchTool {
                     .map_or(0, |d| d.as_nanos());
                 let temp_name = format!(
                     ".{}.{}.tmp",
-                    abs_path.file_name()
+                    abs_path
+                        .file_name()
                         .map_or_else(|| "temp".to_string(), |n| n.to_string_lossy().to_string()),
                     now
                 );
                 let temp_path = parent.join(temp_name);
-                std::fs::write(&temp_path, content.as_bytes()).map_err(ToolError::ExecutionFailed)?;
+                std::fs::write(&temp_path, content.as_bytes())
+                    .map_err(ToolError::ExecutionFailed)?;
                 cleanup.paths.push((temp_path, abs_path.clone()));
             }
 
@@ -225,10 +270,18 @@ impl Tool for PatchTool {
         let mut operations_summary = serde_json::json!([]);
         for op in &operations {
             let val = match op {
-                PatchOperation::Add { path, .. } => serde_json::json!({ "op": "add", "path": path }),
-                PatchOperation::Update { path, .. } => serde_json::json!({ "op": "update", "path": path }),
-                PatchOperation::Delete { path } => serde_json::json!({ "op": "delete", "path": path }),
-                PatchOperation::Move { from, to } => serde_json::json!({ "op": "move", "from": from, "to": to }),
+                PatchOperation::Add { path, .. } => {
+                    serde_json::json!({ "op": "add", "path": path })
+                }
+                PatchOperation::Update { path, .. } => {
+                    serde_json::json!({ "op": "update", "path": path })
+                }
+                PatchOperation::Delete { path } => {
+                    serde_json::json!({ "op": "delete", "path": path })
+                }
+                PatchOperation::Move { from, to } => {
+                    serde_json::json!({ "op": "move", "from": from, "to": to })
+                }
             };
             operations_summary.as_array_mut().unwrap().push(val);
         }
@@ -258,7 +311,11 @@ pub fn parse_patch(tool_name: &str, patch_str: &str) -> Result<Vec<PatchOperatio
         }
 
         if let Some(rest) = line.strip_prefix("<<< ADD FILE:") {
-            let path = rest.trim_end_matches(">>>").trim().trim_matches('"').to_string();
+            let path = rest
+                .trim_end_matches(">>>")
+                .trim()
+                .trim_matches('"')
+                .to_string();
             if path.is_empty() {
                 return Err(invalid_input(tool_name, "empty path in ADD FILE"));
             }
@@ -277,12 +334,19 @@ pub fn parse_patch(tool_name: &str, patch_str: &str) -> Result<Vec<PatchOperatio
                 i += 1;
             }
             if !found_end {
-                return Err(invalid_input(tool_name, format!("missing END ADD FILE for {}", path)));
+                return Err(invalid_input(
+                    tool_name,
+                    format!("missing END ADD FILE for {}", path),
+                ));
             }
             let content = content_lines.join("\n");
             operations.push(PatchOperation::Add { path, content });
         } else if let Some(rest) = line.strip_prefix("<<< UPDATE FILE:") {
-            let path = rest.trim_end_matches(">>>").trim().trim_matches('"').to_string();
+            let path = rest
+                .trim_end_matches(">>>")
+                .trim()
+                .trim_matches('"')
+                .to_string();
             if path.is_empty() {
                 return Err(invalid_input(tool_name, "empty path in UPDATE FILE"));
             }
@@ -313,7 +377,10 @@ pub fn parse_patch(tool_name: &str, patch_str: &str) -> Result<Vec<PatchOperatio
                         i += 1;
                     }
                     if !found_sep {
-                        return Err(invalid_input(tool_name, "missing ======= separator in SEARCH block"));
+                        return Err(invalid_input(
+                            tool_name,
+                            "missing ======= separator in SEARCH block",
+                        ));
                     }
                     let mut replace_lines = Vec::new();
                     let mut found_close = false;
@@ -329,7 +396,10 @@ pub fn parse_patch(tool_name: &str, patch_str: &str) -> Result<Vec<PatchOperatio
                         i += 1;
                     }
                     if !found_close {
-                        return Err(invalid_input(tool_name, "missing >>>>>>> terminator in SEARCH block"));
+                        return Err(invalid_input(
+                            tool_name,
+                            "missing >>>>>>> terminator in SEARCH block",
+                        ));
                     }
                     replacements.push(SearchReplace {
                         search: search_lines.join("\n"),
@@ -337,17 +407,30 @@ pub fn parse_patch(tool_name: &str, patch_str: &str) -> Result<Vec<PatchOperatio
                     });
                 } else {
                     if !trimmed_inner.is_empty() && !trimmed_inner.starts_with('#') {
-                        return Err(invalid_input(tool_name, format!("unexpected content inside UPDATE FILE block: {}", trimmed_inner)));
+                        return Err(invalid_input(
+                            tool_name,
+                            format!(
+                                "unexpected content inside UPDATE FILE block: {}",
+                                trimmed_inner
+                            ),
+                        ));
                     }
                     i += 1;
                 }
             }
             if !found_end {
-                return Err(invalid_input(tool_name, format!("missing END UPDATE FILE for {}", path)));
+                return Err(invalid_input(
+                    tool_name,
+                    format!("missing END UPDATE FILE for {}", path),
+                ));
             }
             operations.push(PatchOperation::Update { path, replacements });
         } else if let Some(rest) = line.strip_prefix("<<< DELETE FILE:") {
-            let path = rest.trim_end_matches(">>>").trim().trim_matches('"').to_string();
+            let path = rest
+                .trim_end_matches(">>>")
+                .trim()
+                .trim_matches('"')
+                .to_string();
             if path.is_empty() {
                 return Err(invalid_input(tool_name, "empty path in DELETE FILE"));
             }
@@ -364,11 +447,18 @@ pub fn parse_patch(tool_name: &str, patch_str: &str) -> Result<Vec<PatchOperatio
                 i += 1;
             }
             if !found_end {
-                return Err(invalid_input(tool_name, format!("missing END DELETE FILE for {}", path)));
+                return Err(invalid_input(
+                    tool_name,
+                    format!("missing END DELETE FILE for {}", path),
+                ));
             }
             operations.push(PatchOperation::Delete { path });
         } else if let Some(rest) = line.strip_prefix("<<< MOVE FILE:") {
-            let from = rest.trim_end_matches(">>>").trim().trim_matches('"').to_string();
+            let from = rest
+                .trim_end_matches(">>>")
+                .trim()
+                .trim_matches('"')
+                .to_string();
             if from.is_empty() {
                 return Err(invalid_input(tool_name, "empty from-path in MOVE FILE"));
             }
@@ -384,21 +474,41 @@ pub fn parse_patch(tool_name: &str, patch_str: &str) -> Result<Vec<PatchOperatio
                     break;
                 }
                 if let Some(to_rest) = trimmed_inner.strip_prefix("<<< TO:") {
-                    to = Some(to_rest.trim_end_matches(">>>").trim().trim_matches('"').to_string());
+                    to = Some(
+                        to_rest
+                            .trim_end_matches(">>>")
+                            .trim()
+                            .trim_matches('"')
+                            .to_string(),
+                    );
                 }
                 i += 1;
             }
             if !found_end {
-                return Err(invalid_input(tool_name, format!("missing END MOVE FILE for {}", from)));
+                return Err(invalid_input(
+                    tool_name,
+                    format!("missing END MOVE FILE for {}", from),
+                ));
             }
-            let to = to.ok_or_else(|| invalid_input(tool_name, format!("missing TO target in MOVE FILE for {}", from)))?;
+            let to = to.ok_or_else(|| {
+                invalid_input(
+                    tool_name,
+                    format!("missing TO target in MOVE FILE for {}", from),
+                )
+            })?;
             if to.is_empty() {
-                return Err(invalid_input(tool_name, format!("empty TO target in MOVE FILE for {}", from)));
+                return Err(invalid_input(
+                    tool_name,
+                    format!("empty TO target in MOVE FILE for {}", from),
+                ));
             }
             operations.push(PatchOperation::Move { from, to });
         } else {
             if line.contains("<<<") {
-                return Err(invalid_input(tool_name, format!("malformed operation line: {}", line)));
+                return Err(invalid_input(
+                    tool_name,
+                    format!("malformed operation line: {}", line),
+                ));
             }
             i += 1;
         }
@@ -508,10 +618,7 @@ mod tests {
             .expect("patch succeeds");
 
         assert!(!from_path.exists());
-        assert_eq!(
-            fs::read_to_string(&to_path).expect("read moved"),
-            "one\n"
-        );
+        assert_eq!(fs::read_to_string(&to_path).expect("read moved"), "one\n");
     }
 
     #[tokio::test]
@@ -559,10 +666,7 @@ mod tests {
             .await
             .expect("patch succeeds");
 
-        assert_eq!(
-            fs::read_to_string(&path).expect("read updated"),
-            "ONE\n"
-        );
+        assert_eq!(fs::read_to_string(&path).expect("read updated"), "ONE\n");
     }
 
     #[tokio::test]
@@ -585,10 +689,7 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert_eq!(
-            fs::read_to_string(&path).expect("read unchanged"),
-            "one\n"
-        );
+        assert_eq!(fs::read_to_string(&path).expect("read unchanged"), "one\n");
     }
 
     #[tokio::test]
@@ -611,10 +712,7 @@ mod tests {
             .await
             .expect("dry run succeeds");
 
-        assert_eq!(
-            fs::read_to_string(&path).expect("read unchanged"),
-            "one\n"
-        );
+        assert_eq!(fs::read_to_string(&path).expect("read unchanged"), "one\n");
 
         match output {
             ToolOutput::Text { content } => {
@@ -728,10 +826,7 @@ mod tests {
             .expect("delete then move succeeds");
 
         assert!(!a_path.exists());
-        assert_eq!(
-            fs::read_to_string(&b_path).expect("read final"),
-            "from_a\n"
-        );
+        assert_eq!(fs::read_to_string(&b_path).expect("read final"), "from_a\n");
     }
 
     #[tokio::test]

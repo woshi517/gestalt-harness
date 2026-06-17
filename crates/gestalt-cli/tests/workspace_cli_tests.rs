@@ -233,11 +233,16 @@ async fn test_doctor_workspace() {
 
     // Test with missing memory.md
     let gestalt_json_path = temp_root.join("gestalt.json");
-    let mut config_val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&gestalt_json_path).unwrap()).unwrap();
+    let mut config_val: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&gestalt_json_path).unwrap()).unwrap();
     config_val["context"]["memory"] = serde_json::json!({
         "required": true
     });
-    fs::write(&gestalt_json_path, serde_json::to_string_pretty(&config_val).unwrap()).unwrap();
+    fs::write(
+        &gestalt_json_path,
+        serde_json::to_string_pretty(&config_val).unwrap(),
+    )
+    .unwrap();
 
     fs::remove_file(temp_root.join(".gestalt/memory.md")).unwrap();
     let report_missing = doctor_workspace(&overrides).await.unwrap();

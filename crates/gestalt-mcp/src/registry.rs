@@ -13,7 +13,14 @@ use crate::model::{
 pub struct McpRegistry {
     workspace_root: PathBuf,
     configs: HashMap<String, McpServerConfig>,
-    clients: Arc<Mutex<HashMap<String, Arc<tokio::sync::OnceCell<std::result::Result<Arc<McpClient>, McpError>>>>>>,
+    clients: Arc<
+        Mutex<
+            HashMap<
+                String,
+                Arc<tokio::sync::OnceCell<std::result::Result<Arc<McpClient>, McpError>>>,
+            >,
+        >,
+    >,
     failures: Arc<Mutex<HashMap<String, String>>>, // server_name -> error_msg
     event_callback: Arc<std::sync::Mutex<Option<crate::model::McpEventCallback>>>,
 }
@@ -49,7 +56,8 @@ impl McpRegistry {
             let failures = self.failures.lock().await;
             if let Some(err) = failures.get(name) {
                 return Err(McpError::Initialization(format!(
-                    "Server '{}' is marked unavailable: {}", name, err
+                    "Server '{}' is marked unavailable: {}",
+                    name, err
                 )));
             }
         }
@@ -60,7 +68,10 @@ impl McpRegistry {
                 cell.clone()
             } else {
                 if !self.configs.contains_key(name) {
-                    return Err(McpError::Config(format!("MCP Server '{}' not found in config", name)));
+                    return Err(McpError::Config(format!(
+                        "MCP Server '{}' not found in config",
+                        name
+                    )));
                 }
                 let cell = Arc::new(tokio::sync::OnceCell::new());
                 clients.insert(name.to_string(), cell.clone());
@@ -75,39 +86,43 @@ impl McpRegistry {
         };
 
         let name_clone = name.to_string();
-        let result = cell.get_or_init(|| {
-            let config = self.configs.get(name).unwrap().clone();
-            let workspace_root = self.workspace_root.clone();
-            let name_for_init = name_clone.clone();
-            let cb_for_init = cb.clone();
-            async move {
-                if let Some(ref handler) = cb_for_init {
-                    handler(crate::model::McpRegistryEvent::Connecting { server_name: name_for_init.clone() });
-                }
-                match McpClient::connect(config, &workspace_root, cb_for_init.clone()).await {
-                    Ok(client) => {
-                        let tool_count = client.get_cached_tools().map_or(0, |t| t.len());
-                        if let Some(ref handler) = cb_for_init {
-                            handler(crate::model::McpRegistryEvent::Connected {
-                                server_name: name_for_init.clone(),
-                                protocol_version: "2024-11-05".to_string(),
-                                tool_count,
-                            });
-                        }
-                        Ok(Arc::new(client))
+        let result = cell
+            .get_or_init(|| {
+                let config = self.configs.get(name).unwrap().clone();
+                let workspace_root = self.workspace_root.clone();
+                let name_for_init = name_clone.clone();
+                let cb_for_init = cb.clone();
+                async move {
+                    if let Some(ref handler) = cb_for_init {
+                        handler(crate::model::McpRegistryEvent::Connecting {
+                            server_name: name_for_init.clone(),
+                        });
                     }
-                    Err(e) => {
-                        if let Some(ref handler) = cb_for_init {
-                            handler(crate::model::McpRegistryEvent::ConnectionFailed {
-                                server_name: name_for_init.clone(),
-                                reason: e.to_string(),
-                            });
+                    match McpClient::connect(config, &workspace_root, cb_for_init.clone()).await {
+                        Ok(client) => {
+                            let tool_count = client.get_cached_tools().map_or(0, |t| t.len());
+                            if let Some(ref handler) = cb_for_init {
+                                handler(crate::model::McpRegistryEvent::Connected {
+                                    server_name: name_for_init.clone(),
+                                    protocol_version: "2024-11-05".to_string(),
+                                    tool_count,
+                                });
+                            }
+                            Ok(Arc::new(client))
                         }
-                        Err(e)
+                        Err(e) => {
+                            if let Some(ref handler) = cb_for_init {
+                                handler(crate::model::McpRegistryEvent::ConnectionFailed {
+                                    server_name: name_for_init.clone(),
+                                    reason: e.to_string(),
+                                });
+                            }
+                            Err(e)
+                        }
                     }
                 }
-            }
-        }).await;
+            })
+            .await;
 
         match result {
             Ok(client) => Ok(client.clone()),
@@ -122,7 +137,7 @@ impl McpRegistry {
 
     pub fn get_all_states(&self, discovery_threshold: usize) -> Vec<McpServerState> {
         let mut states = Vec::new();
-        
+
         let clients = self.clients.try_lock();
         let failures = self.failures.try_lock();
 
@@ -131,41 +146,48 @@ impl McpRegistry {
 
         for (name, config) in &self.configs {
             let server_id = McpServerId(name.clone());
-            let (conn_state, tool_count, cache_fresh, last_error) = if let Ok(ref failures) = failures {
-                if let Some(err) = failures.get(name) {
-                    (McpConnectionState::Failed, 0, false, Some(err.clone()))
-                } else if let Ok(ref clients) = clients {
-                    if let Some(cell) = clients.get(name) {
-                        match cell.get() {
-                            Some(Ok(client)) => {
-                                let tools = client.get_cached_tools().unwrap_or_default();
-                                let is_fresh = client.get_cached_tools().is_some();
-                                (McpConnectionState::Connected, tools.len(), is_fresh, None)
+            let (conn_state, tool_count, cache_fresh, last_error) =
+                if let Ok(ref failures) = failures {
+                    if let Some(err) = failures.get(name) {
+                        (McpConnectionState::Failed, 0, false, Some(err.clone()))
+                    } else if let Ok(ref clients) = clients {
+                        if let Some(cell) = clients.get(name) {
+                            match cell.get() {
+                                Some(Ok(client)) => {
+                                    let tools = client.get_cached_tools().unwrap_or_default();
+                                    let is_fresh = client.get_cached_tools().is_some();
+                                    (McpConnectionState::Connected, tools.len(), is_fresh, None)
+                                }
+                                Some(Err(e)) => {
+                                    (McpConnectionState::Failed, 0, false, Some(e.to_string()))
+                                }
+                                None => (McpConnectionState::Connecting, 0, false, None),
                             }
-                            Some(Err(e)) => {
-                                (McpConnectionState::Failed, 0, false, Some(e.to_string()))
-                            }
-                            None => {
-                                (McpConnectionState::Connecting, 0, false, None)
-                            }
+                        } else {
+                            (McpConnectionState::Disconnected, 0, false, None)
                         }
                     } else {
                         (McpConnectionState::Disconnected, 0, false, None)
                     }
                 } else {
                     (McpConnectionState::Disconnected, 0, false, None)
-                }
-            } else {
-                (McpConnectionState::Disconnected, 0, false, None)
-            };
+                };
 
             total_tools += tool_count;
-            server_info.push((server_id, conn_state, tool_count, cache_fresh, last_error, config.trust_level.clone()));
+            server_info.push((
+                server_id,
+                conn_state,
+                tool_count,
+                cache_fresh,
+                last_error,
+                config.trust_level.clone(),
+            ));
         }
 
         let discovery_mode = total_tools > discovery_threshold;
 
-        for (server_id, conn_state, tool_count, cache_fresh, last_error, trust_level) in server_info {
+        for (server_id, conn_state, tool_count, cache_fresh, last_error, trust_level) in server_info
+        {
             states.push(McpServerState {
                 server_id,
                 connection_state: conn_state,
@@ -192,7 +214,12 @@ impl McpRegistry {
         Ok(all_tools)
     }
 
-    pub async fn call_tool(&self, server_name: &str, tool_name: &str, arguments: serde_json::Value) -> Result<McpCallResult> {
+    pub async fn call_tool(
+        &self,
+        server_name: &str,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<McpCallResult> {
         let client = self.get_client(server_name).await?;
         client.call_tool(tool_name, arguments).await
     }
@@ -217,12 +244,21 @@ impl McpRegistry {
         self.configs.get(name).and_then(|c| c.trust_level.clone())
     }
 
-    pub fn get_tool_annotations(&self, server_name: &str, tool_name: &str) -> Option<HashMap<String, String>> {
-        self.configs.get(server_name)
+    pub fn get_tool_annotations(
+        &self,
+        server_name: &str,
+        tool_name: &str,
+    ) -> Option<HashMap<String, String>> {
+        self.configs
+            .get(server_name)
             .and_then(|c| c.tool_annotations.get(tool_name).cloned())
     }
 
-    pub fn get_cached_tool(&self, server_name: &str, tool_name: &str) -> Option<crate::model::McpToolSchema> {
+    pub fn get_cached_tool(
+        &self,
+        server_name: &str,
+        tool_name: &str,
+    ) -> Option<crate::model::McpToolSchema> {
         if let Ok(clients) = self.clients.try_lock() {
             if let Some(cell) = clients.get(server_name) {
                 if let Some(Ok(client)) = cell.get() {
@@ -244,4 +280,3 @@ impl McpRegistry {
         }
     }
 }
-

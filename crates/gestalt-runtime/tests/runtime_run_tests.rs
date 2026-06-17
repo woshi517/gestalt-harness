@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{
@@ -910,4 +911,255 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
         .segments
         .iter()
         .any(|segment| segment.kind == gestalt_core::context::PromptSegmentKind::Snapshot));
+}
+
+struct NoopProvider;
+
+#[async_trait::async_trait]
+impl Provider for NoopProvider {
+    fn id(&self) -> &str {
+        "noop"
+    }
+
+    fn display_name(&self) -> &str {
+        "Noop"
+    }
+
+    fn default_model(&self) -> &str {
+        "noop-model"
+    }
+
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAP: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: true,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: true,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: true,
+            supports_strict_schema: false,
+        };
+        &CAP
+    }
+
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+
+    fn count_tokens(
+        &self,
+        _model: &str,
+        messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(messages
+            .iter()
+            .map(gestalt_context::estimate_message_tokens)
+            .sum())
+    }
+
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        Ok(Box::pin(futures::stream::empty()))
+    }
+}
+
+struct OverheadProvider;
+
+#[async_trait::async_trait]
+impl Provider for OverheadProvider {
+    fn id(&self) -> &str {
+        "overhead"
+    }
+
+    fn display_name(&self) -> &str {
+        "Overhead"
+    }
+
+    fn default_model(&self) -> &str {
+        "overhead-model"
+    }
+
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAP: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: true,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: true,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: true,
+            supports_strict_schema: false,
+        };
+        &CAP
+    }
+
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+
+    fn count_tokens(
+        &self,
+        _model: &str,
+        messages: &[Message],
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        Ok(messages
+            .iter()
+            .map(gestalt_context::estimate_message_tokens)
+            .sum())
+    }
+
+    fn count_request_tokens(
+        &self,
+        request: &ProviderRequest,
+    ) -> Result<usize, gestalt_core::error::HarnessError> {
+        let base: usize = request
+            .messages
+            .iter()
+            .map(gestalt_context::estimate_message_tokens)
+            .sum();
+        Ok(base.saturating_add(request.tools.len().saturating_mul(512)))
+    }
+
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+        Ok(Box::pin(futures::stream::empty()))
+    }
+}
+
+#[tokio::test]
+async fn test_prepare_context_uses_full_history_when_management_enabled() {
+    let pipeline = RuntimeContextPipeline {
+        base: Arc::new(MinimalContextPipeline::new("pipeline-v1").with_prompt_override("prompt")),
+        patch_store: Arc::new(std::sync::Mutex::new(Vec::new())),
+        current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
+    };
+
+    let history: Vec<Message> = (0..8)
+        .map(|idx| Message::User {
+            content: vec![ContentBlock::Text {
+                text: format!("message-{idx}-{}", "x".repeat(80)),
+            }],
+            metadata: None,
+        })
+        .collect();
+
+    let budget = TokenBudget {
+        model_limit: 180,
+        reserved_output: 16,
+        used_system: 0,
+        used_history: 0,
+        used_sources: 0,
+        used_tools: 0,
+        used_memory: 0,
+        minimum_turn_budget: 0,
+    };
+
+    let truncated_packet = pipeline.build_packet(&history, &budget);
+    assert!(truncated_packet.token_estimate <= 164);
+
+    let policy = gestalt_core::ContextManagementPolicy {
+        enabled: true,
+        buffer_tokens: 0,
+        keep_recent_tokens: usize::MAX,
+        keep_recent_turns: usize::MAX,
+        ..Default::default()
+    };
+    let request_template = ProviderRequest {
+        model: "noop-model".to_string(),
+        max_tokens: 128,
+        ..Default::default()
+    };
+
+    let err = pipeline
+        .prepare_context(
+            &history,
+            &budget,
+            &NoopProvider,
+            &request_template,
+            "noop-model",
+            "session-1",
+            "run-1",
+            0,
+            &policy,
+            None,
+            &mut |_| Ok(()),
+        )
+        .await
+        .expect_err("full-history pressure should not be hidden by pre-truncation");
+
+    assert!(format!("{err}").contains("exceeds limit"));
+}
+
+#[tokio::test]
+async fn test_prepare_context_counts_tool_schema_overhead() {
+    let pipeline = RuntimeContextPipeline {
+        base: Arc::new(MinimalContextPipeline::new("pipeline-v1").with_prompt_override("prompt")),
+        patch_store: Arc::new(std::sync::Mutex::new(Vec::new())),
+        current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
+    };
+
+    let history = vec![Message::User {
+        content: vec![ContentBlock::Text {
+            text: "short request".to_string(),
+        }],
+        metadata: None,
+    }];
+    let budget = TokenBudget {
+        model_limit: 240,
+        reserved_output: 16,
+        used_system: 0,
+        used_history: 0,
+        used_sources: 0,
+        used_tools: 0,
+        used_memory: 0,
+        minimum_turn_budget: 0,
+    };
+    let request_template = ProviderRequest {
+        model: "overhead-model".to_string(),
+        tools: vec![gestalt_core::provider::ProviderToolSchema {
+            name: "expensive_tool".to_string(),
+            description: "large schema".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } },
+            }),
+            strict: None,
+        }],
+        max_tokens: 128,
+        ..Default::default()
+    };
+
+    let err = pipeline
+        .prepare_context(
+            &history,
+            &budget,
+            &OverheadProvider,
+            &request_template,
+            "overhead-model",
+            "session-1",
+            "run-1",
+            0,
+            &gestalt_core::ContextManagementPolicy {
+                enabled: true,
+                buffer_tokens: 0,
+                keep_recent_tokens: usize::MAX,
+                keep_recent_turns: usize::MAX,
+                ..Default::default()
+            },
+            None,
+            &mut |_| Ok(()),
+        )
+        .await
+        .expect_err("tool schema overhead should participate in fit checks");
+
+    assert!(format!("{err}").contains("exceeds limit"));
 }

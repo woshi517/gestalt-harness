@@ -29,10 +29,8 @@ pub struct ProcessExtensionBroker {
     is_trusted: bool,
     negotiated_version: Arc<Mutex<String>>,
     negotiated_capabilities: Arc<Mutex<Capabilities>>,
-    pending_requests: Arc<Mutex<HashMap<
-        String,
-        oneshot::Sender<std::result::Result<JsonRpcResponse, String>>,
-    >>>,
+    pending_requests:
+        Arc<Mutex<HashMap<String, oneshot::Sender<std::result::Result<JsonRpcResponse, String>>>>>,
 }
 
 impl ProcessExtensionBroker {
@@ -41,11 +39,17 @@ impl ProcessExtensionBroker {
     }
 
     pub fn negotiated_version(&self) -> String {
-        self.negotiated_version.try_lock().map(|g| g.clone()).unwrap_or_default()
+        self.negotiated_version
+            .try_lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     pub fn negotiated_capabilities(&self) -> Capabilities {
-        self.negotiated_capabilities.try_lock().map(|g| g.clone()).unwrap_or_default()
+        self.negotiated_capabilities
+            .try_lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -90,17 +94,24 @@ fn jsonrpc_id_to_string(id: &serde_json::Value) -> String {
     }
 }
 
-fn validate_jsonrpc_response(val: &serde_json::Value) -> std::result::Result<(String, JsonRpcResponse), String> {
-    let obj = val.as_object().ok_or_else(|| "Message is not a JSON object".to_string())?;
+fn validate_jsonrpc_response(
+    val: &serde_json::Value,
+) -> std::result::Result<(String, JsonRpcResponse), String> {
+    let obj = val
+        .as_object()
+        .ok_or_else(|| "Message is not a JSON object".to_string())?;
 
-    let jsonrpc = obj.get("jsonrpc")
+    let jsonrpc = obj
+        .get("jsonrpc")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "Missing jsonrpc field".to_string())?;
     if jsonrpc != "2.0" {
         return Err(format!("Unsupported jsonrpc version: {}", jsonrpc));
     }
 
-    let id_val = obj.get("id").ok_or_else(|| "Response is missing 'id'".to_string())?;
+    let id_val = obj
+        .get("id")
+        .ok_or_else(|| "Response is missing 'id'".to_string())?;
     if id_val.is_null() {
         return Err("id cannot be null".to_string());
     }
@@ -217,10 +228,9 @@ impl ProcessExtensionBroker {
             }
         });
 
-        let pending_requests: Arc<Mutex<HashMap<
-            String,
-            oneshot::Sender<std::result::Result<JsonRpcResponse, String>>,
-        >>> = Arc::new(Mutex::new(HashMap::new()));
+        let pending_requests: Arc<
+            Mutex<HashMap<String, oneshot::Sender<std::result::Result<JsonRpcResponse, String>>>>,
+        > = Arc::new(Mutex::new(HashMap::new()));
 
         let pending_requests_clone1 = pending_requests.clone();
         let limits_for_writer = limits.clone();
@@ -231,7 +241,11 @@ impl ProcessExtensionBroker {
             let max_pending = limits_for_writer.max_pending_requests.unwrap_or(16);
 
             while let Some((req, response_tx)) = rx.recv().await {
-                let id_str = req.id.as_ref().map(jsonrpc_id_to_string).unwrap_or_default();
+                let id_str = req
+                    .id
+                    .as_ref()
+                    .map(jsonrpc_id_to_string)
+                    .unwrap_or_default();
                 if req.id.is_some() {
                     let current_len = {
                         let lock = pending_requests_clone1.lock().await;
@@ -284,13 +298,17 @@ impl ProcessExtensionBroker {
                     }
                     Ok(0) => break,
                     Ok(_) => {
-                        let parse_res: serde_json::Result<serde_json::Value> = serde_json::from_str(&line);
+                        let parse_res: serde_json::Result<serde_json::Value> =
+                            serde_json::from_str(&line);
                         match parse_res {
                             Err(e) => {
                                 protocol_errors += 1;
                                 event_bus_clone2.publish(RuntimeEvent::ExtensionError {
                                     extension_id: extension_id_clone2.clone(),
-                                    message: format!("ExtensionProtocolError: Malformed JSON: {}", e),
+                                    message: format!(
+                                        "ExtensionProtocolError: Malformed JSON: {}",
+                                        e
+                                    ),
                                 });
                             }
                             Ok(val) => {
@@ -321,7 +339,10 @@ impl ProcessExtensionBroker {
                                             };
                                             let mut lock = pending_requests_clone2.lock().await;
                                             if let Some(tx) = lock.remove(&id_str) {
-                                                let _ = tx.send(Err(format!("ExtensionProtocolError: {}", err_msg)));
+                                                let _ = tx.send(Err(format!(
+                                                    "ExtensionProtocolError: {}",
+                                                    err_msg
+                                                )));
                                             }
                                         }
                                     }
@@ -383,7 +404,8 @@ impl ProcessExtensionBroker {
         let init_res = broker.call("initialize", Some(init_params)).await;
         let (negotiated_ver, negotiated_caps) = match init_res {
             Ok(val) => {
-                let ver = val.get("version")
+                let ver = val
+                    .get("version")
                     .and_then(|v| v.as_str())
                     .unwrap_or("1.0")
                     .to_string();
@@ -416,7 +438,9 @@ impl ProcessExtensionBroker {
                     extension_id: extension_id.clone(),
                     reason: format!("No mutually supported protocol version (manifest: {}, extension negotiated: {})", manifest_proto, negotiated_ver),
                 });
-                return Err(RuntimeError::Extension("No mutually supported protocol version".to_string()));
+                return Err(RuntimeError::Extension(
+                    "No mutually supported protocol version".to_string(),
+                ));
             }
         } else if manifest_proto == "1.0" {
             if negotiated_ver != "1.0" {
@@ -425,7 +449,9 @@ impl ProcessExtensionBroker {
                     extension_id: extension_id.clone(),
                     reason: format!("No mutually supported protocol version (manifest: {}, extension negotiated: {})", manifest_proto, negotiated_ver),
                 });
-                return Err(RuntimeError::Extension("No mutually supported protocol version".to_string()));
+                return Err(RuntimeError::Extension(
+                    "No mutually supported protocol version".to_string(),
+                ));
             }
         } else {
             broker.shutdown().await;
@@ -433,7 +459,9 @@ impl ProcessExtensionBroker {
                 extension_id: extension_id.clone(),
                 reason: format!("Unsupported manifest protocol version: {}", manifest_proto),
             });
-            return Err(RuntimeError::Extension("Unsupported manifest protocol version".to_string()));
+            return Err(RuntimeError::Extension(
+                "Unsupported manifest protocol version".to_string(),
+            ));
         }
 
         {
@@ -560,7 +588,8 @@ impl ProcessExtensionBroker {
         let mut lock = self.child.lock().await;
         if let Some(mut child) = lock.take() {
             let shutdown_timeout = self.timeouts.shutdown_ms.unwrap_or(5000);
-            match tokio::time::timeout(Duration::from_millis(shutdown_timeout), child.wait()).await {
+            match tokio::time::timeout(Duration::from_millis(shutdown_timeout), child.wait()).await
+            {
                 Ok(status) => {
                     self.event_bus.publish(RuntimeEvent::ProcessExited {
                         extension_id: self.manifest.id.clone(),
@@ -728,8 +757,12 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
             if !artifacts_val.is_empty() {
                 let art = &artifacts_val[0];
                 let path = art.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                let mime_type = art.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                let size_bytes = art.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let mime_type = art
+                    .get("mime_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("text/plain");
+                let size_bytes =
+                    art.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
                 return Ok(gestalt_core::tool::ToolOutput::Artifact {
                     path: std::path::PathBuf::from(path),
@@ -799,8 +832,14 @@ impl crate::context::ContextContributor for ProcessBackedContextContributor {
         let content = if let Some(items_val) = res.get("items").and_then(|v| v.as_array()) {
             let mut combined_content = String::new();
             for item in items_val {
-                let mut trust = item.get("trust").and_then(|t| t.as_str()).unwrap_or("untrusted");
-                let mut priority = item.get("priority").and_then(|p| p.as_str()).unwrap_or("medium");
+                let mut trust = item
+                    .get("trust")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("untrusted");
+                let mut priority = item
+                    .get("priority")
+                    .and_then(|p| p.as_str())
+                    .unwrap_or("medium");
                 let item_content = item.get("content").and_then(|c| c.as_str()).unwrap_or("");
 
                 let is_broker_trusted = self.broker.is_trusted();

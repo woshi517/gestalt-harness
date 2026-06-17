@@ -100,4 +100,3 @@ pub fn compute_variant_fingerprint(
     }
     format!("{:x}", hasher.finalize())
 }
-

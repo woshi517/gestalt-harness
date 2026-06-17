@@ -1,9 +1,5 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use thiserror::Error;
+use gestalt_core::context::{ContextOmission, ContextSourceRef};
+use gestalt_core::message::Message;
 use gestalt_core::{
     event::PolicyStatus,
     policy::{PolicyEngine, PolicyRequest},
@@ -11,8 +7,12 @@ use gestalt_core::{
     tool::RiskLevel,
     ContextStability,
 };
-use gestalt_core::context::{ContextSourceRef, ContextOmission};
-use gestalt_core::message::Message;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -91,10 +91,7 @@ pub enum WorkspaceContextError {
     Io(#[from] std::io::Error),
 
     #[error("Required file missing: {source_kind} at {path}")]
-    RequiredMissing {
-        source_kind: String,
-        path: PathBuf,
-    },
+    RequiredMissing { source_kind: String, path: PathBuf },
 
     #[error("Source too large: {source_kind} at {path} ({bytes} bytes exceeds {max_bytes} max)")]
     OversizedBytes {
@@ -104,7 +101,9 @@ pub enum WorkspaceContextError {
         max_bytes: usize,
     },
 
-    #[error("Source too large: {source_kind} at {path} ({tokens} tokens exceeds {max_tokens} max)")]
+    #[error(
+        "Source too large: {source_kind} at {path} ({tokens} tokens exceeds {max_tokens} max)"
+    )]
     OversizedTokens {
         source_kind: String,
         path: PathBuf,
@@ -113,21 +112,13 @@ pub enum WorkspaceContextError {
     },
 
     #[error("Path traversal escape: {path} is outside workspace root {root}")]
-    PathEscape {
-        path: PathBuf,
-        root: PathBuf,
-    },
+    PathEscape { path: PathBuf, root: PathBuf },
 
     #[error("Permission denied for path {path}: {reason}")]
-    PermissionDenied {
-        path: PathBuf,
-        reason: String,
-    },
+    PermissionDenied { path: PathBuf, reason: String },
 
     #[error("Invalid memory format: {reason}")]
-    InvalidFormat {
-        reason: String,
-    },
+    InvalidFormat { reason: String },
 
     #[error("Memory write conflict: expected hash {expected_hash}, actual hash {actual_hash}")]
     MemoryWriteConflict {
@@ -207,8 +198,13 @@ pub fn parse_memory_markdown(
             while i < lines.len() {
                 let next_line = lines[i];
                 let trimmed = next_line.trim();
-                if next_line.starts_with("  ") || next_line.starts_with("\t") || trimmed.is_empty() {
-                    if trimmed.starts_with("## ") || trimmed.starts_with("# ") || trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+                if next_line.starts_with("  ") || next_line.starts_with("\t") || trimmed.is_empty()
+                {
+                    if trimmed.starts_with("## ")
+                        || trimmed.starts_with("# ")
+                        || trimmed.starts_with("- ")
+                        || trimmed.starts_with("* ")
+                    {
                         break;
                     }
                     entry_lines.push(trimmed.to_string());
@@ -256,7 +252,10 @@ pub struct WorkspaceContextLoader {
 
 impl WorkspaceContextLoader {
     pub fn new(workspace_root: PathBuf, policy: Option<Arc<dyn PolicyEngine>>) -> Self {
-        Self { workspace_root, policy }
+        Self {
+            workspace_root,
+            policy,
+        }
     }
 
     pub async fn load_workspace_instructions(
@@ -268,7 +267,9 @@ impl WorkspaceContextLoader {
         }
 
         let path = config.path.clone().unwrap_or_else(default_workspace_path);
-        let resolved = self.resolve_and_validate_path(&path, "workspace instructions").await?;
+        let resolved = self
+            .resolve_and_validate_path(&path, "workspace instructions")
+            .await?;
 
         if !resolved.exists() {
             if config.required.unwrap_or(false) {
@@ -315,7 +316,9 @@ impl WorkspaceContextLoader {
         }
 
         let path = config.path.clone().unwrap_or_else(default_memory_path);
-        let resolved = self.resolve_and_validate_path(&path, "workspace memory").await?;
+        let resolved = self
+            .resolve_and_validate_path(&path, "workspace memory")
+            .await?;
 
         if !resolved.exists() {
             if config.required.unwrap_or(false) {
@@ -339,8 +342,6 @@ impl WorkspaceContextLoader {
             });
         }
 
-
-
         Ok(Some(content))
     }
 
@@ -359,7 +360,9 @@ impl WorkspaceContextLoader {
             resolved.canonicalize()?
         } else if let Some(parent) = resolved.parent() {
             if parent.exists() {
-                parent.canonicalize()?.join(resolved.file_name().unwrap_or_default())
+                parent
+                    .canonicalize()?
+                    .join(resolved.file_name().unwrap_or_default())
             } else {
                 resolved.clone()
             }
@@ -367,7 +370,10 @@ impl WorkspaceContextLoader {
             resolved.clone()
         };
 
-        let canonical_workspace = self.workspace_root.canonicalize().unwrap_or_else(|_| self.workspace_root.clone());
+        let canonical_workspace = self
+            .workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| self.workspace_root.clone());
 
         let is_inside = canonical_resolved.starts_with(&canonical_workspace);
         if !is_inside {
@@ -388,7 +394,9 @@ impl WorkspaceContextLoader {
                 if decision.status == PolicyStatus::Denied {
                     return Err(WorkspaceContextError::PermissionDenied {
                         path: canonical_resolved,
-                        reason: decision.reason.unwrap_or_else(|| "Denied by path policies".to_string()),
+                        reason: decision
+                            .reason
+                            .unwrap_or_else(|| "Denied by path policies".to_string()),
                     });
                 }
             } else {
@@ -432,7 +440,10 @@ pub struct WorkspaceInstructionContributor {
 
 impl WorkspaceInstructionContributor {
     pub fn new(content: String, source_ref: ContextSourceRef) -> Self {
-        Self { content, source_ref }
+        Self {
+            content,
+            source_ref,
+        }
     }
 }
 
@@ -464,8 +475,16 @@ pub struct MarkdownMemoryContributor {
 }
 
 impl MarkdownMemoryContributor {
-    pub fn new(content: String, source_ref: ContextSourceRef, omissions: Vec<ContextOmission>) -> Self {
-        Self { content, source_ref, omissions }
+    pub fn new(
+        content: String,
+        source_ref: ContextSourceRef,
+        omissions: Vec<ContextOmission>,
+    ) -> Self {
+        Self {
+            content,
+            source_ref,
+            omissions,
+        }
     }
 }
 
@@ -513,7 +532,8 @@ pub fn select_memory_entries(
             }
         }
         MemorySelectionStrategy::Budgeted => {
-            let (pinned, unpinned): (Vec<_>, Vec<_>) = entries.iter().cloned().partition(|e| e.pinned);
+            let (pinned, unpinned): (Vec<_>, Vec<_>) =
+                entries.iter().cloned().partition(|e| e.pinned);
 
             // Pinned entries survive trimming: they are always included regardless of the budget limit,
             // and do not get omitted.
@@ -562,7 +582,10 @@ pub fn format_memory_markdown(selected: &[MemoryEntry]) -> String {
         markdown.push_str(&format!("\n## {}\n\n", section));
         for entry in selected {
             if entry.section == section {
-                markdown.push_str(&format!("- <!-- gestalt-memory-id: {} --> {}\n", entry.id, entry.content));
+                markdown.push_str(&format!(
+                    "- <!-- gestalt-memory-id: {} --> {}\n",
+                    entry.id, entry.content
+                ));
             }
         }
     }
@@ -585,7 +608,10 @@ pub async fn load_and_snapshot_workspace_context(
 > {
     let loader = WorkspaceContextLoader::new(workspace_root.to_path_buf(), policy);
 
-    let workspace_instructions_path = workspace_config.path.clone().unwrap_or_else(default_workspace_path);
+    let workspace_instructions_path = workspace_config
+        .path
+        .clone()
+        .unwrap_or_else(default_workspace_path);
     let mut workspace_instructions_hash = None;
     let mut workspace_instruction_contributor = None;
 
@@ -614,7 +640,8 @@ pub async fn load_and_snapshot_workspace_context(
                     authority: Some("workspace".to_string()),
                 };
 
-                workspace_instruction_contributor = Some(WorkspaceInstructionContributor::new(content, source_ref));
+                workspace_instruction_contributor =
+                    Some(WorkspaceInstructionContributor::new(content, source_ref));
                 event_bus.publish_agent(gestalt_core::AgentEvent::ContextContributorResolved {
                     name: "00_workspace_instructions".to_string(),
                     stability: format!("{:?}", ContextStability::SessionStatic),
@@ -644,7 +671,10 @@ pub async fn load_and_snapshot_workspace_context(
         });
     }
 
-    let memory_path = memory_config.path.clone().unwrap_or_else(default_memory_path);
+    let memory_path = memory_config
+        .path
+        .clone()
+        .unwrap_or_else(default_memory_path);
     let mut memory_hash = None;
     let mut selected_memory_ids = Vec::new();
     let mut markdown_memory_contributor = None;
@@ -663,15 +693,26 @@ pub async fn load_and_snapshot_workspace_context(
                     path: memory_path.to_string_lossy().to_string(),
                     bytes: content.len(),
                     tokens,
-                    strategy: format!("{:?}", memory_config.strategy.unwrap_or(MemorySelectionStrategy::Budgeted)),
+                    strategy: format!(
+                        "{:?}",
+                        memory_config
+                            .strategy
+                            .unwrap_or(MemorySelectionStrategy::Budgeted)
+                    ),
                 });
 
-                let pinned_sec = memory_config.pinned_section.clone().unwrap_or_else(|| "Facts".to_string());
+                let pinned_sec = memory_config
+                    .pinned_section
+                    .clone()
+                    .unwrap_or_else(|| "Facts".to_string());
                 let entries = parse_memory_markdown(&content, &pinned_sec)?;
 
                 let max_tokens = memory_config.max_tokens.unwrap_or(8000);
-                let strategy = memory_config.strategy.unwrap_or(MemorySelectionStrategy::Budgeted);
-                let (selected, omissions, total_tokens) = select_memory_entries(&entries, strategy, max_tokens);
+                let strategy = memory_config
+                    .strategy
+                    .unwrap_or(MemorySelectionStrategy::Budgeted);
+                let (selected, omissions, total_tokens) =
+                    select_memory_entries(&entries, strategy, max_tokens);
                 selected_memory_ids = selected.iter().map(|e| e.id.clone()).collect();
 
                 let pinned_count = selected.iter().filter(|e| e.pinned).count();
@@ -691,7 +732,11 @@ pub async fn load_and_snapshot_workspace_context(
                     authority: Some("workspace".to_string()),
                 };
 
-                markdown_memory_contributor = Some(MarkdownMemoryContributor::new(formatted_content, source_ref, omissions));
+                markdown_memory_contributor = Some(MarkdownMemoryContributor::new(
+                    formatted_content,
+                    source_ref,
+                    omissions,
+                ));
                 event_bus.publish_agent(gestalt_core::AgentEvent::ContextContributorResolved {
                     name: "01_markdown_memory".to_string(),
                     stability: format!("{:?}", ContextStability::SessionStatic),
@@ -790,7 +835,11 @@ pub async fn apply_memory_proposal(
     event_bus: &crate::event_bus::RuntimeEventBus,
     policy: Option<Arc<dyn PolicyEngine>>,
 ) -> Result<(), WorkspaceContextError> {
-    if memory_config.write_mode.unwrap_or(MemoryWriteMode::Proposal) == MemoryWriteMode::Disabled {
+    if memory_config
+        .write_mode
+        .unwrap_or(MemoryWriteMode::Proposal)
+        == MemoryWriteMode::Disabled
+    {
         return Err(WorkspaceContextError::MemoryWriteDisabled);
     }
 
@@ -804,9 +853,12 @@ pub async fn apply_memory_proposal(
     });
 
     let accepted_ops: Vec<String> = match decision {
-        MemoryProposalDecision::AcceptAll => {
-            proposal.operations.iter().enumerate().map(|(idx, _)| idx.to_string()).collect()
-        }
+        MemoryProposalDecision::AcceptAll => proposal
+            .operations
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| idx.to_string())
+            .collect(),
         MemoryProposalDecision::AcceptSelected(selected) => selected.clone(),
         MemoryProposalDecision::Reject => {
             event_bus.publish_agent(gestalt_core::AgentEvent::MemoryProposalDecisionRecorded {
@@ -829,8 +881,13 @@ pub async fn apply_memory_proposal(
     }
 
     let loader = WorkspaceContextLoader::new(workspace_root.to_path_buf(), policy);
-    let path = memory_config.path.clone().unwrap_or_else(default_memory_path);
-    let resolved = loader.resolve_and_validate_path(&path, "workspace memory").await?;
+    let path = memory_config
+        .path
+        .clone()
+        .unwrap_or_else(default_memory_path);
+    let resolved = loader
+        .resolve_and_validate_path(&path, "workspace memory")
+        .await?;
 
     let existing_content = if resolved.exists() {
         std::fs::read_to_string(&resolved)?
@@ -855,7 +912,10 @@ pub async fn apply_memory_proposal(
         });
     }
 
-    let pinned_sec = memory_config.pinned_section.clone().unwrap_or_else(|| "Facts".to_string());
+    let pinned_sec = memory_config
+        .pinned_section
+        .clone()
+        .unwrap_or_else(|| "Facts".to_string());
     let mut entries = if resolved.exists() {
         parse_memory_markdown(&existing_content, &pinned_sec)?
     } else {
@@ -901,7 +961,9 @@ pub async fn apply_memory_proposal(
             MemoryOperation::Remove { entry_id, .. } => {
                 entries.retain(|e| e.id != *entry_id);
             }
-            MemoryOperation::Supersede { entry_id, content, .. } => {
+            MemoryOperation::Supersede {
+                entry_id, content, ..
+            } => {
                 if let Some(entry) = entries.iter_mut().find(|e| e.id == *entry_id) {
                     let (_, cleaned_content) = extract_or_generate_id(content, &entry.section);
                     let mut hasher = Sha256::new();
@@ -943,4 +1005,3 @@ pub async fn apply_memory_proposal(
 
     Ok(())
 }
-

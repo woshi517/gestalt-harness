@@ -286,6 +286,13 @@ impl Provider for OpenAiProvider {
         Ok(ModelCatalog::count_tokens(messages))
     }
 
+    fn count_request_tokens(&self, request: &ProviderRequest) -> Result<usize, HarnessError> {
+        let message_tokens = ModelCatalog::count_tokens(&request.messages);
+        let body = self.body(request);
+        let serialized = serde_json::to_string(&body).unwrap_or_default();
+        Ok(message_tokens.max(serialized.len() / 4))
+    }
+
     async fn stream(
         &self,
         request: ProviderRequest,

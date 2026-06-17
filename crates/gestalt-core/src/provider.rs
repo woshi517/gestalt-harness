@@ -32,6 +32,26 @@ pub trait Provider: Send + Sync {
     /// Count tokens for a fully assembled message list.
     fn count_tokens(&self, model: &str, messages: &[Message]) -> Result<usize, HarnessError>;
 
+    /// Count tokens for the final provider request, including provider-specific
+    /// request overhead such as tool schemas and cache metadata.
+    fn count_request_tokens(&self, request: &ProviderRequest) -> Result<usize, HarnessError> {
+        let message_tokens = self.count_tokens(&request.model, &request.messages)?;
+        let overhead = serde_json::to_string(&serde_json::json!({
+            "tools": request.tools,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "top_p": request.top_p,
+            "stop_sequences": request.stop_sequences,
+            "cache_plan": request.cache_plan,
+            "metadata": request.metadata,
+            "reasoning_effort": request.reasoning_effort,
+            "text_verbosity": request.text_verbosity,
+        }))
+        .unwrap_or_default();
+
+        Ok(message_tokens.saturating_add(overhead.len() / 4))
+    }
+
     /// Stream a normalized event sequence for one model request.
     async fn stream(&self, request: ProviderRequest) -> Result<EventStream, HarnessError>;
 
@@ -193,4 +213,3 @@ impl Default for ProviderRequest {
         }
     }
 }
-

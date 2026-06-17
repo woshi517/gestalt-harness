@@ -5,9 +5,9 @@ use tokio;
 use gestalt_core::event::AgentEvent;
 use gestalt_runtime::event_bus::RuntimeEventBus;
 use gestalt_runtime::workspace_context::{
-    apply_memory_proposal, MemoryContextConfig, MemoryOperation, MemoryProposal,
-    MemoryProposalDecision, WorkspaceContextError, MemoryWriteMode, MemorySelectionStrategy,
-    select_memory_entries, MemoryEntry,
+    apply_memory_proposal, select_memory_entries, MemoryContextConfig, MemoryEntry,
+    MemoryOperation, MemoryProposal, MemoryProposalDecision, MemorySelectionStrategy,
+    MemoryWriteMode, WorkspaceContextError,
 };
 
 #[tokio::test]
@@ -22,7 +22,8 @@ async fn test_memory_proposal_lifecycle() {
     fs::create_dir_all(&gestalt_dir).unwrap();
 
     let memory_file_path = gestalt_dir.join("memory.md");
-    let initial_content = "# Memory\n\n## Facts\n\n- <!-- gestalt-memory-id: mem_1 --> initial entry\n";
+    let initial_content =
+        "# Memory\n\n## Facts\n\n- <!-- gestalt-memory-id: mem_1 --> initial entry\n";
     fs::write(&memory_file_path, initial_content).unwrap();
 
     use sha2::{Digest, Sha256};
@@ -79,14 +80,19 @@ async fn test_memory_proposal_lifecycle() {
     // Check events emitted
     let mut events = Vec::new();
     while let Ok(event) = receiver.try_recv() {
-        if let gestalt_runtime::event_bus::RuntimeEvent::Agent { event: agent_ev, .. } = &*event {
+        if let gestalt_runtime::event_bus::RuntimeEvent::Agent {
+            event: agent_ev, ..
+        } = &*event
+        {
             events.push(agent_ev.clone());
         }
     }
 
     assert!(events.iter().any(|e| matches!(e, AgentEvent::MemoryProposalCreated { proposal_id, .. } if proposal_id == "prop_1")));
     assert!(events.iter().any(|e| matches!(e, AgentEvent::MemoryProposalDecisionRecorded { proposal_id, decision, .. } if proposal_id == "prop_1" && decision == "accepted")));
-    assert!(events.iter().any(|e| matches!(e, AgentEvent::MemoryWriteSucceeded { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, AgentEvent::MemoryWriteSucceeded { .. })));
 
     // 2. Test Conflict: apply again with original base_hash
     let res_conflict = apply_memory_proposal(
@@ -108,11 +114,16 @@ async fn test_memory_proposal_lifecycle() {
     // Check conflict event emitted
     let mut events_conflict = Vec::new();
     while let Ok(event) = receiver.try_recv() {
-        if let gestalt_runtime::event_bus::RuntimeEvent::Agent { event: agent_ev, .. } = &*event {
+        if let gestalt_runtime::event_bus::RuntimeEvent::Agent {
+            event: agent_ev, ..
+        } = &*event
+        {
             events_conflict.push(agent_ev.clone());
         }
     }
-    assert!(events_conflict.iter().any(|e| matches!(e, AgentEvent::MemoryWriteConflict { .. })));
+    assert!(events_conflict
+        .iter()
+        .any(|e| matches!(e, AgentEvent::MemoryWriteConflict { .. })));
 
     // 3. Test Reject: apply with fresh base_hash but Reject decision
     let mut hasher2 = Sha256::new();
@@ -149,7 +160,10 @@ async fn test_memory_proposal_lifecycle() {
     // Decision recorded rejected
     let mut events_reject = Vec::new();
     while let Ok(event) = receiver.try_recv() {
-        if let gestalt_runtime::event_bus::RuntimeEvent::Agent { event: agent_ev, .. } = &*event {
+        if let gestalt_runtime::event_bus::RuntimeEvent::Agent {
+            event: agent_ev, ..
+        } = &*event
+        {
             events_reject.push(agent_ev.clone());
         }
     }
@@ -294,20 +308,22 @@ fn test_memory_selection_strategies() {
 
     // Very small budget. In the old code, pinned entries would be dropped if they exceeded max_tokens.
     // In our new code, pinned entries survive trimming and are always included.
-    let (selected, omissions, _total_tokens) = select_memory_entries(&entries, MemorySelectionStrategy::Budgeted, 5);
-    
+    let (selected, omissions, _total_tokens) =
+        select_memory_entries(&entries, MemorySelectionStrategy::Budgeted, 5);
+
     // Both pinned entries must be included.
     assert_eq!(selected.len(), 2);
     assert!(selected.iter().any(|e| e.id == "1"));
     assert!(selected.iter().any(|e| e.id == "2"));
-    
+
     // The unpinned entry must be omitted.
     assert_eq!(omissions.len(), 1);
     assert_eq!(omissions[0].path_or_label, "mem_id:3");
     assert_eq!(omissions[0].reason, "budget_exhausted");
 
     // 2. Full Strategy: budget is bypassed.
-    let (selected_full, omissions_full, _) = select_memory_entries(&entries, MemorySelectionStrategy::Full, 5);
+    let (selected_full, omissions_full, _) =
+        select_memory_entries(&entries, MemorySelectionStrategy::Full, 5);
     assert_eq!(selected_full.len(), 3);
     assert!(omissions_full.is_empty());
 }

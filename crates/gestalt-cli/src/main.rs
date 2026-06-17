@@ -11,14 +11,14 @@ use gestalt_cli::{
     models::{inspect_model, list_models, refresh_models, search_models},
     output::{
         AuthDoctorReport, AuthResolveReport, CliErrorPayload, CliReport, ConfigExplainReport,
-        ConfigShowReport, ConfigValidateReport, ConfigPathsReport, ContextExplainReport, CostReportWrapper,
-        ExportFormat, ExtensionActionReport, ExtensionInspectReport, ExtensionsListReport,
-        JsonEnvelope, ModelsInspectReport, ModelsListReport, ModelsRefreshReport,
-        ModelsSearchReport, ModelsSelectReport, OutputFormat, PolicyExplainReport,
-        PolicyTestReport, PolicyValidateReport, ProvidersDoctorReport, ProvidersInspectReport,
-        ProvidersListReport, ReplayReport, RunReport, RuntimeDoctorReport, RuntimeEventsReport,
-        RuntimeInspectReport, SkillActionReport, SkillInspectReport, SkillsListReport,
-        WorkspaceSnapshotReport,
+        ConfigPathsReport, ConfigShowReport, ConfigValidateReport, ContextExplainReport,
+        CostReportWrapper, ExportFormat, ExtensionActionReport, ExtensionInspectReport,
+        ExtensionsListReport, JsonEnvelope, ModelsInspectReport, ModelsListReport,
+        ModelsRefreshReport, ModelsSearchReport, ModelsSelectReport, OutputFormat,
+        PolicyExplainReport, PolicyTestReport, PolicyValidateReport, ProvidersDoctorReport,
+        ProvidersInspectReport, ProvidersListReport, ReplayReport, RunReport, RuntimeDoctorReport,
+        RuntimeEventsReport, RuntimeInspectReport, SkillActionReport, SkillInspectReport,
+        SkillsListReport, WorkspaceSnapshotReport,
     },
     policy,
     providers::{doctor_provider, inspect_provider, list_providers},
@@ -854,9 +854,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap_or(std::env::current_dir()?);
                     let global_path = gestalt_cli::config::global_config_path();
                     let legacy_global_path = gestalt_cli::config::legacy_global_config_path();
-                    let workspace_path = gestalt_cli::config::workspace_config_path(&workspace_root);
-                    let legacy_workspace_path = gestalt_cli::config::legacy_workspace_config_path(&workspace_root);
-                    let legacy_policies_path = gestalt_cli::config::legacy_workspace_policies_path(&workspace_root);
+                    let workspace_path =
+                        gestalt_cli::config::workspace_config_path(&workspace_root);
+                    let legacy_workspace_path =
+                        gestalt_cli::config::legacy_workspace_config_path(&workspace_root);
+                    let legacy_policies_path =
+                        gestalt_cli::config::legacy_workspace_policies_path(&workspace_root);
 
                     let global_exists = global_path.exists();
                     let legacy_global_exists = legacy_global_path.exists();
@@ -911,7 +914,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         legacy_policies_exists,
                         ambiguities,
                     })
-                })();
+                })(
+                );
                 handle_result(res, format, quiet)?;
             }
         },

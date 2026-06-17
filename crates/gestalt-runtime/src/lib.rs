@@ -45,6 +45,8 @@ pub use inspect::{
     compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
 };
 pub use manifest::{Capabilities, Entrypoint, ExtensionManifest, Permissions};
+pub use mcp::McpBackedTool;
+pub use mcp_discovery::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
 pub use orchestration::{
     AgentRuntimeHandle, DefaultAgentRuntimeHandle, OrchestrationResult, OrchestrationTask,
     Orchestrator,
@@ -62,11 +64,8 @@ pub use runtime::{AgentRuntime, UserInput};
 pub use session_queue::InMemorySteeringQueue;
 pub use tool_catalog::ComposedToolCatalog;
 pub use tool_catalog_planner::{ToolCatalogPlanner, ToolProfile};
-pub use mcp::McpBackedTool;
-pub use mcp_discovery::{McpDiscoveryState, SearchToolsTool, GetToolDetailsTool};
 pub use workspace_context::{
-    ContextSnapshotMode, MemoryContextConfig, MemorySelectionStrategy, MemoryWriteMode,
-    WorkspaceContextConfig, WorkspaceContextLoader, WorkspaceContextError, WorkspaceContextSnapshot,
-    load_and_snapshot_workspace_context,
+    load_and_snapshot_workspace_context, ContextSnapshotMode, MemoryContextConfig,
+    MemorySelectionStrategy, MemoryWriteMode, WorkspaceContextConfig, WorkspaceContextError,
+    WorkspaceContextLoader, WorkspaceContextSnapshot,
 };
-

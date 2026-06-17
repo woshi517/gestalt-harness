@@ -271,9 +271,8 @@ impl PolicyEngine for MinimalPolicyEngine {
 impl MinimalPolicyEngine {
     fn evaluate_tool_policy(&self, request: &PolicyRequest) -> Option<PolicyDecision> {
         match request.tool_name.as_str() {
-            "read" | "builtin:read" | "search" | "builtin:search" | "find_files" | "builtin:find_files" => {
-                Some(self.evaluate_path_tool(request, PathAccess::Read))
-            }
+            "read" | "builtin:read" | "search" | "builtin:search" | "find_files"
+            | "builtin:find_files" => Some(self.evaluate_path_tool(request, PathAccess::Read)),
             "write" | "builtin:write" | "patch" | "builtin:patch" => {
                 Some(self.evaluate_path_tool(request, PathAccess::Write))
             }
@@ -340,7 +339,9 @@ impl MinimalPolicyEngine {
                             matches_memory = true;
                             break;
                         }
-                    } else if canonical_path.ends_with(mem_path) || absolute_path.ends_with(mem_path) {
+                    } else if canonical_path.ends_with(mem_path)
+                        || absolute_path.ends_with(mem_path)
+                    {
                         matches_memory = true;
                         break;
                     }
@@ -911,14 +912,14 @@ mod tests {
     #[test]
     fn test_matches_any_path_file_shaped_globs() {
         let patterns = vec!["src/**/*.rs".to_string(), "crates/lib/src/*.rs".to_string()];
-        
+
         assert!(matches_any_path(&patterns, "src/main.rs"));
         assert!(matches_any_path(&patterns, "crates/lib/src/lib.rs"));
-        
+
         assert!(matches_any_path(&patterns, "src"));
         assert!(matches_any_path(&patterns, "src/utils"));
         assert!(matches_any_path(&patterns, "crates/lib/src"));
-        
+
         assert!(!matches_any_path(&patterns, "."));
         assert!(!matches_any_path(&patterns, "crates/lib"));
         assert!(!matches_any_path(&patterns, "tests"));

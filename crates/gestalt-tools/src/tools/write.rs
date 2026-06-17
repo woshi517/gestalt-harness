@@ -89,7 +89,10 @@ impl Tool for WriteTool {
             match std::fs::read_to_string(&path) {
                 Ok(s) => s,
                 Err(_) => {
-                    return Err(invalid_input(self.name(), "existing file is not valid UTF-8 text"));
+                    return Err(invalid_input(
+                        self.name(),
+                        "existing file is not valid UTF-8 text",
+                    ));
                 }
             }
         } else {
@@ -106,8 +109,9 @@ impl Tool for WriteTool {
             "updated"
         };
 
-        let (diff_str, diff_truncated, lines_added, lines_removed) = make_diff(&input.path, &old, &input.content);
-        
+        let (diff_str, diff_truncated, lines_added, lines_removed) =
+            make_diff(&input.path, &old, &input.content);
+
         let diff = if input.show_diff {
             diff_str
         } else {
@@ -160,14 +164,20 @@ fn make_diff(path: &str, old: &str, new: &str) -> (String, bool, usize, usize) {
         }
     }
 
-    let raw_diff = diff.unified_diff().context_radius(3).header(path, path).to_string();
+    let raw_diff = diff
+        .unified_diff()
+        .context_radius(3)
+        .header(path, path)
+        .to_string();
     let mut diff_str = String::new();
     let mut diff_truncated = false;
     const MAX_PREVIEW_LINES: usize = 200;
     const MAX_PREVIEW_BYTES: usize = 16384;
 
     for (printed_lines, line) in raw_diff.lines().enumerate() {
-        if printed_lines >= MAX_PREVIEW_LINES || diff_str.len() + line.len() + 1 >= MAX_PREVIEW_BYTES {
+        if printed_lines >= MAX_PREVIEW_LINES
+            || diff_str.len() + line.len() + 1 >= MAX_PREVIEW_BYTES
+        {
             diff_truncated = true;
             break;
         }
@@ -403,7 +413,10 @@ mod tests {
             ToolOutput::Text { content } => {
                 let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
                 assert_eq!(parsed["diff_truncated"], true);
-                assert!(parsed["diff"].as_str().unwrap().contains("[Diff truncated]"));
+                assert!(parsed["diff"]
+                    .as_str()
+                    .unwrap()
+                    .contains("[Diff truncated]"));
             }
             _ => panic!("Expected text response"),
         }

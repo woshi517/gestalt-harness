@@ -88,10 +88,16 @@ fn calculate_risk(
     } else {
         if let Some(tl) = trust_level {
             if tl.eq_ignore_ascii_case("high") {
-                let is_read_only = annotations.get("read_only")
-                    .map_or(false, |a| a.value == "true" && a.source == gestalt_core::tool_descriptor::AnnotationSource::BuiltInTrusted);
-                let is_idempotent = annotations.get("idempotent")
-                    .map_or(false, |a| a.value == "true" && a.source == gestalt_core::tool_descriptor::AnnotationSource::BuiltInTrusted);
+                let is_read_only = annotations.get("read_only").map_or(false, |a| {
+                    a.value == "true"
+                        && a.source
+                            == gestalt_core::tool_descriptor::AnnotationSource::BuiltInTrusted
+                });
+                let is_idempotent = annotations.get("idempotent").map_or(false, |a| {
+                    a.value == "true"
+                        && a.source
+                            == gestalt_core::tool_descriptor::AnnotationSource::BuiltInTrusted
+                });
                 if is_read_only || is_idempotent {
                     return RiskLevel::Low;
                 }
@@ -171,11 +177,14 @@ impl Tool for McpBackedTool {
             });
         }
 
-        let res = res.map_err(|e| ToolError::ExecutionFailed(std::io::Error::other(e.to_string())))?;
+        let res =
+            res.map_err(|e| ToolError::ExecutionFailed(std::io::Error::other(e.to_string())))?;
 
         if res.is_error {
             // Re-render execution failure so policy/approvals see the error
-            return Err(ToolError::ExecutionFailed(std::io::Error::other(res.content)));
+            return Err(ToolError::ExecutionFailed(std::io::Error::other(
+                res.content,
+            )));
         }
 
         Ok(ToolOutput::Text {

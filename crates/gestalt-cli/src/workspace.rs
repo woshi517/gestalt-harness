@@ -132,7 +132,9 @@ pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, H
     })
 }
 
-pub async fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatusReport, HarnessError> {
+pub async fn status_workspace(
+    overrides: &CliOverrides,
+) -> Result<WorkspaceStatusReport, HarnessError> {
     let config_res = load_effective_config(overrides);
     let mut warnings = Vec::new();
     let mut auth_summary = std::collections::HashMap::new();
@@ -201,7 +203,10 @@ pub async fn status_workspace(overrides: &CliOverrides) -> Result<WorkspaceStatu
                 warnings.push("context.workspace_file is deprecated. Please migrate to context.workspace.path".to_string());
             }
             if config.context.memory_file.is_some() {
-                warnings.push("context.memory_file is deprecated. Please migrate to context.memory.path".to_string());
+                warnings.push(
+                    "context.memory_file is deprecated. Please migrate to context.memory.path"
+                        .to_string(),
+                );
             }
 
             // Count runs
@@ -285,7 +290,9 @@ pub async fn snapshot_workspace(
     Ok(WorkspaceSnapshotReport { snapshot })
 }
 
-pub async fn doctor_workspace(overrides: &CliOverrides) -> Result<WorkspaceDoctorReport, HarnessError> {
+pub async fn doctor_workspace(
+    overrides: &CliOverrides,
+) -> Result<WorkspaceDoctorReport, HarnessError> {
     let global_report = crate::doctor::diagnose_workspace(overrides, false).await?;
     Ok(global_report.workspace_doctor)
 }

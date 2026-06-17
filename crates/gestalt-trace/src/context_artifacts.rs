@@ -1,11 +1,11 @@
-use std::fs;
-use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use gestalt_core::{
     context::{CheckpointRef, ClearAction, HistoryRange},
     ContextManagementPolicy, DurabilityMode, TraceError,
 };
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MessageMetadataRef {
@@ -56,7 +56,10 @@ impl CompactionCheckpoint {
     /// Renders the checkpoint summary as a structured Markdown block
     pub fn render_markdown(&self) -> String {
         let mut md = String::new();
-        md.push_str(&format!("### Session Checkpoint Summary (ID: {})\n\n", self.checkpoint_id));
+        md.push_str(&format!(
+            "### Session Checkpoint Summary (ID: {})\n\n",
+            self.checkpoint_id
+        ));
         md.push_str(&format!("**Goal:** {}\n\n", self.goal));
 
         md.push_str("**Constraints:**\n");
@@ -95,7 +98,10 @@ impl CompactionCheckpoint {
         }
         md.push_str("\n");
 
-        md.push_str(&format!("**Critical Context:**\n{}\n\n", self.critical_context));
+        md.push_str(&format!(
+            "**Critical Context:**\n{}\n\n",
+            self.critical_context
+        ));
 
         md.push_str("**Relevant References:**\n");
         for r in &self.relevant_references {
@@ -172,7 +178,10 @@ pub fn persist_checkpoint(
     }
 }
 
-pub fn load_manifest(manifest_id: &str, artifacts_dir: &Path) -> Result<ProjectionManifest, TraceError> {
+pub fn load_manifest(
+    manifest_id: &str,
+    artifacts_dir: &Path,
+) -> Result<ProjectionManifest, TraceError> {
     let file_name = format!("projection_manifest_{}.json", manifest_id);
     let file_path = artifacts_dir.join(file_name);
 
@@ -185,7 +194,10 @@ pub fn load_manifest(manifest_id: &str, artifacts_dir: &Path) -> Result<Projecti
     })
 }
 
-pub fn load_checkpoint(checkpoint_id: &str, artifacts_dir: &Path) -> Result<CompactionCheckpoint, TraceError> {
+pub fn load_checkpoint(
+    checkpoint_id: &str,
+    artifacts_dir: &Path,
+) -> Result<CompactionCheckpoint, TraceError> {
     let file_name = format!("checkpoint_{}.json", checkpoint_id);
     let file_path = artifacts_dir.join(file_name);
 

@@ -12,9 +12,9 @@ pub mod transport;
 pub use client::McpClient;
 pub use error::{McpError, Result};
 pub use model::{
-    McpCallResult, McpConnectionState, McpLifecycleMode, McpServerConfig, McpServerId,
-    McpServerState, McpToolIdentity, McpToolSchema, McpToolSummary, McpTransportConfig,
-    parse_mcp_call_result, McpRegistryEvent, McpEventCallback,
+    parse_mcp_call_result, McpCallResult, McpConnectionState, McpEventCallback, McpLifecycleMode,
+    McpRegistryEvent, McpServerConfig, McpServerId, McpServerState, McpToolIdentity, McpToolSchema,
+    McpToolSummary, McpTransportConfig,
 };
 pub use registry::McpRegistry;
 pub use transport::McpTransport;
