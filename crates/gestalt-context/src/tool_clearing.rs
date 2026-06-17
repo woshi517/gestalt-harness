@@ -19,15 +19,10 @@ pub fn is_tool_eligible_for_clearing(tool_name: Option<&str>) -> bool {
     )
 }
 
-pub fn render_tombstone(
-    tool_use_id: &str,
-    tool_name: &str,
-    output_hash: &str,
-    original_tokens: usize,
-) -> String {
+pub fn render_tombstone(tool_use_id: &str, tool_name: &str, output_hash: &str) -> String {
     format!(
-        "<tombstone tool_use_id=\"{}\" tool_name=\"{}\" output_hash=\"{}\">\nThis tool result was cleared to save context tokens. Original token count: {}.\n</tombstone>",
-        tool_use_id, tool_name, output_hash, original_tokens
+        "<tombstone tool_use_id=\"{}\" tool_name=\"{}\" output_hash=\"{}\" />",
+        tool_use_id, tool_name, output_hash
     )
 }
 
@@ -152,8 +147,7 @@ pub fn clear_eligible_tool_results(
 
                 // Calculate token reduction
                 let original_tokens = estimate_message_tokens(msg);
-                let tombstone_content =
-                    render_tombstone(tool_use_id, t_name, hash, original_tokens);
+                let tombstone_content = render_tombstone(tool_use_id, t_name, hash);
                 let tombstone_msg = Message::ToolResult {
                     tool_use_id: tool_use_id.clone(),
                     content: tombstone_content,

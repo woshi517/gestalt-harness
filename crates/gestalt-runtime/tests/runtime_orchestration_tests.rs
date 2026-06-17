@@ -13,6 +13,15 @@ use gestalt_runtime::{
 };
 use std::sync::Arc;
 
+fn config_without_context_management() -> RuntimeConfig {
+    let mut config = RuntimeConfig::default();
+    config.context_management_policy = Some(gestalt_core::ContextManagementPolicy {
+        enabled: false,
+        ..Default::default()
+    });
+    config
+}
+
 struct MockProvider;
 
 #[async_trait::async_trait]
@@ -102,7 +111,7 @@ fn build_test_builder() -> AgentRuntimeBuilder {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
 }
 
 struct TwoStepOrchestrator;
@@ -281,7 +290,7 @@ async fn test_orchestration_steering_concurrent() {
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
             max_turns: 3,
-            ..Default::default()
+            ..config_without_context_management()
         });
 
     let artifact_store = Arc::new(InMemoryArtifactStore::new());

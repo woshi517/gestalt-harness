@@ -11,6 +11,19 @@ use gestalt_core::{
 };
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent, UserInput};
 
+fn temp_artifact_dir() -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "gestalt-runtime-event-bus-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&path).unwrap();
+    path
+}
+
 struct MockProvider;
 
 #[async_trait::async_trait]
@@ -95,28 +108,33 @@ impl PolicyEngine for MockPolicyEngine {
 
 #[tokio::test]
 async fn test_runtime_event_bus_basic_fanout() {
+    let mut config = RuntimeConfig::default();
+    config.context_management_policy = Some(gestalt_core::ContextManagementPolicy {
+        enabled: false,
+        ..Default::default()
+    });
+
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config)
         .build()
         .unwrap();
 
     let mut sub = runtime.event_bus.subscribe();
-
     let input = UserInput {
         prompt: "hello".to_string(),
         session_id: None,
         cancel_token: gestalt_core::cancel::CancelToken::new(),
         event_tx: None,
-        artifact_dir: None,
+        artifact_dir: Some(temp_artifact_dir()),
     };
 
     let res = runtime.run_prompt(input).await;
-    assert!(res.is_ok());
+    assert!(res.is_ok(), "{res:?}");
 
     let mut events = Vec::new();
     while let Ok(evt) = sub.try_recv() {

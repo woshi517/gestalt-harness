@@ -36,21 +36,19 @@ impl<'a> ContextAccountant<'a> {
         self.scaled_limit(self.policy.compaction_target_ratio)
     }
 
+    pub fn projected_next_turn_growth(&self) -> usize {
+        std::cmp::max(
+            self.budget.minimum_turn_budget,
+            self.budget.reserved_output.saturating_div(2),
+        )
+    }
+
     pub fn needs_management(&self, current_total_tokens: usize) -> bool {
         self.policy.enabled && current_total_tokens > self.usable_limit()
     }
 
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     fn scaled_limit(&self, ratio: f64) -> usize {
-        let clamped_ratio = if ratio.is_finite() {
-            ratio.clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        ((self.usable_limit() as f64) * clamped_ratio).floor() as usize
+        ((self.usable_limit() as f64) * ratio).floor() as usize
     }
 }

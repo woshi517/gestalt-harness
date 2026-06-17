@@ -16,6 +16,15 @@ use gestalt_runtime::{
     BeforeToolPolicyCtx, CompositionHooks, HookOutcome, OnEventCtx, RuntimeConfig, UserInput,
 };
 
+fn config_without_context_management() -> RuntimeConfig {
+    let mut config = RuntimeConfig::default();
+    config.context_management_policy = Some(gestalt_core::ContextManagementPolicy {
+        enabled: false,
+        ..Default::default()
+    });
+    config
+}
+
 struct MockProvider {
     last_request: Arc<Mutex<Option<ProviderRequest>>>,
     stream_events: Mutex<Vec<Vec<AgentEvent>>>,
@@ -252,7 +261,7 @@ async fn test_hooks_context_injection() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(hooks.clone())
         .build()
         .unwrap();
@@ -322,7 +331,7 @@ async fn test_hooks_context_blocking_before() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(hooks.clone())
         .build()
         .unwrap();
@@ -371,7 +380,7 @@ async fn test_hooks_context_blocking_after() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(hooks.clone())
         .build()
         .unwrap();
@@ -441,7 +450,7 @@ async fn test_before_tool_policy_denial() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(hooks.clone())
         .build()
         .unwrap();
@@ -516,7 +525,7 @@ async fn test_before_tool_policy_error() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(hooks.clone())
         .build()
         .unwrap();
@@ -669,7 +678,7 @@ async fn test_after_context_build_context_addition() {
         .middleware(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(config_without_context_management())
         .composition_hooks(hooks.clone())
         .build()
         .unwrap();

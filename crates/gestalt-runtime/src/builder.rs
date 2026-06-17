@@ -132,6 +132,12 @@ impl AgentRuntimeBuilder {
             ));
         }
 
+        if let Some(policy) = &self.config.context_management_policy {
+            policy
+                .validate()
+                .map_err(|err| RuntimeError::Builder(err.to_string()))?;
+        }
+
         // Apply extensions before constructing AgentRuntime
         for ext in &self.extensions {
             let name = ext.name().to_string();

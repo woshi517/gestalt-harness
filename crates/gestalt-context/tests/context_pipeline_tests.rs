@@ -1,9 +1,10 @@
 use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
-    context::PromptAssemblyStrategy,
+    context::{HistoryRange, PromptAssemblyStrategy},
     message::{ContentBlock, Message},
     ContextPipeline, TokenBudget,
 };
+use gestalt_trace::CompactionCheckpoint;
 
 fn budget(model_limit: usize) -> TokenBudget {
     TokenBudget {
@@ -220,4 +221,61 @@ fn test_tool_clearing_preserves_errors_and_recent_window() {
     let (projected, actions) = clear_eligible_tool_results(&history, 1000, 0, 1, 100);
     assert!(actions.is_empty());
     assert_eq!(projected, history);
+}
+
+#[test]
+fn checkpoint_validation_rejects_missing_protected_anchor() {
+    let history = vec![
+        Message::User {
+            content: vec![ContentBlock::Text {
+                text: "You must preserve the customer_id mapping during compaction.".to_string(),
+            }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::Text {
+                text: "Understood.".to_string(),
+            }],
+        },
+    ];
+
+    let range = HistoryRange::new(0, history.len());
+    let range_hash = serde_json::to_string(&history).unwrap();
+    let mut hasher = sha2::Sha256::new();
+    use sha2::Digest as _;
+    hasher.update(range_hash.as_bytes());
+    let history_range_hash = format!("{:x}", hasher.finalize());
+
+    let checkpoint: CompactionCheckpoint = serde_json::from_value(serde_json::json!({
+        "checkpoint_id": "cp-1",
+        "history_range": { "start": range.start, "end": range.end },
+        "history_range_hash": history_range_hash,
+        "policy_version": "v1",
+        "compactor_model": "mock",
+        "prompt_hash": "prompt",
+        "created_at": "2026-06-18T00:00:00Z",
+        "goal": "finish the task",
+        "constraints": ["keep the system responsive"],
+        "completed_work": [],
+        "in_progress_work": [],
+        "blocked_items": [],
+        "key_decisions": [],
+        "next_steps": [],
+        "critical_context": "There is a migration in flight.",
+        "relevant_references": []
+    }))
+    .unwrap();
+
+    let err = gestalt_context::checkpoint_validation::validate_checkpoint(
+        &checkpoint,
+        &history,
+        range,
+        &checkpoint.history_range_hash,
+    )
+    .expect_err("protected anchor should be preserved");
+
+    assert!(matches!(
+        err,
+        gestalt_context::checkpoint_validation::ValidationError::ConstraintViolation(_)
+    ));
 }

@@ -1,4 +1,5 @@
 use crate::message::Message;
+use crate::ConfigError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -352,4 +353,38 @@ impl Default for ContextManagementPolicy {
             profile: "default".to_string(),
         }
     }
+}
+
+impl ContextManagementPolicy {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        validate_ratio("tool_result_budget_ratio", self.tool_result_budget_ratio)?;
+        validate_ratio("compaction_target_ratio", self.compaction_target_ratio)?;
+
+        if self.profile.trim().is_empty() {
+            return Err(ConfigError::InvalidValue {
+                field: "context.management.profile".to_string(),
+                reason: "must not be empty".to_string(),
+            });
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_ratio(field: &str, value: f64) -> Result<(), ConfigError> {
+    if !value.is_finite() {
+        return Err(ConfigError::InvalidValue {
+            field: format!("context.management.{field}"),
+            reason: "must be finite".to_string(),
+        });
+    }
+
+    if !(0.0..=1.0).contains(&value) {
+        return Err(ConfigError::InvalidValue {
+            field: format!("context.management.{field}"),
+            reason: "must be between 0.0 and 1.0".to_string(),
+        });
+    }
+
+    Ok(())
 }

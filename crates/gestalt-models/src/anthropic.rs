@@ -696,4 +696,63 @@ mod tests {
 
         assert_eq!(last_role, Some("user"));
     }
+
+    #[test]
+    fn body_preserves_tombstoned_tool_results_as_tool_result_blocks() {
+        let provider = AnthropicProvider::default();
+        let request = ProviderRequest {
+            model: "claude-3-5-sonnet-20241022".to_string(),
+            messages: vec![
+                Message::Assistant {
+                    content: vec![ContentBlock::ToolUse {
+                        id: "tool-1".to_string(),
+                        name: "view_file".to_string(),
+                        input: serde_json::json!({"path": "src/lib.rs"}),
+                    }],
+                },
+                Message::ToolResult {
+                    tool_use_id: "tool-1".to_string(),
+                    content:
+                        "<tombstone tool_use_id=\"tool-1\" tool_name=\"view_file\" output_hash=\"abc\" />"
+                            .to_string(),
+                    is_error: false,
+                    failure: None,
+                    tool_name: Some("view_file".to_string()),
+                    output_hash: Some("abc".to_string()),
+                    artifact_refs: None,
+                },
+            ],
+            tools: vec![],
+            tool_name_map: vec![],
+            max_tokens: 512,
+            temperature: None,
+            top_p: None,
+            stop_sequences: vec![],
+            cache_plan: None,
+            metadata: serde_json::Value::Null,
+            reasoning_effort: None,
+            text_verbosity: None,
+        };
+
+        let body = provider.body(&request);
+        let messages = body.get("messages").and_then(Value::as_array).unwrap();
+        let tool_result = messages[1]
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|blocks| blocks.first())
+            .unwrap();
+
+        assert_eq!(
+            messages[1].get("role").and_then(Value::as_str),
+            Some("user")
+        );
+        assert_eq!(
+            tool_result.get("type").and_then(Value::as_str),
+            Some("tool_result")
+        );
+        assert_eq!(
+            tool_result.get("tool_use_id").and_then(Value::as_str),
+            Some("tool-1")
+        );
+    }
 }
