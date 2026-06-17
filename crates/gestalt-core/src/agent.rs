@@ -195,6 +195,8 @@ impl AgentLoop {
                     cancel_token,
                     &mut last_packet_hash,
                     &mut last_prompt_source,
+                    turns,
+                    sink,
                 )
                 .await?;
             let outcome = self
@@ -308,6 +310,8 @@ impl AgentLoop {
         cancel_token: &crate::cancel::CancelToken,
         last_packet_hash: &mut Option<String>,
         last_prompt_source: &mut Option<String>,
+        turn_id: usize,
+        sink: Option<&dyn crate::trace::TraceSink>,
     ) -> Result<ProviderRequest>
     where
         F: FnMut(AgentEvent) -> Result<()> + Send,
@@ -344,9 +348,67 @@ impl AgentLoop {
             }
         }
 
+        let override_state = session.next_turn_override.take();
+        if let Some(ref pending) = override_state {
+            if let Some(ref provider_override) = pending.provider {
+                if provider_override != self.provider.id() {
+                    emit(AgentEvent::HookFailed {
+                        hook_type: "next_turn".to_string(),
+                        name: "prepare_next_turn".to_string(),
+                        error: format!(
+                            "Cross-provider override requested for '{}', but current provider is '{}'; using model override only",
+                            provider_override,
+                            self.provider.id(),
+                        ),
+                    })?;
+                    emit(AgentEvent::Error {
+                        message: format!(
+                            "Cross-provider override requested for '{}', but current provider is '{}'; using model override only",
+                            provider_override,
+                            self.provider.id(),
+                        ),
+                        recoverable: true,
+                    })?;
+                }
+            }
+        }
+
+        let effective_model = match &override_state {
+            Some(override_state) => {
+                if override_state.model.is_empty() {
+                    session.config.model.clone()
+                } else {
+                    override_state.model.clone()
+                }
+            }
+            None => session.config.model.clone(),
+        };
+
+        let model = if effective_model.is_empty() {
+            self.provider.default_model().to_string()
+        } else {
+            effective_model
+        };
+
+        let run_id = sink.and_then(|s| s.run_id()).unwrap_or("");
+        let artifacts_dir = sink.and_then(|s| s.artifacts_dir());
+        let mut emit_wrapper = |ev| emit(ev);
+
         let packet = self
             .middleware
-            .build_packet(&session.history, &session.token_budget);
+            .prepare_context(
+                &session.history,
+                &session.token_budget,
+                self.provider.as_ref(),
+                &model,
+                &session.id,
+                run_id,
+                turn_id,
+                &session.context_policy,
+                artifacts_dir,
+                &mut emit_wrapper,
+            )
+            .await?;
 
         for hook in &self.hooks.context_hooks {
             let hook_res = crate::hook::HookDispatcher::dispatch(
@@ -377,48 +439,6 @@ impl AgentLoop {
                 }
             }
         }
-
-        let override_state = session.next_turn_override.take();
-        if let Some(ref pending) = override_state {
-            if let Some(ref provider_override) = pending.provider {
-                if provider_override != self.provider.id() {
-                    emit(AgentEvent::HookFailed {
-                        hook_type: "next_turn".to_string(),
-                        name: "prepare_next_turn".to_string(),
-                        error: format!(
-                            "Cross-provider override requested for '{}', but current provider is '{}'; using model override only",
-                            provider_override,
-                            self.provider.id(),
-                        ),
-                    })?;
-                    emit(AgentEvent::Error {
-                        message: format!(
-                            "Cross-provider override requested for '{}', but current provider is '{}'; using model override only",
-                            provider_override,
-                            self.provider.id(),
-                        ),
-                        recoverable: true,
-                    })?;
-                }
-            }
-        }
-
-        let effective_model = match override_state {
-            Some(override_state) => {
-                if override_state.model.is_empty() {
-                    session.config.model.clone()
-                } else {
-                    override_state.model
-                }
-            }
-            None => session.config.model.clone(),
-        };
-
-        let model = if effective_model.is_empty() {
-            self.provider.default_model().to_string()
-        } else {
-            effective_model
-        };
 
         let token_estimate = self.provider.count_tokens(&model, &packet.messages)?;
 

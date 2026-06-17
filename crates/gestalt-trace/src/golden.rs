@@ -280,6 +280,7 @@ impl GoldenTraceRunner {
             "session-1",
             "run-1",
             &trace_path,
+            temp_dir.clone(),
             golden.input.workspace_snapshot.clone(),
         )
         .map_err(HarnessError::Trace)?;

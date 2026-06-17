@@ -26,10 +26,12 @@
       "role": "toolresult",
       "tool_use_id": "call-1",
       "content": "hello world",
-      "is_error": false
+      "is_error": false,
+      "tool_name": "read",
+      "output_hash": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
     }
   ],
-  "packet_hash": "910b9ceaca7a03078e956f3db3dce6d64f3a521638e09d88ef6ff6340757d620",
+  "packet_hash": "b2c9dea76d720123bbd0389531e5c965a8c84527dd08b7f36f54fd6e3cd519ee",
   "pipeline_version": "fixture-pipeline",
   "tokenizer_id": "default",
   "token_estimate": 0,
@@ -38,7 +40,8 @@
   "message_hashes": [
     "a72a1897ae4b8793556d307536b3bbd48623dced333fb96a6e6a78e83d60e30e",
     "57ee90aeee908060aac55a9277df08c2d438180478d17d1de668aee023fc900e",
-    "e1caecdb84cce5268bd4a25db6d071906f482435f78ce7ee0fd4ffbd12ee63f8"
+    "8d8f77a5f3fd1d32c8ae4fbecd5aa83ec8c3feef53cfc0eafc5cd0edb678fbce"
   ],
+  "prompt_assembly_strategy": "dynamic",
   "prompt_source": "default"
 }

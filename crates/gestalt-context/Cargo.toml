@@ -12,6 +12,8 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
+gestalt-trace = { path = "../gestalt-trace" }
+async-trait = { workspace = true }
 tiktoken-rs = { workspace = true }
 pulldown-cmark = { workspace = true }
 sha2 = { workspace = true }

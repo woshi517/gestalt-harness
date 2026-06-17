@@ -4,6 +4,12 @@ pub trait TraceSink: Send + Sync {
     fn emit(&self, event: AgentEvent) -> Result<(), TraceError>;
     fn flush(&self) -> Result<(), TraceError>;
     fn update_snapshot(&self, _snapshot: crate::snapshot::WorkspaceSnapshot) {}
+    fn run_id(&self) -> Option<&str> {
+        None
+    }
+    fn artifacts_dir(&self) -> Option<&std::path::Path> {
+        None
+    }
 }
 
 #[derive(Debug, Default)]

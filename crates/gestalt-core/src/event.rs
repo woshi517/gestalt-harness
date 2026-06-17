@@ -318,6 +318,27 @@ pub enum AgentEvent {
         path: String,
         error: String,
     },
+    ContextPressure {
+        usable_limit: usize,
+        current_estimate: usize,
+    },
+    ContextClearing {
+        cleared_count: usize,
+        cleared_tokens: usize,
+    },
+    ContextCompactionStarted {
+        range: crate::context::HistoryRange,
+    },
+    ContextCompacted {
+        checkpoint_id: String,
+        range: crate::context::HistoryRange,
+    },
+    ContextManagementFailed {
+        error: String,
+    },
+    ContextExhaustion {
+        details: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

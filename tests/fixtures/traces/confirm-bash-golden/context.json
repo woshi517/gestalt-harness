@@ -31,10 +31,12 @@
         "kind": "approval_denied",
         "message": "medium-risk tool call",
         "repair_guidance": "The user denied the approval. Adjust the request or ask before retrying."
-      }
+      },
+      "tool_name": "bash",
+      "output_hash": "0deeb8cc407853e43c5d06499c062521215c812e9238ca606b2176abc1978ba8"
     }
   ],
-  "packet_hash": "b5b44f03d78668d18c28e7eb71c7b8706b1d77306b0006725f41a5eb095d9c18",
+  "packet_hash": "32feff5463b0cae72badcd4a8d5b37e85a4c6b2ed498edd98e05746272e0c48a",
   "pipeline_version": "fixture-pipeline",
   "tokenizer_id": "default",
   "token_estimate": 0,
@@ -43,7 +45,8 @@
   "message_hashes": [
     "7ca8174695e810a15beb937b49ba3cd8b7484c3411543d4bccd05dad5ee3e74a",
     "add169d79e581bf4c61a1a471bc6f4ff34e0062fdd99f97bccb65946dfa68548",
-    "65947d944132d8d4440ada5415237335f7ccee520038dd07dfcee9a40e70ba47"
+    "8c79945a945613073ecff4cc857cccfa98229f7c77aeffd82c2c08f2318ef2bc"
   ],
+  "prompt_assembly_strategy": "dynamic",
   "prompt_source": "default"
 }

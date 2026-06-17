@@ -9,10 +9,15 @@ pub mod default_prompt;
 pub mod accounting;
 pub mod tool_exchanges;
 pub mod tool_clearing;
+pub mod compaction;
+pub mod checkpoint_validation;
 
 pub use accounting::{ContextAccountant, ContextManagementPolicy, DurabilityMode};
+pub use checkpoint_validation::{validate_checkpoint, ValidationError};
 pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
-pub use tool_clearing::{clear_eligible_tool_results, ClearAction};
+pub use tool_clearing::clear_eligible_tool_results;
+pub use compaction::plan_compaction_range;
+pub use gestalt_core::ClearAction;
 
 use gestalt_core::{
     context::{
@@ -277,6 +282,7 @@ impl MinimalContextPipeline {
     }
 }
 
+#[async_trait::async_trait]
 impl ContextPipeline for MinimalContextPipeline {
     fn process(&self, history: &[Message], budget: &TokenBudget) -> Vec<Message> {
         self.build(history, budget).messages

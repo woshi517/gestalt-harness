@@ -218,6 +218,16 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "management": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ContextManagementPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "max_context_window": {
           "writeOnly": true,
           "type": [
@@ -277,6 +287,53 @@
         }
       },
       "additionalProperties": false
+    },
+    "ContextManagementPolicy": {
+      "type": "object",
+      "required": [
+        "buffer_tokens",
+        "compaction_target_ratio",
+        "durability",
+        "enabled",
+        "keep_recent_tokens",
+        "keep_recent_turns",
+        "profile",
+        "tool_result_budget_ratio"
+      ],
+      "properties": {
+        "buffer_tokens": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "compaction_target_ratio": {
+          "type": "number",
+          "format": "double"
+        },
+        "durability": {
+          "$ref": "#/definitions/DurabilityMode"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "keep_recent_tokens": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "keep_recent_turns": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "profile": {
+          "type": "string"
+        },
+        "tool_result_budget_ratio": {
+          "type": "number",
+          "format": "double"
+        }
+      }
     },
     "ContextSnapshotMode": {
       "type": "string",
@@ -353,6 +410,14 @@
         }
       },
       "additionalProperties": false
+    },
+    "DurabilityMode": {
+      "type": "string",
+      "enum": [
+        "required",
+        "best_effort",
+        "disabled"
+      ]
     },
     "ExecutionMode": {
       "type": "string",

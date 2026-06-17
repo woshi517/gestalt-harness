@@ -183,6 +183,7 @@ pub struct ContextOmission {
     pub authority: Option<String>,
 }
 
+#[async_trait::async_trait]
 pub trait ContextPipeline: Send + Sync {
     fn process(&self, history: &[Message], budget: &TokenBudget) -> Vec<Message>;
 
@@ -219,6 +220,22 @@ pub trait ContextPipeline: Send + Sync {
             cache_plan: None,
             prompt_source: None,
         }
+    }
+
+    async fn prepare_context(
+        &self,
+        history: &[Message],
+        budget: &TokenBudget,
+        _provider: &dyn crate::provider::Provider,
+        _model: &str,
+        _session_id: &str,
+        _run_id: &str,
+        _turn_id: usize,
+        _policy: &ContextManagementPolicy,
+        _artifacts_dir: Option<&std::path::Path>,
+        _emit: &mut (dyn FnMut(crate::event::AgentEvent) -> Result<(), crate::error::HarnessError> + Send),
+    ) -> Result<ContextPacket, crate::error::HarnessError> {
+        Ok(self.build_packet(history, budget))
     }
 }
 
@@ -280,5 +297,62 @@ impl HistoryRange {
 
     pub fn contains(&self, idx: usize) -> bool {
         idx >= self.start && idx < self.end
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointRef {
+    pub checkpoint_id: String,
+    pub range: HistoryRange,
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ClearAction {
+    pub message_index: usize,
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub original_tokens: usize,
+    pub output_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DurabilityMode {
+    Required,
+    BestEffort,
+    Disabled,
+}
+
+impl Default for DurabilityMode {
+    fn default() -> Self {
+        Self::Required
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ContextManagementPolicy {
+    pub enabled: bool,
+    pub buffer_tokens: usize,
+    pub keep_recent_tokens: usize,
+    pub keep_recent_turns: usize,
+    pub tool_result_budget_ratio: f64,
+    pub compaction_target_ratio: f64,
+    pub durability: DurabilityMode,
+    pub profile: String,
+}
+
+impl Default for ContextManagementPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            buffer_tokens: 4096,
+            keep_recent_tokens: 8192,
+            keep_recent_turns: 5,
+            tool_result_budget_ratio: 0.5,
+            compaction_target_ratio: 0.8,
+            durability: DurabilityMode::Required,
+            profile: "default".to_string(),
+        }
     }
 }

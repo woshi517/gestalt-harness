@@ -1,47 +1,6 @@
 use gestalt_core::context::TokenBudget;
 use gestalt_core::message::Message;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DurabilityMode {
-    Required,
-    BestEffort,
-    Disabled,
-}
-
-impl Default for DurabilityMode {
-    fn default() -> Self {
-        Self::Required
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ContextManagementPolicy {
-    pub enabled: bool,
-    pub buffer_tokens: usize,
-    pub keep_recent_tokens: usize,
-    pub keep_recent_turns: usize,
-    pub tool_result_budget_ratio: f64,
-    pub compaction_target_ratio: f64,
-    pub durability: DurabilityMode,
-    pub profile: String,
-}
-
-impl Default for ContextManagementPolicy {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            buffer_tokens: 4096,
-            keep_recent_tokens: 8192,
-            keep_recent_turns: 5,
-            tool_result_budget_ratio: 0.5,
-            compaction_target_ratio: 0.8,
-            durability: DurabilityMode::Required,
-            profile: "default".to_string(),
-        }
-    }
-}
+pub use gestalt_core::{ContextManagementPolicy, DurabilityMode};
 
 pub struct ContextAccountant<'a> {
     pub budget: &'a TokenBudget,

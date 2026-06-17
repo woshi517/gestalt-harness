@@ -439,7 +439,7 @@ pub use gestalt_runtime::workspace_context::{
     WorkspaceContextConfig,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ContextConfig {
     pub context_window_override: Option<usize>,
@@ -453,6 +453,8 @@ pub struct ContextConfig {
     pub workspace: Option<WorkspaceContextConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryContextConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub management: Option<gestalt_core::ContextManagementPolicy>,
 }
 
 impl Default for ContextConfig {
@@ -466,6 +468,7 @@ impl Default for ContextConfig {
             max_context_window: None,
             workspace: None,
             memory: None,
+            management: Some(gestalt_core::ContextManagementPolicy::default()),
         }
     }
 }
@@ -1099,6 +1102,7 @@ impl WorkspaceConfig {
                 (None, None) => None,
             };
 
+            self_context.management = other_context.management.or(self_context.management);
             self.context = Some(self_context);
         }
 
