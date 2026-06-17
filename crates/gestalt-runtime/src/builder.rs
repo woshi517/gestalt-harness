@@ -57,7 +57,10 @@ impl AgentRuntimeBuilder {
         }
     }
 
-    pub fn workspace_context_snapshot(mut self, snapshot: crate::workspace_context::WorkspaceContextSnapshot) -> Self {
+    pub fn workspace_context_snapshot(
+        mut self,
+        snapshot: crate::workspace_context::WorkspaceContextSnapshot,
+    ) -> Self {
         self.workspace_context_snapshot = Some(snapshot);
         self
     }
@@ -129,8 +132,6 @@ impl AgentRuntimeBuilder {
             ));
         }
 
-
-
         // Apply extensions before constructing AgentRuntime
         for ext in &self.extensions {
             let name = ext.name().to_string();
@@ -182,42 +183,54 @@ impl AgentRuntimeBuilder {
 
         // Publish configuration events
         for (name, server_cfg) in &self.config.mcp_servers {
-            self.event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConfigured {
-                server_name: name.clone(),
-                transport: format!("{:?}", server_cfg.transport),
-            });
+            self.event_bus
+                .publish(crate::event_bus::RuntimeEvent::McpServerConfigured {
+                    server_name: name.clone(),
+                    transport: format!("{:?}", server_cfg.transport),
+                });
         }
 
         // Wire event callback to propagate MCP Registry events to Runtime Event Bus
         let event_bus = self.event_bus.clone();
-        mcp_registry.set_event_callback(Arc::new(move |event| {
-            match event {
-                gestalt_mcp::McpRegistryEvent::Connecting { server_name } => {
-                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
-                }
-                gestalt_mcp::McpRegistryEvent::Connected { server_name, protocol_version, tool_count } => {
-                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnected {
-                        server_name,
-                        protocol_version,
-                        tool_count,
-                    });
-                }
-                gestalt_mcp::McpRegistryEvent::ConnectionFailed { server_name, reason } => {
-                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnectionFailed {
-                        server_name,
-                        reason,
-                    });
-                }
-                gestalt_mcp::McpRegistryEvent::ToolCatalogRefreshed { server_name, tool_count, schema_hash } => {
-                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolCatalogRefreshed {
-                        server_name,
-                        tool_count,
-                        schema_hash,
-                    });
-                }
-                gestalt_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
-                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
-                }
+        mcp_registry.set_event_callback(Arc::new(move |event| match event {
+            gestalt_mcp::McpRegistryEvent::Connecting { server_name } => {
+                event_bus
+                    .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
+            }
+            gestalt_mcp::McpRegistryEvent::Connected {
+                server_name,
+                protocol_version,
+                tool_count,
+            } => {
+                event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnected {
+                    server_name,
+                    protocol_version,
+                    tool_count,
+                });
+            }
+            gestalt_mcp::McpRegistryEvent::ConnectionFailed {
+                server_name,
+                reason,
+            } => {
+                event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnectionFailed {
+                    server_name,
+                    reason,
+                });
+            }
+            gestalt_mcp::McpRegistryEvent::ToolCatalogRefreshed {
+                server_name,
+                tool_count,
+                schema_hash,
+            } => {
+                event_bus.publish(crate::event_bus::RuntimeEvent::McpToolCatalogRefreshed {
+                    server_name,
+                    tool_count,
+                    schema_hash,
+                });
+            }
+            gestalt_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
+                event_bus
+                    .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
             }
         }));
 
@@ -233,7 +246,9 @@ impl AgentRuntimeBuilder {
         }
 
         // Create MCP discovery state
-        let mcp_discovery_state = Arc::new(std::sync::Mutex::new(crate::mcp_discovery::McpDiscoveryState::new()));
+        let mcp_discovery_state = Arc::new(std::sync::Mutex::new(
+            crate::mcp_discovery::McpDiscoveryState::new(),
+        ));
 
         // Register MCP discovery tools
         self.registry.register_executable_tool(
@@ -316,11 +331,19 @@ impl AgentRuntimeBuilder {
 
         // Configure MCP in planner
         planner = Some(match planner {
-            Some(p) => p.with_mcp(self.config.mcp_discovery_threshold, mcp_discovery_state.clone(), mcp_registry.clone()),
+            Some(p) => p.with_mcp(
+                self.config.mcp_discovery_threshold,
+                mcp_discovery_state.clone(),
+                mcp_registry.clone(),
+            ),
             None => crate::tool_catalog_planner::ToolCatalogPlanner::new(
                 crate::tool_catalog_planner::ToolProfile::All,
             )
-            .with_mcp(self.config.mcp_discovery_threshold, mcp_discovery_state.clone(), mcp_registry.clone()),
+            .with_mcp(
+                self.config.mcp_discovery_threshold,
+                mcp_discovery_state.clone(),
+                mcp_registry.clone(),
+            ),
         });
 
         if let Some(p) = planner {

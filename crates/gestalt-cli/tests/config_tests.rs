@@ -208,7 +208,8 @@ allow_read = ["/a", "/c"]
     assert!(merge_res.is_err());
     let err = merge_res.unwrap_err();
     assert!(
-        err.to_string().contains("workspace policy tries to widen authority"),
+        err.to_string()
+            .contains("workspace policy tries to widen authority"),
         "expected widening error, got: {}",
         err
     );
@@ -241,24 +242,27 @@ deny_read = ["/secret2"]
 fn test_effective_config_fingerprint_stability() {
     let _guard = ENV_MUTEX.lock().unwrap();
     clear_env_vars();
-    
+
     let config1 = validate_workspace_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/minimal")),
         ..CliOverrides::default()
     })
     .expect("config validates");
-    
+
     let config2 = validate_workspace_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/minimal")),
         ..CliOverrides::default()
     })
     .expect("config validates");
-    
+
     let fp1 = config1.compute_fingerprint();
     let fp2 = config2.compute_fingerprint();
-    
+
     assert!(!fp1.is_empty());
-    assert_eq!(fp1, fp2, "Effective config fingerprints must be stable across repeated loads");
+    assert_eq!(
+        fp1, fp2,
+        "Effective config fingerprints must be stable across repeated loads"
+    );
 }
 
 #[test]
@@ -272,7 +276,7 @@ fn test_variant_fingerprint_changes() {
         Some(&gestalt_core::provider::ReasoningEffort::Low),
         Some(&gestalt_core::provider::TextVerbosity::Medium),
     );
-    
+
     let fp2 = gestalt_runtime::inspect::compute_variant_fingerprint(
         "model-a",
         "provider-a",
@@ -282,7 +286,7 @@ fn test_variant_fingerprint_changes() {
         Some(&gestalt_core::provider::ReasoningEffort::High),
         Some(&gestalt_core::provider::TextVerbosity::Medium),
     );
-    
+
     let fp3 = gestalt_runtime::inspect::compute_variant_fingerprint(
         "model-a",
         "provider-a",
@@ -292,9 +296,15 @@ fn test_variant_fingerprint_changes() {
         Some(&gestalt_core::provider::ReasoningEffort::Low),
         Some(&gestalt_core::provider::TextVerbosity::High),
     );
-    
-    assert_ne!(fp1, fp2, "Variant fingerprint must change when reasoning effort changes");
-    assert_ne!(fp1, fp3, "Variant fingerprint must change when text verbosity changes");
+
+    assert_ne!(
+        fp1, fp2,
+        "Variant fingerprint must change when reasoning effort changes"
+    );
+    assert_ne!(
+        fp1, fp3,
+        "Variant fingerprint must change when text verbosity changes"
+    );
 }
 
 #[test]
@@ -322,7 +332,14 @@ path = ".gestalt/structured_workspace.md"
     };
     let config = load_effective_config(&overrides).expect("load config");
     assert_eq!(
-        config.context.workspace.as_ref().unwrap().path.as_ref().unwrap(),
+        config
+            .context
+            .workspace
+            .as_ref()
+            .unwrap()
+            .path
+            .as_ref()
+            .unwrap(),
         &PathBuf::from(".gestalt/structured_workspace.md")
     );
 
@@ -333,7 +350,14 @@ workspace_file = ".gestalt/legacy_workspace.md"
     fs::write(workspace_config_dir.join("config.toml"), workspace_toml2).unwrap();
     let config2 = load_effective_config(&overrides).expect("load config");
     assert_eq!(
-        config2.context.workspace.as_ref().unwrap().path.as_ref().unwrap(),
+        config2
+            .context
+            .workspace
+            .as_ref()
+            .unwrap()
+            .path
+            .as_ref()
+            .unwrap(),
         &PathBuf::from(".gestalt/legacy_workspace.md")
     );
 
@@ -344,9 +368,10 @@ required = true
 "#;
     fs::write(workspace_config_dir.join("config.toml"), workspace_toml3).unwrap();
     let config3 = load_effective_config(&overrides);
-    assert!(config3.is_err(), "enabled=false combined with required=true must fail");
+    assert!(
+        config3.is_err(),
+        "enabled=false combined with required=true must fail"
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
-
-

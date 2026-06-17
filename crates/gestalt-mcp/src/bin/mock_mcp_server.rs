@@ -1,5 +1,5 @@
-use std::io::{self, BufRead, Write};
 use serde_json::json;
+use std::io::{self, BufRead, Write};
 
 fn main() {
     let stdin = io::stdin();

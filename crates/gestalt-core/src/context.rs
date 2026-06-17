@@ -227,13 +227,15 @@ pub trait ContextPipeline: Send + Sync {
         history: &[Message],
         budget: &TokenBudget,
         _provider: &dyn crate::provider::Provider,
+        _request_template: &crate::provider::ProviderRequest,
         _model: &str,
         _session_id: &str,
         _run_id: &str,
         _turn_id: usize,
         _policy: &ContextManagementPolicy,
         _artifacts_dir: Option<&std::path::Path>,
-        _emit: &mut (dyn FnMut(crate::event::AgentEvent) -> Result<(), crate::error::HarnessError> + Send),
+        _emit: &mut (dyn FnMut(crate::event::AgentEvent) -> Result<(), crate::error::HarnessError>
+                  + Send),
     ) -> Result<ContextPacket, crate::error::HarnessError> {
         Ok(self.build_packet(history, budget))
     }

@@ -1371,7 +1371,9 @@ impl CliReport for VerifyRunReport {
     }
 }
 
-fn redact_effective_config(mut config: crate::config::EffectiveConfig) -> crate::config::EffectiveConfig {
+fn redact_effective_config(
+    mut config: crate::config::EffectiveConfig,
+) -> crate::config::EffectiveConfig {
     for prov in config.providers.values_mut() {
         if let Some(ref mut headers) = prov.headers {
             for (k, v) in headers.iter_mut() {
@@ -1395,21 +1397,24 @@ fn redact_effective_config(mut config: crate::config::EffectiveConfig) -> crate:
 }
 
 fn redact_explain_map(
-    mut map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>
+    mut map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>,
 ) -> std::collections::HashMap<String, crate::config::ConfigSourceInfo> {
     for (k, info) in &mut map {
         let lower_k = k.to_lowercase();
-        if (lower_k.contains("auth_ref") || lower_k.contains("api_key") || lower_k.contains("headers"))
-            && !lower_k.contains("api_key_env") {
-                match &mut info.value {
-                    Value::String(s) => {
-                        *s = "[REDACTED]".to_string();
-                    }
-                    other => {
-                        *other = Value::String("[REDACTED]".to_string());
-                    }
+        if (lower_k.contains("auth_ref")
+            || lower_k.contains("api_key")
+            || lower_k.contains("headers"))
+            && !lower_k.contains("api_key_env")
+        {
+            match &mut info.value {
+                Value::String(s) => {
+                    *s = "[REDACTED]".to_string();
+                }
+                other => {
+                    *other = Value::String("[REDACTED]".to_string());
                 }
             }
+        }
     }
     map
 }
@@ -1515,11 +1520,31 @@ impl CliReport for ConfigPathsReport {
         let mut lines = vec![
             "Config Paths and Discovery:".to_string(),
             String::new(),
-            format!("  Global JSON Config:        {} (exists: {})", self.global_path.display(), self.global_exists),
-            format!("  Global Legacy TOML:        {} (exists: {}) [DEPRECATED]", self.legacy_global_path.display(), self.legacy_global_exists),
-            format!("  Workspace JSON Config:     {} (exists: {})", self.workspace_path.display(), self.workspace_exists),
-            format!("  Workspace Legacy TOML:     {} (exists: {}) [DEPRECATED]", self.legacy_workspace_path.display(), self.legacy_workspace_exists),
-            format!("  Workspace Legacy Policies: {} (exists: {}) [DEPRECATED]", self.legacy_policies_path.display(), self.legacy_policies_exists),
+            format!(
+                "  Global JSON Config:        {} (exists: {})",
+                self.global_path.display(),
+                self.global_exists
+            ),
+            format!(
+                "  Global Legacy TOML:        {} (exists: {}) [DEPRECATED]",
+                self.legacy_global_path.display(),
+                self.legacy_global_exists
+            ),
+            format!(
+                "  Workspace JSON Config:     {} (exists: {})",
+                self.workspace_path.display(),
+                self.workspace_exists
+            ),
+            format!(
+                "  Workspace Legacy TOML:     {} (exists: {}) [DEPRECATED]",
+                self.legacy_workspace_path.display(),
+                self.legacy_workspace_exists
+            ),
+            format!(
+                "  Workspace Legacy Policies: {} (exists: {}) [DEPRECATED]",
+                self.legacy_policies_path.display(),
+                self.legacy_policies_exists
+            ),
             String::new(),
         ];
         if self.ambiguities.is_empty() {
@@ -2097,15 +2122,14 @@ impl CliReport for RuntimeInspectReport {
                 let status = format!("{:?}", server.connection_state).to_uppercase();
                 let trust = server.trust_level.as_deref().unwrap_or("untrusted");
                 let fresh = if server.cache_fresh { "fresh" } else { "stale" };
-                let mode = if server.discovery_mode { "progressive discovery" } else { "direct exposure" };
+                let mode = if server.discovery_mode {
+                    "progressive discovery"
+                } else {
+                    "direct exposure"
+                };
                 lines.push(format!(
                     "  - {}: Status: {} | Tools: {} ({}) | Trust: {} | Mode: {}",
-                    server.server_id,
-                    status,
-                    server.tool_count,
-                    fresh,
-                    trust,
-                    mode
+                    server.server_id, status, server.tool_count, fresh, trust, mode
                 ));
                 if let Some(ref err) = server.last_error {
                     lines.push(format!("    Error: {}", err));

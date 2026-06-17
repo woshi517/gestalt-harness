@@ -443,7 +443,9 @@ async fn test_process_extension_prepare_next_turn_switch_model_dispatch() {
 
     let result = composed.prepare_next_turn(&ctx).await.unwrap();
     match result {
-        HookOutcome::SwitchModel { model, provider, .. } => {
+        HookOutcome::SwitchModel {
+            model, provider, ..
+        } => {
             assert_eq!(model, "cheaper-model");
             assert_eq!(provider.as_deref(), Some("mock"));
         }
@@ -518,7 +520,10 @@ async fn test_process_extension_limits_max_message_bytes() {
             }
         }
     }
-    assert!(found_error, "Expected to find size limit error in event bus");
+    assert!(
+        found_error,
+        "Expected to find size limit error in event bus"
+    );
 
     broker.shutdown().await;
 }
@@ -548,15 +553,9 @@ async fn test_process_extension_limits_max_pending_requests() {
     };
 
     let broker = Arc::new(
-        ProcessExtensionBroker::spawn(
-            manifest.clone(),
-            event_bus.clone(),
-            timeouts,
-            limits,
-            true,
-        )
-        .await
-        .unwrap(),
+        ProcessExtensionBroker::spawn(manifest.clone(), event_bus.clone(), timeouts, limits, true)
+            .await
+            .unwrap(),
     );
 
     // Call unsupported methods to keep requests pending
@@ -567,11 +566,17 @@ async fn test_process_extension_limits_max_pending_requests() {
 
     let first_timeout = res1.is_err() && res1.as_ref().err().unwrap() == "Request timed out";
     let second_timeout = res2.is_err() && res2.as_ref().err().unwrap() == "Request timed out";
-    let first_rejected = res1.is_err() && res1.as_ref().err().unwrap() == "Too many pending requests";
-    let second_rejected = res2.is_err() && res2.as_ref().err().unwrap() == "Too many pending requests";
+    let first_rejected =
+        res1.is_err() && res1.as_ref().err().unwrap() == "Too many pending requests";
+    let second_rejected =
+        res2.is_err() && res2.as_ref().err().unwrap() == "Too many pending requests";
 
-    assert!((first_timeout && second_rejected) || (second_timeout && first_rejected),
-            "Expected one timeout and one immediate rejection, got: res1={:?}, res2={:?}", res1, res2);
+    assert!(
+        (first_timeout && second_rejected) || (second_timeout && first_rejected),
+        "Expected one timeout and one immediate rejection, got: res1={:?}, res2={:?}",
+        res1,
+        res2
+    );
 
     broker.shutdown().await;
 }
@@ -663,7 +668,7 @@ done"#.to_string(),
 #[tokio::test]
 async fn test_process_extension_hook_aggregation() {
     use gestalt_runtime::{BeforeContextBuildCtx, CompositionHooks, HookOutcome};
-    
+
     let manifest1 = ExtensionManifest {
         id: "ext-1".to_string(),
         name: "Extension 1".to_string(),
@@ -753,12 +758,34 @@ done"#.to_string(),
     };
 
     let event_bus = RuntimeEventBus::new();
-    
-    let broker1 = Arc::new(ProcessExtensionBroker::spawn(manifest1.clone(), event_bus.clone(), Default::default(), Default::default(), true).await.unwrap());
-    let ext1 = Arc::new(ProcessExtension::new(manifest1, broker1.clone())) as Arc<dyn GestaltExtension>;
-    
-    let broker2 = Arc::new(ProcessExtensionBroker::spawn(manifest2.clone(), event_bus.clone(), Default::default(), Default::default(), true).await.unwrap());
-    let ext2 = Arc::new(ProcessExtension::new(manifest2, broker2.clone())) as Arc<dyn GestaltExtension>;
+
+    let broker1 = Arc::new(
+        ProcessExtensionBroker::spawn(
+            manifest1.clone(),
+            event_bus.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
+    );
+    let ext1 =
+        Arc::new(ProcessExtension::new(manifest1, broker1.clone())) as Arc<dyn GestaltExtension>;
+
+    let broker2 = Arc::new(
+        ProcessExtensionBroker::spawn(
+            manifest2.clone(),
+            event_bus.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
+    );
+    let ext2 =
+        Arc::new(ProcessExtension::new(manifest2, broker2.clone())) as Arc<dyn GestaltExtension>;
 
     let composed = gestalt_runtime::composition_hooks::ComposedCompositionHooks {
         user_hooks: None,
@@ -772,17 +799,23 @@ done"#.to_string(),
     };
 
     let result = composed.before_context_build(&ctx).await.unwrap();
-    
+
     if let HookOutcome::Aggregated(outcomes) = result {
         assert_eq!(outcomes.len(), 2);
-        
-        if let HookOutcome::AddContext { message: gestalt_core::message::Message::System { content } } = &outcomes[0] {
+
+        if let HookOutcome::AddContext {
+            message: gestalt_core::message::Message::System { content },
+        } = &outcomes[0]
+        {
             assert_eq!(content, "context-from-ext1");
         } else {
             panic!("Expected HookOutcome::AddContext, got {:?}", outcomes[0]);
         }
-        
-        if let HookOutcome::AddContext { message: gestalt_core::message::Message::System { content } } = &outcomes[1] {
+
+        if let HookOutcome::AddContext {
+            message: gestalt_core::message::Message::System { content },
+        } = &outcomes[1]
+        {
             assert_eq!(content, "context-from-ext2");
         } else {
             panic!("Expected HookOutcome::AddContext, got {:?}", outcomes[1]);
@@ -798,7 +831,7 @@ done"#.to_string(),
 #[tokio::test]
 async fn test_process_extension_hook_namespaced_annotation() {
     use gestalt_runtime::{BeforeContextBuildCtx, CompositionHooks, HookOutcome};
-    
+
     let manifest = ExtensionManifest {
         id: "annotation-ext".to_string(),
         name: "Annotation Extension".to_string(),
@@ -844,8 +877,19 @@ done"#.to_string(),
     };
 
     let event_bus = RuntimeEventBus::new();
-    let broker = Arc::new(ProcessExtensionBroker::spawn(manifest.clone(), event_bus.clone(), Default::default(), Default::default(), true).await.unwrap());
-    let ext = Arc::new(ProcessExtension::new(manifest, broker.clone())) as Arc<dyn GestaltExtension>;
+    let broker = Arc::new(
+        ProcessExtensionBroker::spawn(
+            manifest.clone(),
+            event_bus.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
+    );
+    let ext =
+        Arc::new(ProcessExtension::new(manifest, broker.clone())) as Arc<dyn GestaltExtension>;
 
     let composed = gestalt_runtime::composition_hooks::ComposedCompositionHooks {
         user_hooks: None,
@@ -859,9 +903,12 @@ done"#.to_string(),
     };
 
     let result = composed.before_context_build(&ctx).await.unwrap();
-    
+
     if let HookOutcome::Annotate { metadata } = result {
-        assert_eq!(metadata, serde_json::json!({ "annotation-ext": { "foo": "bar" } }));
+        assert_eq!(
+            metadata,
+            serde_json::json!({ "annotation-ext": { "foo": "bar" } })
+        );
     } else {
         panic!("Expected HookOutcome::Annotate, got {:?}", result);
     }
@@ -872,7 +919,7 @@ done"#.to_string(),
 #[tokio::test]
 async fn test_process_extension_hook_model_switch_conflict() {
     use gestalt_runtime::{CompositionHooks, PrepareNextTurnCtx};
-    
+
     let manifest1 = ExtensionManifest {
         id: "switch-ext-1".to_string(),
         name: "Switch Extension 1".to_string(),
@@ -963,12 +1010,34 @@ done"#.to_string(),
 
     let event_bus = RuntimeEventBus::new();
     let mut sub = event_bus.subscribe();
-    
-    let broker1 = Arc::new(ProcessExtensionBroker::spawn(manifest1.clone(), event_bus.clone(), Default::default(), Default::default(), true).await.unwrap());
-    let ext1 = Arc::new(ProcessExtension::new(manifest1, broker1.clone())) as Arc<dyn GestaltExtension>;
-    
-    let broker2 = Arc::new(ProcessExtensionBroker::spawn(manifest2.clone(), event_bus.clone(), Default::default(), Default::default(), true).await.unwrap());
-    let ext2 = Arc::new(ProcessExtension::new(manifest2, broker2.clone())) as Arc<dyn GestaltExtension>;
+
+    let broker1 = Arc::new(
+        ProcessExtensionBroker::spawn(
+            manifest1.clone(),
+            event_bus.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
+    );
+    let ext1 =
+        Arc::new(ProcessExtension::new(manifest1, broker1.clone())) as Arc<dyn GestaltExtension>;
+
+    let broker2 = Arc::new(
+        ProcessExtensionBroker::spawn(
+            manifest2.clone(),
+            event_bus.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
+    );
+    let ext2 =
+        Arc::new(ProcessExtension::new(manifest2, broker2.clone())) as Arc<dyn GestaltExtension>;
 
     let composed = gestalt_runtime::composition_hooks::ComposedCompositionHooks {
         user_hooks: None,
@@ -989,15 +1058,20 @@ done"#.to_string(),
     while let Ok(evt) = sub.try_recv() {
         events.push((*evt).clone());
     }
-    
+
     let has_conflict = events.iter().any(|e| {
         if let RuntimeEvent::RuntimeError { message } = e {
-            message.contains("Conflict: SwitchModel requested by extension") && message.contains("conflicts with previous override")
+            message.contains("Conflict: SwitchModel requested by extension")
+                && message.contains("conflicts with previous override")
         } else {
             false
         }
     });
-    assert!(has_conflict, "Expected a conflict RuntimeError event, observed events: {:?}", events);
+    assert!(
+        has_conflict,
+        "Expected a conflict RuntimeError event, observed events: {:?}",
+        events
+    );
 
     broker1.shutdown().await;
     broker2.shutdown().await;
@@ -1005,8 +1079,10 @@ done"#.to_string(),
 
 #[tokio::test]
 async fn test_process_extension_hook_failure_mode_policies() {
-    use gestalt_runtime::{BeforeContextBuildCtx, BeforeToolPolicyCtx, CompositionHooks, HookOutcome};
-    
+    use gestalt_runtime::{
+        BeforeContextBuildCtx, BeforeToolPolicyCtx, CompositionHooks, HookOutcome,
+    };
+
     let manifest = ExtensionManifest {
         id: "failing-ext".to_string(),
         name: "Failing Extension".to_string(),
@@ -1027,7 +1103,8 @@ async fn test_process_extension_hook_failure_mode_policies() {
   elif [ "$method" = "hooks/call" ]; then
     exit 1
   fi
-done"#.to_string(),
+done"#
+                    .to_string(),
             ],
         },
         capabilities: Capabilities {
@@ -1052,14 +1129,25 @@ done"#.to_string(),
                 lifecycle_point: "before_context_build".to_string(),
                 failure_mode: Some("open".to_string()),
                 timeout_ms: Some(100),
-            }
+            },
         ],
         context_injectors: vec![],
     };
 
     let event_bus = RuntimeEventBus::new();
-    let broker = Arc::new(ProcessExtensionBroker::spawn(manifest.clone(), event_bus.clone(), Default::default(), Default::default(), true).await.unwrap());
-    let ext = Arc::new(ProcessExtension::new(manifest, broker.clone())) as Arc<dyn GestaltExtension>;
+    let broker = Arc::new(
+        ProcessExtensionBroker::spawn(
+            manifest.clone(),
+            event_bus.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
+    );
+    let ext =
+        Arc::new(ProcessExtension::new(manifest, broker.clone())) as Arc<dyn GestaltExtension>;
 
     let composed = gestalt_runtime::composition_hooks::ComposedCompositionHooks {
         user_hooks: None,
@@ -1092,51 +1180,85 @@ done"#.to_string(),
 #[tokio::test]
 async fn test_process_extension_negotiated_protocol_fingerprint() {
     use gestalt_runtime::{AgentRuntime, RuntimeConfig};
-    
+
     struct FPProvider;
     #[async_trait::async_trait]
     impl gestalt_core::provider::Provider for FPProvider {
-        fn id(&self) -> &str { "fp" }
-        fn display_name(&self) -> &str { "FP" }
-        fn default_model(&self) -> &str { "model" }
+        fn id(&self) -> &str {
+            "fp"
+        }
+        fn display_name(&self) -> &str {
+            "FP"
+        }
+        fn default_model(&self) -> &str {
+            "model"
+        }
         fn capabilities(&self) -> &gestalt_core::provider::ProviderCapabilities {
-            static CAP: gestalt_core::provider::ProviderCapabilities = gestalt_core::provider::ProviderCapabilities {
-                supports_tools: false,
-                supports_parallel_tools: false,
-                supports_vision: false,
-                supports_documents: false,
-                supports_thinking: false,
-                supports_json_schema_tools: false,
-                supports_prompt_caching: false,
-                supports_usage_reporting: false,
-                supports_streaming: false,
-                supports_strict_schema: false,
-            };
+            static CAP: gestalt_core::provider::ProviderCapabilities =
+                gestalt_core::provider::ProviderCapabilities {
+                    supports_tools: false,
+                    supports_parallel_tools: false,
+                    supports_vision: false,
+                    supports_documents: false,
+                    supports_thinking: false,
+                    supports_json_schema_tools: false,
+                    supports_prompt_caching: false,
+                    supports_usage_reporting: false,
+                    supports_streaming: false,
+                    supports_strict_schema: false,
+                };
             &CAP
         }
-        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> { None }
-        fn count_tokens(&self, _model: &str, _messages: &[gestalt_core::message::Message]) -> Result<usize, gestalt_core::error::HarnessError> { Ok(0) }
-        async fn stream(&self, _request: gestalt_core::provider::ProviderRequest) -> Result<gestalt_core::provider::EventStream, gestalt_core::error::HarnessError> {
+        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+            None
+        }
+        fn count_tokens(
+            &self,
+            _model: &str,
+            _messages: &[gestalt_core::message::Message],
+        ) -> Result<usize, gestalt_core::error::HarnessError> {
+            Ok(0)
+        }
+        async fn stream(
+            &self,
+            _request: gestalt_core::provider::ProviderRequest,
+        ) -> Result<gestalt_core::provider::EventStream, gestalt_core::error::HarnessError>
+        {
             Err(gestalt_core::error::HarnessError::Cancelled)
         }
     }
 
     struct FPToolCatalog;
     impl gestalt_core::tool::ToolCatalog for FPToolCatalog {
-        fn schemas(&self) -> Vec<gestalt_core::tool::ToolSchema> { vec![] }
-        fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> { None }
+        fn schemas(&self) -> Vec<gestalt_core::tool::ToolSchema> {
+            vec![]
+        }
+        fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+            None
+        }
     }
 
     struct FPMiddleware;
     impl gestalt_core::context::ContextPipeline for FPMiddleware {
-        fn process(&self, _history: &[gestalt_core::message::Message], _budget: &gestalt_core::context::TokenBudget) -> Vec<gestalt_core::message::Message> { vec![] }
-        fn version(&self) -> &str { "1" }
+        fn process(
+            &self,
+            _history: &[gestalt_core::message::Message],
+            _budget: &gestalt_core::context::TokenBudget,
+        ) -> Vec<gestalt_core::message::Message> {
+            vec![]
+        }
+        fn version(&self) -> &str {
+            "1"
+        }
     }
 
     struct FPPolicyEngine;
     #[async_trait::async_trait]
     impl gestalt_core::policy::PolicyEngine for FPPolicyEngine {
-        async fn evaluate(&self, _request: gestalt_core::policy::PolicyRequest) -> gestalt_core::policy::PolicyDecision {
+        async fn evaluate(
+            &self,
+            _request: gestalt_core::policy::PolicyRequest,
+        ) -> gestalt_core::policy::PolicyDecision {
             gestalt_core::policy::PolicyDecision::allowed(None)
         }
     }
@@ -1159,7 +1281,8 @@ async fn test_process_extension_negotiated_protocol_fingerprint() {
   if [ "$method" = "initialize" ]; then
     echo '{"jsonrpc":"2.0","result":{"capabilities":{}},"id":"'"$req_id"'"}'
   fi
-done"#.to_string(),
+done"#
+                    .to_string(),
             ],
         },
         capabilities: Capabilities {
@@ -1177,7 +1300,17 @@ done"#.to_string(),
     };
 
     let event_bus = RuntimeEventBus::new();
-    let broker = Arc::new(ProcessExtensionBroker::spawn(manifest1.clone(), event_bus.clone(), Default::default(), Default::default(), true).await.unwrap());
+    let broker = Arc::new(
+        ProcessExtensionBroker::spawn(
+            manifest1.clone(),
+            event_bus.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap(),
+    );
     let ext = Arc::new(ProcessExtension::new(manifest1, broker.clone()));
 
     let runtime = AgentRuntime::new(
@@ -1192,16 +1325,21 @@ done"#.to_string(),
         RuntimeRegistry::default(),
         None,
         event_bus.clone(),
-        Arc::new(gestalt_mcp::McpRegistry::new(std::env::current_dir().unwrap(), Default::default())),
-        Arc::new(std::sync::Mutex::new(gestalt_runtime::McpDiscoveryState::new())),
+        Arc::new(gestalt_mcp::McpRegistry::new(
+            std::env::current_dir().unwrap(),
+            Default::default(),
+        )),
+        Arc::new(std::sync::Mutex::new(
+            gestalt_runtime::McpDiscoveryState::new(),
+        )),
         vec![ext.clone() as Arc<dyn GestaltExtension>],
     );
 
     let inspect = runtime.inspect();
-    let fp1 = inspect.negotiated_protocol_fingerprint.expect("Expected negotiated protocol fingerprint");
+    let fp1 = inspect
+        .negotiated_protocol_fingerprint
+        .expect("Expected negotiated protocol fingerprint");
     assert!(!fp1.is_empty());
 
     broker.shutdown().await;
 }
-
-

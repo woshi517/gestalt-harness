@@ -1,23 +1,23 @@
 //! `gestalt-trace` — JSONL trace writer + `EventEnvelope`
 
+pub mod context_artifacts;
 pub mod evaluator;
 pub mod fixture;
 pub mod golden;
 pub mod resume;
 pub mod run_manifest;
 pub mod tool_metrics;
-pub mod context_artifacts;
 
+pub use context_artifacts::{
+    load_checkpoint, load_manifest, persist_checkpoint, persist_manifest, CompactionCheckpoint,
+    MessageMetadataRef, ProjectionManifest,
+};
 pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
 pub use golden::{GoldenTrace, GoldenTraceRunner};
 pub use resume::{RecoveryStatus, ResumeAnalysis, ResumeAnalyzer};
 pub use run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 pub use tool_metrics::{analyze_tool_metrics, ToolMetricsReport};
-pub use context_artifacts::{
-    CompactionCheckpoint, MessageMetadataRef, ProjectionManifest,
-    persist_manifest, persist_checkpoint, load_manifest, load_checkpoint,
-};
 
 use std::{
     fs::{self, File},

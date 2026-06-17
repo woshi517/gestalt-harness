@@ -25,10 +25,10 @@ fn version_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema
 fn is_json_output() -> bool {
     let args: Vec<String> = std::env::args().collect();
     for i in 0..args.len() {
-        if (args[i] == "--format" || args[i] == "-f") && i + 1 < args.len()
-            && args[i + 1] == "json" {
-                return true;
-            }
+        if (args[i] == "--format" || args[i] == "-f") && i + 1 < args.len() && args[i + 1] == "json"
+        {
+            return true;
+        }
     }
     false
 }
@@ -117,12 +117,8 @@ pub enum TextVerbosity {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnthropicThinkingConfig {
-    Adaptive {
-        effort: String,
-    },
-    Enabled {
-        budget_tokens: u32,
-    },
+    Adaptive { effort: String },
+    Enabled { budget_tokens: u32 },
     Disabled,
 }
 
@@ -528,7 +524,9 @@ impl PoliciesConfig {
         let default_bash = gestalt_policy::BashPolicy::default();
         let default_network = gestalt_policy::NetworkPolicy::default();
 
-        let bash_default = self.bash.default
+        let bash_default = self
+            .bash
+            .default
             .map(|a| match a {
                 PolicyAction::Allow => gestalt_policy::PolicyAction::Allow,
                 PolicyAction::Confirm => gestalt_policy::PolicyAction::Confirm,
@@ -540,21 +538,44 @@ impl PoliciesConfig {
         if let Some(ref yolo) = self.bash.yolo_allow {
             allow_list.extend(yolo.clone());
         }
-        let allow_list = with_default(if allow_list.is_empty() { None } else { Some(allow_list) }, default_bash.yolo_allow);
+        let allow_list = with_default(
+            if allow_list.is_empty() {
+                None
+            } else {
+                Some(allow_list)
+            },
+            default_bash.yolo_allow,
+        );
 
         let mut confirm_list = self.bash.confirm.clone().unwrap_or_default();
         if let Some(ref conf) = self.bash.always_confirm {
             confirm_list.extend(conf.clone());
         }
-        let confirm_list = with_default(if confirm_list.is_empty() { None } else { Some(confirm_list) }, default_bash.always_confirm);
+        let confirm_list = with_default(
+            if confirm_list.is_empty() {
+                None
+            } else {
+                Some(confirm_list)
+            },
+            default_bash.always_confirm,
+        );
 
         let mut deny_list = self.bash.deny.clone().unwrap_or_default();
         if let Some(ref deny) = self.bash.always_deny {
             deny_list.extend(deny.clone());
         }
-        let deny_list = with_default(if deny_list.is_empty() { None } else { Some(deny_list) }, default_bash.always_deny);
+        let deny_list = with_default(
+            if deny_list.is_empty() {
+                None
+            } else {
+                Some(deny_list)
+            },
+            default_bash.always_deny,
+        );
 
-        let network_default = self.network.default
+        let network_default = self
+            .network
+            .default
             .map(|a| match a {
                 PolicyAction::Allow => gestalt_policy::PolicyAction::Allow,
                 PolicyAction::Confirm => gestalt_policy::PolicyAction::Confirm,
@@ -891,7 +912,7 @@ impl EffectiveConfig {
             skills: &'a SkillsConfig,
             mcp: &'a Option<McpConfig>,
         }
-        
+
         let stable = StableConfig {
             defaults: &self.defaults,
             tools: &self.tools,
@@ -970,7 +991,9 @@ impl WorkspaceConfig {
                     eprintln!("Warning: 'yolo_allow' is deprecated, please use 'allow' instead.");
                 }
                 if p.bash.always_confirm.is_some() {
-                    eprintln!("Warning: 'always_confirm' is deprecated, please use 'confirm' instead.");
+                    eprintln!(
+                        "Warning: 'always_confirm' is deprecated, please use 'confirm' instead."
+                    );
                 }
                 if p.bash.always_deny.is_some() {
                     eprintln!("Warning: 'always_deny' is deprecated, please use 'deny' instead.");
@@ -998,7 +1021,9 @@ impl WorkspaceConfig {
                 if w.enabled == Some(false) && w.required == Some(true) {
                     return Err(HarnessError::Config(ConfigError::InvalidValue {
                         field: "context.workspace".to_string(),
-                        reason: "cannot set workspace.enabled = false while workspace.required = true".to_string(),
+                        reason:
+                            "cannot set workspace.enabled = false while workspace.required = true"
+                                .to_string(),
                     }));
                 }
             }
@@ -1006,7 +1031,8 @@ impl WorkspaceConfig {
                 if m.enabled == Some(false) && m.required == Some(true) {
                     return Err(HarnessError::Config(ConfigError::InvalidValue {
                         field: "context.memory".to_string(),
-                        reason: "cannot set memory.enabled = false while memory.required = true".to_string(),
+                        reason: "cannot set memory.enabled = false while memory.required = true"
+                            .to_string(),
                     }));
                 }
             }
@@ -1023,7 +1049,9 @@ impl WorkspaceConfig {
             self_defaults.max_turns = other_defaults.max_turns.or(self_defaults.max_turns);
             self_defaults.profile = other_defaults.profile.or(self_defaults.profile);
             self_defaults.variant = other_defaults.variant.or(self_defaults.variant);
-            self_defaults.max_output_tokens = other_defaults.max_output_tokens.or(self_defaults.max_output_tokens);
+            self_defaults.max_output_tokens = other_defaults
+                .max_output_tokens
+                .or(self_defaults.max_output_tokens);
             self_defaults.temperature = other_defaults.temperature.or(self_defaults.temperature);
             self_defaults.top_p = other_defaults.top_p.or(self_defaults.top_p);
             self.defaults = Some(self_defaults);
@@ -1037,9 +1065,8 @@ impl WorkspaceConfig {
             self_tools.bash_timeout_secs = other_tools
                 .bash_timeout_secs
                 .or(self_tools.bash_timeout_secs);
-            self_tools.max_output_bytes = other_tools
-                .max_output_bytes
-                .or(self_tools.max_output_bytes);
+            self_tools.max_output_bytes =
+                other_tools.max_output_bytes.or(self_tools.max_output_bytes);
             self_tools.max_output_tokens = other_tools
                 .max_output_tokens
                 .or(self_tools.max_output_tokens);
@@ -1047,9 +1074,7 @@ impl WorkspaceConfig {
                 .max_parallel_calls
                 .or(self_tools.max_parallel_calls);
             self_tools.sandbox_type = other_tools.sandbox_type.or(self_tools.sandbox_type);
-            self_tools.ignore_patterns = other_tools
-                .ignore_patterns
-                .or(self_tools.ignore_patterns);
+            self_tools.ignore_patterns = other_tools.ignore_patterns.or(self_tools.ignore_patterns);
             self.tools = Some(self_tools);
         }
 
@@ -1071,7 +1096,8 @@ impl WorkspaceConfig {
                 other_context.workspace_file.or(self_context.workspace_file);
             self_context.memory_file = other_context.memory_file.or(self_context.memory_file);
 
-            self_context.workspace = match (self_context.workspace.take(), other_context.workspace) {
+            self_context.workspace = match (self_context.workspace.take(), other_context.workspace)
+            {
                 (Some(s_w), Some(o_w)) => Some(WorkspaceContextConfig {
                     enabled: o_w.enabled.or(s_w.enabled),
                     path: o_w.path.or(s_w.path),
@@ -1127,10 +1153,26 @@ impl WorkspaceConfig {
             let mut self_policies = self.policies.unwrap_or_default();
 
             // validate allow list subset constraint:
-            validate_subset(self_policies.paths.allow_read.as_ref(), other_policies.paths.allow_read.as_ref(), "policies.paths.allow_read")?;
-            validate_subset(self_policies.paths.allow_write.as_ref(), other_policies.paths.allow_write.as_ref(), "policies.paths.allow_write")?;
-            validate_subset(self_policies.bash.allow.as_ref(), other_policies.bash.allow.as_ref(), "policies.bash.allow")?;
-            validate_subset(self_policies.network.allow_domains.as_ref(), other_policies.network.allow_domains.as_ref(), "policies.network.allow_domains")?;
+            validate_subset(
+                self_policies.paths.allow_read.as_ref(),
+                other_policies.paths.allow_read.as_ref(),
+                "policies.paths.allow_read",
+            )?;
+            validate_subset(
+                self_policies.paths.allow_write.as_ref(),
+                other_policies.paths.allow_write.as_ref(),
+                "policies.paths.allow_write",
+            )?;
+            validate_subset(
+                self_policies.bash.allow.as_ref(),
+                other_policies.bash.allow.as_ref(),
+                "policies.bash.allow",
+            )?;
+            validate_subset(
+                self_policies.network.allow_domains.as_ref(),
+                other_policies.network.allow_domains.as_ref(),
+                "policies.network.allow_domains",
+            )?;
 
             // Replace allow lists with non-empty overrides:
             if other_policies.paths.allow_read.is_some() {
@@ -1147,11 +1189,24 @@ impl WorkspaceConfig {
             }
 
             // Union merge for deny lists:
-            self_policies.paths.deny_write = merge_unions(self_policies.paths.deny_write, other_policies.paths.deny_write);
-            self_policies.paths.deny_read = merge_unions(self_policies.paths.deny_read, other_policies.paths.deny_read);
-            self_policies.bash.deny = merge_unions(self_policies.bash.deny, other_policies.bash.deny);
-            self_policies.bash.always_deny = merge_unions(self_policies.bash.always_deny, other_policies.bash.always_deny);
-            self_policies.network.deny_domains = merge_unions(self_policies.network.deny_domains, other_policies.network.deny_domains);
+            self_policies.paths.deny_write = merge_unions(
+                self_policies.paths.deny_write,
+                other_policies.paths.deny_write,
+            );
+            self_policies.paths.deny_read = merge_unions(
+                self_policies.paths.deny_read,
+                other_policies.paths.deny_read,
+            );
+            self_policies.bash.deny =
+                merge_unions(self_policies.bash.deny, other_policies.bash.deny);
+            self_policies.bash.always_deny = merge_unions(
+                self_policies.bash.always_deny,
+                other_policies.bash.always_deny,
+            );
+            self_policies.network.deny_domains = merge_unions(
+                self_policies.network.deny_domains,
+                other_policies.network.deny_domains,
+            );
 
             self_policies.bash.default = other_policies.bash.default.or(self_policies.bash.default);
             self_policies.bash.confirm = other_policies.bash.confirm.or(self_policies.bash.confirm);
@@ -1211,13 +1266,16 @@ impl WorkspaceConfig {
 
             // Merge limits
             if other_extensions.limits.max_message_bytes.is_some() {
-                self_extensions.limits.max_message_bytes = other_extensions.limits.max_message_bytes;
+                self_extensions.limits.max_message_bytes =
+                    other_extensions.limits.max_message_bytes;
             }
             if other_extensions.limits.max_pending_requests.is_some() {
-                self_extensions.limits.max_pending_requests = other_extensions.limits.max_pending_requests;
+                self_extensions.limits.max_pending_requests =
+                    other_extensions.limits.max_pending_requests;
             }
             if other_extensions.limits.max_protocol_errors.is_some() {
-                self_extensions.limits.max_protocol_errors = other_extensions.limits.max_protocol_errors;
+                self_extensions.limits.max_protocol_errors =
+                    other_extensions.limits.max_protocol_errors;
             }
 
             self.extensions = Some(self_extensions);
@@ -1396,7 +1454,10 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
             c.max_context_window = c.context_window_override;
         }
         c.context_window_override = c.context_window_override.or(d.context_window_override);
-        c.max_context_window = c.max_context_window.or(d.max_context_window).or(c.context_window_override);
+        c.max_context_window = c
+            .max_context_window
+            .or(d.max_context_window)
+            .or(c.context_window_override);
         c.reserved_output_tokens = c.reserved_output_tokens.or(d.reserved_output_tokens);
         c.safety_margin_tokens = c.safety_margin_tokens.or(d.safety_margin_tokens);
         c.workspace_file = c.workspace_file.or(d.workspace_file);
@@ -1555,66 +1616,70 @@ impl EffectiveConfig {
         let active_profile = self.defaults.profile.clone();
         let active_provider = self.defaults.provider.clone();
 
-        let (profile_name, mut provider_name, mut model_override) = if let Some(ref p) = active_profile
-        {
-            if let Some(prof_cfg) = self.profiles.get(p) {
-                let prov = prof_cfg.provider.clone().unwrap_or_else(|| p.clone());
-                let model = prof_cfg.model.clone();
-                (Some(p.clone()), prov, model)
-            } else {
-                match p.as_str() {
-                    "default" => (
-                        Some(p.clone()),
-                        "openrouter".to_string(),
-                        Some("openrouter/free".to_string()),
-                    ),
-                    "openrouter" => (
-                        Some(p.clone()),
-                        "openrouter".to_string(),
-                        Some("openrouter/free".to_string()),
-                    ),
-                    "anthropic" => (
-                        Some(p.clone()),
-                        "anthropic".to_string(),
-                        Some("claude-3-5-sonnet-20241022".to_string()),
-                    ),
-                    "openai" => (
-                        Some(p.clone()),
-                        "openai".to_string(),
-                        Some("gpt-4o-mini".to_string()),
-                    ),
-                    "ollama" => (Some(p.clone()), "ollama".to_string(), Some("llama3".to_string())),
-                    "groq" => (
-                        Some(p.clone()),
-                        "groq".to_string(),
-                        Some("llama3-8b-8192".to_string()),
-                    ),
-                    "together" => (
-                        Some(p.clone()),
-                        "together".to_string(),
-                        Some("mistralai/Mixtral-8x7B-Instruct-v0.1".to_string()),
-                    ),
-                    _ => {
-                        return Err(HarnessError::Config(ConfigError::InvalidValue {
-                            field: "defaults.profile".to_string(),
-                            reason: format!(
-                                "profile '{p}' not found in configuration or built-ins"
-                            ),
-                        }));
+        let (profile_name, mut provider_name, mut model_override) =
+            if let Some(ref p) = active_profile {
+                if let Some(prof_cfg) = self.profiles.get(p) {
+                    let prov = prof_cfg.provider.clone().unwrap_or_else(|| p.clone());
+                    let model = prof_cfg.model.clone();
+                    (Some(p.clone()), prov, model)
+                } else {
+                    match p.as_str() {
+                        "default" => (
+                            Some(p.clone()),
+                            "openrouter".to_string(),
+                            Some("openrouter/free".to_string()),
+                        ),
+                        "openrouter" => (
+                            Some(p.clone()),
+                            "openrouter".to_string(),
+                            Some("openrouter/free".to_string()),
+                        ),
+                        "anthropic" => (
+                            Some(p.clone()),
+                            "anthropic".to_string(),
+                            Some("claude-3-5-sonnet-20241022".to_string()),
+                        ),
+                        "openai" => (
+                            Some(p.clone()),
+                            "openai".to_string(),
+                            Some("gpt-4o-mini".to_string()),
+                        ),
+                        "ollama" => (
+                            Some(p.clone()),
+                            "ollama".to_string(),
+                            Some("llama3".to_string()),
+                        ),
+                        "groq" => (
+                            Some(p.clone()),
+                            "groq".to_string(),
+                            Some("llama3-8b-8192".to_string()),
+                        ),
+                        "together" => (
+                            Some(p.clone()),
+                            "together".to_string(),
+                            Some("mistralai/Mixtral-8x7B-Instruct-v0.1".to_string()),
+                        ),
+                        _ => {
+                            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                                field: "defaults.profile".to_string(),
+                                reason: format!(
+                                    "profile '{p}' not found in configuration or built-ins"
+                                ),
+                            }));
+                        }
                     }
                 }
-            }
-        } else if let Some(prov) = active_provider {
-            let model = self.defaults.model.clone();
-            (None, prov, model)
-        } else {
-            let p = "default".to_string();
-            (
-                Some(p),
-                "openrouter".to_string(),
-                Some("openrouter/free".to_string()),
-            )
-        };
+            } else if let Some(prov) = active_provider {
+                let model = self.defaults.model.clone();
+                (None, prov, model)
+            } else {
+                let p = "default".to_string();
+                (
+                    Some(p),
+                    "openrouter".to_string(),
+                    Some("openrouter/free".to_string()),
+                )
+            };
 
         // Apply explicit CLI / Env overrides (which beat profiles and defaults)
         if let Some(ref prov_ovr) = self.provider_override {
@@ -1624,69 +1689,76 @@ impl EffectiveConfig {
             model_override = Some(model_ovr.clone());
         }
 
-        let (kind, base_url, default_model, api_key_env, auth_ref, models_endpoint, headers, capabilities) =
-            if let Some(prov_cfg) = self.providers.get(&provider_name) {
-                let kind = prov_cfg
-                    .kind
-                    .clone()
-                    .or_else(|| {
+        let (
+            kind,
+            base_url,
+            default_model,
+            api_key_env,
+            auth_ref,
+            models_endpoint,
+            headers,
+            capabilities,
+        ) = if let Some(prov_cfg) = self.providers.get(&provider_name) {
+            let kind = prov_cfg
+                .kind
+                .clone()
+                .or_else(|| {
+                    if provider_name == "anthropic" {
+                        Some(ProviderKind::Anthropic)
+                    } else if provider_name == "openai" {
+                        Some(ProviderKind::Openai)
+                    } else if provider_name == "openai-compatible" {
+                        Some(ProviderKind::OpenaiCompatible)
+                    } else if gestalt_models::registry::registered().contains(&provider_name) {
                         if provider_name == "anthropic" {
                             Some(ProviderKind::Anthropic)
                         } else if provider_name == "openai" {
                             Some(ProviderKind::Openai)
-                        } else if provider_name == "openai-compatible" {
-                            Some(ProviderKind::OpenaiCompatible)
-                        } else if gestalt_models::registry::registered().contains(&provider_name) {
-                            if provider_name == "anthropic" {
-                                Some(ProviderKind::Anthropic)
-                            } else if provider_name == "openai" {
-                                Some(ProviderKind::Openai)
-                            } else {
-                                Some(ProviderKind::Custom(provider_name.clone()))
-                            }
                         } else {
-                            Some(ProviderKind::OpenaiCompatible)
+                            Some(ProviderKind::Custom(provider_name.clone()))
                         }
-                    })
-                    .unwrap_or(ProviderKind::OpenaiCompatible);
-                let base = prov_cfg.base_url.clone();
-                let model = prov_cfg.default_model.clone();
-                let env = prov_cfg.api_key_env.clone();
-                let auth = prov_cfg.auth_ref.clone();
-                let endpoint = prov_cfg.models_endpoint.clone();
-                let hdrs = prov_cfg.headers.clone();
-                let caps = prov_cfg.capabilities.clone();
-                (kind, base, model, env, auth, endpoint, hdrs, caps)
-            } else if let Some(builtin) =
-                crate::provider_catalog::get_builtin_provider(&provider_name)
-            {
-                (
-                    builtin
-                        .kind
-                        .clone()
-                        .unwrap_or(ProviderKind::OpenaiCompatible),
-                    builtin.base_url,
-                    builtin.default_model,
-                    builtin.api_key_env,
-                    builtin.auth_ref,
-                    builtin.models_endpoint,
-                    builtin.headers,
-                    None,
-                )
-            } else if gestalt_models::registry::registered().contains(&provider_name) {
-                let kind = if provider_name == "anthropic" {
-                    ProviderKind::Anthropic
-                } else if provider_name == "openai" {
-                    ProviderKind::Openai
-                } else {
-                    ProviderKind::Custom(provider_name.clone())
-                };
-                (kind, None, None, None, None, None, None, None)
+                    } else {
+                        Some(ProviderKind::OpenaiCompatible)
+                    }
+                })
+                .unwrap_or(ProviderKind::OpenaiCompatible);
+            let base = prov_cfg.base_url.clone();
+            let model = prov_cfg.default_model.clone();
+            let env = prov_cfg.api_key_env.clone();
+            let auth = prov_cfg.auth_ref.clone();
+            let endpoint = prov_cfg.models_endpoint.clone();
+            let hdrs = prov_cfg.headers.clone();
+            let caps = prov_cfg.capabilities.clone();
+            (kind, base, model, env, auth, endpoint, hdrs, caps)
+        } else if let Some(builtin) = crate::provider_catalog::get_builtin_provider(&provider_name)
+        {
+            (
+                builtin
+                    .kind
+                    .clone()
+                    .unwrap_or(ProviderKind::OpenaiCompatible),
+                builtin.base_url,
+                builtin.default_model,
+                builtin.api_key_env,
+                builtin.auth_ref,
+                builtin.models_endpoint,
+                builtin.headers,
+                None,
+            )
+        } else if gestalt_models::registry::registered().contains(&provider_name) {
+            let kind = if provider_name == "anthropic" {
+                ProviderKind::Anthropic
+            } else if provider_name == "openai" {
+                ProviderKind::Openai
             } else {
-                return Err(HarnessError::Provider(ProviderError::UnknownProvider(
-                    provider_name.clone(),
-                )));
+                ProviderKind::Custom(provider_name.clone())
             };
+            (kind, None, None, None, None, None, None, None)
+        } else {
+            return Err(HarnessError::Provider(ProviderError::UnknownProvider(
+                provider_name.clone(),
+            )));
+        };
 
         let kind_str = match kind {
             ProviderKind::Openai => "openai".to_string(),
@@ -1728,7 +1800,8 @@ impl EffectiveConfig {
                 }
                 if let Some(ref variant_name) = active_variant {
                     let mut visited = Vec::new();
-                    let variant_opts = resolve_variant(&model_def.variants, variant_name, &mut visited)?;
+                    let variant_opts =
+                        resolve_variant(&model_def.variants, variant_name, &mut visited)?;
                     resolved_options = merge_options(resolved_options, variant_opts);
                 }
             } else if active_variant.is_some() {
@@ -1740,7 +1813,10 @@ impl EffectiveConfig {
         } else if active_variant.is_some() {
             return Err(HarnessError::Config(ConfigError::InvalidValue {
                 field: "variant".to_string(),
-                reason: format!("variant specified but provider '{}' has no definitions", provider_name),
+                reason: format!(
+                    "variant specified but provider '{}' has no definitions",
+                    provider_name
+                ),
             }));
         }
 
@@ -2127,8 +2203,16 @@ pub fn explain_config(
         "context.workspace.enabled",
         None::<bool>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.enabled)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.enabled)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.enabled)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.enabled)),
         true
     );
 
@@ -2146,7 +2230,9 @@ pub fn explain_config(
                 }
                 if active_source == "Default" {
                     if let Some(ref path) = c.workspace_file {
-                        active_source = "Global Config File (via deprecated context.workspace_file)".to_string();
+                        active_source =
+                            "Global Config File (via deprecated context.workspace_file)"
+                                .to_string();
                         active_value = json!(path);
                     }
                 }
@@ -2165,7 +2251,9 @@ pub fn explain_config(
                 }
                 if !source_set {
                     if let Some(ref path) = c.workspace_file {
-                        active_source = "Workspace Config File (via deprecated context.workspace_file)".to_string();
+                        active_source =
+                            "Workspace Config File (via deprecated context.workspace_file)"
+                                .to_string();
                         active_value = json!(path);
                     }
                 }
@@ -2185,8 +2273,16 @@ pub fn explain_config(
         "context.workspace.required",
         None::<bool>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.required)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.required)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.required)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.required)),
         false
     );
 
@@ -2194,8 +2290,16 @@ pub fn explain_config(
         "context.workspace.max_tokens",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_tokens)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_tokens)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.max_tokens)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.max_tokens)),
         12000
     );
 
@@ -2203,8 +2307,16 @@ pub fn explain_config(
         "context.workspace.max_bytes",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_bytes)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.max_bytes)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.max_bytes)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.max_bytes)),
         131072
     );
 
@@ -2212,8 +2324,16 @@ pub fn explain_config(
         "context.workspace.snapshot",
         None::<ContextSnapshotMode>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.snapshot)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace.as_ref()).and_then(|w| w.snapshot)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.snapshot)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.workspace.as_ref())
+            .and_then(|w| w.snapshot)),
         ContextSnapshotMode::Session
     );
 
@@ -2221,8 +2341,16 @@ pub fn explain_config(
         "context.memory.enabled",
         None::<bool>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.enabled)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.enabled)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.enabled)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.enabled)),
         true
     );
 
@@ -2240,7 +2368,8 @@ pub fn explain_config(
                 }
                 if active_source == "Default" {
                     if let Some(ref path) = c.memory_file {
-                        active_source = "Global Config File (via deprecated context.memory_file)".to_string();
+                        active_source =
+                            "Global Config File (via deprecated context.memory_file)".to_string();
                         active_value = json!(path);
                     }
                 }
@@ -2259,7 +2388,9 @@ pub fn explain_config(
                 }
                 if !source_set {
                     if let Some(ref path) = c.memory_file {
-                        active_source = "Workspace Config File (via deprecated context.memory_file)".to_string();
+                        active_source =
+                            "Workspace Config File (via deprecated context.memory_file)"
+                                .to_string();
                         active_value = json!(path);
                     }
                 }
@@ -2279,8 +2410,16 @@ pub fn explain_config(
         "context.memory.required",
         None::<bool>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.required)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.required)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.required)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.required)),
         false
     );
 
@@ -2288,8 +2427,16 @@ pub fn explain_config(
         "context.memory.strategy",
         None::<MemorySelectionStrategy>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.strategy)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.strategy)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.strategy)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.strategy)),
         MemorySelectionStrategy::Budgeted
     );
 
@@ -2297,8 +2444,16 @@ pub fn explain_config(
         "context.memory.max_tokens",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_tokens)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_tokens)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.max_tokens)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.max_tokens)),
         8000
     );
 
@@ -2306,8 +2461,16 @@ pub fn explain_config(
         "context.memory.max_bytes",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_bytes)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.max_bytes)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.max_bytes)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.max_bytes)),
         524288
     );
 
@@ -2315,8 +2478,16 @@ pub fn explain_config(
         "context.memory.pinned_section",
         None::<String>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.pinned_section.clone())),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.pinned_section.clone())),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.pinned_section.clone())),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.pinned_section.clone())),
         "Facts"
     );
 
@@ -2324,8 +2495,16 @@ pub fn explain_config(
         "context.memory.snapshot",
         None::<ContextSnapshotMode>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.snapshot)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.snapshot)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.snapshot)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.snapshot)),
         ContextSnapshotMode::Session
     );
 
@@ -2333,8 +2512,16 @@ pub fn explain_config(
         "context.memory.write_mode",
         None::<MemoryWriteMode>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.write_mode)),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory.as_ref()).and_then(|m| m.write_mode)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.write_mode)),
+        (|c: &WorkspaceConfig| c
+            .context
+            .as_ref()
+            .and_then(|d| d.memory.as_ref())
+            .and_then(|m| m.write_mode)),
         MemoryWriteMode::Proposal
     );
 
@@ -2555,14 +2742,8 @@ pub fn explain_config(
         "mcp.discovery_threshold",
         None::<usize>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c
-            .mcp
-            .as_ref()
-            .and_then(|m| m.discovery_threshold)),
-        (|c: &WorkspaceConfig| c
-            .mcp
-            .as_ref()
-            .and_then(|m| m.discovery_threshold)),
+        (|c: &WorkspaceConfig| c.mcp.as_ref().and_then(|m| m.discovery_threshold)),
+        (|c: &WorkspaceConfig| c.mcp.as_ref().and_then(|m| m.discovery_threshold)),
         5
     );
 
@@ -2603,7 +2784,10 @@ fn resolve_variant(
     Ok(base_options)
 }
 
-fn merge_options(mut base: ModelOptionsConfig, override_opts: ModelOptionsConfig) -> ModelOptionsConfig {
+fn merge_options(
+    mut base: ModelOptionsConfig,
+    override_opts: ModelOptionsConfig,
+) -> ModelOptionsConfig {
     if override_opts.max_output_tokens.is_some() {
         base.max_output_tokens = override_opts.max_output_tokens;
     }
@@ -2631,4 +2815,3 @@ fn merge_options(mut base: ModelOptionsConfig, override_opts: ModelOptionsConfig
     }
     base
 }
-

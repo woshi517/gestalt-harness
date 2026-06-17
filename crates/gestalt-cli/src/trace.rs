@@ -160,7 +160,9 @@ pub fn inspect_trace(
             AgentEvent::MemoryEntriesSelected { .. } => "memory_entries_selected",
             AgentEvent::ContextSnapshotCreated { .. } => "context_snapshot_created",
             AgentEvent::MemoryProposalCreated { .. } => "memory_proposal_created",
-            AgentEvent::MemoryProposalDecisionRecorded { .. } => "memory_proposal_decision_recorded",
+            AgentEvent::MemoryProposalDecisionRecorded { .. } => {
+                "memory_proposal_decision_recorded"
+            }
             AgentEvent::MemoryWriteSucceeded { .. } => "memory_write_succeeded",
             AgentEvent::MemoryWriteConflict { .. } => "memory_write_conflict",
             AgentEvent::MemoryWriteFailed { .. } => "memory_write_failed",

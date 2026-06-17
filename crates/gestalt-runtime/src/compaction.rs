@@ -1,5 +1,4 @@
 use chrono::Utc;
-use sha2::{Digest as _, Sha256};
 use gestalt_core::{
     context::HistoryRange,
     error::{HarnessError, ProviderError},
@@ -8,6 +7,7 @@ use gestalt_core::{
     turn::TurnAccumulator,
 };
 use gestalt_trace::CompactionCheckpoint;
+use sha2::{Digest as _, Sha256};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct CompactorOutput {
@@ -28,7 +28,7 @@ pub fn build_compactor_prompt(
 ) -> Vec<Message> {
     let mut prompt_content = String::new();
     prompt_content.push_str("You are an expert context compactor. Your job is to compress a range of conversational history into a structured checkpoint summary JSON object.\n\n");
-    
+
     if let Some(prev) = previous_checkpoint {
         prompt_content.push_str("Here is the PREVIOUS checkpoint summary which summarizes the history prior to the current chunk:\n");
         prompt_content.push_str(&prev.render_markdown());
@@ -36,9 +36,11 @@ pub fn build_compactor_prompt(
     }
 
     prompt_content.push_str("Please summarize the following new sequence of messages. Integrate it with any previous checkpoint details to produce the NEW consolidated checkpoint summary.\n\n");
-    
-    prompt_content.push_str("Output MUST be a single JSON object with EXACTLY the following structure:\n");
-    prompt_content.push_str(r#"{
+
+    prompt_content
+        .push_str("Output MUST be a single JSON object with EXACTLY the following structure:\n");
+    prompt_content.push_str(
+        r#"{
   "goal": "The overall goal of the session",
   "constraints": ["Constraint 1", "Constraint 2"],
   "completed_work": ["Completed item 1", "Completed item 2"],
@@ -49,18 +51,23 @@ pub fn build_compactor_prompt(
   "critical_context": "Any critical background or context",
   "relevant_references": ["Reference 1"]
 }
-"#);
+"#,
+    );
     prompt_content.push_str("\nBe extremely precise. Do not drop important user constraints or completed work. Ensure that 'goal' and 'critical_context' are not empty.\n\n");
-    
+
     prompt_content.push_str("--- Messages to Compact ---\n");
     for (idx, msg) in history_to_compact.iter().enumerate() {
-        prompt_content.push_str(&format!("Message {} ({}):\n", idx, match msg {
-            Message::System { .. } => "System",
-            Message::User { .. } => "User",
-            Message::Assistant { .. } => "Assistant",
-            Message::ToolResult { .. } => "ToolResult",
-        }));
-        
+        prompt_content.push_str(&format!(
+            "Message {} ({}):\n",
+            idx,
+            match msg {
+                Message::System { .. } => "System",
+                Message::User { .. } => "User",
+                Message::Assistant { .. } => "Assistant",
+                Message::ToolResult { .. } => "ToolResult",
+            }
+        ));
+
         match msg {
             Message::System { content } => {
                 prompt_content.push_str(content);
@@ -79,11 +86,18 @@ pub fn build_compactor_prompt(
                     if let ContentBlock::Text { text } = block {
                         prompt_content.push_str(text);
                     } else if let ContentBlock::ToolUse { name, input, .. } = block {
-                        prompt_content.push_str(&format!("Tool Use: {} with input: {}\n", name, input));
+                        prompt_content
+                            .push_str(&format!("Tool Use: {} with input: {}\n", name, input));
                     }
                 }
             }
-            Message::ToolResult { tool_name, content, is_error, output_hash, .. } => {
+            Message::ToolResult {
+                tool_name,
+                content,
+                is_error,
+                output_hash,
+                ..
+            } => {
                 let name = tool_name.as_deref().unwrap_or("unknown");
                 let success = if *is_error { "failed" } else { "succeeded" };
                 let hash = output_hash.as_deref().unwrap_or("none");
@@ -98,8 +112,15 @@ pub fn build_compactor_prompt(
     }
 
     vec![
-        Message::System { content: "You are an expert context compactor helper.".to_string() },
-        Message::User { content: vec![ContentBlock::Text { text: prompt_content }], metadata: None }
+        Message::System {
+            content: "You are an expert context compactor helper.".to_string(),
+        },
+        Message::User {
+            content: vec![ContentBlock::Text {
+                text: prompt_content,
+            }],
+            metadata: None,
+        },
     ]
 }
 
@@ -126,7 +147,7 @@ pub async fn run_compactor(
     previous_checkpoint: Option<&CompactionCheckpoint>,
 ) -> Result<CompactionCheckpoint, HarnessError> {
     let compactor_messages = build_compactor_prompt(history_to_compact, previous_checkpoint);
-    
+
     let request = ProviderRequest {
         model: model.to_string(),
         messages: compactor_messages,
@@ -153,25 +174,30 @@ pub async fn run_compactor(
     let turn = accumulator.finish()?;
     let text_response = turn.full_text();
 
-    let json_val = parse_json_from_response(&text_response)
-        .ok_or_else(|| {
-            HarnessError::Provider(ProviderError::UnexpectedResponse {
-                details: format!("Failed to parse JSON compaction checkpoint from response: {}", text_response),
-            })
-        })?;
+    let json_val = parse_json_from_response(&text_response).ok_or_else(|| {
+        HarnessError::Provider(ProviderError::UnexpectedResponse {
+            details: format!(
+                "Failed to parse JSON compaction checkpoint from response: {}",
+                text_response
+            ),
+        })
+    })?;
 
-    let output: CompactorOutput = serde_json::from_value(json_val)
-        .map_err(|err| {
-            HarnessError::Provider(ProviderError::UnexpectedResponse {
-                details: format!("Compaction JSON format mismatch: {}", err),
-            })
-        })?;
+    let output: CompactorOutput = serde_json::from_value(json_val).map_err(|err| {
+        HarnessError::Provider(ProviderError::UnexpectedResponse {
+            details: format!("Compaction JSON format mismatch: {}", err),
+        })
+    })?;
 
     let mut hasher = Sha256::new();
     hasher.update(text_response.as_bytes());
     let checkpoint_id = format!("{:x}", hasher.finalize());
 
-    let compactor_prompt_serialized = serde_json::to_string(&build_compactor_prompt(history_to_compact, previous_checkpoint)).unwrap_or_default();
+    let compactor_prompt_serialized = serde_json::to_string(&build_compactor_prompt(
+        history_to_compact,
+        previous_checkpoint,
+    ))
+    .unwrap_or_default();
     let mut prompt_hasher = Sha256::new();
     prompt_hasher.update(compactor_prompt_serialized.as_bytes());
     let prompt_hash = format!("{:x}", prompt_hasher.finalize());

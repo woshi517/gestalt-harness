@@ -1,14 +1,14 @@
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use serde_json::Value;
 
 use crate::error::{McpError, Result};
 use crate::model::{
-    McpCallResult, McpServerConfig, McpServerId, McpToolSchema, McpTransportConfig,
-    parse_mcp_call_result,
+    parse_mcp_call_result, McpCallResult, McpServerConfig, McpServerId, McpToolSchema,
+    McpTransportConfig,
 };
-use crate::transport::McpTransport;
 use crate::transport::stdio::StdioTransport;
+use crate::transport::McpTransport;
 
 pub struct McpClient {
     pub server_id: McpServerId,
@@ -27,7 +27,12 @@ impl McpClient {
     ) -> Result<Self> {
         let server_id = McpServerId(config.name.clone());
         let transport: Arc<dyn McpTransport> = match &config.transport {
-            McpTransportConfig::Stdio { command, args, cwd, env } => {
+            McpTransportConfig::Stdio {
+                command,
+                args,
+                cwd,
+                env,
+            } => {
                 let mut merged_env = env.clone();
                 for (k, v) in &config.env {
                     merged_env.insert(k.clone(), v.clone());
@@ -51,7 +56,9 @@ impl McpClient {
                 Arc::new(stdio)
             }
             McpTransportConfig::Http { .. } => {
-                return Err(McpError::Config("HTTP transport is not supported in this version".to_string()));
+                return Err(McpError::Config(
+                    "HTTP transport is not supported in this version".to_string(),
+                ));
             }
         };
 
@@ -111,13 +118,15 @@ impl McpClient {
         });
 
         let resp = self.transport.call("initialize", Some(init_params)).await?;
-        
+
         if let Some(capabilities) = resp.get("capabilities") {
             let mut lock = self.capabilities.lock().await;
             *lock = Some(capabilities.clone());
         }
 
-        self.transport.notify("initialized", Some(serde_json::json!({}))).await?;
+        self.transport
+            .notify("initialized", Some(serde_json::json!({})))
+            .await?;
 
         Ok(())
     }
@@ -135,20 +144,28 @@ impl McpClient {
             McpError::Protocol("Server response for tools/list did not contain 'tools'".to_string())
         })?;
 
-        let raw_tools: Vec<Value> = serde_json::from_value(tools_val.clone()).map_err(|e| {
-            McpError::Protocol(format!("Failed to parse tools array: {}", e))
-        })?;
+        let raw_tools: Vec<Value> = serde_json::from_value(tools_val.clone())
+            .map_err(|e| McpError::Protocol(format!("Failed to parse tools array: {}", e)))?;
 
         let mut tools = Vec::new();
         for tool_val in raw_tools {
-            let name = tool_val.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
-                McpError::Protocol("Tool definition missing 'name'".to_string())
-            })?.to_string();
-            let description = tool_val.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let input_schema = tool_val.get("inputSchema").cloned().unwrap_or(serde_json::json!({
-                "type": "object",
-                "properties": {}
-            }));
+            let name = tool_val
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| McpError::Protocol("Tool definition missing 'name'".to_string()))?
+                .to_string();
+            let description = tool_val
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let input_schema = tool_val
+                .get("inputSchema")
+                .cloned()
+                .unwrap_or(serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }));
 
             tools.push(McpToolSchema {
                 name,
@@ -162,12 +179,16 @@ impl McpClient {
 
         // Emit catalog refreshed event!
         if let Some(ref cb) = self.event_callback {
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             for t in &tools {
                 hasher.update(t.name.as_bytes());
                 hasher.update(t.description.as_bytes());
-                hasher.update(serde_json::to_string(&t.input_schema).unwrap_or_default().as_bytes());
+                hasher.update(
+                    serde_json::to_string(&t.input_schema)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                );
             }
             let hash_str = format!("{:x}", hasher.finalize());
 

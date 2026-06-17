@@ -1,9 +1,9 @@
+use glob::Pattern;
+use std::fs;
 use std::{
     ffi::OsStr,
     path::{Component, Path, PathBuf},
 };
-use glob::Pattern;
-use std::fs;
 
 use gestalt_core::{ToolContext, ToolError};
 
@@ -290,7 +290,9 @@ impl PathFilter {
     ) -> Self {
         let workspace_root = ctx.workspace_root.clone();
         let gitignore = if respect_gitignore {
-            workspace_root.as_ref().map(|root| GitignoreFilter::new(root))
+            workspace_root
+                .as_ref()
+                .map(|root| GitignoreFilter::new(root))
         } else {
             None
         };

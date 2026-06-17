@@ -1,8 +1,8 @@
 use crate::auth::{delete_keychain_secret, set_keychain_secret};
 use crate::config::{
     global_config_path, legacy_global_config_path, mutate_workspace_config_file,
-    write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig,
-    ProviderKind,
+    write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, ProviderKind,
+    WorkspaceConfig,
 };
 use crate::output::{ConnectReport, DisconnectReport};
 use gestalt_core::{ConfigError, HarnessError};
@@ -121,9 +121,7 @@ pub fn connect_provider(
                 if let Some(builtin) = crate::provider_catalog::get_builtin_provider(provider) {
                     (
                         provider.to_string(),
-                        builtin
-                            .kind
-                            .unwrap_or(ProviderKind::OpenaiCompatible),
+                        builtin.kind.unwrap_or(ProviderKind::OpenaiCompatible),
                         builtin.base_url.unwrap_or_default(),
                         builtin.default_model.unwrap_or_default(),
                         builtin.api_key_env.or_else(|| {

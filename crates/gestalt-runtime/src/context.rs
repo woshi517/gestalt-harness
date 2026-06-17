@@ -101,18 +101,28 @@ impl ContextPipeline for RuntimeContextPipeline {
         history: &[Message],
         budget: &TokenBudget,
         provider: &dyn gestalt_core::provider::Provider,
+        request_template: &gestalt_core::provider::ProviderRequest,
         model: &str,
         session_id: &str,
         run_id: &str,
         turn_id: usize,
         policy: &gestalt_core::ContextManagementPolicy,
         artifacts_dir: Option<&std::path::Path>,
-        emit: &mut (dyn FnMut(gestalt_core::event::AgentEvent) -> std::result::Result<(), gestalt_core::error::HarnessError> + Send),
-    ) -> std::result::Result<gestalt_core::context::ContextPacket, gestalt_core::error::HarnessError> {
-        let packet = self.build_packet(history, budget);
-
-        let accountant = gestalt_context::accounting::ContextAccountant::new(budget, policy, history);
+        emit: &mut (dyn FnMut(
+            gestalt_core::event::AgentEvent,
+        ) -> std::result::Result<(), gestalt_core::error::HarnessError>
+                  + Send),
+    ) -> std::result::Result<gestalt_core::context::ContextPacket, gestalt_core::error::HarnessError>
+    {
+        let accountant =
+            gestalt_context::accounting::ContextAccountant::new(budget, policy, history);
         let usable_limit = accountant.usable_limit();
+
+        let packet = if policy.enabled && budget.model_limit > 0 && usable_limit > 0 {
+            self.build_management_packet(history, budget)
+        } else {
+            self.build_packet(history, budget)
+        };
 
         // Bypass pipeline when disabled or when there is no meaningful budget headroom.
         // A usable_limit of 0 means model_limit is too small to absorb reserved_output +
@@ -134,12 +144,14 @@ impl ContextPipeline for RuntimeContextPipeline {
             return Ok(packet);
         }
 
+        let packet_request_estimate =
+            self.request_token_estimate(provider, request_template, &packet)?;
         emit(gestalt_core::event::AgentEvent::ContextPressure {
             usable_limit,
-            current_estimate: packet.token_estimate,
+            current_estimate: packet_request_estimate,
         })?;
 
-        if packet.token_estimate <= usable_limit {
+        if packet_request_estimate <= usable_limit {
             let manifest = self.build_manifest(
                 &packet,
                 session_id,
@@ -158,16 +170,19 @@ impl ContextPipeline for RuntimeContextPipeline {
 
         // 1. Tool result clearing
         let tool_budget = accountant.tool_result_budget();
-        let (cleared_history, clear_actions) = gestalt_context::tool_clearing::clear_eligible_tool_results(
-            history,
-            usable_limit,
-            tool_budget,
-            policy.keep_recent_turns,
-            policy.keep_recent_tokens,
-        );
+        let (cleared_history, clear_actions) =
+            gestalt_context::tool_clearing::clear_eligible_tool_results(
+                history,
+                usable_limit,
+                tool_budget,
+                policy.keep_recent_turns,
+                policy.keep_recent_tokens,
+            );
 
-        let cleared_packet = self.build_packet(&cleared_history, budget);
-        let cleared_tokens = packet.token_estimate.saturating_sub(cleared_packet.token_estimate);
+        let cleared_packet = self.build_management_packet(&cleared_history, budget);
+        let cleared_tokens = packet
+            .token_estimate
+            .saturating_sub(cleared_packet.token_estimate);
         if !clear_actions.is_empty() {
             emit(gestalt_core::event::AgentEvent::ContextClearing {
                 cleared_count: clear_actions.len(),
@@ -175,7 +190,8 @@ impl ContextPipeline for RuntimeContextPipeline {
             })?;
         }
 
-        if cleared_packet.token_estimate <= usable_limit {
+        if self.request_token_estimate(provider, request_template, &cleared_packet)? <= usable_limit
+        {
             let checkpoint_ref = self.current_checkpoint.lock().unwrap().as_ref().map(|cp| {
                 let serialized = serde_json::to_string(cp).unwrap_or_default();
                 let mut hasher = sha2::Sha256::new();
@@ -216,18 +232,23 @@ impl ContextPipeline for RuntimeContextPipeline {
         );
 
         let compactor_input_limit = usable_limit;
+        let target_limit = accountant.compaction_target();
+        let min_tokens_to_compact = cleared_packet.token_estimate.saturating_sub(target_limit);
         let compaction_range = gestalt_context::compaction::plan_compaction_range(
             &cleared_history,
             last_checkpoint_end_idx,
             recent_protected_start,
             compactor_input_limit,
+            min_tokens_to_compact,
         );
 
         if let Some(range) = compaction_range {
             emit(gestalt_core::event::AgentEvent::ContextCompactionStarted { range })?;
 
             let history_to_compact = &cleared_history[range.start..range.end];
-            let range_serialized = serde_json::to_string(history_to_compact).unwrap_or_default();
+            let canonical_history_to_compact = &history[range.start..range.end];
+            let range_serialized =
+                serde_json::to_string(canonical_history_to_compact).unwrap_or_default();
             let mut range_hasher = sha2::Sha256::new();
             range_hasher.update(range_serialized.as_bytes());
             let history_range_hash = format!("{:x}", range_hasher.finalize());
@@ -241,16 +262,19 @@ impl ContextPipeline for RuntimeContextPipeline {
                 history_range_hash.clone(),
                 self.base.version().to_string(),
                 prev_checkpoint.as_ref(),
-            ).await;
+            )
+            .await;
 
             match compactor_res {
                 Ok(checkpoint) => {
-                    if let Err(val_err) = gestalt_context::checkpoint_validation::validate_checkpoint(
-                        &checkpoint,
-                        &cleared_history,
-                        range,
-                        &history_range_hash,
-                    ) {
+                    if let Err(val_err) =
+                        gestalt_context::checkpoint_validation::validate_checkpoint(
+                            &checkpoint,
+                            &cleared_history,
+                            range,
+                            &history_range_hash,
+                        )
+                    {
                         let err_msg = format!("Checkpoint validation failed: {:?}", val_err);
                         emit(gestalt_core::event::AgentEvent::ContextManagementFailed {
                             error: err_msg.clone(),
@@ -277,15 +301,16 @@ impl ContextPipeline for RuntimeContextPipeline {
                     let mut compacted_history = vec![checkpoint_msg];
                     compacted_history.extend(cleared_history[range.end..].iter().cloned());
 
-                    let compacted_packet = self.build_packet(&compacted_history, budget);
-                    
+                    let compacted_packet = self.build_management_packet(&compacted_history, budget);
+
                     let checkpoint_ref = Some(gestalt_core::context::CheckpointRef {
                         checkpoint_id: checkpoint.checkpoint_id.clone(),
                         range: checkpoint.history_range,
                         hash: checkpoint.history_range_hash.clone(),
                     });
-                    
-                    let history_start_idx = self.get_history_start_idx(&compacted_packet, &compacted_history);
+
+                    let history_start_idx =
+                        self.get_history_start_idx(&compacted_packet, &compacted_history);
 
                     let manifest = self.build_manifest_with_checkpoint_offset(
                         &compacted_packet,
@@ -303,7 +328,9 @@ impl ContextPipeline for RuntimeContextPipeline {
                         gestalt_trace::persist_manifest(&manifest, dir, policy.durability)?;
                     }
 
-                    if compacted_packet.token_estimate > usable_limit {
+                    if self.request_token_estimate(provider, request_template, &compacted_packet)?
+                        > usable_limit
+                    {
                         emit(gestalt_core::event::AgentEvent::ContextExhaustion {
                             details: format!(
                                 "Token estimate {} exceeds usable limit {} even after compaction.",
@@ -332,7 +359,8 @@ impl ContextPipeline for RuntimeContextPipeline {
             }
         }
 
-        if cleared_packet.token_estimate > usable_limit {
+        if self.request_token_estimate(provider, request_template, &cleared_packet)? > usable_limit
+        {
             emit(gestalt_core::event::AgentEvent::ContextExhaustion {
                 details: format!(
                     "Token estimate {} exceeds usable limit {} and no compaction range could be planned.",
@@ -378,6 +406,36 @@ impl ContextPipeline for RuntimeContextPipeline {
 }
 
 impl RuntimeContextPipeline {
+    fn build_management_packet(
+        &self,
+        history: &[Message],
+        budget: &TokenBudget,
+    ) -> gestalt_core::context::ContextPacket {
+        let mut unbounded_budget = budget.clone();
+        unbounded_budget.model_limit = usize::MAX;
+        unbounded_budget.reserved_output = 0;
+        unbounded_budget.used_system = 0;
+        unbounded_budget.used_history = 0;
+        unbounded_budget.used_sources = 0;
+        unbounded_budget.used_tools = 0;
+        unbounded_budget.used_memory = 0;
+        unbounded_budget.minimum_turn_budget = 0;
+        self.build_packet(history, &unbounded_budget)
+    }
+
+    fn request_token_estimate(
+        &self,
+        provider: &dyn gestalt_core::provider::Provider,
+        request_template: &gestalt_core::provider::ProviderRequest,
+        packet: &gestalt_core::context::ContextPacket,
+    ) -> std::result::Result<usize, gestalt_core::error::HarnessError> {
+        provider.count_request_tokens(&gestalt_core::provider::ProviderRequest {
+            messages: packet.messages.clone(),
+            cache_plan: packet.cache_plan.clone(),
+            ..request_template.clone()
+        })
+    }
+
     fn compose_messages(base_messages: Vec<Message>, patches: &[ContextPatch]) -> Vec<Message> {
         Self::compose_messages_with_prefix(base_messages, patches).0
     }
@@ -389,7 +447,9 @@ impl RuntimeContextPipeline {
         let stable_prefix_len = base_messages
             .iter()
             .take_while(|message| {
-                !is_budget_notice(message) && matches!(message, Message::System { .. })
+                !is_budget_notice(message)
+                    && !is_checkpoint_message(message)
+                    && matches!(message, Message::System { .. })
             })
             .count();
 
@@ -473,7 +533,11 @@ impl RuntimeContextPipeline {
         packet
     }
 
-    fn get_history_start_idx(&self, packet: &gestalt_core::context::ContextPacket, history: &[Message]) -> usize {
+    fn get_history_start_idx(
+        &self,
+        packet: &gestalt_core::context::ContextPacket,
+        history: &[Message],
+    ) -> usize {
         packet.messages.len().saturating_sub(history.len())
     }
 
@@ -514,53 +578,60 @@ impl RuntimeContextPipeline {
         compact_end_idx: usize,
     ) -> gestalt_trace::ProjectionManifest {
         let checkpoint_used = checkpoint_ref.is_some();
-        let messages_metadata = packet.messages.iter().enumerate().map(|(idx, msg)| {
-            let is_tombstone = match msg {
-                Message::ToolResult { content, .. } => content.starts_with("<tombstone"),
-                _ => false,
-            };
-            let is_checkpoint = match msg {
-                Message::System { content } => content.starts_with("### Session Checkpoint Summary"),
-                _ => false,
-            };
-            
-            let original_index = if idx >= history_start_idx {
-                let history_idx = idx - history_start_idx;
-                if checkpoint_used {
-                    if history_idx == 0 {
-                        None
+        let messages_metadata = packet
+            .messages
+            .iter()
+            .enumerate()
+            .map(|(idx, msg)| {
+                let is_tombstone = match msg {
+                    Message::ToolResult { content, .. } => content.starts_with("<tombstone"),
+                    _ => false,
+                };
+                let is_checkpoint = match msg {
+                    Message::System { content } => {
+                        content.starts_with("### Session Checkpoint Summary")
+                    }
+                    _ => false,
+                };
+
+                let original_index = if idx >= history_start_idx {
+                    let history_idx = idx - history_start_idx;
+                    if checkpoint_used {
+                        if history_idx == 0 {
+                            None
+                        } else {
+                            Some(compact_end_idx + (history_idx - 1))
+                        }
                     } else {
-                        Some(compact_end_idx + (history_idx - 1))
+                        Some(history_idx)
                     }
                 } else {
-                    Some(history_idx)
+                    None
+                };
+
+                let msg_ser = serde_json::to_string(msg).unwrap_or_default();
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(msg_ser.as_bytes());
+                let hash = format!("{:x}", hasher.finalize());
+
+                gestalt_trace::MessageMetadataRef {
+                    role: match msg {
+                        Message::System { .. } => "system".to_string(),
+                        Message::User { .. } => "user".to_string(),
+                        Message::Assistant { .. } => "assistant".to_string(),
+                        Message::ToolResult { .. } => "toolresult".to_string(),
+                    },
+                    original_index,
+                    is_tombstone,
+                    is_checkpoint,
+                    hash,
                 }
-            } else {
-                None
-            };
-
-            let msg_ser = serde_json::to_string(msg).unwrap_or_default();
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(msg_ser.as_bytes());
-            let hash = format!("{:x}", hasher.finalize());
-
-            gestalt_trace::MessageMetadataRef {
-                role: match msg {
-                    Message::System { .. } => "system".to_string(),
-                    Message::User { .. } => "user".to_string(),
-                    Message::Assistant { .. } => "assistant".to_string(),
-                    Message::ToolResult { .. } => "toolresult".to_string(),
-                },
-                original_index,
-                is_tombstone,
-                is_checkpoint,
-                hash,
-            }
-        }).collect();
+            })
+            .collect();
 
         let timestamp = chrono::Utc::now();
         let policy_cloned = policy.clone();
-        
+
         let manifest_partial = gestalt_trace::ProjectionManifest {
             manifest_id: "".to_string(),
             session_id: session_id.to_string(),
@@ -596,6 +667,10 @@ fn is_stable(stability: ContextStability) -> bool {
 
 fn is_budget_notice(message: &Message) -> bool {
     matches!(message, Message::System { content } if content.starts_with("context budget exhausted or truncated;"))
+}
+
+fn is_checkpoint_message(message: &Message) -> bool {
+    matches!(message, Message::System { content } if content.starts_with("### Session Checkpoint Summary"))
 }
 
 fn split_tail_messages(messages: &[Message]) -> (&[Message], &[Message]) {

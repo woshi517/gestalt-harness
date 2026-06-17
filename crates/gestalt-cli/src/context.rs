@@ -2,10 +2,10 @@ use crate::config::{load_effective_config, CliOverrides};
 use crate::output::ContextExplainReport;
 use gestalt_core::ToolCatalog;
 use gestalt_core::{context::ContextPipeline, Message, TokenBudget};
+use gestalt_runtime::context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
+use gestalt_runtime::workspace_context::load_and_snapshot_workspace_context;
 use gestalt_tools::default_registry;
 use std::sync::{Arc, Mutex};
-use gestalt_runtime::context::{ContextContributor, RuntimeContextPipeline, ContextPatch};
-use gestalt_runtime::workspace_context::load_and_snapshot_workspace_context;
 
 pub async fn explain_context(
     overrides: &CliOverrides,
@@ -40,7 +40,7 @@ pub async fn explain_context(
         let workspace_cfg = config.context.workspace.clone().unwrap_or_default();
         let memory_cfg = config.context.memory.clone().unwrap_or_default();
         let event_bus = gestalt_runtime::event_bus::RuntimeEventBus::new();
-        
+
         let policy = Arc::new(crate::run::build_policy(&config));
         let (ws_contrib, mem_contrib, _) = load_and_snapshot_workspace_context(
             &config.workspace_root,
@@ -48,7 +48,8 @@ pub async fn explain_context(
             &event_bus,
             &workspace_cfg,
             &memory_cfg,
-        ).await?;
+        )
+        .await?;
 
         let mut patches = Vec::new();
         if let Some(contrib) = ws_contrib {

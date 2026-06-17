@@ -132,7 +132,9 @@ fn test_tool_clearing_happy_path() {
 
     let history = vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "please read the file".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "please read the file".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
@@ -152,7 +154,9 @@ fn test_tool_clearing_happy_path() {
             artifact_refs: Some(vec![]),
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "thanks".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "thanks".to_string(),
+            }],
             metadata: None,
         },
     ];
@@ -164,7 +168,10 @@ fn test_tool_clearing_happy_path() {
     assert_eq!(actions[0].tool_use_id, "view_1");
     assert_eq!(actions[0].tool_name, "view_file");
 
-    if let Message::ToolResult { content, is_error, .. } = &projected[2] {
+    if let Message::ToolResult {
+        content, is_error, ..
+    } = &projected[2]
+    {
         assert!(!is_error);
         assert!(content.contains("<tombstone"));
         assert!(content.contains("tool_name=\"view_file\""));
@@ -180,7 +187,9 @@ fn test_tool_clearing_preserves_errors_and_recent_window() {
 
     let history = vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "run it".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "run it".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
@@ -200,7 +209,9 @@ fn test_tool_clearing_preserves_errors_and_recent_window() {
             artifact_refs: None,
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "try again".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "try again".to_string(),
+            }],
             metadata: None,
         },
     ];

@@ -1,8 +1,8 @@
 use gestalt_core::error::ToolError;
 use gestalt_core::tool::{RiskLevel, Tool, ToolContext, ToolOutput, ToolSchema};
 use gestalt_core::tool_descriptor::{
-    CanonicalToolId, ProviderToolFormat, ToolAnnotations,
-    ToolDescriptor, ToolNamespace, ToolResponseContract,
+    CanonicalToolId, ProviderToolFormat, ToolAnnotations, ToolDescriptor, ToolNamespace,
+    ToolResponseContract,
 };
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -35,21 +35,21 @@ pub fn rank_tools(
         .map(|item| {
             let (ref id, ref provider_name, ref desc) = *item;
             let mut score = 0;
-            
+
             let name_lower = provider_name.to_lowercase();
             let canon_name_lower = id.name.to_lowercase();
-            
+
             // 1. Exact name match
             if name_lower == query_lower || canon_name_lower == query_lower {
                 score += 1000;
             }
-            
+
             // Tokenize tool name
             let name_tokens: Vec<&str> = name_lower
                 .split(|c: char| !c.is_alphanumeric() && c != '_')
                 .filter(|s| !s.is_empty())
                 .collect();
-                
+
             // 2. Prefix or name-token match
             for q_tok in &query_tokens {
                 for n_tok in &name_tokens {
@@ -60,7 +60,7 @@ pub fn rank_tools(
                     }
                 }
             }
-            
+
             // 3. Description token overlap
             let desc_lower = desc.to_lowercase();
             let desc_tokens: Vec<&str> = desc_lower
@@ -74,7 +74,7 @@ pub fn rank_tools(
                     }
                 }
             }
-            
+
             (score, item)
         })
         .filter(|(score, _)| *score > 0)
@@ -84,7 +84,7 @@ pub fn rank_tools(
         if b.0 != a.0 {
             b.0.cmp(&a.0)
         } else {
-            a.1.0.to_string().cmp(&b.1.0.to_string())
+            a.1 .0.to_string().cmp(&b.1 .0.to_string())
         }
     });
 
@@ -152,18 +152,16 @@ impl Tool for SearchToolsTool {
         }
     }
 
-    async fn execute(
-        &self,
-        input: Value,
-        _ctx: &ToolContext,
-    ) -> Result<ToolOutput, ToolError> {
-        let query = input
-            .get("query")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::ExecutionFailed(std::io::Error::other("Missing query parameter")))?;
+    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
+        let query = input.get("query").and_then(|v| v.as_str()).ok_or_else(|| {
+            ToolError::ExecutionFailed(std::io::Error::other("Missing query parameter"))
+        })?;
 
         let mut mcp_tools = self.registry.list_all_tools().await.map_err(|e| {
-            ToolError::ExecutionFailed(std::io::Error::other(format!("Failed to list MCP tools: {}", e)))
+            ToolError::ExecutionFailed(std::io::Error::other(format!(
+                "Failed to list MCP tools: {}",
+                e
+            )))
         })?;
 
         // Sort by canonical ID string representation to ensure deterministic pool order
@@ -180,7 +178,10 @@ impl Tool for SearchToolsTool {
                     namespace: ToolNamespace::Mcp(server_id.0.clone()),
                     name: schema.name.clone(),
                 };
-                let provider_name = gestalt_core::tool_name_mapping::ToolNameMapping::generate_provider_name(&canonical_id);
+                let provider_name =
+                    gestalt_core::tool_name_mapping::ToolNameMapping::generate_provider_name(
+                        &canonical_id,
+                    );
                 (canonical_id, provider_name, schema.description)
             })
             .collect();
@@ -271,18 +272,16 @@ impl Tool for GetToolDetailsTool {
         }
     }
 
-    async fn execute(
-        &self,
-        input: Value,
-        _ctx: &ToolContext,
-    ) -> Result<ToolOutput, ToolError> {
-        let name = input
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::ExecutionFailed(std::io::Error::other("Missing name parameter")))?;
+    async fn execute(&self, input: Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
+        let name = input.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+            ToolError::ExecutionFailed(std::io::Error::other("Missing name parameter"))
+        })?;
 
         let mut mcp_tools = self.registry.list_all_tools().await.map_err(|e| {
-            ToolError::ExecutionFailed(std::io::Error::other(format!("Failed to list MCP tools: {}", e)))
+            ToolError::ExecutionFailed(std::io::Error::other(format!(
+                "Failed to list MCP tools: {}",
+                e
+            )))
         })?;
 
         // Sort by canonical ID string representation to ensure deterministic order
@@ -298,7 +297,10 @@ impl Tool for GetToolDetailsTool {
                 namespace: ToolNamespace::Mcp(server_id.0.clone()),
                 name: schema.name.clone(),
             };
-            let provider_name = gestalt_core::tool_name_mapping::ToolNameMapping::generate_provider_name(&canonical_id);
+            let provider_name =
+                gestalt_core::tool_name_mapping::ToolNameMapping::generate_provider_name(
+                    &canonical_id,
+                );
 
             if provider_name == name || canonical_id.to_string() == name || schema.name == name {
                 // Add to selected working set

@@ -43,7 +43,10 @@ pub trait FileSearchBackend: Send + Sync {
     fn backend_id(&self) -> &str;
 
     /// Execute a file search and return matching paths.
-    async fn search(&self, request: &FileSearchRequest) -> Result<Vec<FileSearchResult>, BackendError>;
+    async fn search(
+        &self,
+        request: &FileSearchRequest,
+    ) -> Result<Vec<FileSearchResult>, BackendError>;
 }
 
 /// A single text match from a text-search backend.
@@ -93,7 +96,10 @@ pub trait TextSearchBackend: Send + Sync {
     fn backend_id(&self) -> &str;
 
     /// Execute a text search and return matching lines.
-    async fn search(&self, request: &TextSearchRequest) -> Result<Vec<TextSearchResult>, BackendError>;
+    async fn search(
+        &self,
+        request: &TextSearchRequest,
+    ) -> Result<Vec<TextSearchResult>, BackendError>;
 }
 
 /// Errors that can occur during backend operations.
@@ -150,11 +156,16 @@ impl FileSearchBackend for WalkdirFileSearchBackend {
         "walkdir"
     }
 
-    async fn search(&self, request: &FileSearchRequest) -> Result<Vec<FileSearchResult>, BackendError> {
+    async fn search(
+        &self,
+        request: &FileSearchRequest,
+    ) -> Result<Vec<FileSearchResult>, BackendError> {
         use walkdir::WalkDir;
-        
+
         let query_lower = request.query.to_lowercase();
-        let glob_pattern = request.file_glob.as_ref()
+        let glob_pattern = request
+            .file_glob
+            .as_ref()
             .map(|g| glob::Pattern::new(g))
             .transpose()
             .map_err(|e| BackendError::InvalidPattern(format!("Invalid glob: {e}")))?;
@@ -170,7 +181,7 @@ impl FileSearchBackend for WalkdirFileSearchBackend {
                 continue;
             }
             let path = entry.path();
-            
+
             // Get the file name for matching
             let file_name = match path.file_name() {
                 Some(name) => name.to_string_lossy().to_string(),
@@ -187,7 +198,7 @@ impl FileSearchBackend for WalkdirFileSearchBackend {
             // Fuzzy match: check if query chars appear in order in the path
             let path_str = path.to_string_lossy().to_lowercase();
             let score = fuzzy_score(&query_lower, &path_str);
-            
+
             if score > 0.0 {
                 let metadata = entry.metadata().ok();
                 results.push(FileSearchResult {
@@ -206,7 +217,8 @@ impl FileSearchBackend for WalkdirFileSearchBackend {
 
         // Sort by score descending, then by path ascending for determinism
         results.sort_by(|a, b| {
-            b.score.unwrap_or(0.0)
+            b.score
+                .unwrap_or(0.0)
                 .partial_cmp(&a.score.unwrap_or(0.0))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.path.cmp(&b.path))
@@ -239,7 +251,12 @@ fn fuzzy_score(query: &str, target: &str) -> f64 {
                 score += 0.5;
             }
             // Bonus for matches at path separators or word boundaries
-            if i == 0 || target_chars[i - 1] == '/' || target_chars[i - 1] == '_' || target_chars[i - 1] == '-' || target_chars[i - 1] == '.' {
+            if i == 0
+                || target_chars[i - 1] == '/'
+                || target_chars[i - 1] == '_'
+                || target_chars[i - 1] == '-'
+                || target_chars[i - 1] == '.'
+            {
                 score += 1.0;
             }
             query_idx += 1;
@@ -270,10 +287,13 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
         "walkdir-grep"
     }
 
-    async fn search(&self, request: &TextSearchRequest) -> Result<Vec<TextSearchResult>, BackendError> {
+    async fn search(
+        &self,
+        request: &TextSearchRequest,
+    ) -> Result<Vec<TextSearchResult>, BackendError> {
         use regex::RegexBuilder;
-        use walkdir::WalkDir;
         use std::fs;
+        use walkdir::WalkDir;
 
         // Build the regex pattern
         let pattern = if request.is_regex {
@@ -287,7 +307,9 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
             .build()
             .map_err(|e| BackendError::InvalidPattern(format!("Invalid regex: {e}")))?;
 
-        let glob_pattern = request.file_glob.as_ref()
+        let glob_pattern = request
+            .file_glob
+            .as_ref()
             .map(|g| glob::Pattern::new(g))
             .transpose()
             .map_err(|e| BackendError::InvalidPattern(format!("Invalid glob: {e}")))?;
@@ -311,7 +333,8 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
 
             // Apply glob filter
             if let Some(ref gp) = glob_pattern {
-                let file_name = path.file_name()
+                let file_name = path
+                    .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
                 if !gp.matches(&file_name) {
@@ -336,14 +359,20 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
                     // Collect context lines
                     let context_before: Vec<String> = if request.context_before > 0 {
                         let start = line_idx.saturating_sub(request.context_before);
-                        lines[start..line_idx].iter().map(|s| s.to_string()).collect()
+                        lines[start..line_idx]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect()
                     } else {
                         Vec::new()
                     };
 
                     let context_after: Vec<String> = if request.context_after > 0 {
                         let end = (line_idx + 1 + request.context_after).min(lines.len());
-                        lines[line_idx + 1..end].iter().map(|s| s.to_string()).collect()
+                        lines[line_idx + 1..end]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect()
                     } else {
                         Vec::new()
                     };
@@ -361,7 +390,8 @@ impl TextSearchBackend for WalkdirTextSearchBackend {
 
         // Sort by path ascending, then line number ascending
         results.sort_by(|a, b| {
-            a.path.cmp(&b.path)
+            a.path
+                .cmp(&b.path)
                 .then_with(|| a.line_number.cmp(&b.line_number))
         });
 
@@ -382,10 +412,22 @@ mod tests {
         // Create test files
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("src/utils")).unwrap();
-        fs::write(root.join("src/main.rs"), "fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    println!(\"hello\");\n}\n",
+        )
+        .unwrap();
         fs::write(root.join("src/lib.rs"), "pub mod utils;\n").unwrap();
-        fs::write(root.join("src/utils/helpers.rs"), "pub fn helper() -> bool {\n    true\n}\n").unwrap();
-        fs::write(root.join("README.md"), "# Test Project\n\nSome content here.\n").unwrap();
+        fs::write(
+            root.join("src/utils/helpers.rs"),
+            "pub fn helper() -> bool {\n    true\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("README.md"),
+            "# Test Project\n\nSome content here.\n",
+        )
+        .unwrap();
         fs::write(root.join("Cargo.toml"), "[package]\nname = \"test\"\n").unwrap();
 
         dir
@@ -412,9 +454,16 @@ mod tests {
             };
 
             let results = backend.search(&request).await.unwrap();
-            assert!(!results.is_empty(), "Expected at least one result for 'main'");
-            assert!(results.iter().any(|r| r.path.to_string_lossy().contains("main.rs")),
-                "Expected main.rs in results");
+            assert!(
+                !results.is_empty(),
+                "Expected at least one result for 'main'"
+            );
+            assert!(
+                results
+                    .iter()
+                    .any(|r| r.path.to_string_lossy().contains("main.rs")),
+                "Expected main.rs in results"
+            );
         }
 
         #[tokio::test]
@@ -429,8 +478,12 @@ mod tests {
             };
 
             let results = backend.search(&request).await.unwrap();
-            assert!(results.iter().all(|r| r.path.extension().map_or(false, |e| e == "rs")),
-                "All results should be .rs files");
+            assert!(
+                results
+                    .iter()
+                    .all(|r| r.path.extension().map_or(false, |e| e == "rs")),
+                "All results should be .rs files"
+            );
         }
 
         #[tokio::test]
@@ -460,7 +513,10 @@ mod tests {
             };
 
             let results = backend.search(&request).await.unwrap();
-            assert!(results.is_empty(), "Should return no results for nonexistent query");
+            assert!(
+                results.is_empty(),
+                "Should return no results for nonexistent query"
+            );
         }
     }
 
@@ -489,7 +545,10 @@ mod tests {
             };
 
             let results = backend.search(&request).await.unwrap();
-            assert!(!results.is_empty(), "Expected at least one result for 'println'");
+            assert!(
+                !results.is_empty(),
+                "Expected at least one result for 'println'"
+            );
             assert!(results[0].line_content.contains("println"));
         }
 
@@ -509,7 +568,10 @@ mod tests {
             };
 
             let results = backend.search(&request).await.unwrap();
-            assert!(!results.is_empty(), "Expected regex matches for 'fn <word>'");
+            assert!(
+                !results.is_empty(),
+                "Expected regex matches for 'fn <word>'"
+            );
         }
 
         #[tokio::test]
@@ -529,7 +591,10 @@ mod tests {
 
             let result = backend.search(&request).await;
             assert!(result.is_err(), "Should reject invalid regex");
-            assert!(matches!(result.unwrap_err(), BackendError::InvalidPattern(_)));
+            assert!(matches!(
+                result.unwrap_err(),
+                BackendError::InvalidPattern(_)
+            ));
         }
 
         #[tokio::test]
@@ -548,7 +613,10 @@ mod tests {
             };
 
             let results = backend.search(&request).await.unwrap();
-            assert!(!results.is_empty(), "Case-insensitive search should find 'println'");
+            assert!(
+                !results.is_empty(),
+                "Case-insensitive search should find 'println'"
+            );
         }
 
         #[tokio::test]
@@ -570,7 +638,10 @@ mod tests {
             assert!(!results.is_empty());
             // println is on line 2, so context_before should have line 1
             let result = &results[0];
-            assert!(!result.context_before.is_empty(), "Should have context before");
+            assert!(
+                !result.context_before.is_empty(),
+                "Should have context before"
+            );
         }
 
         #[tokio::test]
@@ -589,8 +660,12 @@ mod tests {
             };
 
             let results = backend.search(&request).await.unwrap();
-            assert!(results.iter().all(|r| r.path.extension().map_or(false, |e| e == "rs")),
-                "All results should be from .rs files");
+            assert!(
+                results
+                    .iter()
+                    .all(|r| r.path.extension().map_or(false, |e| e == "rs")),
+                "All results should be from .rs files"
+            );
         }
 
         #[tokio::test]
@@ -610,10 +685,14 @@ mod tests {
 
             let results = backend.search(&request).await.unwrap();
             for window in results.windows(2) {
-                let ordering = window[0].path.cmp(&window[1].path)
+                let ordering = window[0]
+                    .path
+                    .cmp(&window[1].path)
                     .then_with(|| window[0].line_number.cmp(&window[1].line_number));
-                assert!(ordering != std::cmp::Ordering::Greater,
-                    "Results should be sorted by path then line number");
+                assert!(
+                    ordering != std::cmp::Ordering::Greater,
+                    "Results should be sorted by path then line number"
+                );
             }
         }
 
@@ -661,8 +740,10 @@ mod tests {
             let boundary_score = fuzzy_score("m", "src/main.rs");
             let mid_score = fuzzy_score("a", "src/main.rs");
             // 'm' at path boundary (after /) should score higher than 'a' mid-word
-            assert!(boundary_score >= mid_score,
-                "Word boundary match should score >= mid-word match");
+            assert!(
+                boundary_score >= mid_score,
+                "Word boundary match should score >= mid-word match"
+            );
         }
     }
 }

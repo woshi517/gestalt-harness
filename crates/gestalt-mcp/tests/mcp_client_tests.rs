@@ -1,19 +1,26 @@
-use gestalt_mcp::{
-    McpLifecycleMode, McpServerConfig, McpTransportConfig, McpRegistry,
-};
+use gestalt_mcp::{McpLifecycleMode, McpRegistry, McpServerConfig, McpTransportConfig};
 use std::path::PathBuf;
 
 #[tokio::test]
 async fn test_mock_mcp_server_integration() {
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut configs = std::collections::HashMap::new();
-    
+
     let config = McpServerConfig {
         name: "mock-server".to_string(),
         enabled: true,
         transport: McpTransportConfig::Stdio {
             command: "cargo".to_string(),
-            args: vec!["run", "--package", "gestalt-mcp", "--bin", "mock_mcp_server"].into_iter().map(String::from).collect(),
+            args: vec![
+                "run",
+                "--package",
+                "gestalt-mcp",
+                "--bin",
+                "mock_mcp_server",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             cwd: None,
             env: std::collections::HashMap::new(),
         },
@@ -38,11 +45,14 @@ async fn test_mock_mcp_server_integration() {
     assert_eq!(tool_schema.description, "A mock tool for testing");
 
     // Call tool
-    let result = registry.call_tool(
-        "mock-server",
-        "mock_tool",
-        serde_json::json!({"input": "test-val"})
-    ).await.unwrap();
+    let result = registry
+        .call_tool(
+            "mock-server",
+            "mock_tool",
+            serde_json::json!({"input": "test-val"}),
+        )
+        .await
+        .unwrap();
 
     assert!(!result.is_error);
     assert_eq!(result.content, "Mock tool response");
@@ -52,7 +62,10 @@ async fn test_mock_mcp_server_integration() {
     assert_eq!(states.len(), 1);
     let state = &states[0];
     assert_eq!(state.server_id.0, "mock-server");
-    assert_eq!(state.connection_state, gestalt_mcp::McpConnectionState::Connected);
+    assert_eq!(
+        state.connection_state,
+        gestalt_mcp::McpConnectionState::Connected
+    );
     assert_eq!(state.tool_count, 1);
     assert_eq!(state.trust_level.as_deref(), Some("high"));
 }

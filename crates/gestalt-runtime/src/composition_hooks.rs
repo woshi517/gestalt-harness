@@ -276,7 +276,11 @@ pub struct RuntimeNextTurnHookAdapter {
 
 fn collect_next_turn_events(outcome: &HookOutcome, default_model: &str) -> Vec<AgentEvent> {
     match outcome {
-        HookOutcome::SwitchModel { model, provider, variant } => {
+        HookOutcome::SwitchModel {
+            model,
+            provider,
+            variant,
+        } => {
             let override_model = if model.is_empty() {
                 default_model.to_string()
             } else {
@@ -289,7 +293,9 @@ fn collect_next_turn_events(outcome: &HookOutcome, default_model: &str) -> Vec<A
             }]
         }
         HookOutcome::Block { reason } => {
-            vec![AgentEvent::NextTurnBlocked { reason: reason.clone() }]
+            vec![AgentEvent::NextTurnBlocked {
+                reason: reason.clone(),
+            }]
         }
         HookOutcome::Aggregated(list) => {
             let mut events = Vec::new();
@@ -543,7 +549,15 @@ fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
             Helper::Block { reason } => HookOutcome::Block { reason },
             Helper::AddContext { message } => HookOutcome::AddContext { message },
             Helper::Annotate { metadata } => HookOutcome::Annotate { metadata },
-            Helper::SwitchModel { model, provider, variant } => HookOutcome::SwitchModel { model, provider, variant },
+            Helper::SwitchModel {
+                model,
+                provider,
+                variant,
+            } => HookOutcome::SwitchModel {
+                model,
+                provider,
+                variant,
+            },
         };
     }
 
@@ -591,7 +605,11 @@ fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
                         .get("variant")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    return HookOutcome::SwitchModel { model, provider, variant };
+                    return HookOutcome::SwitchModel {
+                        model,
+                        provider,
+                        variant,
+                    };
                 }
                 _ => {}
             }
@@ -634,12 +652,12 @@ async fn call_hook_with_policy(
     params: serde_json::Value,
     default_mode: &str,
 ) -> Result<std::result::Result<HookOutcome, String>> {
-    let timeout_ms = hook_decl.timeout_ms.unwrap_or(
-        match hook_decl.lifecycle_point.as_str() {
+    let timeout_ms = hook_decl
+        .timeout_ms
+        .unwrap_or(match hook_decl.lifecycle_point.as_str() {
             "before_tool_policy" => 3000,
             _ => 5000,
-        }
-    );
+        });
     let timeout_dur = Duration::from_millis(timeout_ms);
     let call_fut = pe.broker.call("hooks/call", Some(params));
 
@@ -654,12 +672,21 @@ async fn call_hook_with_policy(
         Err(e) => {
             let mode = hook_decl.failure_mode.as_deref().unwrap_or(default_mode);
             match mode {
-                "stop_session" => Err(crate::error::RuntimeError::Extension("Session stopped by hook failure".to_string())),
+                "stop_session" => Err(crate::error::RuntimeError::Extension(
+                    "Session stopped by hook failure".to_string(),
+                )),
                 "closed" => {
-                    if hook_decl.lifecycle_point == "before_tool_policy" || hook_decl.lifecycle_point == "prepare_next_turn" {
-                        Ok(Ok(HookOutcome::Block { reason: format!("Hook '{}' failed: {}", hook_decl.name, e) }))
+                    if hook_decl.lifecycle_point == "before_tool_policy"
+                        || hook_decl.lifecycle_point == "prepare_next_turn"
+                    {
+                        Ok(Ok(HookOutcome::Block {
+                            reason: format!("Hook '{}' failed: {}", hook_decl.name, e),
+                        }))
                     } else {
-                        Err(crate::error::RuntimeError::Extension(format!("Hook '{}' failed closed: {}", hook_decl.name, e)))
+                        Err(crate::error::RuntimeError::Extension(format!(
+                            "Hook '{}' failed closed: {}",
+                            hook_decl.name, e
+                        )))
                     }
                 }
                 "open" => {
@@ -672,7 +699,10 @@ async fn call_hook_with_policy(
                     Ok(Err(e))
                 }
                 _ => {
-                    eprintln!("Warning: Hook '{}' failed (unknown failure mode: {}): {}", hook_decl.name, mode, e);
+                    eprintln!(
+                        "Warning: Hook '{}' failed (unknown failure mode: {}): {}",
+                        hook_decl.name, mode, e
+                    );
                     pe.broker.event_bus.publish(RuntimeEvent::HookFailed {
                         hook_name: hook_decl.name.clone(),
                         lifecycle_point: hook_decl.lifecycle_point.clone(),
@@ -725,10 +755,12 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "history": context.history.clone(),
                         }
                     });
-                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                    if let Ok(outcome) =
+                        call_hook_with_policy(pe, hook_decl, params, "open").await?
+                    {
                         let outcome = match outcome {
                             HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata })
+                                metadata: serde_json::json!({ pe.name(): metadata }),
                             },
                             other => other,
                         };
@@ -786,10 +818,12 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "packet": context.packet.clone(),
                         }
                     });
-                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                    if let Ok(outcome) =
+                        call_hook_with_policy(pe, hook_decl, params, "open").await?
+                    {
                         let outcome = match outcome {
                             HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata })
+                                metadata: serde_json::json!({ pe.name(): metadata }),
                             },
                             other => other,
                         };
@@ -847,10 +881,12 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "tool_input": context.tool_input.clone(),
                         }
                     });
-                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "closed").await? {
+                    if let Ok(outcome) =
+                        call_hook_with_policy(pe, hook_decl, params, "closed").await?
+                    {
                         let outcome = match outcome {
                             HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata })
+                                metadata: serde_json::json!({ pe.name(): metadata }),
                             },
                             other => other,
                         };
@@ -908,10 +944,12 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "result": context.result.clone(),
                         }
                     });
-                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                    if let Ok(outcome) =
+                        call_hook_with_policy(pe, hook_decl, params, "open").await?
+                    {
                         let outcome = match outcome {
                             HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata })
+                                metadata: serde_json::json!({ pe.name(): metadata }),
                             },
                             other => other,
                         };
@@ -944,7 +982,11 @@ impl CompositionHooks for ComposedCompositionHooks {
             match res {
                 HookOutcome::Continue => {}
                 HookOutcome::Block { .. } => return Ok(res),
-                HookOutcome::SwitchModel { ref model, ref provider, .. } => {
+                HookOutcome::SwitchModel {
+                    ref model,
+                    ref provider,
+                    ..
+                } => {
                     current_model = Some(model.clone());
                     current_provider = provider.clone();
                     outcomes.push(res);
@@ -980,31 +1022,43 @@ impl CompositionHooks for ComposedCompositionHooks {
                             "current_provider": context.current_provider.clone(),
                         }
                     });
-                    if let Ok(outcome) = call_hook_with_policy(pe, hook_decl, params, "open").await? {
+                    if let Ok(outcome) =
+                        call_hook_with_policy(pe, hook_decl, params, "open").await?
+                    {
                         let outcome = match outcome {
                             HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata })
+                                metadata: serde_json::json!({ pe.name(): metadata }),
                             },
                             other => other,
                         };
                         match outcome {
                             HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::SwitchModel { model, provider, variant } => {
+                            HookOutcome::SwitchModel {
+                                model,
+                                provider,
+                                variant,
+                            } => {
                                 if let Some(ref existing_model) = current_model {
-                                    if existing_model != &model || current_provider.as_ref() != provider.as_ref() {
+                                    if existing_model != &model
+                                        || current_provider.as_ref() != provider.as_ref()
+                                    {
                                         let msg = format!(
                                             "Conflict: SwitchModel requested by extension '{}' for model='{}', provider='{:?}' conflicts with previous override model='{}', provider='{:?}'",
                                             pe.name(), model, provider, existing_model, current_provider
                                         );
                                         eprintln!("Warning: {}", msg);
-                                        pe.broker.event_bus.publish(RuntimeEvent::RuntimeError {
-                                            message: msg,
-                                        });
+                                        pe.broker
+                                            .event_bus
+                                            .publish(RuntimeEvent::RuntimeError { message: msg });
                                     }
                                 }
                                 current_model = Some(model.clone());
                                 current_provider = provider.clone();
-                                outcomes.push(HookOutcome::SwitchModel { model, provider, variant });
+                                outcomes.push(HookOutcome::SwitchModel {
+                                    model,
+                                    provider,
+                                    variant,
+                                });
                             }
                             HookOutcome::Continue => {}
                             _ => outcomes.push(outcome),

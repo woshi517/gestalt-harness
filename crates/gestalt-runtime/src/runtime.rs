@@ -172,6 +172,11 @@ impl AgentRuntime {
             self.config.execution_mode,
             snapshot.clone(),
         );
+        session.context_policy = self
+            .config
+            .context_management_policy
+            .clone()
+            .unwrap_or_default();
 
         self.event_bus.publish(RuntimeEvent::SessionSpawned {
             session_id: session_id.clone(),
@@ -411,7 +416,11 @@ impl AgentRuntime {
                         .get("backend")
                         .map(|ann| ann.value.clone())
                 });
-                ToolInspectInfo { name, schema_hash, backend }
+                ToolInspectInfo {
+                    name,
+                    schema_hash,
+                    backend,
+                }
             })
             .collect();
         let tool_schema_hash = crate::registry::compute_tool_schema_hash(&schemas);
@@ -482,7 +491,7 @@ impl AgentRuntime {
         };
 
         let effective_config_fingerprint = self.config.effective_config_fingerprint.clone();
-        
+
         let variant_fingerprint = Some(crate::inspect::compute_variant_fingerprint(
             &self.config.model,
             &self.config.provider,
@@ -492,14 +501,20 @@ impl AgentRuntime {
             self.config.reasoning_effort.as_ref(),
             self.config.text_verbosity.as_ref(),
         ));
-        
+
         let mut negotiated_fingerprints = Vec::new();
         for ext in &self.extensions {
             if let Some(pe) = ext.as_process_extension() {
                 let negotiated_version = pe.broker.negotiated_version();
                 let negotiated_caps = pe.broker.negotiated_capabilities();
                 let caps_json = serde_json::to_string(&negotiated_caps).unwrap_or_default();
-                negotiated_fingerprints.push(format!("{}:{}:{}:{}", pe.manifest.id, pe.manifest.protocol_version.as_deref().unwrap_or(""), negotiated_version, caps_json));
+                negotiated_fingerprints.push(format!(
+                    "{}:{}:{}:{}",
+                    pe.manifest.id,
+                    pe.manifest.protocol_version.as_deref().unwrap_or(""),
+                    negotiated_version,
+                    caps_json
+                ));
             }
         }
         let negotiated_protocol_fingerprint = if negotiated_fingerprints.is_empty() {

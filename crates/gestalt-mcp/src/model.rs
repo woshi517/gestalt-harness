@@ -1,6 +1,6 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use schemars::JsonSchema;
 
 fn default_true() -> bool {
     true
@@ -64,7 +64,9 @@ pub struct McpServerConfig {
     pub display_name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 pub struct McpServerId(pub String);
 
 impl std::fmt::Display for McpServerId {
@@ -81,7 +83,10 @@ pub struct McpToolIdentity {
 
 impl McpToolIdentity {
     pub fn new(server_id: McpServerId, tool_name: String) -> Self {
-        Self { server_id, tool_name }
+        Self {
+            server_id,
+            tool_name,
+        }
     }
 
     pub fn to_canonical_id(&self) -> gestalt_core::tool_descriptor::CanonicalToolId {
@@ -153,12 +158,15 @@ pub struct McpServerState {
 }
 
 pub fn parse_mcp_call_result(val: &serde_json::Value) -> Result<McpCallResult, String> {
-    let obj = val.as_object().ok_or_else(|| "Call tool result must be a JSON object".to_string())?;
-    
-    let is_error = obj.get("isError")
+    let obj = val
+        .as_object()
+        .ok_or_else(|| "Call tool result must be a JSON object".to_string())?;
+
+    let is_error = obj
+        .get("isError")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-        
+
     let mut text_parts = Vec::new();
     if let Some(content) = obj.get("content") {
         if let Some(arr) = content.as_array() {
@@ -184,24 +192,38 @@ pub fn parse_mcp_call_result(val: &serde_json::Value) -> Result<McpCallResult, S
             text_parts.push(s.to_string());
         }
     }
-    
+
     let content = if text_parts.is_empty() {
         val.to_string()
     } else {
         text_parts.join("\n")
     };
-    
+
     Ok(McpCallResult { content, is_error })
 }
 
 #[derive(Debug, Clone)]
 pub enum McpRegistryEvent {
-    Connecting { server_name: String },
-    Connected { server_name: String, protocol_version: String, tool_count: usize },
-    ConnectionFailed { server_name: String, reason: String },
-    ToolCatalogRefreshed { server_name: String, tool_count: usize, schema_hash: String },
-    ToolListChanged { server_name: String },
+    Connecting {
+        server_name: String,
+    },
+    Connected {
+        server_name: String,
+        protocol_version: String,
+        tool_count: usize,
+    },
+    ConnectionFailed {
+        server_name: String,
+        reason: String,
+    },
+    ToolCatalogRefreshed {
+        server_name: String,
+        tool_count: usize,
+        schema_hash: String,
+    },
+    ToolListChanged {
+        server_name: String,
+    },
 }
 
 pub type McpEventCallback = std::sync::Arc<dyn Fn(McpRegistryEvent) + Send + Sync>;
-

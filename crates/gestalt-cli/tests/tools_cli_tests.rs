@@ -23,6 +23,10 @@ fn test_tools_list_and_inspect() {
     // 3. Inspect write tool and check new fields
     let write_inspect = inspect_tool(&overrides, "write").unwrap();
     assert_eq!(write_inspect.name, "write");
-    assert!(write_inspect.schema["input_schema"]["properties"].get("expected_hash").is_some());
-    assert!(write_inspect.schema["input_schema"]["properties"].get("dry_run").is_some());
+    assert!(write_inspect.schema["input_schema"]["properties"]
+        .get("expected_hash")
+        .is_some());
+    assert!(write_inspect.schema["input_schema"]["properties"]
+        .get("dry_run")
+        .is_some());
 }

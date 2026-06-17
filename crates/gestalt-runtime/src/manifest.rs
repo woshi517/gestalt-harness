@@ -118,7 +118,10 @@ impl ExtensionManifest {
             }
         }
         if self.id.starts_with("gestalt") || self.id.starts_with("harness") {
-            return Err(format!("Extension ID '{}' starts with a reserved namespace ('gestalt' or 'harness')", self.id));
+            return Err(format!(
+                "Extension ID '{}' starts with a reserved namespace ('gestalt' or 'harness')",
+                self.id
+            ));
         }
 
         if self.name.trim().is_empty() {
@@ -153,37 +156,67 @@ impl ExtensionManifest {
         let mut seen_tools = std::collections::HashSet::new();
         for tool in &self.tools {
             if !seen_tools.insert(&tool.name) {
-                return Err(format!("Duplicate tool name '{}' declared in manifest", tool.name));
+                return Err(format!(
+                    "Duplicate tool name '{}' declared in manifest",
+                    tool.name
+                ));
             }
             if tool.description.trim().is_empty() {
-                return Err(format!("Tool '{}' must have a non-empty description", tool.name));
+                return Err(format!(
+                    "Tool '{}' must have a non-empty description",
+                    tool.name
+                ));
             }
             if let Some(ref risk) = tool.risk {
                 match risk.as_str() {
                     "low" | "medium" | "high" | "critical" => {}
-                    other => return Err(format!("Invalid risk level '{}' for tool '{}'", other, tool.name)),
+                    other => {
+                        return Err(format!(
+                            "Invalid risk level '{}' for tool '{}'",
+                            other, tool.name
+                        ))
+                    }
                 }
             }
             if !tool.input_schema.is_object() {
-                return Err(format!("Tool '{}' input_schema must be a valid JSON Schema object", tool.name));
+                return Err(format!(
+                    "Tool '{}' input_schema must be a valid JSON Schema object",
+                    tool.name
+                ));
             }
         }
 
         let mut seen_hooks = std::collections::HashSet::new();
         for hook in &self.hooks {
             if !seen_hooks.insert(&hook.name) {
-                return Err(format!("Duplicate hook name '{}' declared in manifest", hook.name));
+                return Err(format!(
+                    "Duplicate hook name '{}' declared in manifest",
+                    hook.name
+                ));
             }
             match hook.lifecycle_point.as_str() {
-                "before_context_build" | "after_context_build" | "before_tool_policy" | "after_tool_result" | "prepare_next_turn" | "on_event" => {}
-                other => return Err(format!("Invalid lifecycle point '{}' for hook '{}'", other, hook.name)),
+                "before_context_build"
+                | "after_context_build"
+                | "before_tool_policy"
+                | "after_tool_result"
+                | "prepare_next_turn"
+                | "on_event" => {}
+                other => {
+                    return Err(format!(
+                        "Invalid lifecycle point '{}' for hook '{}'",
+                        other, hook.name
+                    ))
+                }
             }
         }
 
         let mut seen_injectors = std::collections::HashSet::new();
         for inj in &self.context_injectors {
             if !seen_injectors.insert(&inj.name) {
-                return Err(format!("Duplicate context injector name '{}' declared in manifest", inj.name));
+                return Err(format!(
+                    "Duplicate context injector name '{}' declared in manifest",
+                    inj.name
+                ));
             }
         }
 

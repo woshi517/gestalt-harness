@@ -80,8 +80,15 @@ pub async fn diagnose_workspace(
     if ws_enabled {
         match loader.load_workspace_instructions(&ws_cfg).await {
             Ok(_) => {}
-            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
-                let display_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing {
+                path,
+                ..
+            }) => {
+                let display_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 missing_files.push(display_name);
             }
             Err(err) => {
@@ -96,8 +103,15 @@ pub async fn diagnose_workspace(
     if mem_enabled {
         match loader.load_memory(&mem_cfg).await {
             Ok(_) => {}
-            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
-                let display_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing {
+                path,
+                ..
+            }) => {
+                let display_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 missing_files.push(display_name);
             }
             Err(err) => {
@@ -148,9 +162,21 @@ pub async fn diagnose_workspace(
     // Memory writability check
     let mut memory_writable = None;
     let mut memory_write_error = None;
-    if mem_enabled && mem_cfg.write_mode.unwrap_or(crate::config::MemoryWriteMode::Proposal) == crate::config::MemoryWriteMode::Proposal {
-        let mem_path = mem_cfg.path.clone().unwrap_or_else(|| PathBuf::from(".gestalt/memory.md"));
-        let resolved_mem = if mem_path.is_absolute() { mem_path } else { workspace_root.join(mem_path) };
+    if mem_enabled
+        && mem_cfg
+            .write_mode
+            .unwrap_or(crate::config::MemoryWriteMode::Proposal)
+            == crate::config::MemoryWriteMode::Proposal
+    {
+        let mem_path = mem_cfg
+            .path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(".gestalt/memory.md"));
+        let resolved_mem = if mem_path.is_absolute() {
+            mem_path
+        } else {
+            workspace_root.join(mem_path)
+        };
         let path_to_check = if resolved_mem.exists() {
             resolved_mem.clone()
         } else if let Some(parent) = resolved_mem.parent() {

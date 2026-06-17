@@ -188,8 +188,11 @@ mod tests {
 
     #[test]
     fn trusted_extension_without_annotations_does_not_get_retry_policy() {
-        let descriptor =
-            build_extension_tool_descriptor(&manifest("trusted-ext"), &tool_decl("x", None, None), true);
+        let descriptor = build_extension_tool_descriptor(
+            &manifest("trusted-ext"),
+            &tool_decl("x", None, None),
+            true,
+        );
         assert!(descriptor.retry_policy.is_none());
     }
 }

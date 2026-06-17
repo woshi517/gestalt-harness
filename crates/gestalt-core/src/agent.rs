@@ -393,6 +393,22 @@ impl AgentLoop {
         let run_id = sink.and_then(|s| s.run_id()).unwrap_or("");
         let artifacts_dir = sink.and_then(|s| s.artifacts_dir());
         let mut emit_wrapper = |ev| emit(ev);
+        let descriptors = self.executor.tools().descriptors();
+        let (tools, tool_name_map) = self.provider.adapt_tools(&descriptors);
+        let request_template = ProviderRequest {
+            model: model.clone(),
+            messages: Vec::new(),
+            tools: tools.clone(),
+            tool_name_map: tool_name_map.clone(),
+            max_tokens: session.config.max_tokens,
+            temperature: session.config.temperature,
+            top_p: session.config.top_p,
+            stop_sequences: Vec::new(),
+            cache_plan: None,
+            metadata: session.config.metadata.clone(),
+            reasoning_effort: session.config.reasoning_effort,
+            text_verbosity: session.config.text_verbosity,
+        };
 
         let packet = self
             .middleware
@@ -400,6 +416,7 @@ impl AgentLoop {
                 &session.history,
                 &session.token_budget,
                 self.provider.as_ref(),
+                &request_template,
                 &model,
                 &session.id,
                 run_id,
@@ -440,7 +457,12 @@ impl AgentLoop {
             }
         }
 
-        let token_estimate = self.provider.count_tokens(&model, &packet.messages)?;
+        let request = ProviderRequest {
+            messages: packet.messages.clone(),
+            cache_plan: packet.cache_plan.clone(),
+            ..request_template
+        };
+        let token_estimate = self.provider.count_request_tokens(&request)?;
 
         *last_packet_hash = Some(packet.packet_hash.clone());
         *last_prompt_source = packet.prompt_source.clone();
@@ -454,27 +476,9 @@ impl AgentLoop {
             prompt_source: packet.prompt_source.clone(),
         })?;
 
-        let descriptors = self.executor.tools().descriptors();
-        let (tools, tool_name_map) = self.provider.adapt_tools(&descriptors);
-
         emit(AgentEvent::ToolCatalogSelected {
-            tools: tool_name_map.clone(),
+            tools: request.tool_name_map.clone(),
         })?;
-
-        let request = ProviderRequest {
-            model,
-            messages: packet.messages,
-            tools,
-            tool_name_map,
-            max_tokens: session.config.max_tokens,
-            temperature: session.config.temperature,
-            top_p: session.config.top_p,
-            stop_sequences: Vec::new(),
-            cache_plan: packet.cache_plan.clone(),
-            metadata: session.config.metadata.clone(),
-            reasoning_effort: session.config.reasoning_effort,
-            text_verbosity: session.config.text_verbosity,
-        };
 
         let serialized_request = serde_json::to_string(&request).unwrap_or_default();
         let mut hasher = Sha256::new();
@@ -848,7 +852,11 @@ impl AgentLoop {
                 Ok(events) => {
                     for ev in events {
                         match &ev {
-                            AgentEvent::NextTurnOverrideRequested { model, provider, variant } => {
+                            AgentEvent::NextTurnOverrideRequested {
+                                model,
+                                provider,
+                                variant,
+                            } => {
                                 let effective_model = if model.is_empty() {
                                     session.config.model.clone()
                                 } else {
