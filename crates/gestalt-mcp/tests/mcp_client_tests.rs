@@ -40,7 +40,7 @@ async fn test_mock_mcp_server_integration() {
         serde_json::json!({"input": "test-val"})
     ).await.unwrap();
 
-    assert_eq!(result.is_error, false);
+    assert!(!result.is_error);
     assert_eq!(result.content, "Mock tool response");
 
     // Check status inspector

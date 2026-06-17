@@ -194,7 +194,7 @@ async fn test_runtime_mcp_policy_check_and_execution() {
     assert_eq!(results.len(), 1);
     let (_turn, _call_id, exec_result, _duration_ms, _error_msg) = &results[0];
     
-    assert_eq!(exec_result.is_error, false);
+    assert!(!exec_result.is_error);
     assert_eq!(exec_result.content, "Mock tool response");
 
     assert!(called.load(Ordering::SeqCst), "AssertingPolicyEngine was not called for mock_tool");

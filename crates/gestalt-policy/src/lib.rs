@@ -626,7 +626,7 @@ fn matches_any_path(patterns: &[String], path: &str) -> bool {
 
         // Handle file-shaped glob patterns for directory-scoped paths
         // Extract the prefix before any glob wildcard character
-        let wildcard_pos = pattern.find(|c| c == '*' || c == '?' || c == '[');
+        let wildcard_pos = pattern.find(['*', '?', '[']);
         if let Some(pos) = wildcard_pos {
             let prefix = &pattern[..pos];
             let mut prefix_path = normalize_path(prefix);

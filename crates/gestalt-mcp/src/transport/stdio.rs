@@ -33,10 +33,13 @@ struct JsonRpcErrorDetail {
     data: Option<Value>,
 }
 
+type StdioRequestTx = mpsc::Sender<(Value, oneshot::Sender<std::result::Result<Value, String>>)>;
+type StdioNotificationRx = mpsc::Receiver<(String, Option<Value>)>;
+
 pub struct StdioTransport {
     child: Arc<Mutex<Option<Child>>>,
-    tx_request: mpsc::Sender<(Value, oneshot::Sender<std::result::Result<Value, String>>)>,
-    rx_notification: Arc<Mutex<mpsc::Receiver<(String, Option<Value>)>>>,
+    tx_request: StdioRequestTx,
+    rx_notification: Arc<Mutex<StdioNotificationRx>>,
     next_id: AtomicU64,
 }
 
