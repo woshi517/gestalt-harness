@@ -163,18 +163,16 @@ fn make_diff(path: &str, old: &str, new: &str) -> (String, bool, usize, usize) {
     let raw_diff = diff.unified_diff().context_radius(3).header(path, path).to_string();
     let mut diff_str = String::new();
     let mut diff_truncated = false;
-    let mut printed_lines = 0;
     const MAX_PREVIEW_LINES: usize = 200;
     const MAX_PREVIEW_BYTES: usize = 16384;
 
-    for line in raw_diff.lines() {
+    for (printed_lines, line) in raw_diff.lines().enumerate() {
         if printed_lines >= MAX_PREVIEW_LINES || diff_str.len() + line.len() + 1 >= MAX_PREVIEW_BYTES {
             diff_truncated = true;
             break;
         }
         diff_str.push_str(line);
         diff_str.push('\n');
-        printed_lines += 1;
     }
 
     if diff_truncated {

@@ -14,42 +14,27 @@ use gestalt_core::{
 use gestalt_core::context::{ContextSourceRef, ContextOmission};
 use gestalt_core::message::Message;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextSnapshotMode {
+    #[default]
     Session,
 }
 
-impl Default for ContextSnapshotMode {
-    fn default() -> Self {
-        Self::Session
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MemorySelectionStrategy {
     Full,
+    #[default]
     Budgeted,
 }
 
-impl Default for MemorySelectionStrategy {
-    fn default() -> Self {
-        Self::Budgeted
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryWriteMode {
     Disabled,
+    #[default]
     Proposal,
-}
-
-impl Default for MemoryWriteMode {
-    fn default() -> Self {
-        Self::Proposal
-    }
 }
 
 pub fn default_workspace_path() -> PathBuf {
@@ -60,7 +45,7 @@ pub fn default_memory_path() -> PathBuf {
     PathBuf::from(".gestalt/memory.md")
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceContextConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,20 +62,7 @@ pub struct WorkspaceContextConfig {
     pub snapshot: Option<ContextSnapshotMode>,
 }
 
-impl Default for WorkspaceContextConfig {
-    fn default() -> Self {
-        Self {
-            enabled: None,
-            path: None,
-            required: None,
-            max_tokens: None,
-            max_bytes: None,
-            snapshot: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryContextConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -111,22 +83,6 @@ pub struct MemoryContextConfig {
     pub snapshot: Option<ContextSnapshotMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_mode: Option<MemoryWriteMode>,
-}
-
-impl Default for MemoryContextConfig {
-    fn default() -> Self {
-        Self {
-            enabled: None,
-            path: None,
-            required: None,
-            strategy: None,
-            max_tokens: None,
-            max_bytes: None,
-            pinned_section: None,
-            snapshot: None,
-            write_mode: None,
-        }
-    }
 }
 
 #[derive(Debug, Error)]
@@ -235,7 +191,7 @@ pub fn parse_memory_markdown(
     while i < lines.len() {
         let line = lines[i].trim();
         if line.starts_with("## ") {
-            current_section = line["## ".len()..].trim().to_string();
+            current_section = line.strip_prefix("## ").unwrap_or(line).trim().to_string();
             i += 1;
             continue;
         } else if line.starts_with("# ") {

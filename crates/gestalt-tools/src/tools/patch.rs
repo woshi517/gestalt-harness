@@ -211,7 +211,7 @@ impl Tool for PatchTool {
             std::mem::forget(cleanup);
 
             // Process deletions first.
-            for (abs_path, _) in &deletes {
+            for abs_path in deletes.keys() {
                 if abs_path.exists() {
                     std::fs::remove_file(abs_path).map_err(ToolError::ExecutionFailed)?;
                 }
