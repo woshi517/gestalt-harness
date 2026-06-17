@@ -27,6 +27,7 @@ pub struct Session {
     pub mode: ExecutionMode,
     pub snapshot: WorkspaceSnapshot,
     pub next_turn_override: Option<NextTurnOverride>,
+    pub context_policy: crate::ContextManagementPolicy,
 }
 
 impl Session {
@@ -47,6 +48,7 @@ impl Session {
             mode,
             snapshot,
             next_turn_override: None,
+            context_policy: crate::ContextManagementPolicy::default(),
         }
     }
 

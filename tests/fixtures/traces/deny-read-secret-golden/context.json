@@ -31,10 +31,12 @@
         "kind": "policy_denied",
         "message": "path denied by policy: .env",
         "repair_guidance": "If the model should retry, ask the user to allow the action or adjust the policy."
-      }
+      },
+      "tool_name": "read",
+      "output_hash": "8ac3da7f07b45d87edb618f00d3d961a3488b8ea63bc73de841175fbec48e380"
     }
   ],
-  "packet_hash": "b7b599a92ad921d06cee5fc63bcd7e37cb099d21d91f91d4bd25ea998eafcbc7",
+  "packet_hash": "6360f4cbe50c8e5c6803e9949ba578644f1502c72adca1354dc0e4335e6ded3d",
   "pipeline_version": "fixture-pipeline",
   "tokenizer_id": "default",
   "token_estimate": 0,
@@ -43,7 +45,8 @@
   "message_hashes": [
     "464cd74ef78b7d7648cbbb3ee93b298702120d20055f06987a8240d079cee5ab",
     "3b610a2e161bfd5c10ec318e1f552dc2fd4e500defee749fe0036b9d4a0ec7c7",
-    "59e66bb05ad0792191b1a63f4293d62251d947e083b5266b6940be63921614fc"
+    "b2a19a48d74a786120acb379c6464738ffb8786e8a956a209dca822585e5e9bb"
   ],
+  "prompt_assembly_strategy": "dynamic",
   "prompt_source": "default"
 }

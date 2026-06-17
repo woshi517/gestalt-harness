@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
+gestalt-context = { path = "../gestalt-context" }
 gestalt-trace = { path = "../gestalt-trace" }
 gestalt-skills = { path = "../gestalt-skills" }
 tokio = { workspace = true }

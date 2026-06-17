@@ -164,6 +164,12 @@ pub fn inspect_trace(
             AgentEvent::MemoryWriteSucceeded { .. } => "memory_write_succeeded",
             AgentEvent::MemoryWriteConflict { .. } => "memory_write_conflict",
             AgentEvent::MemoryWriteFailed { .. } => "memory_write_failed",
+            AgentEvent::ContextPressure { .. } => "context_pressure",
+            AgentEvent::ContextClearing { .. } => "context_clearing",
+            AgentEvent::ContextCompactionStarted { .. } => "context_compaction_started",
+            AgentEvent::ContextCompacted { .. } => "context_compacted",
+            AgentEvent::ContextManagementFailed { .. } => "context_management_failed",
+            AgentEvent::ContextExhaustion { .. } => "context_exhaustion",
         };
 
         *event_types.entry(variant_name.to_string()).or_insert(0) += 1;

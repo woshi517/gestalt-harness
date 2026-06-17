@@ -882,6 +882,7 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
             },
             gestalt_core::ContextStability::SessionStatic,
         )])),
+        current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
     };
 
     let packet = pipeline.build_packet(

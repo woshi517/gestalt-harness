@@ -1,5 +1,6 @@
 pub mod artifact_store;
 pub mod builder;
+pub mod compaction;
 pub mod composition_hooks;
 pub mod config;
 pub mod context;

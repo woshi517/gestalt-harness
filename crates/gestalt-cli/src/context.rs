@@ -87,6 +87,7 @@ pub async fn explain_context(
         let runtime_pipeline = RuntimeContextPipeline {
             base: Arc::new(pipeline),
             patch_store,
+            current_checkpoint: Arc::new(Mutex::new(None)),
         };
 
         let history = vec![Message::User {

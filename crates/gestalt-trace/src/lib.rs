@@ -6,6 +6,7 @@ pub mod golden;
 pub mod resume;
 pub mod run_manifest;
 pub mod tool_metrics;
+pub mod context_artifacts;
 
 pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
@@ -13,6 +14,10 @@ pub use golden::{GoldenTrace, GoldenTraceRunner};
 pub use resume::{RecoveryStatus, ResumeAnalysis, ResumeAnalyzer};
 pub use run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 pub use tool_metrics::{analyze_tool_metrics, ToolMetricsReport};
+pub use context_artifacts::{
+    CompactionCheckpoint, MessageMetadataRef, ProjectionManifest,
+    persist_manifest, persist_checkpoint, load_manifest, load_checkpoint,
+};
 
 use std::{
     fs::{self, File},
@@ -81,6 +86,7 @@ impl CostReport {
 pub struct JsonlTraceSink {
     session_id: String,
     run_id: String,
+    pub artifacts_dir: PathBuf,
     state: Mutex<TraceState>,
 }
 
@@ -97,6 +103,7 @@ impl JsonlTraceSink {
         session_id: impl Into<String>,
         run_id: impl Into<String>,
         trace_path: impl AsRef<Path>,
+        artifacts_dir: PathBuf,
         workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     ) -> Result<Self, TraceError> {
         let trace_path = trace_path.as_ref();
@@ -108,6 +115,7 @@ impl JsonlTraceSink {
         Ok(Self {
             session_id: session_id.into(),
             run_id: run_id.into(),
+            artifacts_dir,
             state: Mutex::new(TraceState {
                 writer: BufWriter::new(file),
                 seq: 0,
@@ -128,6 +136,7 @@ impl JsonlTraceSink {
             session_id.to_string(),
             run_id.to_string(),
             &paths.trace,
+            paths.artifacts.clone(),
             workspace_snapshot,
         )?;
         Ok((sink, paths))
@@ -135,6 +144,14 @@ impl JsonlTraceSink {
 }
 
 impl TraceSink for JsonlTraceSink {
+    fn run_id(&self) -> Option<&str> {
+        Some(&self.run_id)
+    }
+
+    fn artifacts_dir(&self) -> Option<&Path> {
+        Some(&self.artifacts_dir)
+    }
+
     fn emit(&self, event: AgentEvent) -> Result<(), TraceError> {
         let mut state = self
             .state

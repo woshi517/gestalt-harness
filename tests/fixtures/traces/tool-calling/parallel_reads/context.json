@@ -34,16 +34,20 @@
       "role": "toolresult",
       "tool_use_id": "call-a",
       "content": "contents",
-      "is_error": false
+      "is_error": false,
+      "tool_name": "read",
+      "output_hash": "d1b2a59fbea7e20077af9f91b27e95e865061b270be03ff539ab3b73587882e8"
     },
     {
       "role": "toolresult",
       "tool_use_id": "call-b",
       "content": "contents",
-      "is_error": false
+      "is_error": false,
+      "tool_name": "read",
+      "output_hash": "d1b2a59fbea7e20077af9f91b27e95e865061b270be03ff539ab3b73587882e8"
     }
   ],
-  "packet_hash": "0f06dbe9b2a117db03e638c33bd94d89e4b08246c33cd1ac9d1dbdbb006cd3cb",
+  "packet_hash": "2b9f221efca137697eae9b44bb513d62647033b2d7e74ea87699e87f2b428028",
   "pipeline_version": "fixture-pipeline",
   "tokenizer_id": "default",
   "token_estimate": 0,
@@ -52,8 +56,9 @@
   "message_hashes": [
     "fd8d9154fb7c54e21121fe7c5a1870779145243039d040257a48f5c599478d6c",
     "a1d4b86ecc691c67dee40bdd00b8171c8976a61209db0760cf301c5c0f46abcf",
-    "97eeed711a61dbff5960801d56ea6df2dee8a57d3acff8f5c88751a9fdff6159",
-    "2f169b5108e46f2d8fe7aa078df843799c0a852c0c1a38cc6004a31a60e95712"
+    "e1614a2ff567558af5db958ccac459780742b6fcbb225804c179befaded58b14",
+    "bfb5b2d5ce8d3d966c2193df9061ce1b25905620c04f730b8b647719ccf43594"
   ],
+  "prompt_assembly_strategy": "dynamic",
   "prompt_source": "default"
 }

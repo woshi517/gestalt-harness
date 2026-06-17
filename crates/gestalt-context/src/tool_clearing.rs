@@ -1,16 +1,8 @@
 use gestalt_core::message::Message;
+use gestalt_core::context::ClearAction;
 use crate::tool_exchanges::group_tool_exchanges;
 use crate::estimate_message_tokens;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ClearAction {
-    pub message_index: usize,
-    pub tool_use_id: String,
-    pub tool_name: String,
-    pub original_tokens: usize,
-    pub output_hash: String,
-}
 
 pub fn is_tool_eligible_for_clearing(tool_name: Option<&str>) -> bool {
     let Some(name) = tool_name else {
