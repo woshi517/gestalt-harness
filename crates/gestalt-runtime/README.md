@@ -579,8 +579,8 @@ pub trait CompositionHooks: Send + Sync {
 
 | Struct | Fields |
 |--------|--------|
-| `BeforeContextBuildCtx` | `session_id: String`, `history: Vec<Message>` |
-| `AfterContextBuildCtx` | `session_id: String`, `history: Vec<Message>`, `packet: ContextPacket` |
+| `BeforeContextBuildCtx` | `session_id: String`, `history: Vec<Message>`, `artifact_dir: Option<PathBuf>` |
+| `AfterContextBuildCtx` | `session_id: String`, `history: Vec<Message>`, `packet: ContextPacket`, `artifact_dir: Option<PathBuf>` |
 | `BeforeToolPolicyCtx` | `session_id: String`, `tool_name: String`, `tool_input: serde_json::Value` |
 | `AfterToolResultCtx` | `session_id: String`, `tool_name: String`, `result: ToolExecutionResult` |
 | `PrepareNextTurnCtx` | `session_id: String`, `history: Vec<Message>`, `turn_index: usize`, `current_model: String`, `current_provider: String` |
@@ -635,7 +635,8 @@ Contributors are invoked during the `before_context_build` phase of `RuntimeCont
 ```rust
 pub struct RuntimeContextPipeline {
     pub base: Arc<dyn ContextPipeline>,
-    pub patch_store: Arc<Mutex<Vec<Message>>>,
+    pub patch_store: Arc<Mutex<Vec<ContextPatch>>>,
+    pub current_checkpoint: Arc<Mutex<Option<CompactionCheckpoint>>>,
 }
 ```
 

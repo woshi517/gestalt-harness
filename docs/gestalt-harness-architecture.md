@@ -427,18 +427,15 @@ use crate::{
 
 pub struct AgentLoop {
     provider: Arc<dyn Provider>,
-    tools: Arc<ToolRegistry>,
-    middleware: Arc<ContextPipeline>,
-    policy: Arc<dyn PolicyEngine>,
+    middleware: Arc<dyn ContextPipeline>,
     max_turns: usize,
-    /// Optional steering queue drained before each `build_request()`.
-    /// Owned by runtime; no-op when absent.
+    executor: ToolExecutor,
+    hooks: crate::hook::HookRegistry,
     steering_queue: Option<Arc<dyn SteeringQueue>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TurnOutcome {
-    Continue,
     ToolExecuted,
     Stop(StopReason),
 }
@@ -446,17 +443,19 @@ enum TurnOutcome {
 impl AgentLoop {
     pub fn new(
         provider: Arc<dyn Provider>,
-        tools: Arc<ToolRegistry>,
-        middleware: Arc<ContextPipeline>,
+        tools: Arc<dyn ToolCatalog>,
+        middleware: Arc<dyn ContextPipeline>,
         policy: Arc<dyn PolicyEngine>,
+        approval: Arc<dyn ApprovalProvider>,
         max_turns: usize,
     ) -> Self {
         Self {
             provider,
-            tools,
             middleware,
-            policy,
             max_turns,
+            executor: ToolExecutor::new(tools, policy, approval),
+            hooks: crate::hook::HookRegistry::default(),
+            steering_queue: None,
         }
     }
     
@@ -1194,15 +1193,20 @@ use crate::message::Message;
 ///
 /// The pipeline is deterministic: same inputs and same pipeline version
 /// always produce the same output. Version is tracked for replay fidelity.
+#[async_trait::async_trait]
 pub trait ContextPipeline: Send + Sync {
-    fn process(
-        &self,
-        history: &[Message],
-        budget: &TokenBudget,
-    ) -> Vec<Message>;
+    fn process(&self, history: &[SessionMessage], _budget: &TokenBudget) -> Vec<Message> {
+        history.iter().map(|entry| entry.message.clone()).collect()
+    }
 
-    /// Pipeline version, used for trace and cache keying.
     fn version(&self) -> &str;
+
+    fn build_packet(&self, history: &[SessionMessage], budget: &TokenBudget) -> ContextPacket { ... }
+
+    async fn prepare_context(
+        &self,
+        request: ContextPreparationRequest<'_>,
+    ) -> Result<PreparedContext, crate::error::HarnessError>;
 }
 
 #[derive(Debug, Clone)]
