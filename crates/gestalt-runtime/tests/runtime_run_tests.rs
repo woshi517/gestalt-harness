@@ -577,7 +577,11 @@ impl ToolCatalog for MockToolCatalog {
 
 struct MockContextPipeline;
 impl ContextPipeline for MockContextPipeline {
-    fn process(&self, _history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
+    fn process(
+        &self,
+        _history: &[gestalt_core::SessionMessage],
+        _budget: &TokenBudget,
+    ) -> Vec<Message> {
         Vec::new()
     }
     fn version(&self) -> &str {
@@ -696,13 +700,13 @@ async fn test_runtime_run_session_preserves_history() {
     };
 
     // Prepopulate session history
-    session.history.push(Message::User {
+    session.append_message(Message::User {
         content: vec![gestalt_core::message::ContentBlock::Text {
             text: "Initial user turn".to_string(),
         }],
         metadata: None,
     });
-    session.history.push(Message::Assistant {
+    session.append_message(Message::Assistant {
         content: vec![gestalt_core::message::ContentBlock::Text {
             text: "Initial assistant turn".to_string(),
         }],
@@ -713,12 +717,12 @@ async fn test_runtime_run_session_preserves_history() {
 
     // Verify history was preserved and not reset
     assert_eq!(session.history.len(), 3);
-    if let Message::User { content, .. } = &session.history[0] {
+    if let Message::User { content, .. } = &session.history[0].message {
         if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
             assert_eq!(text, "Initial user turn");
         }
     }
-    if let Message::Assistant { content } = &session.history[1] {
+    if let Message::Assistant { content } = &session.history[1].message {
         if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
             assert_eq!(text, "Initial assistant turn");
         }
@@ -850,7 +854,11 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
     struct SnapshotPipeline;
 
     impl ContextPipeline for SnapshotPipeline {
-        fn process(&self, _history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
+        fn process(
+            &self,
+            _history: &[gestalt_core::SessionMessage],
+            _budget: &TokenBudget,
+        ) -> Vec<Message> {
             vec![Message::System {
                 content: "stable system prefix".to_string(),
             }]
@@ -862,7 +870,7 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
 
         fn build_packet(
             &self,
-            _history: &[Message],
+            _history: &[gestalt_core::SessionMessage],
             _budget: &TokenBudget,
         ) -> gestalt_core::context::ContextPacket {
             let messages = self.process(&[], &TokenBudget::default());
@@ -1056,11 +1064,18 @@ async fn test_prepare_context_uses_full_history_when_management_enabled() {
         current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
     };
 
-    let history: Vec<Message> = (0..8)
-        .map(|idx| Message::User {
-            content: vec![ContentBlock::Text {
-                text: format!("message-{idx}-{}", "x".repeat(80)),
-            }],
+    let history: Vec<gestalt_core::SessionMessage> = (0..8)
+        .map(|idx| gestalt_core::SessionMessage {
+            id: gestalt_core::MessageId {
+                origin_session_id: "session-1".to_string(),
+                sequence: idx as u64,
+            },
+            message: Message::User {
+                content: vec![ContentBlock::Text {
+                    text: format!("message-{idx}-{}", "x".repeat(80)),
+                }],
+                metadata: None,
+            },
             metadata: None,
         })
         .collect();
@@ -1094,19 +1109,21 @@ async fn test_prepare_context_uses_full_history_when_management_enabled() {
     };
 
     let err = pipeline
-        .prepare_context(
-            &history,
-            &budget,
-            &NoopProvider,
-            &request_template,
-            "noop-model",
-            "session-1",
-            "run-1",
-            0,
-            &policy,
-            None,
-            &mut |_| Ok(()),
-        )
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &gestalt_core::ContextProjectionState::default(),
+            token_budget: &budget,
+            provider: &NoopProvider,
+            request_template: &request_template,
+            model: "noop-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy,
+            artifacts_dir: None,
+            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            emit: &mut |_| Ok(()),
+        })
         .await
         .expect_err("full-history pressure should not be hidden by pre-truncation");
 
@@ -1121,10 +1138,17 @@ async fn test_prepare_context_counts_tool_schema_overhead() {
         current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
     };
 
-    let history = vec![Message::User {
-        content: vec![ContentBlock::Text {
-            text: "short request".to_string(),
-        }],
+    let history = vec![gestalt_core::SessionMessage {
+        id: gestalt_core::MessageId {
+            origin_session_id: "session-1".to_string(),
+            sequence: 0,
+        },
+        message: Message::User {
+            content: vec![ContentBlock::Text {
+                text: "short request".to_string(),
+            }],
+            metadata: None,
+        },
         metadata: None,
     }];
     let budget = TokenBudget {
@@ -1153,16 +1177,17 @@ async fn test_prepare_context_counts_tool_schema_overhead() {
     };
 
     let err = pipeline
-        .prepare_context(
-            &history,
-            &budget,
-            &OverheadProvider,
-            &request_template,
-            "overhead-model",
-            "session-1",
-            "run-1",
-            0,
-            &gestalt_core::ContextManagementPolicy {
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &gestalt_core::ContextProjectionState::default(),
+            token_budget: &budget,
+            provider: &OverheadProvider,
+            request_template: &request_template,
+            model: "overhead-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &gestalt_core::ContextManagementPolicy {
                 enabled: true,
                 buffer_tokens: 0,
                 keep_recent_tokens: usize::MAX,
@@ -1170,9 +1195,10 @@ async fn test_prepare_context_counts_tool_schema_overhead() {
                 durability: gestalt_core::DurabilityMode::BestEffort,
                 ..Default::default()
             },
-            None,
-            &mut |_| Ok(()),
-        )
+            artifacts_dir: None,
+            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            emit: &mut |_| Ok(()),
+        })
         .await
         .expect_err("tool schema overhead should participate in fit checks");
 

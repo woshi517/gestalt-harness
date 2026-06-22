@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use gestalt_core::{
     agent::AgentLoop,
     approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest},
-    context::{ContextPacket, ContextPipeline, TokenBudget},
+    context::{ContextPacket, ContextPipeline, SessionMessage, TokenBudget},
     error::{HarnessError, ToolError},
     event::AgentEvent,
     message::Message,
@@ -157,13 +157,13 @@ struct FixturePipeline {
 }
 
 impl ContextPipeline for FixturePipeline {
-    fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
-        history.to_vec()
+    fn process(&self, history: &[SessionMessage], _budget: &TokenBudget) -> Vec<Message> {
+        history.iter().map(|entry| entry.message.clone()).collect()
     }
     fn version(&self) -> &str {
         "fixture-pipeline"
     }
-    fn build_packet(&self, history: &[Message], budget: &TokenBudget) -> ContextPacket {
+    fn build_packet(&self, history: &[SessionMessage], budget: &TokenBudget) -> ContextPacket {
         let messages = self.process(history, budget);
         let version = self.version().to_string();
         let serialized_messages = serde_json::to_string(&messages).unwrap_or_default();
@@ -395,7 +395,7 @@ impl GoldenTraceRunner {
             snapshot,
         );
 
-        session.history.push(Message::User {
+        session.append_message(Message::User {
             content: vec![gestalt_core::message::ContentBlock::Text {
                 text: golden.input.user_prompt.clone(),
             }],

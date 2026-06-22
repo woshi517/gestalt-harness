@@ -91,10 +91,17 @@ pub async fn explain_context(
             current_checkpoint: Arc::new(Mutex::new(None)),
         };
 
-        let history = vec![Message::User {
-            content: vec![gestalt_core::ContentBlock::Text {
-                text: prompt.to_string(),
-            }],
+        let history = vec![gestalt_core::SessionMessage {
+            id: gestalt_core::MessageId {
+                origin_session_id: "context-explain".to_string(),
+                sequence: 0,
+            },
+            message: Message::User {
+                content: vec![gestalt_core::ContentBlock::Text {
+                    text: prompt.to_string(),
+                }],
+                metadata: None,
+            },
             metadata: None,
         }];
 

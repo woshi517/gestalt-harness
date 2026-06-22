@@ -1,36 +1,12 @@
 use chrono::{DateTime, Utc};
-use gestalt_core::{
-    context::{CheckpointRef, ClearAction, HistoryRange},
-    ContextManagementPolicy, DurabilityMode, TraceError,
-};
+use gestalt_core::{context::HistoryRange, DurabilityMode, TraceError};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MessageMetadataRef {
-    pub role: String,
-    pub original_index: Option<usize>,
-    pub is_tombstone: bool,
-    pub is_checkpoint: bool,
-    pub hash: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ProjectionManifest {
-    pub manifest_id: String,
-    pub session_id: String,
-    pub run_id: String,
-    pub turn_id: usize,
-    pub timestamp: DateTime<Utc>,
-    pub policy: ContextManagementPolicy,
-    pub token_estimate: usize,
-    pub stable_prefix_hash: Option<String>,
-    pub checkpoint_ref: Option<CheckpointRef>,
-    pub cleared_results: Vec<ClearAction>,
-    pub messages_metadata: Vec<MessageMetadataRef>,
-}
+pub type MessageMetadataRef = gestalt_core::context::ProjectionMessageMetadata;
+pub type ProjectionManifest = gestalt_core::context::ProjectionManifest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompactionCheckpoint {

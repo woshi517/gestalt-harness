@@ -799,7 +799,7 @@ pub async fn run_session_action(
 
     // If continue or branch, we append the user's prompt as the next turn
     if let Some(ref p) = prompt {
-        session.history.push(Message::User {
+        session.append_message(Message::User {
             content: vec![gestalt_core::ContentBlock::Text { text: p.clone() }],
             metadata: None,
         });

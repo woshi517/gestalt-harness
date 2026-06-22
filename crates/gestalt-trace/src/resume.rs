@@ -2,7 +2,11 @@ use crate::{
     read_prompt_snapshot, read_trace,
     run_manifest::{LifecycleState, RunManifest},
 };
-use gestalt_core::{context::TokenBudget, snapshot::WorkspaceSnapshot, Message, PromptSnapshot};
+use gestalt_core::{
+    context::{ContextProjectionState, SessionMessage, TokenBudget},
+    snapshot::WorkspaceSnapshot,
+    PromptSnapshot,
+};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -30,7 +34,8 @@ pub struct ResumeAnalysis {
     pub status: RecoveryStatus,
     pub session_id: String,
     pub run_id: String,
-    pub history: Vec<Message>,
+    pub history: Vec<SessionMessage>,
+    pub context_state: ContextProjectionState,
     pub token_budget: TokenBudget,
     pub last_checkpoint_seq: Option<u64>,
     pub snapshot_hash: Option<String>,
@@ -71,6 +76,7 @@ impl ResumeAnalyzer {
                 session_id: String::new(),
                 run_id: String::new(),
                 history: Vec::new(),
+                context_state: ContextProjectionState::default(),
                 token_budget: TokenBudget::default(),
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
@@ -86,6 +92,7 @@ impl ResumeAnalyzer {
                     session_id: String::new(),
                     run_id: String::new(),
                     history: Vec::new(),
+                    context_state: ContextProjectionState::default(),
                     token_budget: TokenBudget::default(),
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
@@ -101,6 +108,7 @@ impl ResumeAnalyzer {
                     session_id: manifest.session_id.clone(),
                     run_id: manifest.run_id.clone(),
                     history: Vec::new(),
+                    context_state: ContextProjectionState::default(),
                     token_budget: TokenBudget::default(),
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
@@ -115,6 +123,7 @@ impl ResumeAnalyzer {
                 session_id: manifest.session_id.clone(),
                 run_id: manifest.run_id.clone(),
                 history: Vec::new(),
+                context_state: ContextProjectionState::default(),
                 token_budget: TokenBudget::default(),
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
@@ -130,6 +139,7 @@ impl ResumeAnalyzer {
                     session_id: manifest.session_id.clone(),
                     run_id: manifest.run_id.clone(),
                     history: Vec::new(),
+                    context_state: ContextProjectionState::default(),
                     token_budget: TokenBudget::default(),
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
@@ -156,6 +166,7 @@ impl ResumeAnalyzer {
                 session_id: manifest.session_id.clone(),
                 run_id: manifest.run_id.clone(),
                 history: Vec::new(),
+                context_state: ContextProjectionState::default(),
                 token_budget: TokenBudget::default(),
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
@@ -177,6 +188,7 @@ impl ResumeAnalyzer {
                             session_id: manifest.session_id.clone(),
                             run_id: manifest.run_id.clone(),
                             history: Vec::new(),
+                            context_state: ContextProjectionState::default(),
                             token_budget: TokenBudget::default(),
                             last_checkpoint_seq: None,
                             snapshot_hash: None,
@@ -191,6 +203,7 @@ impl ResumeAnalyzer {
                         session_id: manifest.session_id.clone(),
                         run_id: manifest.run_id.clone(),
                         history: Vec::new(),
+                        context_state: ContextProjectionState::default(),
                         token_budget: TokenBudget::default(),
                         last_checkpoint_seq: None,
                         snapshot_hash: None,
@@ -207,6 +220,7 @@ impl ResumeAnalyzer {
                     session_id: manifest.session_id.clone(),
                     run_id: manifest.run_id.clone(),
                     history: Vec::new(),
+                    context_state: ContextProjectionState::default(),
                     token_budget: TokenBudget::default(),
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
@@ -224,16 +238,25 @@ impl ResumeAnalyzer {
             }
         }
 
-        let (history, token_budget) = match last_checkpoint {
+        let (history, context_state, token_budget) = match last_checkpoint {
             Some(env) => match &env.event {
                 gestalt_core::AgentEvent::Checkpoint {
                     history,
+                    context_state,
                     token_budget,
                     ..
-                } => (history.clone(), token_budget.clone()),
-                _ => (Vec::new(), TokenBudget::default()),
+                } => (history.clone(), context_state.clone(), token_budget.clone()),
+                _ => (
+                    Vec::new(),
+                    ContextProjectionState::default(),
+                    TokenBudget::default(),
+                ),
             },
-            None => (Vec::new(), TokenBudget::default()),
+            None => (
+                Vec::new(),
+                ContextProjectionState::default(),
+                TokenBudget::default(),
+            ),
         };
 
         if last_checkpoint.is_none() {
@@ -242,6 +265,7 @@ impl ResumeAnalyzer {
                 session_id: manifest.session_id.clone(),
                 run_id: manifest.run_id.clone(),
                 history,
+                context_state,
                 token_budget,
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
@@ -278,6 +302,7 @@ impl ResumeAnalyzer {
                 session_id: manifest.session_id.clone(),
                 run_id: manifest.run_id.clone(),
                 history,
+                context_state,
                 token_budget,
                 last_checkpoint_seq: last_checkpoint.map(|e| e.seq),
                 snapshot_hash: recorded_snapshot_hash,
@@ -373,6 +398,7 @@ impl ResumeAnalyzer {
             session_id: manifest.session_id,
             run_id: manifest.run_id,
             history,
+            context_state,
             token_budget,
             last_checkpoint_seq: last_checkpoint.map(|e| e.seq),
             snapshot_hash: recorded_snapshot_hash,
@@ -485,7 +511,9 @@ mod tests {
             ts: chrono::Utc::now(),
             event: AgentEvent::Checkpoint {
                 history: Vec::new(),
+                context_state: ContextProjectionState::default(),
                 token_budget: TokenBudget::default(),
+                latest_projection_id: None,
                 packet_hash: None,
                 prompt_source: None,
             },

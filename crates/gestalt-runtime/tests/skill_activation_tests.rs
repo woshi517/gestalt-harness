@@ -344,7 +344,7 @@ async fn test_context_hook_adapter_resolves_activation_on_before_context_build()
         SkillContributorState::new(descs, vec![]).with_event_bus(bus.clone()),
     ));
     let mut session = fresh_session();
-    session.history.push(gestalt_core::message::Message::User {
+    session.append_message(gestalt_core::message::Message::User {
         content: vec![ContentBlock::Text {
             text: "Please extract text from this PDF document".to_string(),
         }],

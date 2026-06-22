@@ -6,7 +6,7 @@ use gestalt_core::{
     event::{AgentEvent, StopReason},
     message::{ContentBlock, Message},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
-    ContextPipeline,
+    ContextPipeline, MessageId, SessionMessage,
 };
 use gestalt_runtime::RuntimeContextPipeline;
 
@@ -224,28 +224,49 @@ fn temp_artifact_dir(label: &str) -> std::path::PathBuf {
     path
 }
 
+fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
+    messages
+        .into_iter()
+        .enumerate()
+        .map(|(sequence, message)| SessionMessage {
+            id: MessageId {
+                origin_session_id: "session-1".to_string(),
+                sequence: sequence as u64,
+            },
+            metadata: match &message {
+                Message::User { metadata, .. } => metadata.clone(),
+                _ => None,
+            },
+            message,
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn prepare_context_requires_artifact_dir_when_durability_is_required() {
     let pipeline = runtime_pipeline();
+    let history = canonical_history(vec![Message::User {
+        content: vec![ContentBlock::Text {
+            text: "hello".to_string(),
+        }],
+        metadata: None,
+    }]);
     let err = pipeline
-        .prepare_context(
-            &[Message::User {
-                content: vec![ContentBlock::Text {
-                    text: "hello".to_string(),
-                }],
-                metadata: None,
-            }],
-            &budget(240, 32, 16),
-            &ThresholdProvider,
-            &request_template(),
-            "test-model",
-            "session-1",
-            "run-1",
-            0,
-            &policy(),
-            None,
-            &mut |_| Ok(()),
-        )
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &gestalt_core::ContextProjectionState::default(),
+            token_budget: &budget(240, 32, 16),
+            provider: &ThresholdProvider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy(),
+            artifacts_dir: None,
+            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            emit: &mut |_| Ok(()),
+        })
         .await
         .expect_err("required durability should fail without an artifact dir");
 
@@ -255,7 +276,7 @@ async fn prepare_context_requires_artifact_dir_when_durability_is_required() {
 #[tokio::test]
 async fn prepare_context_uses_projected_growth_to_trigger_tombstoning_early() {
     let pipeline = runtime_pipeline();
-    let history = vec![
+    let history = canonical_history(vec![
         Message::User {
             content: vec![ContentBlock::Text {
                 text: "Earlier turn that can be compacted if needed.".to_string(),
@@ -290,27 +311,29 @@ async fn prepare_context_uses_projected_growth_to_trigger_tombstoning_early() {
             }],
             metadata: None,
         },
-    ];
+    ]);
     let artifacts = temp_artifact_dir("threshold");
 
     let packet = pipeline
-        .prepare_context(
-            &history,
-            &budget(200, 60, 24),
-            &ThresholdProvider,
-            &request_template(),
-            "test-model",
-            "session-1",
-            "run-1",
-            0,
-            &policy(),
-            Some(artifacts.as_path()),
-            &mut |_| Ok(()),
-        )
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &gestalt_core::ContextProjectionState::default(),
+            token_budget: &budget(200, 60, 24),
+            provider: &ThresholdProvider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy(),
+            artifacts_dir: Some(artifacts.as_path()),
+            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            emit: &mut |_| Ok(()),
+        })
         .await
         .expect("projected growth should trigger clearing before hard overflow");
 
-    assert!(packet.messages.iter().any(|message| {
+    assert!(packet.packet.messages.iter().any(|message| {
         matches!(message, Message::ToolResult { content, .. } if content.contains("<tombstone"))
     }));
 }
@@ -318,30 +341,32 @@ async fn prepare_context_uses_projected_growth_to_trigger_tombstoning_early() {
 #[tokio::test]
 async fn projection_manifest_ids_are_stable_for_identical_packets() {
     let pipeline = runtime_pipeline();
-    let history = vec![Message::User {
+    let history = canonical_history(vec![Message::User {
         content: vec![ContentBlock::Text {
             text: "short request".to_string(),
         }],
         metadata: None,
-    }];
+    }]);
     let artifacts = temp_artifact_dir("manifest");
     let policy = policy();
 
     for turn_id in [0, 0] {
         let _ = pipeline
-            .prepare_context(
-                &history,
-                &budget(300, 32, 16),
-                &ThresholdProvider,
-                &request_template(),
-                "test-model",
-                "session-1",
-                "run-1",
+            .prepare_context(gestalt_core::ContextPreparationRequest {
+                history: &history,
+                context_state: &gestalt_core::ContextProjectionState::default(),
+                token_budget: &budget(300, 32, 16),
+                provider: &ThresholdProvider,
+                request_template: &request_template(),
+                model: "test-model",
+                session_id: "session-1",
+                run_id: "run-1",
                 turn_id,
-                &policy,
-                Some(artifacts.as_path()),
-                &mut |_| Ok(()),
-            )
+                policy: &policy,
+                artifacts_dir: Some(artifacts.as_path()),
+                tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+                emit: &mut |_| Ok(()),
+            })
             .await
             .unwrap();
     }
@@ -362,7 +387,7 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
     let provider = CompactionProvider {
         trace: sequence.clone(),
     };
-    let history = vec![
+    let history = canonical_history(vec![
         Message::User {
             content: vec![ContentBlock::Text {
                 text: "You must preserve the customer_id mapping during the migration. ".repeat(3),
@@ -402,23 +427,25 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
             }],
             metadata: None,
         },
-    ];
+    ]);
     let artifacts = temp_artifact_dir("compaction");
     let events = sequence.clone();
 
     let packet = pipeline
-        .prepare_context(
-            &history,
-            &budget(220, 40, 16),
-            &provider,
-            &request_template(),
-            "test-model",
-            "session-1",
-            "run-1",
-            0,
-            &policy(),
-            Some(artifacts.as_path()),
-            &mut |event| {
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &gestalt_core::ContextProjectionState::default(),
+            token_budget: &budget(220, 40, 16),
+            provider: &provider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy(),
+            artifacts_dir: Some(artifacts.as_path()),
+            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            emit: &mut |event| {
                 match &event {
                     AgentEvent::ContextPressure { .. } => {
                         events.lock().unwrap().push("pressure".to_string())
@@ -437,15 +464,15 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
                 }
                 Ok(())
             },
-        )
+        })
         .await
         .expect("compaction path should succeed");
 
-    assert!(packet.messages.iter().any(|message| {
+    assert!(packet.packet.messages.iter().any(|message| {
         matches!(message, Message::System { content } if content.starts_with("### Session Checkpoint Summary"))
     }));
     assert!(matches!(
-        packet.messages.last(),
+        packet.packet.messages.last(),
         Some(Message::User { content, .. })
             if matches!(content.first(), Some(ContentBlock::Text { text }) if text == "Recent turn should stay verbatim.")
     ));

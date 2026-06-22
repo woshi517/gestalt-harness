@@ -22,7 +22,7 @@ pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
 use gestalt_core::{
     context::{
         ContextOmission, ContextPacket, ContextPipeline, ContextSourceRef, PromptAssemblyStrategy,
-        PromptCachePlan, PromptSegment, PromptSegmentKind, TokenBudget,
+        PromptCachePlan, PromptSegment, PromptSegmentKind, SessionMessage, TokenBudget,
     },
     message::{ContentBlock, ContentTrust, DocumentSource, Message},
     ContextStability,
@@ -118,7 +118,7 @@ impl MinimalContextPipeline {
         self
     }
 
-    pub fn build(&self, history: &[Message], budget: &TokenBudget) -> ContextBuild {
+    pub fn build(&self, history: &[SessionMessage], budget: &TokenBudget) -> ContextBuild {
         let mut messages = Vec::new();
 
         let is_override_empty = self
@@ -171,7 +171,7 @@ impl MinimalContextPipeline {
                     break;
                 }
 
-                let rendered = self.render_message(message);
+                let rendered = self.render_message(&message.message);
                 let cost = estimate_message_tokens(&rendered);
 
                 if cost <= remaining {
@@ -284,7 +284,7 @@ impl MinimalContextPipeline {
 
 #[async_trait::async_trait]
 impl ContextPipeline for MinimalContextPipeline {
-    fn process(&self, history: &[Message], budget: &TokenBudget) -> Vec<Message> {
+    fn process(&self, history: &[SessionMessage], budget: &TokenBudget) -> Vec<Message> {
         self.build(history, budget).messages
     }
 
@@ -292,7 +292,7 @@ impl ContextPipeline for MinimalContextPipeline {
         &self.version
     }
 
-    fn build_packet(&self, history: &[Message], budget: &TokenBudget) -> ContextPacket {
+    fn build_packet(&self, history: &[SessionMessage], budget: &TokenBudget) -> ContextPacket {
         use sha2::Digest as _;
         let build_result = self.build(history, budget);
         let version = self.version.clone();
@@ -327,8 +327,8 @@ impl ContextPipeline for MinimalContextPipeline {
         let dropped_count = build_result.dropped_messages;
         for (idx, msg) in history.iter().enumerate() {
             let is_dropped = idx < dropped_count;
-            let msg_tokens = estimate_message_tokens(msg);
-            let trust = match msg {
+            let msg_tokens = estimate_message_tokens(&msg.message);
+            let trust = match &msg.message {
                 Message::System { .. } => "trusted".to_string(),
                 Message::Assistant { .. } => "trusted".to_string(),
                 Message::ToolResult { .. } => "untrusted".to_string(),
@@ -565,7 +565,10 @@ fn is_checkpoint_message(message: &Message) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gestalt_core::message::{ContentBlock, ContentTrust, DocumentSource, Message};
+    use gestalt_core::{
+        message::{ContentBlock, ContentTrust, DocumentSource, Message},
+        MessageId, SessionMessage,
+    };
     use serde_json::json;
 
     fn sample_pipeline() -> MinimalContextPipeline {
@@ -574,10 +577,28 @@ mod tests {
             .with_memory_md("stable memory")
     }
 
+    fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
+        messages
+            .into_iter()
+            .enumerate()
+            .map(|(sequence, message)| SessionMessage {
+                id: MessageId {
+                    origin_session_id: "test-session".to_string(),
+                    sequence: sequence as u64,
+                },
+                metadata: match &message {
+                    Message::User { metadata, .. } => metadata.clone(),
+                    _ => None,
+                },
+                message,
+            })
+            .collect()
+    }
+
     #[test]
     fn build_is_deterministic_for_same_inputs() {
         let pipeline = sample_pipeline();
-        let history = vec![
+        let history = canonical_history(vec![
             Message::User {
                 content: vec![ContentBlock::Text {
                     text: "hello".to_string(),
@@ -591,7 +612,7 @@ mod tests {
                     input: json!({"path":"README.md"}),
                 }],
             },
-        ];
+        ]);
         let budget = TokenBudget {
             model_limit: 400,
             reserved_output: 32,
@@ -612,7 +633,7 @@ mod tests {
     #[test]
     fn build_trims_oldest_history_first() {
         let pipeline = sample_pipeline().with_prompt_override("Test prompt");
-        let history = vec![
+        let history = canonical_history(vec![
             Message::User {
                 content: vec![ContentBlock::Text {
                     text: "first".repeat(120),
@@ -625,7 +646,7 @@ mod tests {
                 }],
                 metadata: None,
             },
-        ];
+        ]);
         let budget = TokenBudget {
             model_limit: 120,
             reserved_output: 16,
@@ -647,7 +668,7 @@ mod tests {
     fn build_wraps_untrusted_documents() {
         let pipeline =
             MinimalContextPipeline::new("pipeline-v1").with_prompt_override("Test prompt");
-        let history = vec![Message::User {
+        let history = canonical_history(vec![Message::User {
             content: vec![ContentBlock::Document {
                 source: DocumentSource {
                     media_type: "text/markdown".to_string(),
@@ -657,7 +678,7 @@ mod tests {
                 trust: ContentTrust::Untrusted,
             }],
             metadata: None,
-        }];
+        }]);
         let budget = TokenBudget {
             model_limit: 200,
             reserved_output: 16,
@@ -686,12 +707,12 @@ mod tests {
     #[test]
     fn build_marks_budget_exhaustion_explicitly() {
         let pipeline = sample_pipeline();
-        let history = vec![Message::User {
+        let history = canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "payload".repeat(20),
             }],
             metadata: None,
-        }];
+        }]);
         let budget = TokenBudget {
             model_limit: 32,
             reserved_output: 24,
@@ -712,12 +733,12 @@ mod tests {
     #[test]
     fn build_packet_contains_expected_fields() {
         let pipeline = sample_pipeline();
-        let history = vec![Message::User {
+        let history = canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "hello".to_string(),
             }],
             metadata: None,
-        }];
+        }]);
         let budget = TokenBudget {
             model_limit: 400,
             reserved_output: 32,
@@ -751,12 +772,12 @@ mod tests {
     #[test]
     fn build_packet_is_deterministic_for_same_inputs() {
         let pipeline = sample_pipeline();
-        let history = vec![Message::User {
+        let history = canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "hello".to_string(),
             }],
             metadata: None,
-        }];
+        }]);
         let budget = TokenBudget {
             model_limit: 400,
             reserved_output: 32,
@@ -776,12 +797,12 @@ mod tests {
 
     #[test]
     fn build_packet_hash_changes_when_workspace_changes() {
-        let history = vec![Message::User {
+        let history = canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "hello".to_string(),
             }],
             metadata: None,
-        }];
+        }]);
         let budget = TokenBudget {
             model_limit: 400,
             reserved_output: 32,
@@ -807,7 +828,7 @@ mod tests {
     #[test]
     fn build_packet_records_omission_provenance_for_trimmed_history() {
         let pipeline = sample_pipeline();
-        let history = vec![
+        let history = canonical_history(vec![
             Message::User {
                 content: vec![ContentBlock::Text {
                     text: "first".repeat(120),
@@ -820,7 +841,7 @@ mod tests {
                 }],
                 metadata: None,
             },
-        ];
+        ]);
         let budget = TokenBudget {
             model_limit: 80,
             reserved_output: 16,
@@ -971,10 +992,10 @@ mod tests {
 
         let baseline = pipeline.build_packet(&[], &budget);
         let with_checkpoint = pipeline.build_packet(
-            &[Message::System {
+            &canonical_history(vec![Message::System {
                 content: "### Session Checkpoint Summary (ID: cmp_1)\n\n**Goal:** keep working"
                     .to_string(),
-            }],
+            }]),
             &budget,
         );
 

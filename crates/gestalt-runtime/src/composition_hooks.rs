@@ -121,7 +121,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
         // Run composition hook before_context_build
         let ctx = BeforeContextBuildCtx {
             session_id: session.id.clone(),
-            history: session.history.clone(),
+            history: plain_history(&session.history),
             artifact_dir: session.tool_ctx.artifact_dir.clone(),
         };
         match self.hooks.before_context_build(&ctx).await {
@@ -192,7 +192,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
         });
         let ctx = AfterContextBuildCtx {
             session_id: session.id.clone(),
-            history: session.history.clone(),
+            history: plain_history(&session.history),
             packet: packet.clone(),
             artifact_dir: session.tool_ctx.artifact_dir.clone(),
         };
@@ -335,7 +335,7 @@ impl gestalt_core::hook::NextTurnHook for RuntimeNextTurnHookAdapter {
 
         let ctx = PrepareNextTurnCtx {
             session_id: session.id.clone(),
-            history: session.history.clone(),
+            history: plain_history(&session.history),
             turn_index: current_turn,
             current_model: effective_model,
             current_provider: effective_provider,
@@ -1114,9 +1114,13 @@ impl CompositionHooks for ComposedCompositionHooks {
 /// Extract the most recent user-supplied text from session history. Used as
 /// the task hint passed to the deterministic skill activation engine. Returns
 /// `None` if no user text can be found.
-fn last_user_text(history: &[gestalt_core::message::Message]) -> Option<String> {
+fn plain_history(history: &[gestalt_core::SessionMessage]) -> Vec<gestalt_core::message::Message> {
+    history.iter().map(|entry| entry.message.clone()).collect()
+}
+
+fn last_user_text(history: &[gestalt_core::SessionMessage]) -> Option<String> {
     for msg in history.iter().rev() {
-        if let gestalt_core::message::Message::User { content, .. } = msg {
+        if let gestalt_core::message::Message::User { content, .. } = &msg.message {
             let mut combined = String::new();
             for block in content {
                 if let gestalt_core::message::ContentBlock::Text { text } = block {

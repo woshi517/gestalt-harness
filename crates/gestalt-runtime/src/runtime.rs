@@ -195,7 +195,7 @@ impl AgentRuntime {
             let _ = tx.send(snapshot_event);
         }
 
-        session.history.push(Message::User {
+        session.append_message(Message::User {
             content: vec![gestalt_core::message::ContentBlock::Text {
                 text: input.prompt.clone(),
             }],

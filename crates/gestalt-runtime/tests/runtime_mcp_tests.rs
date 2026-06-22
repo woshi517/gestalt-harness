@@ -37,7 +37,7 @@ struct DummyContextPipeline;
 impl gestalt_core::context::ContextPipeline for DummyContextPipeline {
     fn process(
         &self,
-        _history: &[gestalt_core::message::Message],
+        _history: &[gestalt_core::SessionMessage],
         _budget: &gestalt_core::context::TokenBudget,
     ) -> Vec<gestalt_core::message::Message> {
         Vec::new()

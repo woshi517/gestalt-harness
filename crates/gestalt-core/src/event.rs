@@ -155,8 +155,12 @@ pub enum AgentEvent {
     },
     // --- Session Lineage & Resumability boundaries ---
     Checkpoint {
-        history: Vec<crate::message::Message>,
+        history: Vec<crate::context::SessionMessage>,
+        #[serde(default)]
+        context_state: crate::context::ContextProjectionState,
         token_budget: crate::context::TokenBudget,
+        #[serde(default)]
+        latest_projection_id: Option<String>,
         packet_hash: Option<String>,
         prompt_source: Option<String>,
     },

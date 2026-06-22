@@ -2,7 +2,7 @@ use gestalt_context::MinimalContextPipeline;
 use gestalt_core::{
     context::{HistoryRange, PromptAssemblyStrategy},
     message::{ContentBlock, Message},
-    ContextPipeline, TokenBudget,
+    ContextPipeline, MessageId, SessionMessage, TokenBudget,
 };
 use gestalt_trace::CompactionCheckpoint;
 
@@ -25,6 +25,24 @@ fn pipeline() -> MinimalContextPipeline {
         .with_memory_md("stable memory")
 }
 
+fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
+    messages
+        .into_iter()
+        .enumerate()
+        .map(|(sequence, message)| SessionMessage {
+            id: MessageId {
+                origin_session_id: "test-session".to_string(),
+                sequence: sequence as u64,
+            },
+            metadata: match &message {
+                Message::User { metadata, .. } => metadata.clone(),
+                _ => None,
+            },
+            message,
+        })
+        .collect()
+}
+
 #[test]
 fn dynamic_strategy_keeps_cache_metadata_empty() {
     let packet = pipeline().build_packet(&[], &budget(400));
@@ -44,12 +62,12 @@ fn snapshot_strategy_records_stable_prefix_and_dynamic_tail() {
     let packet = pipeline()
         .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
         .build_packet(
-            &[Message::User {
+            &canonical_history(vec![Message::User {
                 content: vec![ContentBlock::Text {
                     text: "hello world".to_string(),
                 }],
                 metadata: None,
-            }],
+            }]),
             &budget(400),
         );
 
@@ -79,22 +97,22 @@ fn snapshot_hash_stays_stable_when_history_changes() {
     let pipeline = pipeline().with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot);
 
     let first = pipeline.build_packet(
-        &[Message::User {
+        &canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "first".to_string(),
             }],
             metadata: None,
-        }],
+        }]),
         &budget(400),
     );
 
     let second = pipeline.build_packet(
-        &[Message::User {
+        &canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "second".to_string(),
             }],
             metadata: None,
-        }],
+        }]),
         &budget(400),
     );
 
