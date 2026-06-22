@@ -10,7 +10,7 @@ This crate is the single implementation of prompt assembly that ships with Gesta
 
 ```mermaid
 graph TD
-    Config[CLI Config + gestalt.json] -->|workspace_md, memory_md, prompt_override| Pipeline[MinimalContextPipeline]
+    Config[CLI Config + gestalt.json] -->|workspace_md, memory_md, prompt_override| Pipeline[ContextMessageAssembler]
     Pipeline -->|build_packet| ContextPacket[ContextPacket]
     ContextPacket -->|messages| Provider[Provider Adapter]
     ContextPacket -->|snapshot_hash, cache_plan| Trace[Run Manifest / Trace]
@@ -28,10 +28,10 @@ graph TD
 ## Quick Start
 
 ```rust
-use gestalt_context::MinimalContextPipeline;
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{ContextPipeline, TokenBudget, PromptAssemblyStrategy, SessionMessage, MessageId, Message};
 
-let pipeline = MinimalContextPipeline::new("pipeline-v1")
+let pipeline = ContextMessageAssembler::new("pipeline-v1")
     .with_workspace_md("## Workspace Rules\n...")
     .with_memory_md("## Memory\n...")
     .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
@@ -92,7 +92,7 @@ When the pipeline is configured with `PromptAssemblyStrategy::Snapshot`:
 The snapshot hash is stable across turns as long as the stable prefix content doesn't change:
 
 ```rust
-let pipeline = MinimalContextPipeline::new("pipeline-v1")
+let pipeline = ContextMessageAssembler::new("pipeline-v1")
     .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
     .with_workspace_md("workspace rules");
 

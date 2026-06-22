@@ -300,6 +300,7 @@ model = "mock-model"
     let history_msg = gestalt_core::SessionMessage {
         id: gestalt_core::MessageId {
             origin_session_id: session_id.clone(),
+            origin_message_namespace: session_id.clone(),
             sequence: 0,
         },
         message: Message::Assistant {
@@ -322,6 +323,7 @@ model = "mock-model"
         gestalt_core::SessionMessage {
             id: gestalt_core::MessageId {
                 origin_session_id: session_id.clone(),
+                origin_message_namespace: session_id.clone(),
                 sequence: 1,
             },
             message: Message::User {

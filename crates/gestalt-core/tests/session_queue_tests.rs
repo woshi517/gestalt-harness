@@ -1,6 +1,6 @@
 use gestalt_core::session_queue::{MessageSource, QueuedSessionMessage};
 use gestalt_core::{
-    context::TokenBudget,
+    context::{CompactionCheckpointRef, ContextStateDelta, StateUpdate, TokenBudget},
     message::{ContentBlock, Message},
     session::{ExecutionMode, Session, SessionConfig},
     snapshot::WorkspaceSnapshot,
@@ -86,4 +86,65 @@ fn test_session_appends_messages_with_stable_ids_and_default_projection_state() 
     assert!(session.context_state.cleared_tool_results.is_empty());
     assert!(session.context_state.prompt_snapshot.is_none());
     assert_eq!(session.context_state.context_epoch, 0);
+}
+
+#[test]
+fn test_context_state_delta_distinguishes_unchanged_set_and_clear() {
+    let mut session = Session::new(
+        "session-test",
+        SessionConfig {
+            model: "mock-model".to_string(),
+            provider: "mock".to_string(),
+            max_tokens: 100,
+            temperature: None,
+            max_turns: 1,
+            top_p: None,
+            reasoning_effort: None,
+            text_verbosity: None,
+            metadata: serde_json::Value::Null,
+        },
+        TokenBudget::default(),
+        ToolContext {
+            working_dir: std::path::PathBuf::from("/tmp"),
+            workspace_root: None,
+            timeout: std::time::Duration::from_secs(1),
+            allow_network: false,
+            environment: std::collections::HashMap::new(),
+            max_output_bytes: 1024,
+            artifact_dir: None,
+            current_tool_call_id: None,
+            ignore_patterns: Vec::new(),
+        },
+        ExecutionMode::Yolo,
+        WorkspaceSnapshot {
+            workspace_root: std::path::PathBuf::from("/tmp"),
+            git_sha: None,
+            git_dirty: Some(false),
+            untracked_count: None,
+            content_hash: "hash".to_string(),
+            captured_at: chrono::Utc::now(),
+        },
+    );
+
+    let checkpoint = CompactionCheckpointRef {
+        checkpoint_id: "cp-1".to_string(),
+        source_range: gestalt_core::HistoryRange::new(0, 1),
+        source_hash: "hash-1".to_string(),
+        artifact: None,
+    };
+
+    session.apply_context_state_delta(ContextStateDelta {
+        active_checkpoint: StateUpdate::Set(checkpoint.clone()),
+        ..ContextStateDelta::default()
+    });
+    assert_eq!(session.context_state.active_checkpoint, Some(checkpoint.clone()));
+
+    session.apply_context_state_delta(ContextStateDelta::default());
+    assert_eq!(session.context_state.active_checkpoint, Some(checkpoint.clone()));
+
+    session.apply_context_state_delta(ContextStateDelta {
+        active_checkpoint: StateUpdate::Clear,
+        ..ContextStateDelta::default()
+    });
+    assert!(session.context_state.active_checkpoint.is_none());
 }

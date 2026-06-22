@@ -402,8 +402,8 @@ impl AgentLoop {
         let run_id = sink.and_then(|s| s.run_id()).unwrap_or("");
         let artifacts_dir = sink.and_then(|s| s.artifacts_dir());
         let mut emit_wrapper = |ev| emit(ev);
-        let tool_retention = crate::context::ToolRetentionRegistrySnapshot::default();
         let descriptors = self.executor.tools().descriptors();
+        let tool_retention = build_tool_retention_snapshot(&descriptors);
         let (tools, tool_name_map) = self.provider.adapt_tools(&descriptors);
         let request_template = ProviderRequest {
             model: model.clone(),
@@ -978,5 +978,37 @@ impl AgentLoop {
         emit(AgentEvent::SessionMessageQueueDrained { count })?;
 
         Ok(count)
+    }
+}
+
+fn build_tool_retention_snapshot(
+    descriptors: &[crate::tool_descriptor::ToolDescriptor],
+) -> crate::context::ToolRetentionRegistrySnapshot {
+    let mut policies = std::collections::BTreeMap::new();
+
+    for descriptor in descriptors {
+        let read_only = descriptor.annotations.get_trusted_bool("read_only");
+        let idempotent = descriptor.annotations.get_trusted_bool("idempotent");
+        let clearable = read_only && matches!(descriptor.risk, crate::tool::RiskLevel::Low);
+        let retention = if clearable {
+            crate::context::ToolRetention {
+                clearable: true,
+                reconstructible: idempotent,
+                retain_errors: true,
+            }
+        } else {
+            crate::context::ToolRetention::conservative_default()
+        };
+        policies.insert(descriptor.id.clone(), retention);
+    }
+
+    let serialized = serde_json::to_string(&policies).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(serialized.as_bytes());
+    let fingerprint = format!("{:x}", hasher.finalize());
+
+    crate::context::ToolRetentionRegistrySnapshot {
+        policies,
+        fingerprint,
     }
 }

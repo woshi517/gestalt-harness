@@ -50,10 +50,12 @@ pub use context::{
     ArtifactRef, CheckpointRef, ClearAction, ClearedToolResultRef, CompactionCheckpointRef,
     ContextEpoch, ContextManagementPolicy, ContextOmission, ContextPacket, ContextPipeline,
     ContextPreparationRequest, ContextProjectionState, ContextSourceRef, ContextStability,
-    ContextStateDelta, DurabilityMode, HistoryRange, MessageId, PreparedContext,
+    ContextStateDelta, DurabilityMode, HistoryRange, MessageId, MessageNamespace,
+    PreparedContext,
     ProjectionManifest, ProjectionMessageMetadata, PromptAssemblyStrategy, PromptCachePlan,
     PromptSegment, PromptSegmentKind, PromptSnapshot, PromptSnapshotRef, SessionId,
-    SessionMessage, TokenBudget, ToolRetention, ToolRetentionRegistrySnapshot, ToolUseId,
+    SessionMessage, StateUpdate, TokenBudget, ToolRetention, ToolRetentionRegistrySnapshot,
+    ToolUseId,
 };
 pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,

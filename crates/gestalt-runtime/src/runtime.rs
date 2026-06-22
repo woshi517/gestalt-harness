@@ -282,7 +282,6 @@ impl AgentRuntime {
             middleware = Arc::new(RuntimeContextPipeline {
                 base: middleware.clone(),
                 patch_store: patch_store.clone(),
-                current_checkpoint: Arc::new(Mutex::new(None)),
             });
 
             policy = Arc::new(RuntimePolicyEngine {

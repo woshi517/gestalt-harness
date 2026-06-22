@@ -2,7 +2,7 @@ use crate::error::Result;
 use gestalt_core::context::{
     ContextOmission, ContextPipeline, ContextPreparationRequest, ContextSourceRef,
     ContextStateDelta, PreparedContext, PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
-    PromptSegmentKind, PromptSnapshot, SessionMessage, TokenBudget,
+    PromptSegmentKind, PromptSnapshot, SessionMessage, StateUpdate, TokenBudget,
 };
 use gestalt_core::message::Message;
 use gestalt_core::ContextStability;
@@ -61,7 +61,6 @@ pub trait ContextContributor: Send + Sync {
 pub struct RuntimeContextPipeline {
     pub base: Arc<dyn ContextPipeline>,
     pub patch_store: Arc<Mutex<Vec<ContextPatch>>>,
-    pub current_checkpoint: Arc<Mutex<Option<gestalt_trace::CompactionCheckpoint>>>,
 }
 
 #[async_trait::async_trait]
@@ -103,7 +102,7 @@ impl ContextPipeline for RuntimeContextPipeline {
     ) -> std::result::Result<PreparedContext, gestalt_core::error::HarnessError> {
         let ContextPreparationRequest {
             history,
-            context_state: _context_state,
+            context_state,
             token_budget: budget,
             provider,
             request_template,
@@ -113,22 +112,36 @@ impl ContextPipeline for RuntimeContextPipeline {
             turn_id,
             policy,
             artifacts_dir,
-            tool_retention: _tool_retention,
+            tool_retention,
             emit,
         } = request;
-        let plain_history: Vec<Message> = history.iter().map(|entry| entry.message.clone()).collect();
+        let artifacts_dir = self.checked_artifacts_dir(policy, artifacts_dir)?;
+        let active_checkpoint = self.load_checkpoint(
+            context_state.active_checkpoint.as_ref(),
+            artifacts_dir,
+        )?;
+        let (projected_history, checkpoint_update) =
+            self.apply_active_checkpoint(
+                history,
+                context_state,
+                active_checkpoint.as_ref(),
+                session_id,
+            )?;
+        let plain_history: Vec<Message> = projected_history
+            .iter()
+            .map(|entry| entry.message.clone())
+            .collect();
 
         policy.validate()?;
 
         let accountant =
             gestalt_context::accounting::ContextAccountant::new(budget, policy, &plain_history);
         let usable_limit = accountant.usable_limit();
-        let artifacts_dir = self.checked_artifacts_dir(policy, artifacts_dir)?;
 
         let packet = if policy.enabled && budget.model_limit > 0 && usable_limit > 0 {
-            self.build_management_packet(session_id, &plain_history, budget)
+            self.build_management_packet(&projected_history, budget)
         } else {
-            self.build_packet(history, budget)
+            self.build_packet(&projected_history, budget)
         };
 
         // Bypass pipeline when disabled or when there is no meaningful budget headroom.
@@ -137,19 +150,25 @@ impl ContextPipeline for RuntimeContextPipeline {
         if !policy.enabled || budget.model_limit == 0 || usable_limit == 0 {
             let manifest = self.build_manifest(
                 &packet,
+                history,
+                &projected_history,
                 session_id,
                 run_id,
                 turn_id,
                 policy,
-                None,
+                context_state.active_checkpoint.clone(),
                 Vec::new(),
-                0,
+                tool_retention,
             );
             self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(PreparedContext {
                 packet,
                 manifest,
-                state_delta: ContextStateDelta::default(),
+                state_delta: ContextStateDelta {
+                    active_checkpoint: checkpoint_update,
+                    policy_fingerprint: Some(tool_retention.fingerprint.clone()),
+                    ..ContextStateDelta::default()
+                },
             });
         }
 
@@ -165,19 +184,25 @@ impl ContextPipeline for RuntimeContextPipeline {
         if projected_request_estimate <= usable_limit {
             let manifest = self.build_manifest(
                 &packet,
+                history,
+                &projected_history,
                 session_id,
                 run_id,
                 turn_id,
                 policy,
-                None,
+                context_state.active_checkpoint.clone(),
                 Vec::new(),
-                0,
+                tool_retention,
             );
             self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(PreparedContext {
                 packet,
                 manifest,
-                state_delta: ContextStateDelta::default(),
+                state_delta: ContextStateDelta {
+                    active_checkpoint: checkpoint_update,
+                    policy_fingerprint: Some(tool_retention.fingerprint.clone()),
+                    ..ContextStateDelta::default()
+                },
             });
         }
 
@@ -185,14 +210,15 @@ impl ContextPipeline for RuntimeContextPipeline {
         let tool_budget = accountant.tool_result_budget();
         let (cleared_history, clear_actions) =
             gestalt_context::tool_clearing::clear_eligible_tool_results(
-                &plain_history,
+                &projected_history,
+                tool_retention,
                 usable_limit,
                 tool_budget,
                 policy.keep_recent_turns,
                 policy.keep_recent_tokens,
             );
 
-        let cleared_packet = self.build_management_packet(session_id, &cleared_history, budget);
+        let cleared_packet = self.build_management_packet(&cleared_history, budget);
         let cleared_tokens = packet
             .token_estimate
             .saturating_sub(cleared_packet.token_estimate);
@@ -205,33 +231,41 @@ impl ContextPipeline for RuntimeContextPipeline {
 
         if self.request_token_estimate(provider, request_template, &cleared_packet)? <= usable_limit
         {
-            let checkpoint_ref = self.current_checkpoint_ref();
-            let history_start_idx = self.get_history_start_idx(&cleared_packet, &cleared_history);
             let manifest = self.build_manifest(
                 &cleared_packet,
+                history,
+                &cleared_history,
                 session_id,
                 run_id,
                 turn_id,
                 policy,
-                checkpoint_ref,
-                Self::cleared_result_refs(session_id, &clear_actions),
-                history_start_idx,
+                context_state.active_checkpoint.clone(),
+                Self::cleared_result_refs(&clear_actions),
+                tool_retention,
             );
             self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(PreparedContext {
                 packet: cleared_packet,
                 manifest,
-                state_delta: ContextStateDelta::default(),
+                state_delta: ContextStateDelta {
+                    active_checkpoint: checkpoint_update,
+                    cleared_tool_results: Self::cleared_result_refs(&clear_actions),
+                    policy_fingerprint: Some(tool_retention.fingerprint.clone()),
+                    ..ContextStateDelta::default()
+                },
             });
         }
 
         // 2. Compaction
-        let last_checkpoint_end_idx = match &*self.current_checkpoint.lock().unwrap() {
-            Some(cp) => cp.history_range.end,
-            None => 0,
-        };
+        let last_checkpoint_end_idx = context_state
+            .active_checkpoint
+            .as_ref()
+            .map_or(0, |cp| cp.source_range.end);
         let recent_protected_start = gestalt_context::tool_clearing::find_recent_protected_start(
-            &cleared_history,
+            &cleared_history
+                .iter()
+                .map(|entry| entry.message.clone())
+                .collect::<Vec<_>>(),
             policy.keep_recent_turns,
             policy.keep_recent_tokens,
         );
@@ -240,7 +274,10 @@ impl ContextPipeline for RuntimeContextPipeline {
         let target_limit = accountant.compaction_target();
         let min_tokens_to_compact = cleared_packet.token_estimate.saturating_sub(target_limit);
         let compaction_range = gestalt_context::compaction::plan_compaction_range(
-            &cleared_history,
+            &cleared_history
+                .iter()
+                .map(|entry| entry.message.clone())
+                .collect::<Vec<_>>(),
             last_checkpoint_end_idx,
             recent_protected_start,
             compactor_input_limit,
@@ -250,7 +287,10 @@ impl ContextPipeline for RuntimeContextPipeline {
         if let Some(range) = compaction_range {
             emit(gestalt_core::event::AgentEvent::ContextCompactionStarted { range })?;
 
-            let history_to_compact = &cleared_history[range.start..range.end];
+            let history_to_compact: Vec<Message> = cleared_history[range.start..range.end]
+                .iter()
+                .map(|entry| entry.message.clone())
+                .collect();
             let canonical_history_to_compact = &history[range.start..range.end];
             let range_serialized =
                 serde_json::to_string(canonical_history_to_compact).unwrap_or_default();
@@ -258,15 +298,14 @@ impl ContextPipeline for RuntimeContextPipeline {
             range_hasher.update(range_serialized.as_bytes());
             let history_range_hash = format!("{:x}", range_hasher.finalize());
 
-            let prev_checkpoint = self.current_checkpoint.lock().unwrap().clone();
             let compactor_res = crate::compaction::run_compactor(
                 provider,
                 model,
-                history_to_compact,
+                &history_to_compact,
                 range,
                 history_range_hash.clone(),
                 self.base.version().to_string(),
-                prev_checkpoint.as_ref(),
+                active_checkpoint.as_ref(),
             )
             .await;
 
@@ -275,7 +314,10 @@ impl ContextPipeline for RuntimeContextPipeline {
                     if let Err(val_err) =
                         gestalt_context::checkpoint_validation::validate_checkpoint(
                             &checkpoint,
-                            &cleared_history,
+                            &cleared_history
+                                .iter()
+                                .map(|entry| entry.message.clone())
+                                .collect::<Vec<_>>(),
                             range,
                             &history_range_hash,
                         )
@@ -293,42 +335,37 @@ impl ContextPipeline for RuntimeContextPipeline {
                         gestalt_trace::persist_checkpoint(&checkpoint, dir, policy.durability)?;
                     }
 
-                    *self.current_checkpoint.lock().unwrap() = Some(checkpoint.clone());
-
                     emit(gestalt_core::event::AgentEvent::ContextCompacted {
                         checkpoint_id: checkpoint.checkpoint_id.clone(),
                         range,
                     })?;
 
-                    let checkpoint_msg = Message::System {
-                        content: checkpoint.render_markdown(),
-                    };
-                    let mut compacted_history = vec![checkpoint_msg];
+                    let mut compacted_history = vec![Self::checkpoint_message(
+                        session_id,
+                        &checkpoint,
+                    )];
                     compacted_history.extend(cleared_history[range.end..].iter().cloned());
 
-                    let compacted_packet =
-                        self.build_management_packet(session_id, &compacted_history, budget);
+                    let compacted_packet = self.build_management_packet(&compacted_history, budget);
 
-                    let checkpoint_ref = Some(gestalt_core::context::CompactionCheckpointRef {
+                    let checkpoint_ref = gestalt_core::context::CompactionCheckpointRef {
                         checkpoint_id: checkpoint.checkpoint_id.clone(),
                         source_range: checkpoint.history_range,
                         source_hash: checkpoint.history_range_hash.clone(),
-                        artifact: None,
-                    });
+                        artifact: Self::checkpoint_artifact_ref(&checkpoint),
+                    };
 
-                    let history_start_idx =
-                        self.get_history_start_idx(&compacted_packet, &compacted_history);
-
-                    let manifest = self.build_manifest_with_checkpoint_offset(
+                    let manifest = self.build_manifest(
                         &compacted_packet,
+                        history,
+                        &compacted_history,
                         session_id,
                         run_id,
                         turn_id,
                         policy,
-                        checkpoint_ref,
-                        Self::cleared_result_refs(session_id, &clear_actions),
-                        history_start_idx,
-                        range.end,
+                        Some(checkpoint_ref.clone()),
+                        Self::cleared_result_refs(&clear_actions),
+                        tool_retention,
                     );
 
                     self.persist_manifest_if_configured(
@@ -357,7 +394,13 @@ impl ContextPipeline for RuntimeContextPipeline {
                     return Ok(PreparedContext {
                         packet: compacted_packet,
                         manifest,
-                        state_delta: ContextStateDelta::default(),
+                        state_delta: ContextStateDelta {
+                            active_checkpoint: StateUpdate::Set(checkpoint_ref),
+                            cleared_tool_results: Self::cleared_result_refs(&clear_actions),
+                            context_epoch: Some(context_state.context_epoch.saturating_add(1)),
+                            policy_fingerprint: Some(tool_retention.fingerprint.clone()),
+                            ..ContextStateDelta::default()
+                        },
                     });
                 }
                 Err(err) => {
@@ -388,24 +431,29 @@ impl ContextPipeline for RuntimeContextPipeline {
             ));
         }
 
-        let checkpoint_ref = self.current_checkpoint_ref();
-        let history_start_idx = self.get_history_start_idx(&cleared_packet, &cleared_history);
         let manifest = self.build_manifest(
             &cleared_packet,
+            history,
+            &cleared_history,
             session_id,
             run_id,
             turn_id,
             policy,
-            checkpoint_ref,
-            Self::cleared_result_refs(session_id, &clear_actions),
-            history_start_idx,
+            context_state.active_checkpoint.clone(),
+            Self::cleared_result_refs(&clear_actions),
+            tool_retention,
         );
         self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
 
         Ok(PreparedContext {
             packet: cleared_packet,
             manifest,
-            state_delta: ContextStateDelta::default(),
+            state_delta: ContextStateDelta {
+                active_checkpoint: checkpoint_update,
+                cleared_tool_results: Self::cleared_result_refs(&clear_actions),
+                policy_fingerprint: Some(tool_retention.fingerprint.clone()),
+                ..ContextStateDelta::default()
+            },
         })
     }
 }
@@ -413,8 +461,7 @@ impl ContextPipeline for RuntimeContextPipeline {
 impl RuntimeContextPipeline {
     fn build_management_packet(
         &self,
-        session_id: &str,
-        history: &[Message],
+        history: &[SessionMessage],
         budget: &TokenBudget,
     ) -> gestalt_core::context::ContextPacket {
         let mut unbounded_budget = budget.clone();
@@ -426,8 +473,7 @@ impl RuntimeContextPipeline {
         unbounded_budget.used_tools = 0;
         unbounded_budget.used_memory = 0;
         unbounded_budget.minimum_turn_budget = 0;
-        let projection_history = Self::projection_history(session_id, history);
-        self.build_packet(&projection_history, &unbounded_budget)
+        self.build_packet(history, &unbounded_budget)
     }
 
     fn request_token_estimate(
@@ -477,25 +523,6 @@ impl RuntimeContextPipeline {
 
     fn compose_messages(base_messages: Vec<Message>, patches: &[ContextPatch]) -> Vec<Message> {
         Self::compose_messages_with_prefix(base_messages, patches).0
-    }
-
-    fn projection_history(session_id: &str, history: &[Message]) -> Vec<SessionMessage> {
-        history
-            .iter()
-            .cloned()
-            .enumerate()
-            .map(|(sequence, message)| SessionMessage {
-                id: gestalt_core::MessageId {
-                    origin_session_id: session_id.to_string(),
-                    sequence: sequence as u64,
-                },
-                metadata: match &message {
-                    Message::User { metadata, .. } => metadata.clone(),
-                    _ => None,
-                },
-                message,
-            })
-            .collect()
     }
 
     fn compose_messages_with_prefix(
@@ -591,39 +618,16 @@ impl RuntimeContextPipeline {
         packet
     }
 
-    fn get_history_start_idx(
-        &self,
-        packet: &gestalt_core::context::ContextPacket,
-        history: &[Message],
-    ) -> usize {
-        packet.messages.len().saturating_sub(history.len())
-    }
-
-    fn current_checkpoint_ref(&self) -> Option<gestalt_core::context::CompactionCheckpointRef> {
-        self.current_checkpoint.lock().unwrap().as_ref().map(|cp| {
-            gestalt_core::context::CompactionCheckpointRef {
-                checkpoint_id: cp.checkpoint_id.clone(),
-                source_range: cp.history_range,
-                source_hash: cp.history_range_hash.clone(),
-                artifact: None,
-            }
-        })
-    }
-
     fn cleared_result_refs(
-        session_id: &str,
         clear_actions: &[gestalt_core::ClearAction],
     ) -> Vec<gestalt_core::context::ClearedToolResultRef> {
         clear_actions
             .iter()
             .map(|action| gestalt_core::context::ClearedToolResultRef {
                 tool_use_id: action.tool_use_id.clone(),
-                message_id: gestalt_core::MessageId {
-                    origin_session_id: session_id.to_string(),
-                    sequence: action.message_index as u64,
-                },
+                message_id: action.message_id.clone(),
                 output_hash: action.output_hash.clone(),
-                artifact: None,
+                artifact: action.artifact.clone(),
             })
             .collect()
     }
@@ -631,40 +635,17 @@ impl RuntimeContextPipeline {
     fn build_manifest(
         &self,
         packet: &gestalt_core::context::ContextPacket,
+        canonical_history: &[SessionMessage],
+        projected_history: &[SessionMessage],
         session_id: &str,
         run_id: &str,
         turn_id: usize,
         policy: &gestalt_core::ContextManagementPolicy,
         checkpoint_ref: Option<gestalt_core::context::CompactionCheckpointRef>,
         cleared_results: Vec<gestalt_core::context::ClearedToolResultRef>,
-        history_start_idx: usize,
+        tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot,
     ) -> gestalt_trace::ProjectionManifest {
-        self.build_manifest_with_checkpoint_offset(
-            packet,
-            session_id,
-            run_id,
-            turn_id,
-            policy,
-            checkpoint_ref,
-            cleared_results,
-            history_start_idx,
-            0,
-        )
-    }
-
-    fn build_manifest_with_checkpoint_offset(
-        &self,
-        packet: &gestalt_core::context::ContextPacket,
-        session_id: &str,
-        run_id: &str,
-        turn_id: usize,
-        policy: &gestalt_core::ContextManagementPolicy,
-        checkpoint_ref: Option<gestalt_core::context::CompactionCheckpointRef>,
-        cleared_results: Vec<gestalt_core::context::ClearedToolResultRef>,
-        history_start_idx: usize,
-        compact_end_idx: usize,
-    ) -> gestalt_trace::ProjectionManifest {
-        let checkpoint_used = checkpoint_ref.is_some();
+        let history_start_idx = packet.messages.len().saturating_sub(projected_history.len());
         let messages_metadata = packet
             .messages
             .iter()
@@ -681,20 +662,13 @@ impl RuntimeContextPipeline {
                     _ => false,
                 };
 
-                let original_index = if idx >= history_start_idx {
-                    let history_idx = idx - history_start_idx;
-                    if checkpoint_used {
-                        if history_idx == 0 {
-                            None
-                        } else {
-                            Some(compact_end_idx + (history_idx - 1))
-                        }
-                    } else {
-                        Some(history_idx)
-                    }
+                let projected_entry = if idx >= history_start_idx {
+                    projected_history.get(idx - history_start_idx)
                 } else {
                     None
                 };
+                let original_index = projected_entry
+                    .and_then(|entry| canonical_history.iter().position(|msg| msg.id == entry.id));
 
                 let msg_ser = serde_json::to_string(msg).unwrap_or_default();
                 let mut hasher = sha2::Sha256::new();
@@ -702,10 +676,9 @@ impl RuntimeContextPipeline {
                 let hash = format!("{:x}", hasher.finalize());
 
                 gestalt_trace::MessageMetadataRef {
-                    message_id: gestalt_core::MessageId {
-                        origin_session_id: session_id.to_string(),
-                        sequence: original_index.unwrap_or(idx) as u64,
-                    },
+                    message_id: projected_entry
+                        .map(|entry| entry.id.clone())
+                        .unwrap_or_else(|| Self::synthetic_message_id(session_id, idx)),
                     role: match msg {
                         Message::System { .. } => "system".to_string(),
                         Message::User { .. } => "user".to_string(),
@@ -734,9 +707,9 @@ impl RuntimeContextPipeline {
             stable_prefix_hash: packet.cache_prefix_hash.clone(),
             checkpoint_ref,
             cleared_results,
-            omitted_messages: Vec::new(),
+            omitted_messages: Self::omitted_message_ids(canonical_history, projected_history),
             messages_metadata,
-            retention_fingerprint: None,
+            retention_fingerprint: Some(tool_retention.fingerprint.clone()),
         };
 
         let manifest_serialized = serde_json::to_string(&serde_json::json!({
@@ -758,6 +731,122 @@ impl RuntimeContextPipeline {
         gestalt_trace::ProjectionManifest {
             manifest_id,
             ..manifest_partial
+        }
+    }
+
+    fn load_checkpoint(
+        &self,
+        checkpoint_ref: Option<&gestalt_core::context::CompactionCheckpointRef>,
+        artifacts_dir: Option<&Path>,
+    ) -> std::result::Result<Option<gestalt_trace::CompactionCheckpoint>, gestalt_core::error::HarnessError>
+    {
+        let Some(checkpoint_ref) = checkpoint_ref else {
+            return Ok(None);
+        };
+        let Some(dir) = artifacts_dir else {
+            return Ok(None);
+        };
+
+        Ok(Some(gestalt_trace::load_checkpoint(
+            &checkpoint_ref.checkpoint_id,
+            dir,
+        )?))
+    }
+
+    fn apply_active_checkpoint(
+        &self,
+        canonical_history: &[SessionMessage],
+        context_state: &gestalt_core::ContextProjectionState,
+        checkpoint: Option<&gestalt_trace::CompactionCheckpoint>,
+        session_id: &str,
+    ) -> std::result::Result<
+        (Vec<SessionMessage>, StateUpdate<gestalt_core::CompactionCheckpointRef>),
+        gestalt_core::error::HarnessError,
+    > {
+        let Some(checkpoint_ref) = context_state.active_checkpoint.as_ref() else {
+            return Ok((canonical_history.to_vec(), StateUpdate::Unchanged));
+        };
+        let Some(checkpoint) = checkpoint else {
+            return Ok((canonical_history.to_vec(), StateUpdate::Clear));
+        };
+
+        if checkpoint_ref.source_range.end > canonical_history.len() {
+            return Ok((canonical_history.to_vec(), StateUpdate::Clear));
+        }
+
+        let range = checkpoint_ref.source_range;
+        let serialized = serde_json::to_string(&canonical_history[range.start..range.end])
+            .unwrap_or_default();
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(serialized.as_bytes());
+        let actual_hash = format!("{:x}", hasher.finalize());
+        if actual_hash != checkpoint_ref.source_hash {
+            return Ok((canonical_history.to_vec(), StateUpdate::Clear));
+        }
+
+        let mut projected = canonical_history[..range.start].to_vec();
+        projected.push(Self::checkpoint_message(
+            session_id,
+            checkpoint,
+        ));
+        projected.extend_from_slice(&canonical_history[range.end..]);
+        Ok((projected, StateUpdate::Unchanged))
+    }
+
+    fn checkpoint_message(
+        session_id: &str,
+        checkpoint: &gestalt_trace::CompactionCheckpoint,
+    ) -> SessionMessage {
+        SessionMessage {
+            id: Self::synthetic_id(
+                session_id,
+                format!("checkpoint:{}", checkpoint.checkpoint_id),
+                checkpoint.history_range.end as u64,
+            ),
+            metadata: None,
+            message: Message::System {
+                content: checkpoint.render_markdown(),
+            },
+        }
+    }
+
+    fn checkpoint_artifact_ref(
+        checkpoint: &gestalt_trace::CompactionCheckpoint,
+    ) -> Option<gestalt_core::ArtifactRef> {
+        Some(gestalt_core::ArtifactRef {
+            id: format!("checkpoint_{}.json", checkpoint.checkpoint_id),
+            content_hash: checkpoint.history_range_hash.clone(),
+        })
+    }
+
+    fn omitted_message_ids(
+        canonical_history: &[SessionMessage],
+        projected_history: &[SessionMessage],
+    ) -> Vec<gestalt_core::MessageId> {
+        let projected_ids: std::collections::HashSet<_> = projected_history
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect();
+        canonical_history
+            .iter()
+            .filter(|entry| !projected_ids.contains(&entry.id))
+            .map(|entry| entry.id.clone())
+            .collect()
+    }
+
+    fn synthetic_message_id(session_id: &str, sequence: usize) -> gestalt_core::MessageId {
+        Self::synthetic_id(session_id, "synthetic".to_string(), sequence as u64)
+    }
+
+    fn synthetic_id(
+        session_id: &str,
+        namespace: String,
+        sequence: u64,
+    ) -> gestalt_core::MessageId {
+        gestalt_core::MessageId {
+            origin_session_id: session_id.to_string(),
+            origin_message_namespace: namespace,
+            sequence,
         }
     }
 }

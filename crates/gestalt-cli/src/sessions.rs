@@ -589,7 +589,8 @@ pub async fn run_session_action(
     }
 
     // 3. Reconstruct history up to chosen checkpoint
-    let (history, token_budget, last_checkpoint_seq) = if let Some(target_seq) = branch_checkpoint {
+    let (history, context_state, token_budget, last_checkpoint_seq) =
+        if let Some(target_seq) = branch_checkpoint {
         let trace_path = parent_run_path.join("trace.jsonl");
         if !trace_path.exists() {
             return Err(gestalt_core::HarnessError::Trace(
@@ -613,9 +614,15 @@ pub async fn run_session_action(
             Some(env) => match &env.event {
                 gestalt_core::AgentEvent::Checkpoint {
                     history,
+                    context_state,
                     token_budget,
                     ..
-                } => (history.clone(), token_budget.clone(), Some(target_seq)),
+                } => (
+                    history.clone(),
+                    context_state.clone(),
+                    token_budget.clone(),
+                    Some(target_seq),
+                ),
                 _ => {
                     return Err(gestalt_core::HarnessError::Trace(
                         gestalt_core::TraceError::ReadFailed {
@@ -635,6 +642,7 @@ pub async fn run_session_action(
     } else {
         (
             analysis.history.clone(),
+            analysis.context_state.clone(),
             analysis.token_budget.clone(),
             analysis.last_checkpoint_seq,
         )
@@ -745,6 +753,7 @@ pub async fn run_session_action(
 
     // Seed the session with reconstructed history
     session.history = history;
+    session.context_state = context_state;
 
     if let Some(prompt_snapshot) = analysis.prompt_snapshot.as_ref() {
         let loaded_event = AgentEvent::PromptSnapshotLoaded {

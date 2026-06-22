@@ -29,7 +29,7 @@ use gestalt_core::{
 };
 
 #[derive(Debug, Clone)]
-pub struct MinimalContextPipeline {
+pub struct ContextMessageAssembler {
     version: String,
     workspace_md: Option<String>,
     memory_md: Option<String>,
@@ -51,7 +51,7 @@ pub struct ContextBuild {
     pub version: String,
 }
 
-impl MinimalContextPipeline {
+impl ContextMessageAssembler {
     pub fn new(version: impl Into<String>) -> Self {
         Self {
             version: version.into(),
@@ -283,7 +283,7 @@ impl MinimalContextPipeline {
 }
 
 #[async_trait::async_trait]
-impl ContextPipeline for MinimalContextPipeline {
+impl ContextPipeline for ContextMessageAssembler {
     fn process(&self, history: &[SessionMessage], budget: &TokenBudget) -> Vec<Message> {
         self.build(history, budget).messages
     }
@@ -571,8 +571,8 @@ mod tests {
     };
     use serde_json::json;
 
-    fn sample_pipeline() -> MinimalContextPipeline {
-        MinimalContextPipeline::new("pipeline-v1")
+    fn sample_pipeline() -> ContextMessageAssembler {
+        ContextMessageAssembler::new("pipeline-v1")
             .with_workspace_md("workspace rules")
             .with_memory_md("stable memory")
     }
@@ -584,6 +584,7 @@ mod tests {
             .map(|(sequence, message)| SessionMessage {
                 id: MessageId {
                     origin_session_id: "test-session".to_string(),
+                    origin_message_namespace: "test-session".to_string(),
                     sequence: sequence as u64,
                 },
                 metadata: match &message {
@@ -667,7 +668,7 @@ mod tests {
     #[test]
     fn build_wraps_untrusted_documents() {
         let pipeline =
-            MinimalContextPipeline::new("pipeline-v1").with_prompt_override("Test prompt");
+            ContextMessageAssembler::new("pipeline-v1").with_prompt_override("Test prompt");
         let history = canonical_history(vec![Message::User {
             content: vec![ContentBlock::Document {
                 source: DocumentSource {
@@ -814,11 +815,11 @@ mod tests {
             minimum_turn_budget: 16,
         };
 
-        let first = MinimalContextPipeline::new("pipeline-v1")
+        let first = ContextMessageAssembler::new("pipeline-v1")
             .with_workspace_md("workspace rules")
             .with_memory_md("stable memory")
             .build_packet(&history, &budget);
-        let second = MinimalContextPipeline::new("pipeline-v1")
+        let second = ContextMessageAssembler::new("pipeline-v1")
             .with_workspace_md("workspace rules changed")
             .with_memory_md("stable memory")
             .build_packet(&history, &budget);
@@ -868,7 +869,7 @@ mod tests {
 
     #[test]
     fn test_context_pipeline_uses_default_prompt() {
-        let pipeline = MinimalContextPipeline::new("pipeline-v1");
+        let pipeline = ContextMessageAssembler::new("pipeline-v1");
         let budget = TokenBudget {
             model_limit: 1000,
             reserved_output: 16,
@@ -892,7 +893,7 @@ mod tests {
 
     #[test]
     fn test_context_pipeline_uses_override_prompt() {
-        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+        let pipeline = ContextMessageAssembler::new("pipeline-v1")
             .with_prompt_override("Custom instruction overrides.");
         let budget = TokenBudget {
             model_limit: 1000,
@@ -917,7 +918,7 @@ mod tests {
 
     #[test]
     fn test_context_pipeline_uses_override_file() {
-        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+        let pipeline = ContextMessageAssembler::new("pipeline-v1")
             .with_prompt_override_file(".gestalt/system_prompt.md", "File custom prompt");
         let budget = TokenBudget {
             model_limit: 1000,
@@ -945,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_context_pipeline_empty_override_falls_back_to_default() {
-        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+        let pipeline = ContextMessageAssembler::new("pipeline-v1")
             .with_prompt_override("  ")
             .with_mode("Confirm")
             .with_max_turns(3)
@@ -976,7 +977,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_message_does_not_enter_stable_prefix_snapshot() {
-        let pipeline = MinimalContextPipeline::new("pipeline-v1")
+        let pipeline = ContextMessageAssembler::new("pipeline-v1")
             .with_prompt_override("Stable prompt")
             .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot);
         let budget = TokenBudget {

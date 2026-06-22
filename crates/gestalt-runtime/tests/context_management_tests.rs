@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use gestalt_context::MinimalContextPipeline;
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     context::TokenBudget,
     event::{AgentEvent, StopReason},
@@ -12,9 +12,8 @@ use gestalt_runtime::RuntimeContextPipeline;
 
 fn runtime_pipeline() -> RuntimeContextPipeline {
     RuntimeContextPipeline {
-        base: Arc::new(MinimalContextPipeline::new("pipeline-v1").with_prompt_override("prompt")),
+        base: Arc::new(ContextMessageAssembler::new("pipeline-v1").with_prompt_override("prompt")),
         patch_store: Arc::new(Mutex::new(Vec::new())),
-        current_checkpoint: Arc::new(Mutex::new(None)),
     }
 }
 
@@ -41,6 +40,25 @@ fn policy() -> gestalt_core::ContextManagementPolicy {
         compaction_target_ratio: 0.8,
         durability: gestalt_core::DurabilityMode::Required,
         profile: "test".to_string(),
+    }
+}
+
+fn retention_snapshot() -> gestalt_core::ToolRetentionRegistrySnapshot {
+    let mut policies = std::collections::BTreeMap::new();
+    policies.insert(
+        gestalt_core::CanonicalToolId {
+            namespace: gestalt_core::ToolNamespace::BuiltIn,
+            name: "view_file".to_string(),
+        },
+        gestalt_core::ToolRetention {
+            clearable: true,
+            reconstructible: true,
+            retain_errors: true,
+        },
+    );
+    gestalt_core::ToolRetentionRegistrySnapshot {
+        policies,
+        fingerprint: "test-retention".to_string(),
     }
 }
 
@@ -231,6 +249,7 @@ fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
         .map(|(sequence, message)| SessionMessage {
             id: MessageId {
                 origin_session_id: "session-1".to_string(),
+                origin_message_namespace: "session-1".to_string(),
                 sequence: sequence as u64,
             },
             metadata: match &message {
@@ -264,7 +283,7 @@ async fn prepare_context_requires_artifact_dir_when_durability_is_required() {
             turn_id: 0,
             policy: &policy(),
             artifacts_dir: None,
-            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            tool_retention: &retention_snapshot(),
             emit: &mut |_| Ok(()),
         })
         .await
@@ -327,7 +346,7 @@ async fn prepare_context_uses_projected_growth_to_trigger_tombstoning_early() {
             turn_id: 0,
             policy: &policy(),
             artifacts_dir: Some(artifacts.as_path()),
-            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            tool_retention: &retention_snapshot(),
             emit: &mut |_| Ok(()),
         })
         .await
@@ -364,7 +383,7 @@ async fn projection_manifest_ids_are_stable_for_identical_packets() {
                 turn_id,
                 policy: &policy,
                 artifacts_dir: Some(artifacts.as_path()),
-                tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+                tool_retention: &retention_snapshot(),
                 emit: &mut |_| Ok(()),
             })
             .await
@@ -444,7 +463,7 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
             turn_id: 0,
             policy: &policy(),
             artifacts_dir: Some(artifacts.as_path()),
-            tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot::default(),
+            tool_retention: &retention_snapshot(),
             emit: &mut |event| {
                 match &event {
                     AgentEvent::ContextPressure { .. } => {

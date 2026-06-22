@@ -779,4 +779,80 @@ mod tests {
         assert!(analysis.prompt_snapshot.is_none());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn test_resume_restores_projection_state_from_checkpoint() {
+        let dir = temp_run_dir();
+        write_manifest(&dir, LifecycleState::Interrupted, default_fingerprint());
+
+        let checkpoint_env = EventEnvelope {
+            v: 1,
+            session_id: "session-1".to_string(),
+            run_id: "run-1".to_string(),
+            turn_id: 1,
+            seq: 1,
+            ts: chrono::Utc::now(),
+            event: AgentEvent::Checkpoint {
+                history: Vec::new(),
+                context_state: ContextProjectionState {
+                    active_checkpoint: Some(gestalt_core::CompactionCheckpointRef {
+                        checkpoint_id: "cp-1".to_string(),
+                        source_range: gestalt_core::HistoryRange::new(0, 2),
+                        source_hash: "range-hash".to_string(),
+                        artifact: Some(gestalt_core::ArtifactRef {
+                            id: "checkpoint_cp-1.json".to_string(),
+                            content_hash: "range-hash".to_string(),
+                        }),
+                    }),
+                    cleared_tool_results: std::collections::BTreeMap::from([(
+                        "tool-1".to_string(),
+                        gestalt_core::ClearedToolResultRef {
+                            tool_use_id: "tool-1".to_string(),
+                            message_id: gestalt_core::MessageId {
+                                origin_session_id: "session-1".to_string(),
+                                origin_message_namespace: "ns-1".to_string(),
+                                sequence: 1,
+                            },
+                            output_hash: "output-hash".to_string(),
+                            artifact: None,
+                        },
+                    )]),
+                    prompt_snapshot: None,
+                    context_epoch: 3,
+                    policy_fingerprint: Some("policy-fp".to_string()),
+                },
+                token_budget: TokenBudget::default(),
+                latest_projection_id: Some("manifest-1".to_string()),
+                packet_hash: None,
+                prompt_source: None,
+            },
+            redacted: false,
+            workspace_snapshot: Some(default_snapshot("snapshot-hash-initial")),
+            snapshot_id: None,
+        };
+
+        fs::write(
+            dir.join("trace.jsonl"),
+            format!("{}\n", serde_json::to_string(&checkpoint_env).unwrap()),
+        )
+        .unwrap();
+
+        let analysis = ResumeAnalyzer::analyze(&dir, None, None);
+        assert_eq!(analysis.status, RecoveryStatus::InterruptedSafe);
+        assert_eq!(analysis.context_state.context_epoch, 3);
+        assert_eq!(
+            analysis
+                .context_state
+                .active_checkpoint
+                .as_ref()
+                .map(|checkpoint| checkpoint.checkpoint_id.as_str()),
+            Some("cp-1")
+        );
+        assert!(analysis
+            .context_state
+            .cleared_tool_results
+            .contains_key("tool-1"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

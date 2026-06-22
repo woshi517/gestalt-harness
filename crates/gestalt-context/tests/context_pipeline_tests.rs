@@ -1,4 +1,4 @@
-use gestalt_context::MinimalContextPipeline;
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     context::{HistoryRange, PromptAssemblyStrategy},
     message::{ContentBlock, Message},
@@ -19,8 +19,8 @@ fn budget(model_limit: usize) -> TokenBudget {
     }
 }
 
-fn pipeline() -> MinimalContextPipeline {
-    MinimalContextPipeline::new("pipeline-v1")
+fn pipeline() -> ContextMessageAssembler {
+    ContextMessageAssembler::new("pipeline-v1")
         .with_workspace_md("workspace rules")
         .with_memory_md("stable memory")
 }
@@ -32,6 +32,7 @@ fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
         .map(|(sequence, message)| SessionMessage {
             id: MessageId {
                 origin_session_id: "test-session".to_string(),
+                origin_message_namespace: "test-session".to_string(),
                 sequence: sequence as u64,
             },
             metadata: match &message {
@@ -41,6 +42,29 @@ fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
             message,
         })
         .collect()
+}
+
+fn retention_snapshot(tool_names: &[&str]) -> gestalt_core::ToolRetentionRegistrySnapshot {
+    let policies = tool_names
+        .iter()
+        .map(|name| {
+            (
+                gestalt_core::CanonicalToolId {
+                    namespace: gestalt_core::ToolNamespace::BuiltIn,
+                    name: (*name).to_string(),
+                },
+                gestalt_core::ToolRetention {
+                    clearable: true,
+                    reconstructible: true,
+                    retain_errors: true,
+                },
+            )
+        })
+        .collect();
+    gestalt_core::ToolRetentionRegistrySnapshot {
+        policies,
+        fingerprint: "test-retention".to_string(),
+    }
 }
 
 #[test]
@@ -122,7 +146,7 @@ fn snapshot_hash_stays_stable_when_history_changes() {
 
 #[test]
 fn budget_exhaustion_is_modelled_as_ephemeral_tail() {
-    let packet = MinimalContextPipeline::new("pipeline-v1")
+    let packet = ContextMessageAssembler::new("pipeline-v1")
         .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
         .build_packet(
             &[],
@@ -149,7 +173,7 @@ fn test_tool_clearing_happy_path() {
     use gestalt_context::tool_clearing::clear_eligible_tool_results;
     use serde_json::json;
 
-    let history = vec![
+    let history = canonical_history(vec![
         Message::User {
             content: vec![ContentBlock::Text {
                 text: "please read the file".to_string(),
@@ -178,10 +202,17 @@ fn test_tool_clearing_happy_path() {
             }],
             metadata: None,
         },
-    ];
+    ]);
 
     // Total tool result tokens is large. Let's set a low tool_result_budget
-    let (projected, actions) = clear_eligible_tool_results(&history, 1000, 10, 1, 100);
+    let (projected, actions) = clear_eligible_tool_results(
+        &history,
+        &retention_snapshot(&["view_file"]),
+        1000,
+        10,
+        1,
+        100,
+    );
 
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].tool_use_id, "view_1");
@@ -189,7 +220,7 @@ fn test_tool_clearing_happy_path() {
 
     if let Message::ToolResult {
         content, is_error, ..
-    } = &projected[2]
+    } = &projected[2].message
     {
         assert!(!is_error);
         assert!(content.contains("<tombstone"));
@@ -204,7 +235,7 @@ fn test_tool_clearing_preserves_errors_and_recent_window() {
     use gestalt_context::tool_clearing::clear_eligible_tool_results;
     use serde_json::json;
 
-    let history = vec![
+    let history = canonical_history(vec![
         Message::User {
             content: vec![ContentBlock::Text {
                 text: "run it".to_string(),
@@ -233,10 +264,17 @@ fn test_tool_clearing_preserves_errors_and_recent_window() {
             }],
             metadata: None,
         },
-    ];
+    ]);
 
     // Even with a budget of 0, active errors are preserved
-    let (projected, actions) = clear_eligible_tool_results(&history, 1000, 0, 1, 100);
+    let (projected, actions) = clear_eligible_tool_results(
+        &history,
+        &retention_snapshot(&["view_file"]),
+        1000,
+        0,
+        1,
+        100,
+    );
     assert!(actions.is_empty());
     assert_eq!(projected, history);
 }

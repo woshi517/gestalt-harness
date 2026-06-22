@@ -88,12 +88,12 @@ pub async fn explain_context(
         let runtime_pipeline = RuntimeContextPipeline {
             base: Arc::new(pipeline),
             patch_store,
-            current_checkpoint: Arc::new(Mutex::new(None)),
         };
 
         let history = vec![gestalt_core::SessionMessage {
             id: gestalt_core::MessageId {
                 origin_session_id: "context-explain".to_string(),
+                origin_message_namespace: "context-explain".to_string(),
                 sequence: 0,
             },
             message: Message::User {

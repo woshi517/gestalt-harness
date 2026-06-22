@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use gestalt_context::MinimalContextPipeline;
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{
@@ -904,7 +904,6 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
             },
             gestalt_core::ContextStability::SessionStatic,
         )])),
-        current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
     };
 
     let packet = pipeline.build_packet(
@@ -1059,15 +1058,15 @@ impl Provider for OverheadProvider {
 #[tokio::test]
 async fn test_prepare_context_uses_full_history_when_management_enabled() {
     let pipeline = RuntimeContextPipeline {
-        base: Arc::new(MinimalContextPipeline::new("pipeline-v1").with_prompt_override("prompt")),
+        base: Arc::new(ContextMessageAssembler::new("pipeline-v1").with_prompt_override("prompt")),
         patch_store: Arc::new(std::sync::Mutex::new(Vec::new())),
-        current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
     };
 
     let history: Vec<gestalt_core::SessionMessage> = (0..8)
         .map(|idx| gestalt_core::SessionMessage {
             id: gestalt_core::MessageId {
                 origin_session_id: "session-1".to_string(),
+                origin_message_namespace: "session-1".to_string(),
                 sequence: idx as u64,
             },
             message: Message::User {
@@ -1133,14 +1132,14 @@ async fn test_prepare_context_uses_full_history_when_management_enabled() {
 #[tokio::test]
 async fn test_prepare_context_counts_tool_schema_overhead() {
     let pipeline = RuntimeContextPipeline {
-        base: Arc::new(MinimalContextPipeline::new("pipeline-v1").with_prompt_override("prompt")),
+        base: Arc::new(ContextMessageAssembler::new("pipeline-v1").with_prompt_override("prompt")),
         patch_store: Arc::new(std::sync::Mutex::new(Vec::new())),
-        current_checkpoint: Arc::new(std::sync::Mutex::new(None)),
     };
 
     let history = vec![gestalt_core::SessionMessage {
         id: gestalt_core::MessageId {
             origin_session_id: "session-1".to_string(),
+            origin_message_namespace: "session-1".to_string(),
             sequence: 0,
         },
         message: Message::User {

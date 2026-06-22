@@ -3,8 +3,8 @@ use std::fmt;
 
 use crate::{
     context::{
-        ContextProjectionState, ContextStateDelta, MessageId, SessionId, SessionMessage,
-        TokenBudget,
+        ContextProjectionState, ContextStateDelta, MessageId, MessageNamespace, SessionId,
+        SessionMessage, StateUpdate, TokenBudget,
     },
     message::Message,
     tool::ToolContext,
@@ -28,6 +28,7 @@ pub struct NextTurnOverride {
 #[derive(Debug, Clone)]
 pub struct Session {
     pub id: SessionId,
+    pub message_namespace: MessageNamespace,
     pub config: SessionConfig,
     pub history: Vec<SessionMessage>,
     pub context_state: ContextProjectionState,
@@ -50,6 +51,7 @@ impl Session {
     ) -> Self {
         Self {
             id: id.into(),
+            message_namespace: uuid::Uuid::new_v4().to_string(),
             config,
             history: Vec::new(),
             context_state: ContextProjectionState::default(),
@@ -66,6 +68,7 @@ impl Session {
     pub fn next_message_id(&self) -> MessageId {
         MessageId {
             origin_session_id: self.id.clone(),
+            origin_message_namespace: self.message_namespace.clone(),
             sequence: self.history.len() as u64,
         }
     }
@@ -85,16 +88,30 @@ impl Session {
     }
 
     pub fn apply_context_state_delta(&mut self, delta: ContextStateDelta) {
-        self.context_state.active_checkpoint = delta.active_checkpoint;
-        if !delta.cleared_tool_results.is_empty() {
-            self.context_state.cleared_tool_results = delta
-                .cleared_tool_results
-                .into_iter()
-                .map(|entry| (entry.tool_use_id.clone(), entry))
-                .collect();
+        match delta.active_checkpoint {
+            StateUpdate::Unchanged => {}
+            StateUpdate::Set(checkpoint) => {
+                self.context_state.active_checkpoint = Some(checkpoint);
+            }
+            StateUpdate::Clear => {
+                self.context_state.active_checkpoint = None;
+            }
         }
-        if delta.prompt_snapshot.is_some() {
-            self.context_state.prompt_snapshot = delta.prompt_snapshot;
+        if !delta.cleared_tool_results.is_empty() {
+            self.context_state
+                .cleared_tool_results
+                .extend(delta.cleared_tool_results.into_iter().map(|entry| {
+                    (entry.tool_use_id.clone(), entry)
+                }));
+        }
+        match delta.prompt_snapshot {
+            StateUpdate::Unchanged => {}
+            StateUpdate::Set(snapshot) => {
+                self.context_state.prompt_snapshot = Some(snapshot);
+            }
+            StateUpdate::Clear => {
+                self.context_state.prompt_snapshot = None;
+            }
         }
         if let Some(epoch) = delta.context_epoch {
             self.context_state.context_epoch = epoch;

@@ -186,12 +186,15 @@ pub struct ContextOmission {
 }
 
 pub type SessionId = String;
+pub type MessageNamespace = String;
 pub type ContextEpoch = u64;
 pub type ToolUseId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub struct MessageId {
     pub origin_session_id: SessionId,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub origin_message_namespace: MessageNamespace,
     pub sequence: u64,
 }
 
@@ -250,17 +253,30 @@ pub struct ContextProjectionState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StateUpdate<T> {
+    #[default]
+    Unchanged,
+    Set(T),
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ContextStateDelta {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_checkpoint: Option<CompactionCheckpointRef>,
+    #[serde(default, skip_serializing_if = "is_unchanged")]
+    pub active_checkpoint: StateUpdate<CompactionCheckpointRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cleared_tool_results: Vec<ClearedToolResultRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_snapshot: Option<PromptSnapshotRef>,
+    #[serde(default, skip_serializing_if = "is_unchanged")]
+    pub prompt_snapshot: StateUpdate<PromptSnapshotRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_epoch: Option<ContextEpoch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_fingerprint: Option<String>,
+}
+
+fn is_unchanged<T>(update: &StateUpdate<T>) -> bool {
+    matches!(update, StateUpdate::Unchanged)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -490,10 +506,13 @@ pub struct CheckpointRef {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClearAction {
     pub message_index: usize,
+    pub message_id: MessageId,
     pub tool_use_id: String,
     pub tool_name: String,
     pub original_tokens: usize,
     pub output_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ArtifactRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]

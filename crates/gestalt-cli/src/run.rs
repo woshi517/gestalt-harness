@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
-use gestalt_context::MinimalContextPipeline;
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter,
 };
@@ -206,8 +206,8 @@ pub fn build_pipeline(
     mode: ExecutionMode,
     max_turns: usize,
     tools: &[String],
-) -> Result<MinimalContextPipeline, gestalt_core::HarnessError> {
-    let mut pipeline = MinimalContextPipeline::new("pipeline-v1")
+) -> Result<ContextMessageAssembler, gestalt_core::HarnessError> {
+    let mut pipeline = ContextMessageAssembler::new("pipeline-v1")
         .with_workspace_root(config.workspace_root.clone())
         .with_mode(format!("{mode:?}"))
         .with_max_turns(max_turns)
