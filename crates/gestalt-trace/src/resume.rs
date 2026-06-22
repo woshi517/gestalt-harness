@@ -800,7 +800,8 @@ mod tests {
                         source_range: gestalt_core::HistoryRange::new(0, 2),
                         source_hash: "range-hash".to_string(),
                         artifact: Some(gestalt_core::ArtifactRef {
-                            id: "checkpoint_cp-1.json".to_string(),
+                            run_id: "session-1".to_string(),
+                            relative_path: "checkpoint_cp-1.json".to_string(),
                             content_hash: "range-hash".to_string(),
                         }),
                     }),

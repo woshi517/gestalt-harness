@@ -1818,57 +1818,57 @@ The feature is complete when all of the following are true.
 
 ### Architecture
 
-* [ ] `Session.history` is never destructively compacted.
-* [ ] `Session.history` uses `SessionMessage` envelopes with stable `MessageId` values.
-* [ ] Clearing and compaction are represented in `ContextProjectionState`.
-* [ ] `RuntimeContextPipeline` is the only context-policy authority.
-* [ ] The lower-level assembler performs no independent history selection.
-* [ ] Context preparation is request-based and returns a transactional state delta.
+* [x] `Session.history` is never destructively compacted.
+* [x] `Session.history` uses `SessionMessage` envelopes with stable `MessageId` values.
+* [x] Clearing and compaction are represented in `ContextProjectionState`.
+* [x] `RuntimeContextPipeline` is the only context-policy authority.
+* [x] The lower-level assembler performs no independent history selection.
+* [x] Context preparation is request-based and returns a transactional state delta.
 
 ### Context correctness
 
-* [ ] Provider-visible history is chronological.
-* [ ] Tool exchanges remain complete.
-* [ ] Every omission is represented in `ProjectionManifest`.
-* [ ] Successful projections remain under the usable token limit.
-* [ ] Trust boundaries survive clearing, compaction, resume, and rehydration.
+* [x] Provider-visible history is chronological.
+* [x] Tool exchanges remain complete.
+* [x] Every omission is represented in `ProjectionManifest`.
+* [x] Successful projections remain under the usable token limit.
+* [x] Trust boundaries survive clearing, compaction, resume, and rehydration.
 
 ### Tool results
 
-* [ ] Clearing uses typed retention metadata.
-* [ ] Hard-coded clearing allowlists are removed.
-* [ ] Cleared tool results can reference recoverable artifacts.
-* [ ] Mutating or authoritative results are not cleared by default.
+* [x] Clearing uses typed retention metadata.
+* [x] Hard-coded clearing allowlists are removed.
+* [x] Cleared tool results can reference recoverable artifacts.
+* [x] Mutating or authoritative results are not cleared by default.
 
 ### Compaction
 
-* [ ] Compaction starts under hard pressure before overflow.
-* [ ] Compaction ranges use stable message IDs.
-* [ ] Checkpoint artifacts preserve required anchors.
-* [ ] The fallback ladder is bounded.
-* [ ] Compaction failure never silently mutates canonical history.
+* [x] Compaction starts under hard pressure before overflow.
+* [x] Compaction ranges use stable message IDs.
+* [x] Checkpoint artifacts preserve required anchors.
+* [x] The fallback ladder is bounded.
+* [x] Compaction failure never silently mutates canonical history.
 
 ### Resume and replay
 
-* [ ] Resume reconstructs complete canonical history.
-* [ ] Resume restores active context state.
-* [ ] Branching from pre-compaction history remains possible.
-* [ ] Branch filtering drops projection state that references messages beyond the branch point.
-* [ ] Replay distinguishes canonical messages from provider projections.
+* [x] Resume reconstructs complete canonical history.
+* [x] Resume restores active context state.
+* [x] Branching from pre-compaction history remains possible.
+* [x] Branch filtering drops projection state that references messages beyond the branch point.
+* [x] Replay distinguishes canonical messages from provider projections.
 
 ### Cache behavior
 
-* [ ] Stable prefixes are deterministic.
-* [ ] Activation changes increment the context epoch.
-* [ ] Cache invalidation reasons are observable.
-* [ ] Provider cache usage is recorded when available.
+* [x] Stable prefixes are deterministic.
+* [x] Activation changes increment the context epoch.
+* [x] Cache invalidation reasons are observable.
+* [x] Provider cache usage is recorded when available.
 
 ### Testing
 
-* [ ] Golden lifecycle fixtures pass.
-* [ ] Projection integrity tests pass.
-* [ ] Existing agent-loop and tool-call tests remain green.
-* [ ] Branch, resume, and replay lifecycle fixtures remain green.
+* [x] Golden lifecycle fixtures pass.
+* [x] Projection integrity tests pass.
+* [x] Existing agent-loop and tool-call tests remain green.
+* [x] Branch, resume, and replay lifecycle fixtures remain green.
 
 ---
 

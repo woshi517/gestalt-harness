@@ -66,6 +66,7 @@ pub fn total_tool_results_tokens(history: &[Message]) -> usize {
 }
 
 pub fn clear_eligible_tool_results(
+    run_id: &str,
     history: &[SessionMessage],
     retention: &ToolRetentionRegistrySnapshot,
     _usable_limit: usize,
@@ -168,7 +169,8 @@ pub fn clear_eligible_tool_results(
                             .as_ref()
                             .and_then(|refs| refs.first())
                             .map(|artifact| gestalt_core::ArtifactRef {
-                                id: artifact.clone(),
+                                run_id: run_id.to_string(),
+                                relative_path: artifact.clone(),
                                 content_hash: hash.to_string(),
                             }),
                     });

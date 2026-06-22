@@ -206,9 +206,99 @@ pub struct SessionMessage {
     pub metadata: Option<MessageMetadata>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectedHistory {
+    pub items: Vec<ProjectedHistoryItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProjectedHistoryItem {
+    Canonical {
+        message_id: MessageId,
+        canonical_index: usize,
+        message: Message,
+    },
+    Checkpoint {
+        checkpoint_ref: CompactionCheckpointRef,
+        source_range: HistoryRange,
+        message: Message,
+    },
+    Tombstone {
+        source_message_id: MessageId,
+        canonical_index: usize,
+        message: Message,
+    },
+}
+
+impl ProjectedHistoryItem {
+    pub fn message(&self) -> &Message {
+        match self {
+            Self::Canonical { message, .. } => message,
+            Self::Checkpoint { message, .. } => message,
+            Self::Tombstone { message, .. } => message,
+        }
+    }
+
+    pub fn to_session_message(&self, session_id: &str) -> SessionMessage {
+        match self {
+            Self::Canonical { message_id, message, .. } => SessionMessage {
+                id: message_id.clone(),
+                message: message.clone(),
+                metadata: None,
+            },
+            Self::Tombstone { source_message_id, message, .. } => SessionMessage {
+                id: source_message_id.clone(),
+                message: message.clone(),
+                metadata: None,
+            },
+            Self::Checkpoint { checkpoint_ref, message, .. } => SessionMessage {
+                id: MessageId {
+                    origin_session_id: session_id.to_string(),
+                    origin_message_namespace: format!("checkpoint:{}", checkpoint_ref.checkpoint_id),
+                    sequence: checkpoint_ref.source_range.end as u64,
+                },
+                message: message.clone(),
+                metadata: None,
+            },
+        }
+    }
+}
+
+impl ProjectedHistory {
+    pub fn map_projected_range_to_canonical(&self, range: HistoryRange) -> HistoryRange {
+        let first_item = &self.items[range.start];
+        let last_item = &self.items[range.end - 1];
+
+        let canonical_start = match first_item {
+            ProjectedHistoryItem::Canonical { canonical_index, .. } => *canonical_index,
+            ProjectedHistoryItem::Tombstone { canonical_index, .. } => *canonical_index,
+            ProjectedHistoryItem::Checkpoint { source_range, .. } => source_range.start,
+        };
+
+        let canonical_end = match last_item {
+            ProjectedHistoryItem::Canonical { canonical_index, .. } => canonical_index + 1,
+            ProjectedHistoryItem::Tombstone { canonical_index, .. } => canonical_index + 1,
+            ProjectedHistoryItem::Checkpoint { source_range, .. } => source_range.end,
+        };
+
+        HistoryRange::new(canonical_start, canonical_end)
+    }
+
+    pub fn to_session_messages(&self, session_id: &str) -> Vec<SessionMessage> {
+        self.items
+            .iter()
+            .map(|item| item.to_session_message(session_id))
+            .collect()
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ArtifactRef {
-    pub id: String,
+    #[serde(default)]
+    pub run_id: String,
+    #[serde(alias = "id", default)]
+    pub relative_path: String,
     pub content_hash: String,
 }
 
@@ -267,6 +357,8 @@ pub struct ContextStateDelta {
     pub active_checkpoint: StateUpdate<CompactionCheckpointRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cleared_tool_results: Vec<ClearedToolResultRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cleared_tool_results_remove: Vec<ToolUseId>,
     #[serde(default, skip_serializing_if = "is_unchanged")]
     pub prompt_snapshot: StateUpdate<PromptSnapshotRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -363,6 +455,24 @@ pub struct PreparedContext {
     pub state_delta: ContextStateDelta,
 }
 
+#[derive(Debug, Clone)]
+pub struct ContextPlan {
+    pub history: Vec<SessionMessage>,
+    pub omissions: Vec<ContextOmission>,
+    pub budget_exhausted: bool,
+}
+
+pub trait ContextAssembler: Send + Sync {
+    fn version(&self) -> &str;
+
+    fn system_messages(&self) -> Vec<Message>;
+
+    fn assemble(
+        &self,
+        plan: &ContextPlan,
+    ) -> std::result::Result<ContextPacket, crate::error::ContextError>;
+}
+
 #[async_trait::async_trait]
 pub trait ContextPipeline: Send + Sync {
     fn process(&self, history: &[SessionMessage], _budget: &TokenBudget) -> Vec<Message> {
@@ -370,6 +480,10 @@ pub trait ContextPipeline: Send + Sync {
     }
 
     fn version(&self) -> &str;
+
+    fn as_assembler(&self) -> Option<std::sync::Arc<dyn ContextAssembler>> {
+        None
+    }
 
     fn build_packet(&self, history: &[SessionMessage], budget: &TokenBudget) -> ContextPacket {
         let messages = self.process(history, budget);

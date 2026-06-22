@@ -490,8 +490,13 @@ mod tests {
             used_memory: 0,
             minimum_turn_budget: 8,
         };
-        use gestalt_core::context::ContextPipeline as _;
-        let packet = pipeline.build_packet(&[], &budget);
+        use gestalt_core::context::{ContextAssembler, ContextPlan};
+        let plan = ContextPlan {
+            history: Vec::new(),
+            omissions: Vec::new(),
+            budget_exhausted: false,
+        };
+        let packet = pipeline.assemble(&plan).unwrap();
         assert_eq!(packet.prompt_source.as_deref(), Some("default"));
         assert_eq!(
             packet.prompt_assembly_strategy,
@@ -509,7 +514,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let packet = pipeline.build_packet(&[], &budget);
+        let packet = pipeline.assemble(&plan).unwrap();
         assert_eq!(packet.prompt_source.as_deref(), Some("override"));
 
         // Scenario 3: prompt.override_file (valid)
@@ -531,7 +536,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let packet = pipeline.build_packet(&[], &budget);
+        let packet = pipeline.assemble(&plan).unwrap();
         assert_eq!(
             packet.prompt_source.as_deref(),
             Some(".gestalt/custom_prompt.md")

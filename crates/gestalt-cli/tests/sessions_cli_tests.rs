@@ -335,11 +335,13 @@ model = "mock-model"
             metadata: None,
         },
     ];
-    use gestalt_core::context::ContextPipeline as _;
-    let packet = pipeline.build_packet(
-        &resume_history,
-        &gestalt_core::context::TokenBudget::default(),
-    );
+    use gestalt_core::context::{ContextAssembler as _, ContextPlan};
+    let plan = ContextPlan {
+        history: resume_history,
+        omissions: Vec::new(),
+        budget_exhausted: false,
+    };
+    let packet = pipeline.assemble(&plan).unwrap();
     let cache_plan = packet.cache_plan.as_ref().unwrap();
     let prompt_snapshot = gestalt_core::context::PromptSnapshot::new(
         packet.messages[..cache_plan.prefix_message_count].to_vec(),

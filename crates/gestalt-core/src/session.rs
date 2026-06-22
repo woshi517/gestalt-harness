@@ -104,6 +104,9 @@ impl Session {
                     (entry.tool_use_id.clone(), entry)
                 }));
         }
+        for remove_id in &delta.cleared_tool_results_remove {
+            self.context_state.cleared_tool_results.remove(remove_id);
+        }
         match delta.prompt_snapshot {
             StateUpdate::Unchanged => {}
             StateUpdate::Set(snapshot) => {

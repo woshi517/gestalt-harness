@@ -276,7 +276,7 @@ pub async fn build_cli_runtime(
     let mut builder = AgentRuntimeBuilder::new()
         .provider(provider)
         .tools(tools.clone())
-        .middleware(pipeline)
+        .middleware(Arc::new(gestalt_runtime::context::RuntimeContextPipeline::new(pipeline)))
         .policy(policy.clone())
         .approval(approval)
         .config(runtime_config)

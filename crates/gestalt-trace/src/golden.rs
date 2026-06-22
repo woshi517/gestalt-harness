@@ -66,12 +66,19 @@ impl GoldenTrace {
                 )
             })?;
 
-        let expected = read_trace(&expected_path).map_err(|err| {
-            TraceErrorWrapper::Trace(
-                err,
-                format!("Failed to read expected.jsonl in {}", dir.display()),
-            )
-        })?;
+        let expected = match read_trace(&expected_path) {
+            Ok(events) => events,
+            Err(err) => {
+                if std::env::var("UPDATE_GOLDEN_TRACES").is_ok() {
+                    Vec::new()
+                } else {
+                    return Err(TraceErrorWrapper::Trace(
+                        err,
+                        format!("Failed to read expected.jsonl in {}", dir.display()),
+                    ));
+                }
+            }
+        };
 
         Ok(Self {
             dir,

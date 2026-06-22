@@ -852,32 +852,28 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
 #[test]
 fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
     struct SnapshotPipeline;
+    use gestalt_core::context::{ContextAssembler, ContextPlan, PromptCachePlan};
 
-    impl ContextPipeline for SnapshotPipeline {
-        fn process(
-            &self,
-            _history: &[gestalt_core::SessionMessage],
-            _budget: &TokenBudget,
-        ) -> Vec<Message> {
+    impl ContextAssembler for SnapshotPipeline {
+        fn version(&self) -> &str {
+            "pipeline-v1"
+        }
+
+        fn system_messages(&self) -> Vec<Message> {
             vec![Message::System {
                 content: "stable system prefix".to_string(),
             }]
         }
 
-        fn version(&self) -> &str {
-            "pipeline-v1"
-        }
-
-        fn build_packet(
+        fn assemble(
             &self,
-            _history: &[gestalt_core::SessionMessage],
-            _budget: &TokenBudget,
-        ) -> gestalt_core::context::ContextPacket {
-            let messages = self.process(&[], &TokenBudget::default());
+            _plan: &ContextPlan,
+        ) -> std::result::Result<gestalt_core::context::ContextPacket, gestalt_core::error::ContextError> {
+            let messages = self.system_messages();
             let snapshot = PromptSnapshot::new(messages.clone(), 0);
             let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot);
 
-            gestalt_core::context::ContextPacket {
+            Ok(gestalt_core::context::ContextPacket {
                 messages,
                 packet_hash: "base-packet-hash".to_string(),
                 pipeline_version: self.version().to_string(),
@@ -892,7 +888,7 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
                 segments: vec![],
                 cache_plan: Some(plan),
                 prompt_source: Some("default".to_string()),
-            }
+            })
         }
     }
 
