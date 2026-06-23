@@ -387,6 +387,26 @@ impl ToolRetention {
             retain_errors: true,
         }
     }
+
+    /// Derive a tool's retention policy from its trust annotations.
+    ///
+    /// `clearable` is the caller's decision that a result may be summarised
+    /// away during context pressure (typically low-risk, read-only tools);
+    /// `reconstructible` tracks whether the result can be cheaply regenerated
+    /// (idempotent tools). Everything else falls back to the conservative
+    /// default so that side-effecting results are never silently dropped.
+    #[must_use]
+    pub fn from_clearable(idempotent: bool, clearable: bool) -> Self {
+        if clearable {
+            Self {
+                clearable: true,
+                reconstructible: idempotent,
+                retain_errors: true,
+            }
+        } else {
+            Self::conservative_default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

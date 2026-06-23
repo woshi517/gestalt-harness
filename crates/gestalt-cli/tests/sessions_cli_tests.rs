@@ -372,7 +372,7 @@ model = "mock-model"
             ts: chrono::Utc::now(),
             event: AgentEvent::Checkpoint {
                 history: vec![history_msg.clone()],
-                context_state: gestalt_core::ContextProjectionState::default(),
+                context_state: Box::new(gestalt_core::ContextProjectionState::default()),
                 token_budget: gestalt_core::context::TokenBudget::default(),
                 latest_projection_id: None,
                 packet_hash: None,

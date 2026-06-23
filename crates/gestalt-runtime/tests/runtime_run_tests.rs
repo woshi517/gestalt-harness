@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -587,6 +589,10 @@ impl ContextPipeline for MockContextPipeline {
     fn version(&self) -> &str {
         "mock-v1"
     }
+
+    fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
+        Some(Arc::new(ContextMessageAssembler::new("pipeline-v1")))
+    }
 }
 
 struct MockPolicyEngine;
@@ -1063,7 +1069,7 @@ async fn test_prepare_context_uses_full_history_when_management_enabled() {
             id: gestalt_core::MessageId {
                 origin_session_id: "session-1".to_string(),
                 origin_message_namespace: "session-1".to_string(),
-                sequence: idx as u64,
+                sequence: u64::try_from(idx).expect("test index should fit into u64"),
             },
             message: Message::User {
                 content: vec![ContentBlock::Text {

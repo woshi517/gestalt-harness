@@ -48,7 +48,16 @@ impl<'a> ContextAccountant<'a> {
     }
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "negative scaled values are clamped to zero before the conversion"
+    )]
     fn scaled_limit(&self, ratio: f64) -> usize {
-        ((self.usable_limit() as f64) * ratio).floor() as usize
+        let scaled = (self.usable_limit() as f64) * ratio;
+        if scaled <= 0.0 {
+            0
+        } else {
+            scaled.floor() as usize
+        }
     }
 }

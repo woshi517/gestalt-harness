@@ -154,10 +154,15 @@ pub enum AgentEvent {
         dirty: bool,
     },
     // --- Session Lineage & Resumability boundaries ---
+    //
+    // `context_state` is boxed so this variant does not bloat the entire
+    // `AgentEvent` enum (clippy::large_enum_variant). It is only emitted at
+    // session boundaries, so the extra allocation is negligible and avoids
+    // forcing ~472 bytes onto every event value flowing through the runtime.
     Checkpoint {
         history: Vec<crate::context::SessionMessage>,
         #[serde(default)]
-        context_state: crate::context::ContextProjectionState,
+        context_state: Box<crate::context::ContextProjectionState>,
         token_budget: crate::context::TokenBudget,
         #[serde(default)]
         latest_projection_id: Option<String>,
@@ -332,10 +337,12 @@ pub enum AgentEvent {
     },
     ContextCompactionStarted {
         range: crate::context::HistoryRange,
+        canonical_range: crate::context::HistoryRange,
     },
     ContextCompacted {
         checkpoint_id: String,
         range: crate::context::HistoryRange,
+        canonical_range: crate::context::HistoryRange,
     },
     ContextManagementFailed {
         error: String,

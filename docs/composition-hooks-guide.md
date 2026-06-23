@@ -347,7 +347,7 @@ impl CompositionHooks for SafetyHook {
 let runtime = AgentRuntimeBuilder::new()
     .provider(provider)
     .tools(tools)
-    .middleware(middleware)
+    .assembler(assembler)
     .policy(policy)
     .approval(approval)
     .composition_hooks(Arc::new(SafetyHook {

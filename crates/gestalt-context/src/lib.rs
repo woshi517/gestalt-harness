@@ -21,9 +21,9 @@ pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
 
 use gestalt_core::{
     context::{
-        ContextAssembler, ContextOmission, ContextPacket, ContextPipeline, ContextPlan,
-        ContextSourceRef, PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
-        PromptSegmentKind, SessionMessage, TokenBudget,
+        ContextAssembler, ContextPacket, ContextPlan, ContextSourceRef,
+        PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
+        PromptSegmentKind,
     },
     message::{ContentBlock, ContentTrust, DocumentSource, Message},
     ContextStability,

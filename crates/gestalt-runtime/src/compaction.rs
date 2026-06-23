@@ -23,6 +23,15 @@ struct CompactorOutput {
     relevant_references: Vec<String>,
 }
 
+fn is_checkpoint_message(message: &Message) -> bool {
+    match message {
+        Message::System { content } => {
+            content.starts_with("### Session Checkpoint Summary")
+        }
+        _ => false,
+    }
+}
+
 pub fn build_compactor_prompt(
     history_to_compact: &[Message],
     previous_checkpoint: Option<&CompactionCheckpoint>,
@@ -58,6 +67,9 @@ pub fn build_compactor_prompt(
 
     prompt_content.push_str("--- Messages to Compact ---\n");
     for (idx, msg) in history_to_compact.iter().enumerate() {
+        if is_checkpoint_message(msg) {
+            continue;
+        }
         let _ = writeln!(
             prompt_content,
             "Message {} ({}):",

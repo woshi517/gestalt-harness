@@ -245,7 +245,11 @@ impl ResumeAnalyzer {
                     context_state,
                     token_budget,
                     ..
-                } => (history.clone(), context_state.clone(), token_budget.clone()),
+                } => (
+                    history.clone(),
+                    ContextProjectionState::clone(context_state),
+                    token_budget.clone(),
+                ),
                 _ => (
                     Vec::new(),
                     ContextProjectionState::default(),
@@ -511,7 +515,7 @@ mod tests {
             ts: chrono::Utc::now(),
             event: AgentEvent::Checkpoint {
                 history: Vec::new(),
-                context_state: ContextProjectionState::default(),
+                context_state: Box::new(ContextProjectionState::default()),
                 token_budget: TokenBudget::default(),
                 latest_projection_id: None,
                 packet_hash: None,
@@ -794,7 +798,7 @@ mod tests {
             ts: chrono::Utc::now(),
             event: AgentEvent::Checkpoint {
                 history: Vec::new(),
-                context_state: ContextProjectionState {
+                context_state: Box::new(ContextProjectionState {
                     active_checkpoint: Some(gestalt_core::CompactionCheckpointRef {
                         checkpoint_id: "cp-1".to_string(),
                         source_range: gestalt_core::HistoryRange::new(0, 2),
@@ -821,7 +825,7 @@ mod tests {
                     prompt_snapshot: None,
                     context_epoch: 3,
                     policy_fingerprint: Some("policy-fp".to_string()),
-                },
+                }),
                 token_budget: TokenBudget::default(),
                 latest_projection_id: Some("manifest-1".to_string()),
                 packet_hash: None,

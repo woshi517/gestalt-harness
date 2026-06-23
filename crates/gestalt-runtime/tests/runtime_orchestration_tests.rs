@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{ContextPipeline, TokenBudget},
@@ -97,6 +99,10 @@ impl ContextPipeline for MockContextPipeline {
     }
     fn version(&self) -> &str {
         "mock-v1"
+    }
+
+    fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
+        Some(Arc::new(gestalt_context::ContextMessageAssembler::new("pipeline-v1")))
     }
 }
 
@@ -495,6 +501,38 @@ impl ToolCatalog for SteeringTestToolCatalog {
     }
 }
 
+struct PassThroughAssembler;
+impl gestalt_core::context::ContextAssembler for PassThroughAssembler {
+    fn version(&self) -> &str {
+        "pass-through"
+    }
+    fn system_messages(&self) -> Vec<Message> {
+        Vec::new()
+    }
+    fn assemble(
+        &self,
+        plan: &gestalt_core::context::ContextPlan,
+    ) -> Result<gestalt_core::context::ContextPacket, gestalt_core::error::ContextError> {
+        let messages = plan.history.iter().map(|entry| entry.message.clone()).collect();
+        Ok(gestalt_core::context::ContextPacket {
+            messages,
+            packet_hash: "pass-through".to_string(),
+            pipeline_version: "pass-through".to_string(),
+            tokenizer_id: "default".to_string(),
+            token_estimate: 0,
+            sources: vec![],
+            omissions: vec![],
+            message_hashes: vec![],
+            prompt_assembly_strategy: gestalt_core::context::PromptAssemblyStrategy::Snapshot,
+            snapshot_hash: None,
+            cache_prefix_hash: None,
+            segments: vec![],
+            cache_plan: None,
+            prompt_source: None,
+        })
+    }
+}
+
 struct PassThroughContextPipeline;
 impl ContextPipeline for PassThroughContextPipeline {
     fn process(
@@ -506,5 +544,9 @@ impl ContextPipeline for PassThroughContextPipeline {
     }
     fn version(&self) -> &str {
         "pass-through"
+    }
+
+    fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
+        Some(Arc::new(PassThroughAssembler))
     }
 }

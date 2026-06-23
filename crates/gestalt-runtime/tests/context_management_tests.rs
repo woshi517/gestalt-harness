@@ -18,6 +18,15 @@ fn runtime_pipeline() -> RuntimeContextPipeline {
     }
 }
 
+fn compute_checkpoint_artifact_hash(checkpoint: &gestalt_trace::CompactionCheckpoint) -> String {
+    use sha2::Digest as _;
+    let content = serde_json::to_string_pretty(checkpoint).unwrap();
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+
 fn budget(model_limit: usize, reserved_output: usize, minimum_turn_budget: usize) -> TokenBudget {
     TokenBudget {
         model_limit,
@@ -550,17 +559,17 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
             emit: &mut |event| {
                 match &event {
                     AgentEvent::ContextPressure { .. } => {
-                        events.lock().unwrap().push("pressure".to_string())
+                        events.lock().unwrap().push("pressure".to_string());
                     }
                     AgentEvent::ContextClearing { .. } => {
-                        events.lock().unwrap().push("clearing".to_string())
+                        events.lock().unwrap().push("clearing".to_string());
                     }
                     AgentEvent::ContextCompactionStarted { .. } => events
                         .lock()
                         .unwrap()
                         .push("compaction_started".to_string()),
                     AgentEvent::ContextCompacted { .. } => {
-                        events.lock().unwrap().push("compacted".to_string())
+                        events.lock().unwrap().push("compacted".to_string());
                     }
                     _ => {}
                 }
@@ -606,6 +615,32 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
     assert!(artifact_names
         .iter()
         .any(|name| name.starts_with("projection_manifest_")));
+
+    let checkpoint_ref = packet
+        .manifest
+        .checkpoint_ref
+        .as_ref()
+        .expect("compaction should record a checkpoint reference");
+    let checkpoint_file = artifacts.join(
+        checkpoint_ref
+            .artifact
+            .as_ref()
+            .expect("checkpoint ref should include artifact metadata")
+            .relative_path
+            .clone(),
+    );
+    let checkpoint: gestalt_trace::CompactionCheckpoint = serde_json::from_str(
+        &std::fs::read_to_string(checkpoint_file).expect("checkpoint file should exist"),
+    )
+    .expect("checkpoint file should parse");
+    assert_eq!(
+        checkpoint_ref
+            .artifact
+            .as_ref()
+            .expect("checkpoint ref should include artifact metadata")
+            .content_hash,
+        compute_checkpoint_artifact_hash(&checkpoint),
+    );
 }
 
 #[tokio::test]
@@ -660,7 +695,7 @@ async fn active_checkpoint_survives_noop_preparation() {
         artifact: Some(gestalt_core::ArtifactRef {
             run_id: "run-1".to_string(),
             relative_path: "checkpoint_cp-1.json".to_string(),
-            content_hash: checkpoint.history_range_hash.clone(),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
         }),
     });
 
@@ -742,7 +777,7 @@ async fn resume_resolves_checkpoint_from_parent_run() {
         artifact: Some(gestalt_core::ArtifactRef {
             run_id: "parent-run".to_string(),
             relative_path: "checkpoint_cp-1.json".to_string(),
-            content_hash: checkpoint.history_range_hash.clone(),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
         }),
     });
 
@@ -823,7 +858,7 @@ async fn continue_after_compaction_reuses_checkpoint() {
         artifact: Some(gestalt_core::ArtifactRef {
             run_id: "run-1".to_string(),
             relative_path: "checkpoint_cp-1.json".to_string(),
-            content_hash: checkpoint.history_range_hash.clone(),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
         }),
     });
 
@@ -959,7 +994,7 @@ async fn second_compaction_maps_projected_range_to_canonical_range() {
         artifact: Some(gestalt_core::ArtifactRef {
             run_id: "run-1".to_string(),
             relative_path: "checkpoint_cp-1.json".to_string(),
-            content_hash: checkpoint.history_range_hash.clone(),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
         }),
     });
 
@@ -1064,7 +1099,7 @@ async fn second_checkpoint_hash_matches_actual_canonical_source() {
         artifact: Some(gestalt_core::ArtifactRef {
             run_id: "run-1".to_string(),
             relative_path: "checkpoint_cp-1.json".to_string(),
-            content_hash: checkpoint.history_range_hash.clone(),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
         }),
     });
 
@@ -1221,7 +1256,7 @@ async fn cleared_result_reference_is_removed_when_source_disappears() {
         artifact: Some(gestalt_core::ArtifactRef {
             run_id: "run-1".to_string(),
             relative_path: "checkpoint_cp-1.json".to_string(),
-            content_hash: "hash".to_string(),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
         }),
     });
     state.cleared_tool_results.insert(

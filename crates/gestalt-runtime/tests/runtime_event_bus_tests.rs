@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::sync::Arc;
 
 use gestalt_core::{
@@ -99,6 +101,10 @@ impl ContextPipeline for MockContextPipeline {
     }
     fn version(&self) -> &str {
         "mock-v1"
+    }
+
+    fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
+        Some(Arc::new(gestalt_context::ContextMessageAssembler::new("pipeline-v1")))
     }
 }
 

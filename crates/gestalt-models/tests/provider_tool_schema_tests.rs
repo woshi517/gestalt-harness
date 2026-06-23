@@ -88,6 +88,7 @@ fn test_adapter_strict_mode() {
             shape_rules: None,
         },
         retry_policy: None,
+        retention: None,
     };
 
     // 1. With supports_strict_schema = true

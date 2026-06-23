@@ -55,6 +55,7 @@ pub trait Tool: Send + Sync {
                 shape_rules: None,
             },
             retry_policy: None,
+            retention: None,
         }
     }
 }

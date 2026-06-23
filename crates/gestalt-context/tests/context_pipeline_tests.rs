@@ -2,22 +2,9 @@ use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     context::{ContextAssembler, HistoryRange, PromptAssemblyStrategy},
     message::{ContentBlock, Message},
-    ContextPipeline, MessageId, SessionMessage, TokenBudget,
+    MessageId, SessionMessage,
 };
 use gestalt_trace::CompactionCheckpoint;
-
-fn budget(model_limit: usize) -> TokenBudget {
-    TokenBudget {
-        model_limit,
-        reserved_output: 16,
-        used_system: 0,
-        used_history: 0,
-        used_sources: 0,
-        used_tools: 0,
-        used_memory: 0,
-        minimum_turn_budget: 8,
-    }
-}
 
 fn pipeline() -> ContextMessageAssembler {
     ContextMessageAssembler::new("pipeline-v1")

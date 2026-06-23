@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use gestalt_core::{
     approval::AutoApprovalProvider,
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},

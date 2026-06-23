@@ -278,12 +278,11 @@ impl AgentRuntime {
             maybe_trace_worker = Some(trace_worker);
 
             let patch_store = Arc::new(Mutex::new(Vec::new()));
-
-            let assembler = middleware.as_assembler().unwrap_or_else(|| {
-                Arc::new(PipelineAssemblerWrapper {
-                    pipeline: middleware.clone(),
-                })
-            });
+            let Some(assembler) = middleware.as_assembler() else {
+                return Err(RuntimeError::Builder(
+                    "composition hooks require an assembler-backed context pipeline; use AgentRuntimeBuilder::assembler(...) or a pipeline that implements as_assembler()".to_string(),
+                ));
+            };
             middleware = Arc::new(RuntimeContextPipeline {
                 base: assembler,
                 patch_store: patch_store.clone(),
@@ -593,33 +592,6 @@ impl AgentRuntime {
         }
 
         Ok(ack)
-    }
-}
-
-struct PipelineAssemblerWrapper {
-    pipeline: Arc<dyn gestalt_core::ContextPipeline>,
-}
-
-impl std::fmt::Debug for PipelineAssemblerWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PipelineAssemblerWrapper").finish()
-    }
-}
-
-impl gestalt_core::context::ContextAssembler for PipelineAssemblerWrapper {
-    fn version(&self) -> &str {
-        self.pipeline.version()
-    }
-
-    fn system_messages(&self) -> Vec<Message> {
-        Vec::new()
-    }
-
-    fn assemble(
-        &self,
-        plan: &gestalt_core::context::ContextPlan,
-    ) -> std::result::Result<gestalt_core::context::ContextPacket, gestalt_core::error::ContextError> {
-        Ok(self.pipeline.build_packet(&plan.history, &gestalt_core::context::TokenBudget::default()))
     }
 }
 

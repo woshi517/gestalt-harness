@@ -619,7 +619,7 @@ pub async fn run_session_action(
                     ..
                 } => (
                     history.clone(),
-                    context_state.clone(),
+                    gestalt_core::ContextProjectionState::clone(context_state),
                     token_budget.clone(),
                     Some(target_seq),
                 ),

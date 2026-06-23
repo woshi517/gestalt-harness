@@ -85,6 +85,11 @@ pub fn build_extension_tool_descriptor(
         source: AnnotationSource::ExtensionDeclared,
     });
 
+    let read_only = tool_decl.read_only.unwrap_or(false);
+    let idempotent = tool_decl.idempotent.unwrap_or(false);
+    let clearable = read_only && matches!(risk, RiskLevel::Low);
+    let retention = gestalt_core::context::ToolRetention::from_clearable(idempotent, clearable);
+
     ToolDescriptor {
         id: canonical_id,
         description: tool_decl.description.clone(),
@@ -100,6 +105,7 @@ pub fn build_extension_tool_descriptor(
             shape_rules: None,
         },
         retry_policy,
+        retention: Some(retention),
     }
 }
 

@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use gestalt_core::{
     agent::executor::ToolExecutor,
     approval::AutoApprovalProvider,

@@ -97,15 +97,15 @@ impl Session {
                 self.context_state.active_checkpoint = None;
             }
         }
+        for remove_id in &delta.cleared_tool_results_remove {
+            self.context_state.cleared_tool_results.remove(remove_id);
+        }
         if !delta.cleared_tool_results.is_empty() {
             self.context_state
                 .cleared_tool_results
                 .extend(delta.cleared_tool_results.into_iter().map(|entry| {
                     (entry.tool_use_id.clone(), entry)
                 }));
-        }
-        for remove_id in &delta.cleared_tool_results_remove {
-            self.context_state.cleared_tool_results.remove(remove_id);
         }
         match delta.prompt_snapshot {
             StateUpdate::Unchanged => {}

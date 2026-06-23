@@ -144,7 +144,7 @@ impl AgentLoop {
          -> Result<()> {
             emit(AgentEvent::Checkpoint {
                 history: session.history.clone(),
-                context_state: session.context_state.clone(),
+                context_state: Box::new(session.context_state.clone()),
                 token_budget: session.token_budget.clone(),
                 latest_projection_id: projection_id,
                 packet_hash: hash,
@@ -987,18 +987,10 @@ fn build_tool_retention_snapshot(
     let mut policies = std::collections::BTreeMap::new();
 
     for descriptor in descriptors {
-        let read_only = descriptor.annotations.get_trusted_bool("read_only");
-        let idempotent = descriptor.annotations.get_trusted_bool("idempotent");
-        let clearable = read_only && matches!(descriptor.risk, crate::tool::RiskLevel::Low);
-        let retention = if clearable {
-            crate::context::ToolRetention {
-                clearable: true,
-                reconstructible: idempotent,
-                retain_errors: true,
-            }
-        } else {
-            crate::context::ToolRetention::conservative_default()
-        };
+        let retention = descriptor
+            .retention
+            .clone()
+            .unwrap_or_else(crate::context::ToolRetention::conservative_default);
         policies.insert(descriptor.id.clone(), retention);
     }
 

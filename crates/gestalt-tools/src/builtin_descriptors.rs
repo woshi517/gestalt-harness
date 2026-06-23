@@ -38,16 +38,22 @@ pub fn make_builtin_descriptor(
         });
     }
 
+    use gestalt_core::tool::RiskLevel;
+    let risk = tool.risk(&serde_json::Value::Null);
+    let clearable = read_only && matches!(risk, RiskLevel::Low);
+    let retention = gestalt_core::context::ToolRetention::from_clearable(idempotent, clearable);
+
     ToolDescriptor {
         id: canonical_id,
         description: tool.description().to_string(),
         schema: tool.schema(),
-        risk: tool.risk(&serde_json::Value::Null),
+        risk,
         annotations: ToolAnnotations::new(annotations),
         response_contract: ToolResponseContract {
             format: ProviderToolFormat::Text,
             shape_rules: None,
         },
         retry_policy,
+        retention: Some(retention),
     }
 }
