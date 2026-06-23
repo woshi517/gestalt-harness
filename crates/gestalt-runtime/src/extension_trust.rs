@@ -87,8 +87,12 @@ pub fn build_extension_tool_descriptor(
 
     let read_only = tool_decl.read_only.unwrap_or(false);
     let idempotent = tool_decl.idempotent.unwrap_or(false);
-    let clearable = read_only && matches!(risk, RiskLevel::Low);
-    let retention = gestalt_core::context::ToolRetention::from_clearable(idempotent, clearable);
+    let retention = if trusted_extension {
+        let clearable = read_only && matches!(risk, RiskLevel::Low);
+        gestalt_core::context::ToolRetention::from_clearable(idempotent, clearable)
+    } else {
+        gestalt_core::context::ToolRetention::conservative_default()
+    };
 
     ToolDescriptor {
         id: canonical_id,
@@ -175,6 +179,10 @@ mod tests {
         assert_eq!(read_only.source, AnnotationSource::ExtensionDeclared);
         assert_eq!(read_only.value, "true");
         assert!(descriptor.retry_policy.is_none());
+        assert_eq!(
+            descriptor.retention,
+            Some(gestalt_core::context::ToolRetention::conservative_default())
+        );
     }
 
     #[test]
@@ -187,6 +195,14 @@ mod tests {
         let read_only = descriptor.annotations.get("read_only").unwrap();
         assert_eq!(read_only.source, AnnotationSource::BuiltInTrusted);
         assert!(descriptor.retry_policy.is_some());
+        assert_eq!(
+            descriptor.retention,
+            Some(gestalt_core::context::ToolRetention {
+                clearable: true,
+                reconstructible: true,
+                retain_errors: true,
+            })
+        );
     }
 
     #[test]
@@ -197,5 +213,17 @@ mod tests {
             true,
         );
         assert!(descriptor.retry_policy.is_none());
+    }
+
+    #[test]
+    fn trusted_mutating_extension_is_not_clearable() {
+        let mut declaration = tool_decl("mutating", Some(false), Some(true));
+        declaration.risk = Some("high".to_string());
+        let descriptor =
+            build_extension_tool_descriptor(&manifest("trusted-ext"), &declaration, true);
+        assert_eq!(
+            descriptor.retention,
+            Some(gestalt_core::context::ToolRetention::conservative_default())
+        );
     }
 }

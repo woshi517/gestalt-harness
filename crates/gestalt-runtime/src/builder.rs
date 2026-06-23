@@ -146,15 +146,14 @@ impl AgentRuntimeBuilder {
                 .map_err(|err| RuntimeError::Builder(err.to_string()))?;
         }
 
-        if self.composition_hooks.is_some()
-            && self.assembler.is_none()
+        if self.assembler.is_none()
             && self
                 .middleware
                 .as_ref()
                 .is_some_and(|middleware| middleware.as_assembler().is_none())
         {
             return Err(RuntimeError::Builder(
-                "composition hooks require an assembler-backed context pipeline; use AgentRuntimeBuilder::assembler(...) or a pipeline that implements as_assembler()".to_string(),
+                "runtime requires an assembler-backed context pipeline; use AgentRuntimeBuilder::assembler(...) or a pipeline that implements as_assembler()".to_string(),
             ));
         }
 

@@ -73,6 +73,11 @@ struct ProjectionStateApplication {
     effective_cleared_results: Vec<gestalt_core::context::ClearedToolResultRef>,
 }
 
+struct LoadedCheckpoint {
+    checkpoint: gestalt_trace::CompactionCheckpoint,
+    migrated_ref: Option<gestalt_core::context::CompactionCheckpointRef>,
+}
+
 impl RuntimeContextPipeline {
     pub fn new(base: Arc<dyn ContextAssembler>) -> Self {
         Self {
@@ -127,17 +132,34 @@ impl ContextPipeline for RuntimeContextPipeline {
             emit,
         } = request;
         let artifacts_dir = self.checked_artifacts_dir(policy, artifacts_dir)?;
-        let active_checkpoint = self.load_checkpoint(
+        let loaded_checkpoint = self.load_checkpoint(
             context_state.active_checkpoint.as_ref(),
             artifacts_dir,
+            run_id,
         )?;
+        let previous_checkpoint = loaded_checkpoint
+            .as_ref()
+            .map(|loaded| loaded.checkpoint.clone());
+
         let ProjectionStateApplication {
             projected_history,
             checkpoint_update,
             removed_tool_results,
             effective_checkpoint,
             effective_cleared_results,
-        } = self.build_projected_history(history, context_state, active_checkpoint.as_ref(), session_id);
+        } = self.build_projected_history(
+            history,
+            context_state,
+            loaded_checkpoint.as_ref().map(|loaded| &loaded.checkpoint),
+            session_id,
+        );
+
+        let migrated_checkpoint_ref = loaded_checkpoint.and_then(|loaded| loaded.migrated_ref);
+        let checkpoint_update = match (checkpoint_update, migrated_checkpoint_ref.clone()) {
+            (StateUpdate::Unchanged, Some(migrated)) => StateUpdate::Set(migrated),
+            (update, _) => update,
+        };
+        let effective_checkpoint = migrated_checkpoint_ref.or(effective_checkpoint);
         let plain_projected_history = projected_history.to_session_messages(session_id);
         let plain_history: Vec<Message> = plain_projected_history
             .iter()
@@ -354,7 +376,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                 canonical_range, // Pass canonical range
                 history_range_hash.clone(),
                 self.base.version().to_string(),
-                active_checkpoint.as_ref(),
+                previous_checkpoint.as_ref(),
             )
             .await;
 
@@ -1030,7 +1052,8 @@ impl RuntimeContextPipeline {
         &self,
         checkpoint_ref: Option<&gestalt_core::context::CompactionCheckpointRef>,
         artifacts_dir: Option<&Path>,
-    ) -> std::result::Result<Option<gestalt_trace::CompactionCheckpoint>, gestalt_core::error::HarnessError>
+        current_run_id: &str,
+    ) -> std::result::Result<Option<LoadedCheckpoint>, gestalt_core::error::HarnessError>
     {
         let Some(checkpoint_ref) = checkpoint_ref else {
             return Ok(None);
@@ -1040,15 +1063,15 @@ impl RuntimeContextPipeline {
         };
 
         let resolved_file_path = if let Some(art) = &checkpoint_ref.artifact {
-            let base_dir = if art.run_id.is_empty() {
+            let base_dir = if art.run_id.is_empty() || art.run_id == current_run_id {
                 dir.to_path_buf()
             } else {
-                resolve_artifact_dir(dir, &art.run_id)
+                resolve_artifact_dir(dir, &art.run_id)?
             };
             if art.relative_path.is_empty() {
                 base_dir.join(format!("checkpoint_{}.json", checkpoint_ref.checkpoint_id))
             } else {
-                base_dir.join(&art.relative_path)
+                resolve_checkpoint_artifact_path(&base_dir, &art.relative_path)?
             }
         } else {
             dir.join(format!("checkpoint_{}.json", checkpoint_ref.checkpoint_id))
@@ -1060,17 +1083,26 @@ impl RuntimeContextPipeline {
             })
         })?;
 
+        let mut migrated_ref = None;
         if let Some(art) = &checkpoint_ref.artifact {
             let mut hasher = sha2::Sha256::new();
             hasher.update(content.as_bytes());
             let computed_artifact_hash = format!("{:x}", hasher.finalize());
             if computed_artifact_hash != art.content_hash {
-                return Err(gestalt_core::error::HarnessError::Context(
-                    gestalt_core::error::ContextError::PipelineFailed(format!(
-                        "checkpoint artifact content hash mismatch: expected {}, got {}",
-                        art.content_hash, computed_artifact_hash
-                    ))
-                ));
+                if art.content_hash == checkpoint_ref.source_hash {
+                    let mut updated_ref = checkpoint_ref.clone();
+                    if let Some(updated_artifact) = updated_ref.artifact.as_mut() {
+                        updated_artifact.content_hash = computed_artifact_hash;
+                    }
+                    migrated_ref = Some(updated_ref);
+                } else {
+                    return Err(gestalt_core::error::HarnessError::Context(
+                        gestalt_core::error::ContextError::PipelineFailed(format!(
+                            "checkpoint artifact content hash mismatch: expected {}, got {}",
+                            art.content_hash, computed_artifact_hash
+                        ))
+                    ));
+                }
             }
         }
 
@@ -1107,7 +1139,10 @@ impl RuntimeContextPipeline {
             ));
         }
 
-        Ok(Some(loaded))
+        Ok(Some(LoadedCheckpoint {
+            checkpoint: loaded,
+            migrated_ref,
+        }))
     }
 
     fn build_projected_history(
@@ -1332,7 +1367,10 @@ fn split_tail_messages(messages: &[Message]) -> (&[Message], &[Message]) {
     }
 }
 
-fn resolve_artifact_dir(current_dir: &Path, run_id: &str) -> std::path::PathBuf {
+fn resolve_artifact_dir(
+    current_dir: &Path,
+    run_id: &str,
+) -> std::result::Result<std::path::PathBuf, gestalt_core::error::HarnessError> {
     if let Some(run_dir) = current_dir.parent() {
         if let Some(runs_dir) = run_dir.parent() {
             if let Ok(entries) = std::fs::read_dir(runs_dir) {
@@ -1342,7 +1380,7 @@ fn resolve_artifact_dir(current_dir: &Path, run_id: &str) -> std::path::PathBuf 
                         if file_type.is_dir() {
                             let name = entry.file_name().to_string_lossy().into_owned();
                             if name == run_id || name.ends_with(&suffix) {
-                                return entry.path().join("artifacts");
+                                return Ok(entry.path().join("artifacts"));
                             }
                         }
                     }
@@ -1350,5 +1388,68 @@ fn resolve_artifact_dir(current_dir: &Path, run_id: &str) -> std::path::PathBuf 
             }
         }
     }
-    current_dir.to_path_buf()
+    Err(gestalt_core::error::HarnessError::Trace(
+        gestalt_core::TraceError::ReadFailed {
+            reason: format!("artifact run directory not found for run_id: {run_id}"),
+        },
+    ))
+}
+
+fn resolve_checkpoint_artifact_path(
+    base_dir: &Path,
+    relative_path: &str,
+) -> std::result::Result<std::path::PathBuf, gestalt_core::error::HarnessError> {
+    use std::path::Component;
+
+    let relative = Path::new(relative_path);
+    if relative.is_absolute() {
+        return Err(gestalt_core::error::HarnessError::Context(
+            gestalt_core::error::ContextError::PipelineFailed(format!(
+                "checkpoint artifact path must be relative: {relative_path}"
+            )),
+        ));
+    }
+
+    if relative.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(gestalt_core::error::HarnessError::Context(
+            gestalt_core::error::ContextError::PipelineFailed(format!(
+                "checkpoint artifact path escapes artifact directory: {relative_path}"
+            )),
+        ));
+    }
+
+    let canonical_base = base_dir.canonicalize().map_err(|err| {
+        gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
+            reason: format!(
+                "failed to canonicalize artifact directory {}: {}",
+                base_dir.display(),
+                err
+            ),
+        })
+    })?;
+    let resolved = base_dir.join(relative);
+    let canonical_resolved = resolved.canonicalize().map_err(|err| {
+        gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
+            reason: format!(
+                "failed to canonicalize checkpoint artifact path {}: {}",
+                resolved.display(),
+                err
+            ),
+        })
+    })?;
+
+    if !canonical_resolved.starts_with(&canonical_base) {
+        return Err(gestalt_core::error::HarnessError::Context(
+            gestalt_core::error::ContextError::PipelineFailed(format!(
+                "checkpoint artifact path escapes artifact directory: {relative_path}"
+            )),
+        ));
+    }
+
+    Ok(canonical_resolved)
 }

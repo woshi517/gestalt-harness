@@ -936,6 +936,264 @@ async fn missing_referenced_checkpoint_artifact() {
 }
 
 #[tokio::test]
+async fn legacy_checkpoint_artifact_hash_is_migrated() {
+    let pipeline = runtime_pipeline();
+    let history = canonical_history(vec![
+        Message::User {
+            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+        },
+    ]);
+
+    let checkpoint = CompactionCheckpoint {
+        checkpoint_id: "cp-legacy".to_string(),
+        history_range: HistoryRange::new(0, 2),
+        history_range_hash: {
+            let serialized = serde_json::to_string(&history[0..2]).unwrap();
+            let mut hasher = sha2::Sha256::new();
+            use sha2::Digest as _;
+            hasher.update(serialized.as_bytes());
+            format!("{:x}", hasher.finalize())
+        },
+        policy_version: "v1".to_string(),
+        compactor_model: "test".to_string(),
+        prompt_hash: "prompt-hash".to_string(),
+        created_at: chrono::Utc::now(),
+        goal: "goal".to_string(),
+        constraints: vec![],
+        completed_work: vec![],
+        in_progress_work: vec![],
+        blocked_items: vec![],
+        key_decisions: vec![],
+        next_steps: vec![],
+        critical_context: "critical".to_string(),
+        relevant_references: vec![],
+    };
+
+    let artifacts = temp_artifact_dir("legacy_hash_migration");
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
+
+    let mut state = gestalt_core::ContextProjectionState::default();
+    state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
+        checkpoint_id: checkpoint.checkpoint_id.clone(),
+        source_range: checkpoint.history_range,
+        source_hash: checkpoint.history_range_hash.clone(),
+        artifact: Some(gestalt_core::ArtifactRef {
+            run_id: String::new(),
+            relative_path: format!("checkpoint_{}.json", checkpoint.checkpoint_id),
+            content_hash: checkpoint.history_range_hash.clone(),
+        }),
+    });
+
+    let prepared = pipeline
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &state,
+            token_budget: &budget(1000, 32, 16),
+            provider: &ThresholdProvider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy(),
+            artifacts_dir: Some(artifacts.as_path()),
+            tool_retention: &retention_snapshot(),
+            emit: &mut |_| Ok(()),
+        })
+        .await
+        .unwrap();
+
+    let migrated = match prepared.state_delta.active_checkpoint {
+        StateUpdate::Set(ref checkpoint_ref) => checkpoint_ref,
+        _ => panic!("expected migrated checkpoint ref to be written back"),
+    };
+    assert_eq!(
+        migrated
+            .artifact
+            .as_ref()
+            .expect("migrated checkpoint should preserve artifact")
+            .content_hash,
+        compute_checkpoint_artifact_hash(&checkpoint)
+    );
+}
+
+#[tokio::test]
+async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
+    let pipeline = runtime_pipeline();
+    let history = canonical_history(vec![
+        Message::User {
+            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+        },
+    ]);
+
+    let checkpoint = CompactionCheckpoint {
+        checkpoint_id: "cp-path-escape".to_string(),
+        history_range: HistoryRange::new(0, 2),
+        history_range_hash: {
+            let serialized = serde_json::to_string(&history[0..2]).unwrap();
+            let mut hasher = sha2::Sha256::new();
+            use sha2::Digest as _;
+            hasher.update(serialized.as_bytes());
+            format!("{:x}", hasher.finalize())
+        },
+        policy_version: "v1".to_string(),
+        compactor_model: "test".to_string(),
+        prompt_hash: "prompt-hash".to_string(),
+        created_at: chrono::Utc::now(),
+        goal: "goal".to_string(),
+        constraints: vec![],
+        completed_work: vec![],
+        in_progress_work: vec![],
+        blocked_items: vec![],
+        key_decisions: vec![],
+        next_steps: vec![],
+        critical_context: "critical".to_string(),
+        relevant_references: vec![],
+    };
+
+    let artifacts = temp_artifact_dir("path_escape");
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
+
+    let mut state = gestalt_core::ContextProjectionState::default();
+    state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
+        checkpoint_id: checkpoint.checkpoint_id.clone(),
+        source_range: checkpoint.history_range,
+        source_hash: checkpoint.history_range_hash.clone(),
+        artifact: Some(gestalt_core::ArtifactRef {
+            run_id: String::new(),
+            relative_path: "../checkpoint_cp-path-escape.json".to_string(),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
+        }),
+    });
+
+    let res = pipeline
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &state,
+            token_budget: &budget(1000, 32, 16),
+            provider: &ThresholdProvider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy(),
+            artifacts_dir: Some(artifacts.as_path()),
+            tool_retention: &retention_snapshot(),
+            emit: &mut |_| Ok(()),
+        })
+        .await;
+
+    assert!(res.is_err());
+    let err = res.unwrap_err().to_string();
+    assert!(
+        err.contains("escapes artifact directory")
+            || err.contains("must be relative")
+    );
+}
+
+#[tokio::test]
+async fn missing_checkpoint_run_directory_is_an_error() {
+    let pipeline = runtime_pipeline();
+    let history = canonical_history(vec![
+        Message::User {
+            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+        },
+    ]);
+
+    let checkpoint = CompactionCheckpoint {
+        checkpoint_id: "cp-missing-run".to_string(),
+        history_range: HistoryRange::new(0, 2),
+        history_range_hash: {
+            let serialized = serde_json::to_string(&history[0..2]).unwrap();
+            let mut hasher = sha2::Sha256::new();
+            use sha2::Digest as _;
+            hasher.update(serialized.as_bytes());
+            format!("{:x}", hasher.finalize())
+        },
+        policy_version: "v1".to_string(),
+        compactor_model: "test".to_string(),
+        prompt_hash: "prompt-hash".to_string(),
+        created_at: chrono::Utc::now(),
+        goal: "goal".to_string(),
+        constraints: vec![],
+        completed_work: vec![],
+        in_progress_work: vec![],
+        blocked_items: vec![],
+        key_decisions: vec![],
+        next_steps: vec![],
+        critical_context: "critical".to_string(),
+        relevant_references: vec![],
+    };
+
+    let artifacts = temp_artifact_dir("missing_run_dir");
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
+
+    let mut state = gestalt_core::ContextProjectionState::default();
+    state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
+        checkpoint_id: checkpoint.checkpoint_id.clone(),
+        source_range: checkpoint.history_range,
+        source_hash: checkpoint.history_range_hash.clone(),
+        artifact: Some(gestalt_core::ArtifactRef {
+            run_id: "nonexistent-run".to_string(),
+            relative_path: format!("checkpoint_{}.json", checkpoint.checkpoint_id),
+            content_hash: compute_checkpoint_artifact_hash(&checkpoint),
+        }),
+    });
+
+    let res = pipeline
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &state,
+            token_budget: &budget(1000, 32, 16),
+            provider: &ThresholdProvider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy(),
+            artifacts_dir: Some(artifacts.as_path()),
+            tool_retention: &retention_snapshot(),
+            emit: &mut |_| Ok(()),
+        })
+        .await;
+
+    assert!(res.is_err());
+    assert!(res
+        .unwrap_err()
+        .to_string()
+        .contains("artifact run directory not found"));
+}
+
+#[tokio::test]
 async fn second_compaction_maps_projected_range_to_canonical_range() {
     let pipeline = RuntimeContextPipeline {
         base: Arc::new(ContextMessageAssembler::new("pipeline-v1")

@@ -280,7 +280,7 @@ impl AgentRuntime {
             let patch_store = Arc::new(Mutex::new(Vec::new()));
             let Some(assembler) = middleware.as_assembler() else {
                 return Err(RuntimeError::Builder(
-                    "composition hooks require an assembler-backed context pipeline; use AgentRuntimeBuilder::assembler(...) or a pipeline that implements as_assembler()".to_string(),
+                    "runtime requires an assembler-backed context pipeline; use AgentRuntimeBuilder::assembler(...) or a pipeline that implements as_assembler()".to_string(),
                 ));
             };
             middleware = Arc::new(RuntimeContextPipeline {
@@ -594,4 +594,3 @@ impl AgentRuntime {
         Ok(ack)
     }
 }
-

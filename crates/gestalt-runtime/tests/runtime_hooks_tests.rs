@@ -371,7 +371,7 @@ fn test_composition_hooks_require_assembler_backed_pipeline() {
 
     assert!(err
         .to_string()
-        .contains("composition hooks require an assembler-backed context pipeline"));
+        .contains("runtime requires an assembler-backed context pipeline"));
 }
 
 #[tokio::test]
