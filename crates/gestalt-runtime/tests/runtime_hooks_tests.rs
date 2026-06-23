@@ -1,6 +1,9 @@
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{ContextPipeline, TokenBudget},
@@ -142,13 +145,24 @@ impl ToolCatalog for MockToolCatalog {
 
 struct MockContextPipeline;
 impl ContextPipeline for MockContextPipeline {
-    fn process(&self, _history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
+    fn process(
+        &self,
+        _history: &[gestalt_core::SessionMessage],
+        _budget: &TokenBudget,
+    ) -> Vec<Message> {
         vec![Message::System {
             content: "base system instructions".to_string(),
         }]
     }
     fn version(&self) -> &str {
         "base-v1"
+    }
+
+    fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
+        Some(Arc::new(
+            ContextMessageAssembler::new("pipeline-v1")
+                .with_prompt_override("base system instructions"),
+        ))
     }
 }
 
@@ -303,6 +317,61 @@ async fn test_hooks_context_injection() {
     assert!(observed
         .iter()
         .any(|ev| matches!(ev, AgentEvent::ContextBuildStarted)));
+}
+
+#[test]
+fn test_composition_hooks_require_assembler_backed_pipeline() {
+    struct LegacyOnlyContextPipeline;
+
+    impl ContextPipeline for LegacyOnlyContextPipeline {
+        fn process(
+            &self,
+            _history: &[gestalt_core::SessionMessage],
+            _budget: &TokenBudget,
+        ) -> Vec<Message> {
+            vec![Message::System {
+                content: "legacy-only pipeline".to_string(),
+            }]
+        }
+
+        fn version(&self) -> &str {
+            "legacy-v1"
+        }
+    }
+
+    let hooks = Arc::new(TestCompositionHooks {
+        add_context: Mutex::new(None),
+        block_reason: Mutex::new(None),
+        policy_outcome: Mutex::new(None),
+        after_context_outcome: Mutex::new(None),
+        events: Mutex::new(Vec::new()),
+    });
+
+    let result = AgentRuntimeBuilder::new()
+        .provider(Arc::new(MockProvider {
+            last_request: Arc::new(Mutex::new(None)),
+            stream_events: Mutex::new(vec![vec![AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            }]]),
+        }))
+        .tools(Arc::new(MockToolCatalog {
+            tools: HashMap::new(),
+        }))
+        .middleware(Arc::new(LegacyOnlyContextPipeline))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(config_without_context_management())
+        .composition_hooks(hooks)
+        .build();
+
+    let err = match result {
+        Ok(_) => panic!("legacy-only pipelines must not be wrapped under composition hooks"),
+        Err(err) => err,
+    };
+
+    assert!(err
+        .to_string()
+        .contains("runtime requires an assembler-backed context pipeline"));
 }
 
 #[tokio::test]

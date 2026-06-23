@@ -134,15 +134,19 @@ impl AgentLoop {
 
         let mut last_packet_hash: Option<String> = None;
         let mut last_prompt_source: Option<String> = None;
+        let mut last_projection_id: Option<String> = None;
 
         let emit_checkpoint = |emit: &mut dyn FnMut(AgentEvent) -> Result<()>,
                                session: &Session,
+                               projection_id: Option<String>,
                                hash: Option<String>,
                                ps: Option<String>|
          -> Result<()> {
             emit(AgentEvent::Checkpoint {
                 history: session.history.clone(),
+                context_state: Box::new(session.context_state.clone()),
                 token_budget: session.token_budget.clone(),
+                latest_projection_id: projection_id,
                 packet_hash: hash,
                 prompt_source: ps,
             })
@@ -151,6 +155,7 @@ impl AgentLoop {
         emit_checkpoint(
             &mut emit,
             session,
+            last_projection_id.clone(),
             last_packet_hash.clone(),
             last_prompt_source.clone(),
         )?;
@@ -183,6 +188,7 @@ impl AgentLoop {
                 emit_checkpoint(
                     &mut emit,
                     session,
+                    last_projection_id.clone(),
                     last_packet_hash.clone(),
                     last_prompt_source.clone(),
                 )?;
@@ -195,6 +201,7 @@ impl AgentLoop {
                     cancel_token,
                     &mut last_packet_hash,
                     &mut last_prompt_source,
+                    &mut last_projection_id,
                     turns,
                     sink,
                 )
@@ -222,6 +229,7 @@ impl AgentLoop {
                 emit_checkpoint(
                     &mut emit,
                     session,
+                    last_projection_id.clone(),
                     last_packet_hash.clone(),
                     last_prompt_source.clone(),
                 )?;
@@ -310,6 +318,7 @@ impl AgentLoop {
         cancel_token: &crate::cancel::CancelToken,
         last_packet_hash: &mut Option<String>,
         last_prompt_source: &mut Option<String>,
+        last_projection_id: &mut Option<String>,
         turn_id: usize,
         sink: Option<&dyn crate::trace::TraceSink>,
     ) -> Result<ProviderRequest>
@@ -394,6 +403,7 @@ impl AgentLoop {
         let artifacts_dir = sink.and_then(|s| s.artifacts_dir());
         let mut emit_wrapper = |ev| emit(ev);
         let descriptors = self.executor.tools().descriptors();
+        let tool_retention = build_tool_retention_snapshot(&descriptors);
         let (tools, tool_name_map) = self.provider.adapt_tools(&descriptors);
         let request_template = ProviderRequest {
             model: model.clone(),
@@ -410,22 +420,27 @@ impl AgentLoop {
             text_verbosity: session.config.text_verbosity,
         };
 
-        let packet = self
+        let prepared = self
             .middleware
-            .prepare_context(
-                &session.history,
-                &session.token_budget,
-                self.provider.as_ref(),
-                &request_template,
-                &model,
-                &session.id,
+            .prepare_context(crate::context::ContextPreparationRequest {
+                history: &session.history,
+                context_state: &session.context_state,
+                token_budget: &session.token_budget,
+                provider: self.provider.as_ref(),
+                request_template: &request_template,
+                model: &model,
+                session_id: &session.id,
                 run_id,
                 turn_id,
-                &session.context_policy,
+                policy: &session.context_policy,
                 artifacts_dir,
-                &mut emit_wrapper,
-            )
+                tool_retention: &tool_retention,
+                emit: &mut emit_wrapper,
+            })
             .await?;
+        session.apply_context_state_delta(prepared.state_delta.clone());
+        let packet = prepared.packet;
+        *last_projection_id = Some(prepared.manifest.manifest_id);
 
         for hook in &self.hooks.context_hooks {
             let hook_res = crate::hook::HookDispatcher::dispatch(
@@ -648,7 +663,7 @@ impl AgentLoop {
         let assistant_turn = accumulator.finish()?;
         let tool_calls = assistant_turn.tool_calls.clone();
         let assistant_msg = assistant_turn.into_message();
-        session.history.push(assistant_msg.clone());
+        session.append_message(assistant_msg.clone());
 
         emit(AgentEvent::AssistantMessageCommitted {
             message: assistant_msg,
@@ -815,7 +830,7 @@ impl AgentLoop {
             if let Some(artifact) = result.artifact.as_ref() {
                 artifacts.push(artifact.path.display().to_string());
             }
-            session.history.push(Message::ToolResult {
+            session.append_message(Message::ToolResult {
                 tool_use_id: id,
                 content: result.content,
                 is_error: result.is_error,
@@ -953,7 +968,7 @@ impl AgentLoop {
                     injected_at_turn: msg.injected_at_turn,
                 }),
             };
-            session.history.push(history_msg);
+            session.append_message(history_msg);
 
             emit(AgentEvent::SessionMessageInjected {
                 message: msg.clone(),
@@ -963,5 +978,29 @@ impl AgentLoop {
         emit(AgentEvent::SessionMessageQueueDrained { count })?;
 
         Ok(count)
+    }
+}
+
+fn build_tool_retention_snapshot(
+    descriptors: &[crate::tool_descriptor::ToolDescriptor],
+) -> crate::context::ToolRetentionRegistrySnapshot {
+    let mut policies = std::collections::BTreeMap::new();
+
+    for descriptor in descriptors {
+        let retention = descriptor
+            .retention
+            .clone()
+            .unwrap_or_else(crate::context::ToolRetention::conservative_default);
+        policies.insert(descriptor.id.clone(), retention);
+    }
+
+    let serialized = serde_json::to_string(&policies).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(serialized.as_bytes());
+    let fingerprint = format!("{:x}", hasher.finalize());
+
+    crate::context::ToolRetentionRegistrySnapshot {
+        policies,
+        fingerprint,
     }
 }

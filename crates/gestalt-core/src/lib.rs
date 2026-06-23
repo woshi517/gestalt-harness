@@ -47,9 +47,15 @@ pub use approval::{
 };
 pub use cancel::CancelToken;
 pub use context::{
-    CheckpointRef, ClearAction, ContextManagementPolicy, ContextPacket, ContextPipeline,
-    ContextStability, DurabilityMode, HistoryRange, PromptAssemblyStrategy, PromptCachePlan,
-    PromptSegment, PromptSegmentKind, PromptSnapshot, TokenBudget,
+    ArtifactRef, CheckpointRef, ClearAction, ClearedToolResultRef, CompactionCheckpointRef,
+    ContextAssembler, ContextEpoch, ContextManagementPolicy, ContextOmission, ContextPacket,
+    ContextPipeline, ContextPlan, ContextPreparationRequest, ContextProjectionState,
+    ContextSourceRef, ContextStability, ContextStateDelta, DurabilityMode, HistoryRange,
+    MessageId, MessageNamespace, PreparedContext, ProjectedHistory, ProjectedHistoryItem,
+    ProjectionManifest, ProjectionMessageMetadata, PromptAssemblyStrategy, PromptCachePlan,
+    PromptSegment, PromptSegmentKind, PromptSnapshot, PromptSnapshotRef, SessionId,
+    SessionMessage, StateUpdate, TokenBudget, ToolRetention, ToolRetentionRegistrySnapshot,
+    ToolUseId,
 };
 pub use error::{
     ApprovalError, ConfigError, ContextError, HarnessError, PolicyError, ProviderError, Result,

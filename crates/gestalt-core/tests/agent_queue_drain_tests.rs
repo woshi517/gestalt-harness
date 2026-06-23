@@ -1,7 +1,7 @@
 use gestalt_core::{
     approval::AutoApprovalProvider,
     cancel::CancelToken,
-    context::{ContextPipeline, TokenBudget},
+    context::{ContextPipeline, SessionMessage, TokenBudget},
     event::{AgentEvent, StopReason},
     hook::{HookRegistry, TraceHook},
     message::{ContentBlock, Message},
@@ -66,8 +66,8 @@ impl Provider for MockProvider {
 
 struct MockContextPipeline;
 impl ContextPipeline for MockContextPipeline {
-    fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
-        history.to_vec()
+    fn process(&self, history: &[SessionMessage], _budget: &TokenBudget) -> Vec<Message> {
+        history.iter().map(|entry| entry.message.clone()).collect()
     }
     fn version(&self) -> &str {
         "mock"
@@ -282,7 +282,7 @@ async fn test_agent_loop_drain_single_message() {
 
     // History should contain the injected message
     let user_injected = session.history.iter().any(|m| {
-        if let Message::User { content, metadata } = m {
+        if let Message::User { content, metadata } = &m.message {
             if let ContentBlock::Text { text } = &content[0] {
                 return text == "Stop and report"
                     && metadata.as_ref().and_then(|value| value.source)
@@ -360,7 +360,7 @@ async fn test_agent_loop_does_not_drain_messages_after_terminal_stop() {
         .unwrap();
 
     assert!(!session.history.iter().any(|message| {
-        matches!(message, Message::User { content, .. }
+        matches!(&message.message, Message::User { content, .. }
             if matches!(&content[0], ContentBlock::Text { text } if text == "Late operator correction"))
     }));
     assert_eq!(queue.len().await.unwrap(), 1);

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     cancel::CancelToken,
-    context::{ContextPipeline, TokenBudget},
+    context::{ContextPipeline, SessionMessage, TokenBudget},
     event::{AgentEvent, StopReason},
     hook::{ContextHook, HookDispatcher, HookRegistry, NextTurnHook, ToolHook},
     message::Message,
@@ -66,8 +66,8 @@ impl Provider for MockProvider {
 
 struct MockContextPipeline;
 impl ContextPipeline for MockContextPipeline {
-    fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
-        history.to_vec()
+    fn process(&self, history: &[SessionMessage], _budget: &TokenBudget) -> Vec<Message> {
+        history.iter().map(|entry| entry.message.clone()).collect()
     }
     fn version(&self) -> &str {
         "mock"

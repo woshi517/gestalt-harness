@@ -32,6 +32,7 @@ All six methods are `async` and return `gestalt_runtime::error::Result`. The fir
 pub struct BeforeContextBuildCtx {
     pub session_id: String,
     pub history: Vec<Message>,
+    pub artifact_dir: Option<PathBuf>,
 }
 ```
 
@@ -39,7 +40,7 @@ pub struct BeforeContextBuildCtx {
 
 **What happens:** The hook receives the raw session history. It can inject system messages (`AddContext`) that will be included in the prompt, or abort the turn (`Block`).
 
-**Returning `AddContext`:** The message is pushed into the `patch_store` (a `Mutex<Vec<Message>>`). The `RuntimeContextPipeline` then injects these messages into the assembled context packet after the first `Message::System`.
+**Returning `AddContext`:** The message is pushed into the `patch_store` (an `Arc<Mutex<Vec<ContextPatch>>>`). The `RuntimeContextPipeline` then injects these messages into the assembled context packet after the first `Message::System`.
 
 ### `after_context_build`
 
@@ -48,6 +49,7 @@ pub struct AfterContextBuildCtx {
     pub session_id: String,
     pub history: Vec<Message>,
     pub packet: ContextPacket,
+    pub artifact_dir: Option<PathBuf>,
 }
 ```
 
@@ -345,7 +347,7 @@ impl CompositionHooks for SafetyHook {
 let runtime = AgentRuntimeBuilder::new()
     .provider(provider)
     .tools(tools)
-    .middleware(middleware)
+    .assembler(assembler)
     .policy(policy)
     .approval(approval)
     .composition_hooks(Arc::new(SafetyHook {

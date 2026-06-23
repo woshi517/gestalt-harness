@@ -1242,7 +1242,7 @@ async fn test_process_extension_negotiated_protocol_fingerprint() {
     impl gestalt_core::context::ContextPipeline for FPMiddleware {
         fn process(
             &self,
-            _history: &[gestalt_core::message::Message],
+            _history: &[gestalt_core::SessionMessage],
             _budget: &gestalt_core::context::TokenBudget,
         ) -> Vec<gestalt_core::message::Message> {
             vec![]

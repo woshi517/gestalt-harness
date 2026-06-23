@@ -1,6 +1,6 @@
 use gestalt_core::event::AgentEvent;
 use gestalt_core::{
-    context::{ContextPipeline, TokenBudget},
+    context::{ContextPipeline, SessionMessage, TokenBudget},
     message::Message,
     policy::{PolicyEngine, PolicyRequest},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
@@ -254,8 +254,8 @@ impl Provider for ProgrammaticMockProvider {
 
 struct ProgrammaticMockContextPipeline;
 impl ContextPipeline for ProgrammaticMockContextPipeline {
-    fn process(&self, history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
-        history.to_vec()
+    fn process(&self, history: &[SessionMessage], _budget: &TokenBudget) -> Vec<Message> {
+        history.iter().map(|entry| entry.message.clone()).collect()
     }
     fn version(&self) -> &str {
         "mock"
@@ -805,7 +805,7 @@ async fn test_persisted_steering_replay_and_resume() {
     assert_eq!(analysis.run_id, run_id);
     assert!(!analysis.history.is_empty());
     let last_msg = &analysis.history[0];
-    match last_msg {
+    match &last_msg.message {
         Message::User { content, .. } => match &content[0] {
             gestalt_core::message::ContentBlock::Text { text } => {
                 assert_eq!(text, "Steered message content");

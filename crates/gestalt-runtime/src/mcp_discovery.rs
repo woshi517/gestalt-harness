@@ -149,6 +149,11 @@ impl Tool for SearchToolsTool {
                 shape_rules: None,
             },
             retry_policy: None,
+            retention: Some(gestalt_core::context::ToolRetention {
+                clearable: true,
+                reconstructible: true,
+                retain_errors: true,
+            }),
         }
     }
 
@@ -269,6 +274,11 @@ impl Tool for GetToolDetailsTool {
                 shape_rules: None,
             },
             retry_policy: None,
+            retention: Some(gestalt_core::context::ToolRetention {
+                clearable: true,
+                reconstructible: true,
+                retain_errors: true,
+            }),
         }
     }
 

@@ -1,8 +1,9 @@
-use crate::message::Message;
+use crate::message::{Message, MessageMetadata};
 use crate::ConfigError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 fn sha256_hash(data: &str) -> String {
     let mut hasher = Sha256::new();
@@ -184,13 +185,327 @@ pub struct ContextOmission {
     pub authority: Option<String>,
 }
 
+pub type SessionId = String;
+pub type MessageNamespace = String;
+pub type ContextEpoch = u64;
+pub type ToolUseId = String;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default)]
+pub struct MessageId {
+    pub origin_session_id: SessionId,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub origin_message_namespace: MessageNamespace,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionMessage {
+    pub id: MessageId,
+    pub message: Message,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<MessageMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectedHistory {
+    pub items: Vec<ProjectedHistoryItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProjectedHistoryItem {
+    Canonical {
+        message_id: MessageId,
+        canonical_index: usize,
+        message: Message,
+    },
+    Checkpoint {
+        checkpoint_ref: CompactionCheckpointRef,
+        source_range: HistoryRange,
+        message: Message,
+    },
+    Tombstone {
+        source_message_id: MessageId,
+        canonical_index: usize,
+        message: Message,
+    },
+}
+
+impl ProjectedHistoryItem {
+    pub fn message(&self) -> &Message {
+        match self {
+            Self::Canonical { message, .. } => message,
+            Self::Checkpoint { message, .. } => message,
+            Self::Tombstone { message, .. } => message,
+        }
+    }
+
+    pub fn to_session_message(&self, session_id: &str) -> SessionMessage {
+        match self {
+            Self::Canonical { message_id, message, .. } => SessionMessage {
+                id: message_id.clone(),
+                message: message.clone(),
+                metadata: None,
+            },
+            Self::Tombstone { source_message_id, message, .. } => SessionMessage {
+                id: source_message_id.clone(),
+                message: message.clone(),
+                metadata: None,
+            },
+            Self::Checkpoint { checkpoint_ref, message, .. } => SessionMessage {
+                id: MessageId {
+                    origin_session_id: session_id.to_string(),
+                    origin_message_namespace: format!("checkpoint:{}", checkpoint_ref.checkpoint_id),
+                    sequence: checkpoint_ref.source_range.end as u64,
+                },
+                message: message.clone(),
+                metadata: None,
+            },
+        }
+    }
+}
+
+impl ProjectedHistory {
+    pub fn map_projected_range_to_canonical(&self, range: HistoryRange) -> HistoryRange {
+        let first_item = &self.items[range.start];
+        let last_item = &self.items[range.end - 1];
+
+        let canonical_start = match first_item {
+            ProjectedHistoryItem::Canonical { canonical_index, .. } => *canonical_index,
+            ProjectedHistoryItem::Tombstone { canonical_index, .. } => *canonical_index,
+            ProjectedHistoryItem::Checkpoint { source_range, .. } => source_range.start,
+        };
+
+        let canonical_end = match last_item {
+            ProjectedHistoryItem::Canonical { canonical_index, .. } => canonical_index + 1,
+            ProjectedHistoryItem::Tombstone { canonical_index, .. } => canonical_index + 1,
+            ProjectedHistoryItem::Checkpoint { source_range, .. } => source_range.end,
+        };
+
+        HistoryRange::new(canonical_start, canonical_end)
+    }
+
+    pub fn to_session_messages(&self, session_id: &str) -> Vec<SessionMessage> {
+        self.items
+            .iter()
+            .map(|item| item.to_session_message(session_id))
+            .collect()
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ArtifactRef {
+    #[serde(default)]
+    pub run_id: String,
+    #[serde(alias = "id", default)]
+    pub relative_path: String,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CompactionCheckpointRef {
+    pub checkpoint_id: String,
+    pub source_range: HistoryRange,
+    pub source_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ArtifactRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PromptSnapshotRef {
+    pub snapshot_hash: String,
+    pub prefix_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ArtifactRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ClearedToolResultRef {
+    pub tool_use_id: ToolUseId,
+    pub message_id: MessageId,
+    pub output_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ArtifactRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ContextProjectionState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_checkpoint: Option<CompactionCheckpointRef>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cleared_tool_results: BTreeMap<ToolUseId, ClearedToolResultRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_snapshot: Option<PromptSnapshotRef>,
+    #[serde(default)]
+    pub context_epoch: ContextEpoch,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StateUpdate<T> {
+    #[default]
+    Unchanged,
+    Set(T),
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ContextStateDelta {
+    #[serde(default, skip_serializing_if = "is_unchanged")]
+    pub active_checkpoint: StateUpdate<CompactionCheckpointRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cleared_tool_results: Vec<ClearedToolResultRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cleared_tool_results_remove: Vec<ToolUseId>,
+    #[serde(default, skip_serializing_if = "is_unchanged")]
+    pub prompt_snapshot: StateUpdate<PromptSnapshotRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_epoch: Option<ContextEpoch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_fingerprint: Option<String>,
+}
+
+fn is_unchanged<T>(update: &StateUpdate<T>) -> bool {
+    matches!(update, StateUpdate::Unchanged)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolRetention {
+    pub clearable: bool,
+    pub reconstructible: bool,
+    pub retain_errors: bool,
+}
+
+impl ToolRetention {
+    #[must_use]
+    pub const fn conservative_default() -> Self {
+        Self {
+            clearable: false,
+            reconstructible: false,
+            retain_errors: true,
+        }
+    }
+
+    /// Derive a tool's retention policy from its trust annotations.
+    ///
+    /// `clearable` is the caller's decision that a result may be summarised
+    /// away during context pressure (typically low-risk, read-only tools);
+    /// `reconstructible` tracks whether the result can be cheaply regenerated
+    /// (idempotent tools). Everything else falls back to the conservative
+    /// default so that side-effecting results are never silently dropped.
+    #[must_use]
+    pub fn from_clearable(idempotent: bool, clearable: bool) -> Self {
+        if clearable {
+            Self {
+                clearable: true,
+                reconstructible: idempotent,
+                retain_errors: true,
+            }
+        } else {
+            Self::conservative_default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ToolRetentionRegistrySnapshot {
+    pub policies: BTreeMap<crate::tool_descriptor::CanonicalToolId, ToolRetention>,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ProjectionMessageMetadata {
+    pub message_id: MessageId,
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_index: Option<usize>,
+    #[serde(default)]
+    pub is_tombstone: bool,
+    #[serde(default)]
+    pub is_checkpoint: bool,
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ProjectionManifest {
+    pub manifest_id: String,
+    pub session_id: SessionId,
+    pub run_id: String,
+    pub turn_id: usize,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub policy: ContextManagementPolicy,
+    pub token_estimate: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stable_prefix_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_ref: Option<CompactionCheckpointRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cleared_results: Vec<ClearedToolResultRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub omitted_messages: Vec<MessageId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages_metadata: Vec<ProjectionMessageMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_fingerprint: Option<String>,
+}
+
+pub struct ContextPreparationRequest<'a> {
+    pub history: &'a [SessionMessage],
+    pub context_state: &'a ContextProjectionState,
+    pub token_budget: &'a TokenBudget,
+    pub provider: &'a dyn crate::provider::Provider,
+    pub request_template: &'a crate::provider::ProviderRequest,
+    pub model: &'a str,
+    pub session_id: &'a str,
+    pub run_id: &'a str,
+    pub turn_id: usize,
+    pub policy: &'a ContextManagementPolicy,
+    pub artifacts_dir: Option<&'a std::path::Path>,
+    pub tool_retention: &'a ToolRetentionRegistrySnapshot,
+    pub emit: &'a mut (dyn FnMut(crate::event::AgentEvent) -> Result<(), crate::error::HarnessError>
+                  + Send),
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedContext {
+    pub packet: ContextPacket,
+    pub manifest: ProjectionManifest,
+    pub state_delta: ContextStateDelta,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContextPlan {
+    pub history: Vec<SessionMessage>,
+    pub omissions: Vec<ContextOmission>,
+    pub budget_exhausted: bool,
+}
+
+pub trait ContextAssembler: Send + Sync {
+    fn version(&self) -> &str;
+
+    fn system_messages(&self) -> Vec<Message>;
+
+    fn assemble(
+        &self,
+        plan: &ContextPlan,
+    ) -> std::result::Result<ContextPacket, crate::error::ContextError>;
+}
+
 #[async_trait::async_trait]
 pub trait ContextPipeline: Send + Sync {
-    fn process(&self, history: &[Message], budget: &TokenBudget) -> Vec<Message>;
+    fn process(&self, history: &[SessionMessage], _budget: &TokenBudget) -> Vec<Message> {
+        history.iter().map(|entry| entry.message.clone()).collect()
+    }
 
     fn version(&self) -> &str;
 
-    fn build_packet(&self, history: &[Message], budget: &TokenBudget) -> ContextPacket {
+    fn as_assembler(&self) -> Option<std::sync::Arc<dyn ContextAssembler>> {
+        None
+    }
+
+    fn build_packet(&self, history: &[SessionMessage], budget: &TokenBudget) -> ContextPacket {
         let messages = self.process(history, budget);
         let version = self.version().to_string();
         let serialized_messages = serde_json::to_string(&messages).unwrap_or_default();
@@ -225,20 +540,32 @@ pub trait ContextPipeline: Send + Sync {
 
     async fn prepare_context(
         &self,
-        history: &[Message],
-        budget: &TokenBudget,
-        _provider: &dyn crate::provider::Provider,
-        _request_template: &crate::provider::ProviderRequest,
-        _model: &str,
-        _session_id: &str,
-        _run_id: &str,
-        _turn_id: usize,
-        _policy: &ContextManagementPolicy,
-        _artifacts_dir: Option<&std::path::Path>,
-        _emit: &mut (dyn FnMut(crate::event::AgentEvent) -> Result<(), crate::error::HarnessError>
-                  + Send),
-    ) -> Result<ContextPacket, crate::error::HarnessError> {
-        Ok(self.build_packet(history, budget))
+        request: ContextPreparationRequest<'_>,
+    ) -> Result<PreparedContext, crate::error::HarnessError> {
+        Ok(PreparedContext {
+            packet: self.build_packet(request.history, request.token_budget),
+            manifest: ProjectionManifest {
+                manifest_id: format!("manifest-{}-{}", request.session_id, request.turn_id),
+                session_id: request.session_id.to_string(),
+                run_id: request.run_id.to_string(),
+                turn_id: request.turn_id,
+                timestamp: chrono::Utc::now(),
+                policy: request.policy.clone(),
+                token_estimate: 0,
+                stable_prefix_hash: None,
+                checkpoint_ref: request.context_state.active_checkpoint.clone(),
+                cleared_results: request
+                    .context_state
+                    .cleared_tool_results
+                    .values()
+                    .cloned()
+                    .collect(),
+                omitted_messages: Vec::new(),
+                messages_metadata: Vec::new(),
+                retention_fingerprint: Some(request.tool_retention.fingerprint.clone()),
+            },
+            state_delta: ContextStateDelta::default(),
+        })
     }
 }
 
@@ -279,7 +606,7 @@ impl TokenBudget {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct HistoryRange {
     pub start: usize,
     pub end: usize,
@@ -313,10 +640,13 @@ pub struct CheckpointRef {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClearAction {
     pub message_index: usize,
+    pub message_id: MessageId,
     pub tool_use_id: String,
     pub tool_name: String,
     pub original_tokens: usize,
     pub output_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ArtifactRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]

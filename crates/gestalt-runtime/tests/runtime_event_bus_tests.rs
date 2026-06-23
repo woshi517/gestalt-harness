@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::sync::Arc;
 
 use gestalt_core::{
@@ -90,11 +92,19 @@ impl ToolCatalog for MockToolCatalog {
 
 struct MockContextPipeline;
 impl ContextPipeline for MockContextPipeline {
-    fn process(&self, _history: &[Message], _budget: &TokenBudget) -> Vec<Message> {
+    fn process(
+        &self,
+        _history: &[gestalt_core::SessionMessage],
+        _budget: &TokenBudget,
+    ) -> Vec<Message> {
         Vec::new()
     }
     fn version(&self) -> &str {
         "mock-v1"
+    }
+
+    fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
+        Some(Arc::new(gestalt_context::ContextMessageAssembler::new("pipeline-v1")))
     }
 }
 

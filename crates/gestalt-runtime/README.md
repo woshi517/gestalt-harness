@@ -58,7 +58,7 @@ use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
 let runtime = AgentRuntimeBuilder::new()
     .provider(provider)      // Arc<dyn Provider>
     .tools(tools)            // Arc<dyn ToolCatalog>
-    .middleware(middleware)  // Arc<dyn ContextPipeline>
+    .assembler(assembler)    // Arc<dyn ContextAssembler>
     .policy(policy)          // Arc<dyn PolicyEngine>
     .approval(approval)      // Arc<dyn ApprovalProvider>
     .config(runtime_config)  // RuntimeConfig
@@ -104,6 +104,7 @@ pub struct AgentRuntimeBuilder {
     pub provider: Option<Arc<dyn Provider>>,
     pub tools: Option<Arc<dyn ToolCatalog>>,
     pub middleware: Option<Arc<dyn ContextPipeline>>,
+    pub assembler: Option<Arc<dyn ContextAssembler>>,
     pub policy: Option<Arc<dyn PolicyEngine>>,
     pub approval: Option<Arc<dyn ApprovalProvider>>,
     pub trace_sink: Option<Arc<dyn TraceSink>>,
@@ -122,7 +123,8 @@ Builder methods:
 |--------|-------------|
 | `.provider(Arc<dyn Provider>)` | Sets the LLM provider (required) |
 | `.tools(Arc<dyn ToolCatalog>)` | Sets the base tool catalog (required) |
-| `.middleware(Arc<dyn ContextPipeline>)` | Sets the context pipeline (required) |
+| `.assembler(Arc<dyn ContextAssembler>)` | Sets the context assembler (preferred) |
+| `.middleware(Arc<dyn ContextPipeline>)` | Sets the context pipeline (deprecated) |
 | `.policy(Arc<dyn PolicyEngine>)` | Sets the base policy engine (required) |
 | `.approval(Arc<dyn ApprovalProvider>)` | Sets the approval provider (required) |
 | `.trace_sink(Arc<dyn TraceSink>)` | Sets an optional trace sink |
@@ -579,8 +581,8 @@ pub trait CompositionHooks: Send + Sync {
 
 | Struct | Fields |
 |--------|--------|
-| `BeforeContextBuildCtx` | `session_id: String`, `history: Vec<Message>` |
-| `AfterContextBuildCtx` | `session_id: String`, `history: Vec<Message>`, `packet: ContextPacket` |
+| `BeforeContextBuildCtx` | `session_id: String`, `history: Vec<Message>`, `artifact_dir: Option<PathBuf>` |
+| `AfterContextBuildCtx` | `session_id: String`, `history: Vec<Message>`, `packet: ContextPacket`, `artifact_dir: Option<PathBuf>` |
 | `BeforeToolPolicyCtx` | `session_id: String`, `tool_name: String`, `tool_input: serde_json::Value` |
 | `AfterToolResultCtx` | `session_id: String`, `tool_name: String`, `result: ToolExecutionResult` |
 | `PrepareNextTurnCtx` | `session_id: String`, `history: Vec<Message>`, `turn_index: usize`, `current_model: String`, `current_provider: String` |
@@ -635,7 +637,8 @@ Contributors are invoked during the `before_context_build` phase of `RuntimeCont
 ```rust
 pub struct RuntimeContextPipeline {
     pub base: Arc<dyn ContextPipeline>,
-    pub patch_store: Arc<Mutex<Vec<Message>>>,
+    pub patch_store: Arc<Mutex<Vec<ContextPatch>>>,
+    pub current_checkpoint: Arc<Mutex<Option<CompactionCheckpoint>>>,
 }
 ```
 

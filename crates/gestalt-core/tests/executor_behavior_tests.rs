@@ -79,6 +79,7 @@ impl TestTool {
                     shape_rules: None,
                 },
                 retry_policy,
+                retention: None,
             },
             responses: Mutex::new(VecDeque::from(responses)),
             executed_inputs: Mutex::new(Vec::new()),

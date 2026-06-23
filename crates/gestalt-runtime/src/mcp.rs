@@ -131,6 +131,11 @@ impl Tool for McpBackedTool {
             name: self.tool_name.clone(),
         };
 
+        let read_only = self.annotations.get_trusted_bool("read_only");
+        let idempotent = self.annotations.get_trusted_bool("idempotent");
+        let clearable = read_only && matches!(self.risk, RiskLevel::Low);
+        let retention = gestalt_core::context::ToolRetention::from_clearable(idempotent, clearable);
+
         ToolDescriptor {
             id: canonical_id,
             description: self.description.clone(),
@@ -142,6 +147,7 @@ impl Tool for McpBackedTool {
                 shape_rules: None,
             },
             retry_policy: None,
+            retention: Some(retention),
         }
     }
 

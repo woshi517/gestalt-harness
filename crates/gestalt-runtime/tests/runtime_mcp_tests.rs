@@ -1,3 +1,6 @@
+#![allow(deprecated)]
+
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     agent::executor::ToolExecutor,
     approval::AutoApprovalProvider,
@@ -37,13 +40,16 @@ struct DummyContextPipeline;
 impl gestalt_core::context::ContextPipeline for DummyContextPipeline {
     fn process(
         &self,
-        _history: &[gestalt_core::message::Message],
+        _history: &[gestalt_core::SessionMessage],
         _budget: &gestalt_core::context::TokenBudget,
     ) -> Vec<gestalt_core::message::Message> {
         Vec::new()
     }
     fn version(&self) -> &str {
         "dummy"
+    }
+    fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
+        Some(Arc::new(ContextMessageAssembler::new("dummy")))
     }
 }
 

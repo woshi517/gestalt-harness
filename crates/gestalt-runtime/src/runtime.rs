@@ -195,7 +195,7 @@ impl AgentRuntime {
             let _ = tx.send(snapshot_event);
         }
 
-        session.history.push(Message::User {
+        session.append_message(Message::User {
             content: vec![gestalt_core::message::ContentBlock::Text {
                 text: input.prompt.clone(),
             }],
@@ -278,11 +278,14 @@ impl AgentRuntime {
             maybe_trace_worker = Some(trace_worker);
 
             let patch_store = Arc::new(Mutex::new(Vec::new()));
-
+            let Some(assembler) = middleware.as_assembler() else {
+                return Err(RuntimeError::Builder(
+                    "runtime requires an assembler-backed context pipeline; use AgentRuntimeBuilder::assembler(...) or a pipeline that implements as_assembler()".to_string(),
+                ));
+            };
             middleware = Arc::new(RuntimeContextPipeline {
-                base: middleware.clone(),
+                base: assembler,
                 patch_store: patch_store.clone(),
-                current_checkpoint: Arc::new(Mutex::new(None)),
             });
 
             policy = Arc::new(RuntimePolicyEngine {

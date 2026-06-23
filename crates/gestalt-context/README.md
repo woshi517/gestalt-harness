@@ -10,7 +10,7 @@ This crate is the single implementation of prompt assembly that ships with Gesta
 
 ```mermaid
 graph TD
-    Config[CLI Config + gestalt.json] -->|workspace_md, memory_md, prompt_override| Pipeline[MinimalContextPipeline]
+    Config[CLI Config + gestalt.json] -->|workspace_md, memory_md, prompt_override| Pipeline[ContextMessageAssembler]
     Pipeline -->|build_packet| ContextPacket[ContextPacket]
     ContextPacket -->|messages| Provider[Provider Adapter]
     ContextPacket -->|snapshot_hash, cache_plan| Trace[Run Manifest / Trace]
@@ -28,10 +28,10 @@ graph TD
 ## Quick Start
 
 ```rust
-use gestalt_context::MinimalContextPipeline;
-use gestalt_core::{ContextPipeline, TokenBudget, PromptAssemblyStrategy};
+use gestalt_context::ContextMessageAssembler;
+use gestalt_core::{ContextPipeline, TokenBudget, PromptAssemblyStrategy, SessionMessage, MessageId, Message};
 
-let pipeline = MinimalContextPipeline::new("pipeline-v1")
+let pipeline = ContextMessageAssembler::new("pipeline-v1")
     .with_workspace_md("## Workspace Rules\n...")
     .with_memory_md("## Memory\n...")
     .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
@@ -45,6 +45,13 @@ let budget = TokenBudget {
     minimum_turn_budget: 1_024,
     ..Default::default()
 };
+
+// Wrap history in SessionMessage envelopes
+let history = vec![SessionMessage {
+    id: MessageId { origin_session_id: "session-1".to_string(), sequence: 0 },
+    message: Message::User { content: vec![gestalt_core::ContentBlock::Text { text: "hello".into() }], metadata: None },
+    metadata: None,
+}];
 
 let packet = pipeline.build_packet(&history, &budget);
 // packet.messages is ready to send to the provider
@@ -85,12 +92,13 @@ When the pipeline is configured with `PromptAssemblyStrategy::Snapshot`:
 The snapshot hash is stable across turns as long as the stable prefix content doesn't change:
 
 ```rust
-let pipeline = MinimalContextPipeline::new("pipeline-v1")
+let pipeline = ContextMessageAssembler::new("pipeline-v1")
     .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
     .with_workspace_md("workspace rules");
 
-let first = pipeline.build_packet(&[user_msg("first turn")], &budget);
-let second = pipeline.build_packet(&[user_msg("second turn")], &budget);
+// user_msg helper assumed to return SessionMessage envelopes
+let first = pipeline.build_packet(&[first_session_msg], &budget);
+let second = pipeline.build_packet(&[second_session_msg], &budget);
 
 assert_eq!(first.snapshot_hash, second.snapshot_hash);
 // Different history -> different packet hash, but same snapshot

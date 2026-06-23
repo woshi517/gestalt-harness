@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
-use gestalt_context::MinimalContextPipeline;
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter,
 };
@@ -206,8 +206,8 @@ pub fn build_pipeline(
     mode: ExecutionMode,
     max_turns: usize,
     tools: &[String],
-) -> Result<MinimalContextPipeline, gestalt_core::HarnessError> {
-    let mut pipeline = MinimalContextPipeline::new("pipeline-v1")
+) -> Result<ContextMessageAssembler, gestalt_core::HarnessError> {
+    let mut pipeline = ContextMessageAssembler::new("pipeline-v1")
         .with_workspace_root(config.workspace_root.clone())
         .with_mode(format!("{mode:?}"))
         .with_max_turns(max_turns)
@@ -480,18 +480,13 @@ mod tests {
             &[],
         )
         .unwrap();
-        let budget = gestalt_core::context::TokenBudget {
-            model_limit: 1000,
-            reserved_output: 16,
-            used_system: 0,
-            used_history: 0,
-            used_sources: 0,
-            used_tools: 0,
-            used_memory: 0,
-            minimum_turn_budget: 8,
+        use gestalt_core::context::{ContextAssembler, ContextPlan};
+        let plan = ContextPlan {
+            history: Vec::new(),
+            omissions: Vec::new(),
+            budget_exhausted: false,
         };
-        use gestalt_core::context::ContextPipeline as _;
-        let packet = pipeline.build_packet(&[], &budget);
+        let packet = pipeline.assemble(&plan).unwrap();
         assert_eq!(packet.prompt_source.as_deref(), Some("default"));
         assert_eq!(
             packet.prompt_assembly_strategy,
@@ -509,7 +504,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let packet = pipeline.build_packet(&[], &budget);
+        let packet = pipeline.assemble(&plan).unwrap();
         assert_eq!(packet.prompt_source.as_deref(), Some("override"));
 
         // Scenario 3: prompt.override_file (valid)
@@ -531,7 +526,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let packet = pipeline.build_packet(&[], &budget);
+        let packet = pipeline.assemble(&plan).unwrap();
         assert_eq!(
             packet.prompt_source.as_deref(),
             Some(".gestalt/custom_prompt.md")

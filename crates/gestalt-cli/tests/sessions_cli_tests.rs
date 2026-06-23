@@ -297,10 +297,18 @@ model = "mock-model"
         compatibility_fingerprint: fingerprint.clone(),
     };
 
-    let history_msg = Message::Assistant {
-        content: vec![ContentBlock::Text {
-            text: "Final assistant message response".to_string(),
-        }],
+    let history_msg = gestalt_core::SessionMessage {
+        id: gestalt_core::MessageId {
+            origin_session_id: session_id.clone(),
+            origin_message_namespace: session_id.clone(),
+            sequence: 0,
+        },
+        message: Message::Assistant {
+            content: vec![ContentBlock::Text {
+                text: "Final assistant message response".to_string(),
+            }],
+        },
+        metadata: None,
     };
 
     let pipeline = gestalt_cli::run::build_pipeline(
@@ -312,18 +320,28 @@ model = "mock-model"
     .unwrap();
     let resume_history = vec![
         history_msg.clone(),
-        Message::User {
-            content: vec![ContentBlock::Text {
-                text: "next prompt".to_string(),
-            }],
+        gestalt_core::SessionMessage {
+            id: gestalt_core::MessageId {
+                origin_session_id: session_id.clone(),
+                origin_message_namespace: session_id.clone(),
+                sequence: 1,
+            },
+            message: Message::User {
+                content: vec![ContentBlock::Text {
+                    text: "next prompt".to_string(),
+                }],
+                metadata: None,
+            },
             metadata: None,
         },
     ];
-    use gestalt_core::context::ContextPipeline as _;
-    let packet = pipeline.build_packet(
-        &resume_history,
-        &gestalt_core::context::TokenBudget::default(),
-    );
+    use gestalt_core::context::{ContextAssembler as _, ContextPlan};
+    let plan = ContextPlan {
+        history: resume_history,
+        omissions: Vec::new(),
+        budget_exhausted: false,
+    };
+    let packet = pipeline.assemble(&plan).unwrap();
     let cache_plan = packet.cache_plan.as_ref().unwrap();
     let prompt_snapshot = gestalt_core::context::PromptSnapshot::new(
         packet.messages[..cache_plan.prefix_message_count].to_vec(),
@@ -354,7 +372,9 @@ model = "mock-model"
             ts: chrono::Utc::now(),
             event: AgentEvent::Checkpoint {
                 history: vec![history_msg.clone()],
+                context_state: Box::new(gestalt_core::ContextProjectionState::default()),
                 token_budget: gestalt_core::context::TokenBudget::default(),
+                latest_projection_id: None,
                 packet_hash: None,
                 prompt_source: None,
             },
@@ -397,7 +417,7 @@ model = "mock-model"
             match env.event {
                 AgentEvent::Checkpoint { history, .. } => {
                     for msg in history {
-                        if let Message::Assistant { content } = msg {
+                        if let Message::Assistant { content } = msg.message {
                             for block in content {
                                 if let ContentBlock::Text { text } = block {
                                     if text == "Final assistant message response" {
@@ -460,7 +480,7 @@ model = "mock-model"
                     1,
                     "Branched run should only contain the branch prompt"
                 );
-                if let Message::User { content, .. } = &history[0] {
+                if let Message::User { content, .. } = &history[0].message {
                     if let gestalt_core::message::ContentBlock::Text { text } = &content[0] {
                         assert_eq!(text, "branched prompt");
                     } else {

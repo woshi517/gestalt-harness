@@ -18,6 +18,7 @@ pub struct AgentRuntimeBuilder {
     pub provider: Option<Arc<dyn Provider>>,
     pub tools: Option<Arc<dyn ToolCatalog>>,
     pub middleware: Option<Arc<dyn ContextPipeline>>,
+    pub assembler: Option<Arc<dyn gestalt_core::context::ContextAssembler>>,
     pub policy: Option<Arc<dyn PolicyEngine>>,
     pub approval: Option<Arc<dyn ApprovalProvider>>,
     pub trace_sink: Option<Arc<dyn TraceSink>>,
@@ -43,6 +44,7 @@ impl AgentRuntimeBuilder {
             provider: None,
             tools: None,
             middleware: None,
+            assembler: None,
             policy: None,
             approval: None,
             trace_sink: None,
@@ -90,8 +92,14 @@ impl AgentRuntimeBuilder {
         self
     }
 
+    #[deprecated(since = "0.1.0", note = "Use assembler(Arc<dyn ContextAssembler>) instead")]
     pub fn middleware(mut self, middleware: Arc<dyn ContextPipeline>) -> Self {
         self.middleware = Some(middleware);
+        self
+    }
+
+    pub fn assembler(mut self, assembler: Arc<dyn gestalt_core::context::ContextAssembler>) -> Self {
+        self.assembler = Some(assembler);
         self
     }
 
@@ -136,6 +144,17 @@ impl AgentRuntimeBuilder {
             policy
                 .validate()
                 .map_err(|err| RuntimeError::Builder(err.to_string()))?;
+        }
+
+        if self.assembler.is_none()
+            && self
+                .middleware
+                .as_ref()
+                .is_some_and(|middleware| middleware.as_assembler().is_none())
+        {
+            return Err(RuntimeError::Builder(
+                "runtime requires an assembler-backed context pipeline; use AgentRuntimeBuilder::assembler(...) or a pipeline that implements as_assembler()".to_string(),
+            ));
         }
 
         // Apply extensions before constructing AgentRuntime
@@ -357,9 +376,13 @@ impl AgentRuntimeBuilder {
         }
         let composed_tools = Arc::new(composed_tools);
 
-        let middleware = self.middleware.ok_or_else(|| {
-            RuntimeError::Builder("Missing middleware/context pipeline".to_string())
-        })?;
+        let middleware = if let Some(assembler) = self.assembler {
+            Arc::new(crate::context::RuntimeContextPipeline::new(assembler))
+        } else {
+            self.middleware.ok_or_else(|| {
+                RuntimeError::Builder("Missing middleware/context pipeline or assembler".to_string())
+            })?
+        };
         let policy = self
             .policy
             .ok_or_else(|| RuntimeError::Builder("Missing policy engine".to_string()))?;

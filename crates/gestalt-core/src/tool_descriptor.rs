@@ -150,4 +150,6 @@ pub struct ToolDescriptor {
     pub annotations: ToolAnnotations,
     pub response_contract: ToolResponseContract,
     pub retry_policy: Option<ToolRetryPolicy>,
+    #[serde(default)]
+    pub retention: Option<crate::context::ToolRetention>,
 }

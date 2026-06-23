@@ -1,33 +1,67 @@
-use gestalt_context::MinimalContextPipeline;
+use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
-    context::{HistoryRange, PromptAssemblyStrategy},
+    context::{ContextAssembler, HistoryRange, PromptAssemblyStrategy},
     message::{ContentBlock, Message},
-    ContextPipeline, TokenBudget,
+    MessageId, SessionMessage,
 };
 use gestalt_trace::CompactionCheckpoint;
 
-fn budget(model_limit: usize) -> TokenBudget {
-    TokenBudget {
-        model_limit,
-        reserved_output: 16,
-        used_system: 0,
-        used_history: 0,
-        used_sources: 0,
-        used_tools: 0,
-        used_memory: 0,
-        minimum_turn_budget: 8,
-    }
-}
-
-fn pipeline() -> MinimalContextPipeline {
-    MinimalContextPipeline::new("pipeline-v1")
+fn pipeline() -> ContextMessageAssembler {
+    ContextMessageAssembler::new("pipeline-v1")
         .with_workspace_md("workspace rules")
         .with_memory_md("stable memory")
 }
 
+fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
+    messages
+        .into_iter()
+        .enumerate()
+        .map(|(sequence, message)| SessionMessage {
+            id: MessageId {
+                origin_session_id: "test-session".to_string(),
+                origin_message_namespace: "test-session".to_string(),
+                sequence: sequence as u64,
+            },
+            metadata: match &message {
+                Message::User { metadata, .. } => metadata.clone(),
+                _ => None,
+            },
+            message,
+        })
+        .collect()
+}
+
+fn retention_snapshot(tool_names: &[&str]) -> gestalt_core::ToolRetentionRegistrySnapshot {
+    let policies = tool_names
+        .iter()
+        .map(|name| {
+            (
+                gestalt_core::CanonicalToolId {
+                    namespace: gestalt_core::ToolNamespace::BuiltIn,
+                    name: (*name).to_string(),
+                },
+                gestalt_core::ToolRetention {
+                    clearable: true,
+                    reconstructible: true,
+                    retain_errors: true,
+                },
+            )
+        })
+        .collect();
+    gestalt_core::ToolRetentionRegistrySnapshot {
+        policies,
+        fingerprint: "test-retention".to_string(),
+    }
+}
+
 #[test]
 fn dynamic_strategy_keeps_cache_metadata_empty() {
-    let packet = pipeline().build_packet(&[], &budget(400));
+    let plan = gestalt_core::context::ContextPlan {
+        history: Vec::new(),
+        omissions: Vec::new(),
+        budget_exhausted: false,
+    };
+    let packet = pipeline().assemble(&plan).unwrap();
 
     assert_eq!(
         packet.prompt_assembly_strategy,
@@ -41,29 +75,33 @@ fn dynamic_strategy_keeps_cache_metadata_empty() {
 
 #[test]
 fn snapshot_strategy_records_stable_prefix_and_dynamic_tail() {
+    let history = canonical_history(vec![Message::User {
+        content: vec![ContentBlock::Text {
+            text: "hello world".to_string(),
+        }],
+        metadata: None,
+    }]);
+    let plan = gestalt_core::context::ContextPlan {
+        history,
+        omissions: Vec::new(),
+        budget_exhausted: false,
+    };
     let packet = pipeline()
         .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
-        .build_packet(
-            &[Message::User {
-                content: vec![ContentBlock::Text {
-                    text: "hello world".to_string(),
-                }],
-                metadata: None,
-            }],
-            &budget(400),
-        );
+        .assemble(&plan)
+        .unwrap();
 
-    let plan = packet.cache_plan.as_ref().expect("cache plan");
+    let cache_plan = packet.cache_plan.as_ref().expect("cache plan");
 
     assert_eq!(
         packet.prompt_assembly_strategy,
         PromptAssemblyStrategy::Snapshot
     );
-    assert_eq!(plan.strategy, PromptAssemblyStrategy::Snapshot);
-    assert_eq!(packet.snapshot_hash, Some(plan.snapshot_hash.clone()));
-    assert_eq!(packet.cache_prefix_hash, Some(plan.prefix_hash.clone()));
-    assert_eq!(plan.prefix_message_count, 3);
-    assert_eq!(packet.segments, plan.segments);
+    assert_eq!(cache_plan.strategy, PromptAssemblyStrategy::Snapshot);
+    assert_eq!(packet.snapshot_hash, Some(cache_plan.snapshot_hash.clone()));
+    assert_eq!(packet.cache_prefix_hash, Some(cache_plan.prefix_hash.clone()));
+    assert_eq!(cache_plan.prefix_message_count, 3);
+    assert_eq!(packet.segments, cache_plan.segments);
     assert!(packet
         .segments
         .iter()
@@ -76,27 +114,31 @@ fn snapshot_strategy_records_stable_prefix_and_dynamic_tail() {
 
 #[test]
 fn snapshot_hash_stays_stable_when_history_changes() {
-    let pipeline = pipeline().with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot);
+    let p = pipeline().with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot);
 
-    let first = pipeline.build_packet(
-        &[Message::User {
+    let plan1 = gestalt_core::context::ContextPlan {
+        history: canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "first".to_string(),
             }],
             metadata: None,
-        }],
-        &budget(400),
-    );
+        }]),
+        omissions: Vec::new(),
+        budget_exhausted: false,
+    };
+    let first = p.assemble(&plan1).unwrap();
 
-    let second = pipeline.build_packet(
-        &[Message::User {
+    let plan2 = gestalt_core::context::ContextPlan {
+        history: canonical_history(vec![Message::User {
             content: vec![ContentBlock::Text {
                 text: "second".to_string(),
             }],
             metadata: None,
-        }],
-        &budget(400),
-    );
+        }]),
+        omissions: Vec::new(),
+        budget_exhausted: false,
+    };
+    let second = p.assemble(&plan2).unwrap();
 
     assert_eq!(first.snapshot_hash, second.snapshot_hash);
     assert_ne!(first.packet_hash, second.packet_hash);
@@ -104,21 +146,22 @@ fn snapshot_hash_stays_stable_when_history_changes() {
 
 #[test]
 fn budget_exhaustion_is_modelled_as_ephemeral_tail() {
-    let packet = MinimalContextPipeline::new("pipeline-v1")
+    let plan = gestalt_core::context::ContextPlan {
+        history: Vec::new(),
+        omissions: vec![gestalt_core::context::ContextOmission {
+            kind: "history".to_string(),
+            path_or_label: "msg_0".to_string(),
+            trust: "trusted".to_string(),
+            reason: "budget_exhausted".to_string(),
+            token_estimate: 50,
+            authority: None,
+        }],
+        budget_exhausted: true,
+    };
+    let packet = ContextMessageAssembler::new("pipeline-v1")
         .with_prompt_assembly_strategy(PromptAssemblyStrategy::Snapshot)
-        .build_packet(
-            &[],
-            &TokenBudget {
-                model_limit: 32,
-                reserved_output: 24,
-                used_system: 0,
-                used_history: 0,
-                used_sources: 0,
-                used_tools: 0,
-                used_memory: 0,
-                minimum_turn_budget: 16,
-            },
-        );
+        .assemble(&plan)
+        .unwrap();
 
     assert!(packet
         .segments
@@ -131,7 +174,7 @@ fn test_tool_clearing_happy_path() {
     use gestalt_context::tool_clearing::clear_eligible_tool_results;
     use serde_json::json;
 
-    let history = vec![
+    let history = canonical_history(vec![
         Message::User {
             content: vec![ContentBlock::Text {
                 text: "please read the file".to_string(),
@@ -160,10 +203,18 @@ fn test_tool_clearing_happy_path() {
             }],
             metadata: None,
         },
-    ];
+    ]);
 
     // Total tool result tokens is large. Let's set a low tool_result_budget
-    let (projected, actions) = clear_eligible_tool_results(&history, 1000, 10, 1, 100);
+    let (projected, actions) = clear_eligible_tool_results(
+        "test-run",
+        &history,
+        &retention_snapshot(&["view_file"]),
+        1000,
+        10,
+        1,
+        100,
+    );
 
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].tool_use_id, "view_1");
@@ -171,7 +222,7 @@ fn test_tool_clearing_happy_path() {
 
     if let Message::ToolResult {
         content, is_error, ..
-    } = &projected[2]
+    } = &projected[2].message
     {
         assert!(!is_error);
         assert!(content.contains("<tombstone"));
@@ -186,7 +237,7 @@ fn test_tool_clearing_preserves_errors_and_recent_window() {
     use gestalt_context::tool_clearing::clear_eligible_tool_results;
     use serde_json::json;
 
-    let history = vec![
+    let history = canonical_history(vec![
         Message::User {
             content: vec![ContentBlock::Text {
                 text: "run it".to_string(),
@@ -215,10 +266,18 @@ fn test_tool_clearing_preserves_errors_and_recent_window() {
             }],
             metadata: None,
         },
-    ];
+    ]);
 
     // Even with a budget of 0, active errors are preserved
-    let (projected, actions) = clear_eligible_tool_results(&history, 1000, 0, 1, 100);
+    let (projected, actions) = clear_eligible_tool_results(
+        "test-run",
+        &history,
+        &retention_snapshot(&["view_file"]),
+        1000,
+        0,
+        1,
+        100,
+    );
     assert!(actions.is_empty());
     assert_eq!(projected, history);
 }

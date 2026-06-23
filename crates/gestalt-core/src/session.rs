@@ -1,7 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::{context::TokenBudget, message::Message, tool::ToolContext};
+use crate::{
+    context::{
+        ContextProjectionState, ContextStateDelta, MessageId, MessageNamespace, SessionId,
+        SessionMessage, StateUpdate, TokenBudget,
+    },
+    message::Message,
+    tool::ToolContext,
+};
 
 use crate::snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter};
 
@@ -20,9 +27,11 @@ pub struct NextTurnOverride {
 
 #[derive(Debug, Clone)]
 pub struct Session {
-    pub id: String,
+    pub id: SessionId,
+    pub message_namespace: MessageNamespace,
     pub config: SessionConfig,
-    pub history: Vec<Message>,
+    pub history: Vec<SessionMessage>,
+    pub context_state: ContextProjectionState,
     pub token_budget: TokenBudget,
     pub tool_ctx: ToolContext,
     pub mode: ExecutionMode,
@@ -33,7 +42,7 @@ pub struct Session {
 
 impl Session {
     pub fn new(
-        id: impl Into<String>,
+        id: impl Into<SessionId>,
         config: SessionConfig,
         token_budget: TokenBudget,
         tool_ctx: ToolContext,
@@ -42,14 +51,76 @@ impl Session {
     ) -> Self {
         Self {
             id: id.into(),
+            message_namespace: uuid::Uuid::new_v4().to_string(),
             config,
             history: Vec::new(),
+            context_state: ContextProjectionState::default(),
             token_budget,
             tool_ctx,
             mode,
             snapshot,
             next_turn_override: None,
             context_policy: crate::ContextManagementPolicy::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn next_message_id(&self) -> MessageId {
+        MessageId {
+            origin_session_id: self.id.clone(),
+            origin_message_namespace: self.message_namespace.clone(),
+            sequence: self.history.len() as u64,
+        }
+    }
+
+    pub fn append_message(&mut self, message: Message) -> MessageId {
+        let id = self.next_message_id();
+        let metadata = match &message {
+            Message::User { metadata, .. } => metadata.clone(),
+            _ => None,
+        };
+        self.history.push(SessionMessage {
+            id: id.clone(),
+            message,
+            metadata,
+        });
+        id
+    }
+
+    pub fn apply_context_state_delta(&mut self, delta: ContextStateDelta) {
+        match delta.active_checkpoint {
+            StateUpdate::Unchanged => {}
+            StateUpdate::Set(checkpoint) => {
+                self.context_state.active_checkpoint = Some(checkpoint);
+            }
+            StateUpdate::Clear => {
+                self.context_state.active_checkpoint = None;
+            }
+        }
+        for remove_id in &delta.cleared_tool_results_remove {
+            self.context_state.cleared_tool_results.remove(remove_id);
+        }
+        if !delta.cleared_tool_results.is_empty() {
+            self.context_state
+                .cleared_tool_results
+                .extend(delta.cleared_tool_results.into_iter().map(|entry| {
+                    (entry.tool_use_id.clone(), entry)
+                }));
+        }
+        match delta.prompt_snapshot {
+            StateUpdate::Unchanged => {}
+            StateUpdate::Set(snapshot) => {
+                self.context_state.prompt_snapshot = Some(snapshot);
+            }
+            StateUpdate::Clear => {
+                self.context_state.prompt_snapshot = None;
+            }
+        }
+        if let Some(epoch) = delta.context_epoch {
+            self.context_state.context_epoch = epoch;
+        }
+        if delta.policy_fingerprint.is_some() {
+            self.context_state.policy_fingerprint = delta.policy_fingerprint;
         }
     }
 
