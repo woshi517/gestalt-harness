@@ -429,6 +429,65 @@
         "replay"
       ]
     },
+    "ExtensionGrantConfig": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workspace_read": {
+          "default": false,
+          "type": "boolean"
+        },
+        "workspace_write": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExtensionInstanceConfig": {
+      "type": "object",
+      "required": [
+        "package"
+      ],
+      "properties": {
+        "components": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "config": {
+          "default": null
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "grants": {
+          "default": {
+            "network": [],
+            "workspace_read": false,
+            "workspace_write": false
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExtensionGrantConfig"
+            }
+          ]
+        },
+        "package": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "ExtensionLimitsConfig": {
       "type": "object",
       "properties": {
@@ -524,6 +583,13 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "instances": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ExtensionInstanceConfig"
           }
         },
         "limits": {
