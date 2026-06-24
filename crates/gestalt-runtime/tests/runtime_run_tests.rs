@@ -874,7 +874,10 @@ fn test_runtime_context_pipeline_keeps_cache_metadata_for_stable_patches() {
         fn assemble(
             &self,
             _plan: &ContextPlan,
-        ) -> std::result::Result<gestalt_core::context::ContextPacket, gestalt_core::error::ContextError> {
+        ) -> std::result::Result<
+            gestalt_core::context::ContextPacket,
+            gestalt_core::error::ContextError,
+        > {
             let messages = self.system_messages();
             let snapshot = PromptSnapshot::new(messages.clone(), 0);
             let plan = PromptCachePlan::new(PromptAssemblyStrategy::Snapshot, &snapshot);

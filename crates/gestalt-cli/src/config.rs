@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
 };
@@ -276,6 +276,37 @@ pub struct ExtensionsConfig {
     pub timeouts: ExtensionTimeoutsConfig,
     #[serde(default)]
     pub limits: ExtensionLimitsConfig,
+    #[serde(default)]
+    pub instances: BTreeMap<String, ExtensionInstanceConfig>,
+}
+
+fn default_extension_instance_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ExtensionInstanceConfig {
+    pub package: String,
+    #[serde(default = "default_extension_instance_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub components: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub config: serde_json::Value,
+    #[serde(default)]
+    pub grants: ExtensionGrantConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExtensionGrantConfig {
+    #[serde(default, alias = "workspaceRead")]
+    pub workspace_read: bool,
+    #[serde(default, alias = "workspaceWrite")]
+    pub workspace_write: bool,
+    #[serde(default)]
+    pub network: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -1266,6 +1297,8 @@ impl WorkspaceConfig {
                 self_extensions.limits.max_protocol_errors =
                     other_extensions.limits.max_protocol_errors;
             }
+
+            self_extensions.instances.extend(other_extensions.instances);
 
             self.extensions = Some(self_extensions);
         }

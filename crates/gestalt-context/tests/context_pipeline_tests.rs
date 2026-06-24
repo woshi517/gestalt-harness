@@ -99,7 +99,10 @@ fn snapshot_strategy_records_stable_prefix_and_dynamic_tail() {
     );
     assert_eq!(cache_plan.strategy, PromptAssemblyStrategy::Snapshot);
     assert_eq!(packet.snapshot_hash, Some(cache_plan.snapshot_hash.clone()));
-    assert_eq!(packet.cache_prefix_hash, Some(cache_plan.prefix_hash.clone()));
+    assert_eq!(
+        packet.cache_prefix_hash,
+        Some(cache_plan.prefix_hash.clone())
+    );
     assert_eq!(cache_plan.prefix_message_count, 3);
     assert_eq!(packet.segments, cache_plan.segments);
     assert!(packet

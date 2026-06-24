@@ -386,43 +386,11 @@ impl gestalt_core::hook::ModelHook for RuntimeModelHookAdapter {
 impl gestalt_core::hook::ToolHook for RuntimeToolHookAdapter {
     async fn before_tool_execution(
         &self,
-        session: &Session,
-        tool_name: &str,
-        input: &serde_json::Value,
+        _session: &Session,
+        _tool_name: &str,
+        _input: &serde_json::Value,
     ) -> gestalt_core::error::Result<Vec<AgentEvent>> {
-        self.event_bus.publish(RuntimeEvent::HookStarted {
-            hook_name: "before_tool_policy".to_string(),
-            lifecycle_point: "before_tool_policy".to_string(),
-        });
-        let ctx = BeforeToolPolicyCtx {
-            session_id: session.id.clone(),
-            tool_name: tool_name.to_string(),
-            tool_input: input.clone(),
-        };
-        let mut events = Vec::new();
-        match self.hooks.before_tool_policy(&ctx).await {
-            Ok(outcome) => {
-                self.event_bus.publish(RuntimeEvent::HookCompleted {
-                    hook_name: "before_tool_policy".to_string(),
-                    lifecycle_point: "before_tool_policy".to_string(),
-                    outcome: format!("{:?}", outcome),
-                });
-                if let HookOutcome::Block { reason } = outcome {
-                    events.push(AgentEvent::Error {
-                        message: format!("before_tool_policy blocked: {}", reason),
-                        recoverable: true,
-                    });
-                }
-            }
-            Err(err) => {
-                self.event_bus.publish(RuntimeEvent::HookFailed {
-                    hook_name: "before_tool_policy".to_string(),
-                    lifecycle_point: "before_tool_policy".to_string(),
-                    error: err.to_string(),
-                });
-            }
-        }
-        Ok(events)
+        Ok(Vec::new())
     }
 
     async fn after_tool_execution(

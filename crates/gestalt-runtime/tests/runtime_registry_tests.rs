@@ -1,5 +1,5 @@
 use gestalt_core::ContextStability;
-use gestalt_runtime::{compute_schema_hash, compute_tool_schema_hash, RuntimeRegistry};
+use gestalt_runtime::{compute_schema_hash, compute_tool_schema_hash, RuntimeRegistryBuilder};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ impl gestalt_runtime::ContextContributor for DummyContributor {
 
 #[test]
 fn test_registry_duplicate_checks() {
-    let mut reg = RuntimeRegistry::new();
+    let mut reg = RuntimeRegistryBuilder::new();
 
     reg.register_tool("tool1".to_string(), json!({})).unwrap();
     let res = reg.register_tool("tool1".to_string(), json!({}));
@@ -59,7 +59,7 @@ fn test_schema_hashes() {
 
 #[test]
 fn test_context_contributor_stability_is_recorded() {
-    let mut reg = RuntimeRegistry::new();
+    let mut reg = RuntimeRegistryBuilder::new();
     reg.register_context_contributor("dummy".to_string(), Arc::new(DummyContributor))
         .unwrap();
 

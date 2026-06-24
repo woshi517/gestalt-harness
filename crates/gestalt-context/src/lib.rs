@@ -21,9 +21,8 @@ pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
 
 use gestalt_core::{
     context::{
-        ContextAssembler, ContextPacket, ContextPlan, ContextSourceRef,
-        PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
-        PromptSegmentKind,
+        ContextAssembler, ContextPacket, ContextPlan, ContextSourceRef, PromptAssemblyStrategy,
+        PromptCachePlan, PromptSegment, PromptSegmentKind,
     },
     message::{ContentBlock, ContentTrust, DocumentSource, Message},
     ContextStability,
@@ -721,14 +720,12 @@ mod tests {
     #[test]
     fn build_packet_records_omission_provenance_for_trimmed_history() {
         let pipeline = sample_pipeline();
-        let history = canonical_history(vec![
-            Message::User {
-                content: vec![ContentBlock::Text {
-                    text: "second".repeat(2),
-                }],
-                metadata: None,
-            },
-        ]);
+        let history = canonical_history(vec![Message::User {
+            content: vec![ContentBlock::Text {
+                text: "second".repeat(2),
+            }],
+            metadata: None,
+        }]);
         let omissions = vec![ContextOmission {
             kind: "history".to_string(),
             path_or_label: "history_message_0".to_string(),

@@ -1,3 +1,5 @@
+#![allow(clippy::large_futures)]
+
 use gestalt_cli::config::{load_effective_config, CliOverrides};
 use gestalt_cli::sessions::{history_session, inspect_session, list_sessions, run_session_action};
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};

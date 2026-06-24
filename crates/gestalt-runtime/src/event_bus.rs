@@ -90,6 +90,11 @@ pub enum RuntimeEvent {
     },
     ReloadStarted,
     ReloadCompleted,
+    RuntimeGenerationAdopted {
+        session_id: String,
+        generation: u64,
+        fingerprint: String,
+    },
     RuntimeError {
         message: String,
     },

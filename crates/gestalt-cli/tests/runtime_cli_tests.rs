@@ -298,22 +298,13 @@ allowed_paths = []
     });
     let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None)
-        .await
-        .unwrap();
-
-    let events = runtime.event_bus.history();
-    let allowed_untrusted = events.iter().any(|e| match e {
-        gestalt_runtime::RuntimeEvent::ExtensionRejected {
-            extension_id,
-            reason,
-        } => extension_id == "local-ext" && reason.contains("Startup failure"),
-        _ => false,
-    });
+    let err = match gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None).await {
+        Ok(_) => panic!("required extension startup failure should reject runtime construction"),
+        Err(err) => err,
+    };
     assert!(
-        allowed_untrusted,
-        "Local extension should bypass trust gate with allow_untrusted=true. Events: {:?}",
-        events
+        err.to_string().contains("Spawn failed"),
+        "Local extension should bypass trust gate and fail at startup. Error: {err}"
     );
 
     // 3. Third scenario: Explicitly trusted via extensions.trusted list.
@@ -329,22 +320,13 @@ allowed_paths = []
     });
     let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None)
-        .await
-        .unwrap();
-
-    let events = runtime.event_bus.history();
-    let trusted_allowed = events.iter().any(|e| match e {
-        gestalt_runtime::RuntimeEvent::ExtensionRejected {
-            extension_id,
-            reason,
-        } => extension_id == "local-ext" && reason.contains("Startup failure"),
-        _ => false,
-    });
+    let err = match gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None).await {
+        Ok(_) => panic!("required extension startup failure should reject runtime construction"),
+        Err(err) => err,
+    };
     assert!(
-        trusted_allowed,
-        "Local extension should bypass trust gate when in trusted list. Events: {:?}",
-        events
+        err.to_string().contains("Spawn failed"),
+        "Local extension should bypass trust gate and fail at startup. Error: {err}"
     );
 
     // Clean up

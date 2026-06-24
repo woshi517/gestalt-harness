@@ -2,6 +2,7 @@ use crate::config::{mutate_workspace_config_file, workspace_config_path, Effecti
 use gestalt_core::error::HarnessError;
 use gestalt_core::tool::ToolCatalog;
 use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
@@ -240,6 +241,7 @@ pub async fn build_cli_runtime(
             max_pending_requests: config.extensions.limits.max_pending_requests,
             max_protocol_errors: config.extensions.limits.max_protocol_errors,
         },
+        extension_instances: convert_extension_instances(&config.extensions.instances),
         effective_config_fingerprint: Some(config.compute_fingerprint()),
     };
 
@@ -269,9 +271,6 @@ pub async fn build_cli_runtime(
         );
         core_hooks.register_session_hook(evaluator_hook);
     }
-
-    let extension_timeouts = runtime_config.extension_timeouts.clone();
-    let extension_limits = runtime_config.extension_limits.clone();
 
     let mut builder = AgentRuntimeBuilder::new()
         .provider(provider)
@@ -392,32 +391,8 @@ pub async fn build_cli_runtime(
                 continue;
             }
 
-            let broker_res = gestalt_runtime::ProcessExtensionBroker::spawn(
-                ext.manifest.clone(),
-                builder.event_bus.clone(),
-                extension_timeouts.clone(),
-                extension_limits.clone(),
-                is_trusted_by_config,
-            )
-            .await;
-
-            match broker_res {
-                Ok(broker) => {
-                    let wrapped_ext = Arc::new(gestalt_runtime::ProcessExtension::new(
-                        ext.manifest,
-                        Arc::new(broker),
-                    ));
-                    builder = builder.extension(wrapped_ext);
-                }
-                Err(e) => {
-                    builder
-                        .event_bus
-                        .publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
-                            extension_id: ext.manifest.id.clone(),
-                            reason: format!("Startup failure: {}", e),
-                        });
-                }
-            }
+            builder =
+                builder.process_extension(ext.manifest, ext.manifest_hash, is_trusted_by_config);
         }
     }
 
@@ -460,13 +435,37 @@ pub async fn build_cli_runtime(
         builder = builder.trace_sink(sink);
     }
 
-    builder.build().map_err(|e| match e {
+    builder.build_async().await.map_err(|e| match e {
         gestalt_runtime::RuntimeError::Harness(he) => he,
         other => HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
             field: "runtime".to_string(),
             reason: other.to_string(),
         }),
     })
+}
+
+fn convert_extension_instances(
+    instances: &BTreeMap<String, crate::config::ExtensionInstanceConfig>,
+) -> BTreeMap<String, gestalt_runtime::extension::ExtensionInstanceConfig> {
+    instances
+        .iter()
+        .map(|(id, instance)| {
+            (
+                id.clone(),
+                gestalt_runtime::extension::ExtensionInstanceConfig {
+                    package: instance.package.clone(),
+                    enabled: instance.enabled,
+                    components: instance.components.clone(),
+                    config: instance.config.clone(),
+                    grants: gestalt_runtime::extension::ExtensionGrantConfig {
+                        workspace_read: instance.grants.workspace_read,
+                        workspace_write: instance.grants.workspace_write,
+                        network: instance.grants.network.clone(),
+                    },
+                },
+            )
+        })
+        .collect()
 }
 
 #[allow(clippy::missing_errors_doc)]

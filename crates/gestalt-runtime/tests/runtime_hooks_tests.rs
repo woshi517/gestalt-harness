@@ -180,6 +180,7 @@ struct TestCompositionHooks {
     policy_outcome: Mutex<Option<gestalt_runtime::Result<HookOutcome>>>,
     after_context_outcome: Mutex<Option<HookOutcome>>,
     events: Mutex<Vec<AgentEvent>>,
+    before_tool_policy_calls: Mutex<usize>,
 }
 
 #[async_trait::async_trait]
@@ -215,6 +216,7 @@ impl CompositionHooks for TestCompositionHooks {
         &self,
         _context: &BeforeToolPolicyCtx,
     ) -> gestalt_runtime::Result<HookOutcome> {
+        *self.before_tool_policy_calls.lock().unwrap() += 1;
         if let Some(outcome) = self.policy_outcome.lock().unwrap().as_ref() {
             match outcome {
                 Ok(o) => Ok(o.clone()),
@@ -257,6 +259,7 @@ async fn test_hooks_context_injection() {
         policy_outcome: Mutex::new(None),
         after_context_outcome: Mutex::new(None),
         events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
     });
 
     let last_request = Arc::new(Mutex::new(None));
@@ -345,6 +348,7 @@ fn test_composition_hooks_require_assembler_backed_pipeline() {
         policy_outcome: Mutex::new(None),
         after_context_outcome: Mutex::new(None),
         events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
     });
 
     let result = AgentRuntimeBuilder::new()
@@ -382,6 +386,7 @@ async fn test_hooks_context_blocking_before() {
         policy_outcome: Mutex::new(None),
         after_context_outcome: Mutex::new(None),
         events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
     });
 
     let last_request = Arc::new(Mutex::new(None));
@@ -431,6 +436,7 @@ async fn test_hooks_context_blocking_after() {
             reason: "after block reason".to_string(),
         })),
         events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
     });
 
     let last_request = Arc::new(Mutex::new(None));
@@ -482,6 +488,7 @@ async fn test_before_tool_policy_denial() {
         }))),
         after_context_outcome: Mutex::new(None),
         events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
     });
 
     let last_request = Arc::new(Mutex::new(None));
@@ -534,6 +541,7 @@ async fn test_before_tool_policy_denial() {
 
     let res = runtime.run_prompt(input).await;
     assert!(res.is_ok());
+    assert_eq!(*hooks.before_tool_policy_calls.lock().unwrap(), 1);
 
     // Verify policy engine denied event was observed
     let observed = hooks.events.lock().unwrap().clone();
@@ -545,6 +553,30 @@ async fn test_before_tool_policy_denial() {
         }
     });
     assert!(denied, "Tool execution should have been denied by policy");
+
+    let history = runtime.event_bus.history();
+    let started = history
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                gestalt_runtime::RuntimeEvent::HookStarted { hook_name, .. }
+                if hook_name == "before_tool_policy"
+            )
+        })
+        .count();
+    let completed = history
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                gestalt_runtime::RuntimeEvent::HookCompleted { hook_name, .. }
+                if hook_name == "before_tool_policy"
+            )
+        })
+        .count();
+    assert_eq!(started, 1);
+    assert_eq!(completed, 1);
 }
 
 #[tokio::test]
@@ -557,6 +589,7 @@ async fn test_before_tool_policy_error() {
         )))),
         after_context_outcome: Mutex::new(None),
         events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
     });
 
     let last_request = Arc::new(Mutex::new(None));
@@ -609,6 +642,7 @@ async fn test_before_tool_policy_error() {
 
     let res = runtime.run_prompt(input).await;
     assert!(res.is_ok());
+    assert_eq!(*hooks.before_tool_policy_calls.lock().unwrap(), 1);
 
     // Verify policy engine denied event was observed due to fail-closed behavior on hook error
     let observed = hooks.events.lock().unwrap().clone();
@@ -629,6 +663,118 @@ async fn test_before_tool_policy_error() {
         denied,
         "Tool execution should have failed closed on hook error"
     );
+
+    let history = runtime.event_bus.history();
+    let started = history
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                gestalt_runtime::RuntimeEvent::HookStarted { hook_name, .. }
+                if hook_name == "before_tool_policy"
+            )
+        })
+        .count();
+    let failed = history
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                gestalt_runtime::RuntimeEvent::HookFailed { hook_name, .. }
+                if hook_name == "before_tool_policy"
+            )
+        })
+        .count();
+    assert_eq!(started, 1);
+    assert_eq!(failed, 1);
+}
+
+#[tokio::test]
+async fn test_before_tool_policy_runs_once_per_tool_call() {
+    let hooks = Arc::new(TestCompositionHooks {
+        add_context: Mutex::new(None),
+        block_reason: Mutex::new(None),
+        policy_outcome: Mutex::new(None),
+        after_context_outcome: Mutex::new(None),
+        events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
+    });
+
+    let provider = Arc::new(MockProvider {
+        last_request: Arc::new(Mutex::new(None)),
+        stream_events: Mutex::new(vec![
+            vec![
+                AgentEvent::ToolCallStreamed {
+                    id: "call-1".to_string(),
+                    name: "test-tool".to_string(),
+                    input_delta: "{}".to_string(),
+                },
+                AgentEvent::Stop {
+                    reason: StopReason::ToolUse,
+                },
+            ],
+            vec![AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            }],
+        ]),
+    });
+
+    let mut tools = HashMap::new();
+    tools.insert(
+        "test-tool".to_string(),
+        Arc::new(MockTool {
+            name: "test-tool".to_string(),
+        }) as Arc<dyn gestalt_core::tool::Tool>,
+    );
+
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(provider)
+        .tools(Arc::new(MockToolCatalog { tools }))
+        .middleware(Arc::new(MockContextPipeline))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(config_without_context_management())
+        .composition_hooks(hooks.clone())
+        .build()
+        .unwrap();
+
+    let result = runtime
+        .run_prompt(UserInput {
+            prompt: "hi".to_string(),
+            session_id: None,
+            cancel_token: gestalt_core::cancel::CancelToken::new(),
+            event_tx: None,
+            artifact_dir: None,
+        })
+        .await;
+
+    assert!(result.is_ok());
+    assert_eq!(*hooks.before_tool_policy_calls.lock().unwrap(), 1);
+
+    let history = runtime.event_bus.history();
+    let started = history
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                gestalt_runtime::RuntimeEvent::HookStarted { hook_name, .. }
+                if hook_name == "before_tool_policy"
+            )
+        })
+        .count();
+    let completed = history
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                gestalt_runtime::RuntimeEvent::HookCompleted { hook_name, .. }
+                if hook_name == "before_tool_policy"
+            )
+        })
+        .count();
+
+    assert_eq!(started, 1);
+    assert_eq!(completed, 1);
 }
 
 #[tokio::test]
@@ -643,6 +789,7 @@ async fn test_after_context_build_context_addition() {
             },
         })),
         events: Mutex::new(Vec::new()),
+        before_tool_policy_calls: Mutex::new(0),
     });
 
     let turn1_request = Arc::new(Mutex::new(None));

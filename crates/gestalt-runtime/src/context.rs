@@ -1,16 +1,16 @@
 use crate::error::Result;
+use gestalt_core::context::ContextAssembler;
 use gestalt_core::context::{
     ContextOmission, ContextPipeline, ContextPlan, ContextPreparationRequest, ContextSourceRef,
     ContextStateDelta, PreparedContext, ProjectedHistory, ProjectedHistoryItem,
-    PromptAssemblyStrategy, PromptCachePlan, PromptSegment, PromptSegmentKind,
-    PromptSnapshot, SessionMessage, StateUpdate, TokenBudget, ToolUseId,
+    PromptAssemblyStrategy, PromptCachePlan, PromptSegment, PromptSegmentKind, PromptSnapshot,
+    SessionMessage, StateUpdate, TokenBudget, ToolUseId,
 };
 use gestalt_core::message::{ContentBlock, Message};
 use gestalt_core::ContextStability;
 use sha2::Digest as _;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use gestalt_core::context::ContextAssembler;
 
 #[derive(Debug, Clone)]
 pub struct ContextPatch {
@@ -259,7 +259,10 @@ impl ContextPipeline for RuntimeContextPipeline {
         let mut final_projected_history = projected_history.clone();
         for action in &clear_actions {
             if action.message_index < final_projected_history.items.len() {
-                if let ProjectedHistoryItem::Canonical { canonical_index, .. } = &final_projected_history.items[action.message_index] {
+                if let ProjectedHistoryItem::Canonical {
+                    canonical_index, ..
+                } = &final_projected_history.items[action.message_index]
+                {
                     let tombstone_content = gestalt_context::tool_clearing::render_tombstone(
                         &action.tool_use_id,
                         &action.tool_name,
@@ -272,18 +275,23 @@ impl ContextPipeline for RuntimeContextPipeline {
                         failure: None,
                         tool_name: Some(action.tool_name.clone()),
                         output_hash: Some(action.output_hash.clone()),
-                        artifact_refs: action.artifact.as_ref().map(|art| vec![art.relative_path.clone()]),
+                        artifact_refs: action
+                            .artifact
+                            .as_ref()
+                            .map(|art| vec![art.relative_path.clone()]),
                     };
-                    final_projected_history.items[action.message_index] = ProjectedHistoryItem::Tombstone {
-                        source_message_id: action.message_id.clone(),
-                        canonical_index: *canonical_index,
-                        message: tombstone_msg,
-                    };
+                    final_projected_history.items[action.message_index] =
+                        ProjectedHistoryItem::Tombstone {
+                            source_message_id: action.message_id.clone(),
+                            canonical_index: *canonical_index,
+                            message: tombstone_msg,
+                        };
                 }
             }
         }
 
-        let (cleared_packet, cleared_plan) = self.build_management_packet_with_plan(&cleared_history, budget);
+        let (cleared_packet, cleared_plan) =
+            self.build_management_packet_with_plan(&cleared_history, budget);
         let cleared_tokens = packet
             .token_estimate
             .saturating_sub(cleared_packet.token_estimate);
@@ -356,7 +364,10 @@ impl ContextPipeline for RuntimeContextPipeline {
 
         if let Some(range) = compaction_range {
             let canonical_range = final_projected_history.map_projected_range_to_canonical(range);
-            emit(gestalt_core::event::AgentEvent::ContextCompactionStarted { range, canonical_range })?;
+            emit(gestalt_core::event::AgentEvent::ContextCompactionStarted {
+                range,
+                canonical_range,
+            })?;
 
             let history_to_compact: Vec<Message> = cleared_history[range.start..range.end]
                 .iter()
@@ -382,15 +393,15 @@ impl ContextPipeline for RuntimeContextPipeline {
 
             match compactor_res {
                 Ok(checkpoint) => {
-                    let mut compacted_history = vec![Self::checkpoint_message(
-                        session_id,
-                        &checkpoint,
-                    )];
+                    let mut compacted_history =
+                        vec![Self::checkpoint_message(session_id, &checkpoint)];
                     compacted_history.extend(cleared_history[range.end..].iter().cloned());
-                    let (compacted_packet, compacted_plan) = self.build_management_packet_with_plan(&compacted_history, budget);
+                    let (compacted_packet, compacted_plan) =
+                        self.build_management_packet_with_plan(&compacted_history, budget);
 
                     // Final size check validation before writing any artifacts
-                    let estimate = self.request_token_estimate(provider, request_template, &compacted_packet)?;
+                    let estimate =
+                        self.request_token_estimate(provider, request_template, &compacted_packet)?;
                     if estimate > usable_limit {
                         emit(gestalt_core::event::AgentEvent::ContextExhaustion {
                             details: format!(
@@ -412,7 +423,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                         gestalt_context::checkpoint_validation::validate_checkpoint(
                             &checkpoint,
                             &plain_canonical_history, // Validate against original canonical history
-                            canonical_range, // Validate canonical range
+                            canonical_range,          // Validate canonical range
                             &history_range_hash,
                         )
                     {
@@ -744,7 +755,11 @@ impl RuntimeContextPipeline {
         )
     }
 
-    fn render_untrusted_document_estimate(&self, source: &gestalt_core::message::DocumentSource, title: Option<&str>) -> String {
+    fn render_untrusted_document_estimate(
+        &self,
+        source: &gestalt_core::message::DocumentSource,
+        title: Option<&str>,
+    ) -> String {
         let title_line = title
             .map(|value| format!("title=\"{value}\"\n"))
             .unwrap_or_default();
@@ -1053,8 +1068,7 @@ impl RuntimeContextPipeline {
         checkpoint_ref: Option<&gestalt_core::context::CompactionCheckpointRef>,
         artifacts_dir: Option<&Path>,
         current_run_id: &str,
-    ) -> std::result::Result<Option<LoadedCheckpoint>, gestalt_core::error::HarnessError>
-    {
+    ) -> std::result::Result<Option<LoadedCheckpoint>, gestalt_core::error::HarnessError> {
         let Some(checkpoint_ref) = checkpoint_ref else {
             return Ok(None);
         };
@@ -1079,7 +1093,11 @@ impl RuntimeContextPipeline {
 
         let content = std::fs::read_to_string(&resolved_file_path).map_err(|err| {
             gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
-                reason: format!("checkpoint file not found: {}, err: {}", resolved_file_path.display(), err),
+                reason: format!(
+                    "checkpoint file not found: {}, err: {}",
+                    resolved_file_path.display(),
+                    err
+                ),
             })
         })?;
 
@@ -1100,24 +1118,25 @@ impl RuntimeContextPipeline {
                         gestalt_core::error::ContextError::PipelineFailed(format!(
                             "checkpoint artifact content hash mismatch: expected {}, got {}",
                             art.content_hash, computed_artifact_hash
-                        ))
+                        )),
                     ));
                 }
             }
         }
 
-        let loaded: gestalt_trace::CompactionCheckpoint = serde_json::from_str(&content).map_err(|err| {
-            gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
-                reason: format!("failed to parse checkpoint: {}", err),
-            })
-        })?;
+        let loaded: gestalt_trace::CompactionCheckpoint =
+            serde_json::from_str(&content).map_err(|err| {
+                gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
+                    reason: format!("failed to parse checkpoint: {}", err),
+                })
+            })?;
 
         if loaded.checkpoint_id != checkpoint_ref.checkpoint_id {
             return Err(gestalt_core::error::HarnessError::Context(
                 gestalt_core::error::ContextError::PipelineFailed(format!(
                     "checkpoint id mismatch: expected {}, got {}",
                     checkpoint_ref.checkpoint_id, loaded.checkpoint_id
-                ))
+                )),
             ));
         }
 
@@ -1126,7 +1145,7 @@ impl RuntimeContextPipeline {
                 gestalt_core::error::ContextError::PipelineFailed(format!(
                     "checkpoint source range mismatch: expected {:?}, got {:?}",
                     checkpoint_ref.source_range, loaded.history_range
-                ))
+                )),
             ));
         }
 
@@ -1135,7 +1154,7 @@ impl RuntimeContextPipeline {
                 gestalt_core::error::ContextError::PipelineFailed(format!(
                     "checkpoint source hash mismatch: expected {}, got {}",
                     checkpoint_ref.source_hash, loaded.history_range_hash
-                ))
+                )),
             ));
         }
 
@@ -1171,8 +1190,9 @@ impl RuntimeContextPipeline {
                 let range = checkpoint_ref.source_range;
                 if range.end <= canonical_history.len() {
                     // Verify hash
-                    let serialized = serde_json::to_string(&canonical_history[range.start..range.end])
-                        .unwrap_or_default();
+                    let serialized =
+                        serde_json::to_string(&canonical_history[range.start..range.end])
+                            .unwrap_or_default();
                     let mut hasher = sha2::Sha256::new();
                     hasher.update(serialized.as_bytes());
                     let actual_hash = format!("{:x}", hasher.finalize());
@@ -1230,20 +1250,36 @@ impl RuntimeContextPipeline {
             }
 
             let position = items.iter().position(|item| match item {
-                ProjectedHistoryItem::Canonical { message_id, .. } => message_id == &persisted.message_id,
+                ProjectedHistoryItem::Canonical { message_id, .. } => {
+                    message_id == &persisted.message_id
+                }
                 _ => false,
             });
 
             if let Some(idx) = position {
-                if let ProjectedHistoryItem::Canonical { canonical_index, message, .. } = &items[idx] {
-                    if let Message::ToolResult { tool_use_id, output_hash, tool_name, .. } = message {
-                        if tool_use_id == &persisted.tool_use_id && output_hash.as_deref() == Some(&persisted.output_hash) {
+                if let ProjectedHistoryItem::Canonical {
+                    canonical_index,
+                    message,
+                    ..
+                } = &items[idx]
+                {
+                    if let Message::ToolResult {
+                        tool_use_id,
+                        output_hash,
+                        tool_name,
+                        ..
+                    } = message
+                    {
+                        if tool_use_id == &persisted.tool_use_id
+                            && output_hash.as_deref() == Some(&persisted.output_hash)
+                        {
                             let t_name = tool_name.as_deref().unwrap_or("");
-                            let tombstone_content = gestalt_context::tool_clearing::render_tombstone(
-                                &persisted.tool_use_id,
-                                t_name,
-                                &persisted.output_hash,
-                            );
+                            let tombstone_content =
+                                gestalt_context::tool_clearing::render_tombstone(
+                                    &persisted.tool_use_id,
+                                    t_name,
+                                    &persisted.output_hash,
+                                );
                             let tombstone_msg = Message::ToolResult {
                                 tool_use_id: persisted.tool_use_id.clone(),
                                 content: tombstone_content,
@@ -1251,7 +1287,10 @@ impl RuntimeContextPipeline {
                                 failure: None,
                                 tool_name: tool_name.clone(),
                                 output_hash: Some(persisted.output_hash.clone()),
-                                artifact_refs: persisted.artifact.as_ref().map(|art| vec![art.relative_path.clone()]),
+                                artifact_refs: persisted
+                                    .artifact
+                                    .as_ref()
+                                    .map(|art| vec![art.relative_path.clone()]),
                             };
                             items[idx] = ProjectedHistoryItem::Tombstone {
                                 source_message_id: persisted.message_id.clone(),
@@ -1304,7 +1343,9 @@ impl RuntimeContextPipeline {
         }
     }
 
-    fn checkpoint_artifact_content_hash(checkpoint: &gestalt_trace::CompactionCheckpoint) -> String {
+    fn checkpoint_artifact_content_hash(
+        checkpoint: &gestalt_trace::CompactionCheckpoint,
+    ) -> String {
         let content = serde_json::to_string_pretty(checkpoint).unwrap_or_default();
         let mut hasher = sha2::Sha256::new();
         hasher.update(content.as_bytes());
@@ -1330,11 +1371,7 @@ impl RuntimeContextPipeline {
         Self::synthetic_id(session_id, "synthetic".to_string(), sequence as u64)
     }
 
-    fn synthetic_id(
-        session_id: &str,
-        namespace: String,
-        sequence: u64,
-    ) -> gestalt_core::MessageId {
+    fn synthetic_id(session_id: &str, namespace: String, sequence: u64) -> gestalt_core::MessageId {
         gestalt_core::MessageId {
             origin_session_id: session_id.to_string(),
             origin_message_namespace: namespace,

@@ -1,4 +1,5 @@
 use crate::error::{Result, RuntimeError};
+use crate::extension::{ExtensionManifestV2, ResolvedExtensionPackage};
 use crate::manifest::ExtensionManifest;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -7,6 +8,14 @@ use std::path::PathBuf;
 pub struct DiscoveredExtension {
     pub manifest_path: PathBuf,
     pub manifest: ExtensionManifest,
+    pub manifest_hash: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiscoveredExtensionPackage {
+    pub manifest_path: PathBuf,
+    pub package: ResolvedExtensionPackage,
     pub manifest_hash: String,
     pub enabled: bool,
 }
@@ -136,6 +145,72 @@ impl ExtensionDiscovery {
 
         Ok(discovered)
     }
+
+    pub fn discover_packages(
+        &self,
+        explicit_paths: &[PathBuf],
+    ) -> Result<Vec<DiscoveredExtensionPackage>> {
+        let mut discovered = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+
+        for path in explicit_paths {
+            let (manifest_path, content) = read_manifest_from_path(path).map_err(|err| {
+                RuntimeError::Extension(format!(
+                    "Failed to read explicit manifest at {:?}: {}",
+                    path, err
+                ))
+            })?;
+            let package = parse_package_manifest(&content).map_err(|err| {
+                RuntimeError::Extension(format!("Invalid explicit manifest: {}", err))
+            })?;
+            if seen_ids.insert(package.descriptor.id.clone()) {
+                discovered.push(DiscoveredExtensionPackage {
+                    manifest_path,
+                    package,
+                    manifest_hash: compute_content_hash(&content),
+                    enabled: true,
+                });
+            }
+        }
+
+        for manifest_file in self.project_manifest_paths() {
+            if let Ok(content) = std::fs::read_to_string(&manifest_file) {
+                if let Ok(package) = parse_package_manifest(&content) {
+                    if seen_ids.insert(package.descriptor.id.clone()) {
+                        discovered.push(DiscoveredExtensionPackage {
+                            manifest_path: manifest_file,
+                            package,
+                            manifest_hash: compute_content_hash(&content),
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(ref gdir) = self.global_dir {
+            for manifest_file in collect_extension_manifest_paths(gdir.join("extensions")) {
+                if let Ok(content) = std::fs::read_to_string(&manifest_file) {
+                    if let Ok(package) = parse_package_manifest(&content) {
+                        if seen_ids.insert(package.descriptor.id.clone()) {
+                            discovered.push(DiscoveredExtensionPackage {
+                                manifest_path: manifest_file,
+                                package,
+                                manifest_hash: compute_content_hash(&content),
+                                enabled: true,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(discovered)
+    }
+
+    fn project_manifest_paths(&self) -> Vec<PathBuf> {
+        collect_extension_manifest_paths(self.workspace_root.join(".gestalt/extensions"))
+    }
 }
 
 fn compute_content_hash(content: &str) -> String {
@@ -143,4 +218,55 @@ fn compute_content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+fn read_manifest_from_path(path: &PathBuf) -> std::io::Result<(PathBuf, String)> {
+    if path.is_dir() {
+        let manifest_path = path.join("gestalt.extension.toml");
+        let content = std::fs::read_to_string(&manifest_path)?;
+        Ok((manifest_path, content))
+    } else {
+        let content = std::fs::read_to_string(path)?;
+        Ok((path.clone(), content))
+    }
+}
+
+fn collect_extension_manifest_paths(extension_dir: PathBuf) -> Vec<PathBuf> {
+    let mut entries = Vec::new();
+    if extension_dir.exists() && extension_dir.is_dir() {
+        if let Ok(rd) = std::fs::read_dir(&extension_dir) {
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let manifest_file = path.join("gestalt.extension.toml");
+                    if manifest_file.exists() && manifest_file.is_file() {
+                        entries.push(manifest_file);
+                    }
+                }
+            }
+        }
+    }
+    entries.sort();
+    entries
+}
+
+fn parse_package_manifest(content: &str) -> std::result::Result<ResolvedExtensionPackage, String> {
+    if is_manifest_v2(content)? {
+        let manifest = ExtensionManifestV2::parse(content)?;
+        ResolvedExtensionPackage::from_v2_manifest(manifest.clone(), manifest.package.id)
+            .map_err(|err| err.to_string())
+    } else {
+        let manifest = ExtensionManifest::parse(content)?;
+        ResolvedExtensionPackage::from_v1_manifest(manifest).map_err(|err| err.to_string())
+    }
+}
+
+fn is_manifest_v2(content: &str) -> std::result::Result<bool, String> {
+    let value = content
+        .parse::<toml::Value>()
+        .map_err(|err| format!("TOML parse error: {}", err))?;
+    Ok(value
+        .get("manifest_version")
+        .and_then(toml::Value::as_integer)
+        == Some(2))
 }

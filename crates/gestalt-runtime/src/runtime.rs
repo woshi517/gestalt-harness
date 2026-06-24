@@ -28,7 +28,7 @@ use crate::composition_hooks::{
 use crate::context::{ContextContributor, RuntimeContextPipeline};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::policy::RuntimePolicyEngine;
-use crate::registry::RuntimeRegistry;
+use crate::registry::{RuntimeRegistry, RuntimeRegistrySnapshot};
 use std::sync::Mutex;
 
 pub struct UserInput {
@@ -48,6 +48,9 @@ pub struct AgentRuntime {
     pub trace_sink: Option<Arc<dyn TraceSink>>,
     pub config: RuntimeConfig,
     pub registry: RuntimeRegistry,
+    pub registry_snapshot: RuntimeRegistrySnapshot,
+    pub extension_snapshot: Arc<crate::extension::RuntimeExtensionSnapshot>,
+    pub extension_manager: Arc<crate::extension::ExtensionManager>,
     pub hooks: gestalt_core::HookRegistry,
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
     pub event_bus: RuntimeEventBus,
@@ -73,12 +76,49 @@ impl AgentRuntime {
         config: RuntimeConfig,
         hooks: gestalt_core::HookRegistry,
         registry: RuntimeRegistry,
+        registry_snapshot: RuntimeRegistrySnapshot,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
         event_bus: RuntimeEventBus,
         mcp_registry: Arc<gestalt_mcp::McpRegistry>,
         mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
         extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     ) -> Self {
+        let mut extension_snapshot =
+            crate::extension::RuntimeExtensionSnapshot::from_registry_snapshot(
+                crate::extension::RuntimeGeneration(0),
+                registry_snapshot.clone(),
+                tools.clone(),
+                mcp_registry.clone(),
+            );
+        if composition_hooks.is_some() {
+            let context_plan =
+                crate::extension::RuntimeExtensionSnapshot::context_plan_from_registry(
+                    &registry_snapshot,
+                    true,
+                );
+            let policy_plan = crate::lifecycle::PolicyGuardPlan::new(vec![
+                crate::lifecycle::PolicyGuardRegistration {
+                    descriptor: crate::lifecycle::TypedCapabilityDescriptor {
+                        component_id: "native:composition_hooks:before_tool_policy".to_string(),
+                        priority: 0,
+                        timeout: std::time::Duration::from_secs(5),
+                        failure_mode: crate::lifecycle::CapabilityFailureMode::FailClosed,
+                        data_scope: crate::lifecycle::CapabilityDataScope::ToolRequest,
+                    },
+                    source: "native-composition-hooks".to_string(),
+                },
+            ]);
+            extension_snapshot = extension_snapshot
+                .with_context_plan(context_plan)
+                .with_policy_plan(policy_plan);
+        }
+        let extension_snapshot = Arc::new(extension_snapshot);
+        let extension_manager = Arc::new(crate::extension::ExtensionManager::new(
+            extension_snapshot.clone(),
+            event_bus.clone(),
+            Arc::new(crate::extension::NoopExtensionLauncher),
+        ));
+
         Self {
             provider,
             tools,
@@ -88,6 +128,9 @@ impl AgentRuntime {
             trace_sink,
             config,
             registry,
+            registry_snapshot,
+            extension_snapshot,
+            extension_manager,
             hooks,
             composition_hooks,
             event_bus,
@@ -228,6 +271,14 @@ impl AgentRuntime {
             .steering_queue
             .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)
             .await;
+
+        let active_extension_snapshot = self.extension_manager.active_snapshot();
+        self.event_bus
+            .publish(RuntimeEvent::RuntimeGenerationAdopted {
+                session_id: session.id.clone(),
+                generation: active_extension_snapshot.generation.0,
+                fingerprint: active_extension_snapshot.fingerprint.to_string(),
+            });
 
         let mut core_hooks = self.hooks.clone();
         let mut middleware = self.middleware.clone();
@@ -536,7 +587,11 @@ impl AgentRuntime {
         let discovery_threshold = self.config.mcp_discovery_threshold.unwrap_or(5);
         let mcp_servers = self.mcp_registry.get_all_states(discovery_threshold);
 
+        let active_extension_snapshot = self.extension_manager.active_snapshot();
+
         RuntimeInspect {
+            runtime_generation: active_extension_snapshot.generation.0,
+            runtime_fingerprint: Some(active_extension_snapshot.fingerprint.to_string()),
             provider_name: self.config.provider.clone(),
             provider_model: self.config.model.clone(),
             execution_mode: format!("{:?}", self.config.execution_mode),
@@ -548,9 +603,19 @@ impl AgentRuntime {
             policy_source_path,
             hooks: hook_names,
             hook_contract_hash,
-            verifiers: self.registry.verifiers.clone(),
-            extensions: self.registry.extensions.clone(),
-            context_injectors: self.registry.context_contributors.keys().cloned().collect(),
+            verifiers: self
+                .registry_snapshot
+                .verifiers
+                .iter()
+                .map(|verifier| verifier.name.clone())
+                .collect(),
+            extensions: self.registry_snapshot.extensions.clone(),
+            context_injectors: self
+                .registry_snapshot
+                .context_contributors
+                .keys()
+                .cloned()
+                .collect(),
             trace_sink_kind,
             trace_run_dir: None,
             workspace_root: self.config.workspace_root.to_string_lossy().to_string(),

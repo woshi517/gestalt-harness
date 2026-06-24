@@ -1,3 +1,5 @@
+#![allow(clippy::large_futures)]
+
 use gestalt_cli::chat::run_chat;
 use gestalt_cli::config::CliOverrides;
 use gestalt_core::HarnessError;

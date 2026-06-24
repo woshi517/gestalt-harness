@@ -101,11 +101,12 @@ impl Session {
             self.context_state.cleared_tool_results.remove(remove_id);
         }
         if !delta.cleared_tool_results.is_empty() {
-            self.context_state
-                .cleared_tool_results
-                .extend(delta.cleared_tool_results.into_iter().map(|entry| {
-                    (entry.tool_use_id.clone(), entry)
-                }));
+            self.context_state.cleared_tool_results.extend(
+                delta
+                    .cleared_tool_results
+                    .into_iter()
+                    .map(|entry| (entry.tool_use_id.clone(), entry)),
+            );
         }
         match delta.prompt_snapshot {
             StateUpdate::Unchanged => {}

@@ -302,6 +302,8 @@ fn test_models_search_report_contract() {
 #[test]
 fn test_runtime_inspect_report_contract() {
     let inspect = gestalt_runtime::RuntimeInspect {
+        runtime_generation: 0,
+        runtime_fingerprint: Some("runtimehash123".to_string()),
         provider_name: "anthropic".to_string(),
         provider_model: "claude-3-5-sonnet".to_string(),
         execution_mode: "Confirm".to_string(),

@@ -241,20 +241,35 @@ impl ProjectedHistoryItem {
 
     pub fn to_session_message(&self, session_id: &str) -> SessionMessage {
         match self {
-            Self::Canonical { message_id, message, .. } => SessionMessage {
+            Self::Canonical {
+                message_id,
+                message,
+                ..
+            } => SessionMessage {
                 id: message_id.clone(),
                 message: message.clone(),
                 metadata: None,
             },
-            Self::Tombstone { source_message_id, message, .. } => SessionMessage {
+            Self::Tombstone {
+                source_message_id,
+                message,
+                ..
+            } => SessionMessage {
                 id: source_message_id.clone(),
                 message: message.clone(),
                 metadata: None,
             },
-            Self::Checkpoint { checkpoint_ref, message, .. } => SessionMessage {
+            Self::Checkpoint {
+                checkpoint_ref,
+                message,
+                ..
+            } => SessionMessage {
                 id: MessageId {
                     origin_session_id: session_id.to_string(),
-                    origin_message_namespace: format!("checkpoint:{}", checkpoint_ref.checkpoint_id),
+                    origin_message_namespace: format!(
+                        "checkpoint:{}",
+                        checkpoint_ref.checkpoint_id
+                    ),
                     sequence: checkpoint_ref.source_range.end as u64,
                 },
                 message: message.clone(),
@@ -270,14 +285,22 @@ impl ProjectedHistory {
         let last_item = &self.items[range.end - 1];
 
         let canonical_start = match first_item {
-            ProjectedHistoryItem::Canonical { canonical_index, .. } => *canonical_index,
-            ProjectedHistoryItem::Tombstone { canonical_index, .. } => *canonical_index,
+            ProjectedHistoryItem::Canonical {
+                canonical_index, ..
+            } => *canonical_index,
+            ProjectedHistoryItem::Tombstone {
+                canonical_index, ..
+            } => *canonical_index,
             ProjectedHistoryItem::Checkpoint { source_range, .. } => source_range.start,
         };
 
         let canonical_end = match last_item {
-            ProjectedHistoryItem::Canonical { canonical_index, .. } => canonical_index + 1,
-            ProjectedHistoryItem::Tombstone { canonical_index, .. } => canonical_index + 1,
+            ProjectedHistoryItem::Canonical {
+                canonical_index, ..
+            } => canonical_index + 1,
+            ProjectedHistoryItem::Tombstone {
+                canonical_index, ..
+            } => canonical_index + 1,
             ProjectedHistoryItem::Checkpoint { source_range, .. } => source_range.end,
         };
 
@@ -291,7 +314,6 @@ impl ProjectedHistory {
             .collect()
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ArtifactRef {
@@ -465,7 +487,7 @@ pub struct ContextPreparationRequest<'a> {
     pub artifacts_dir: Option<&'a std::path::Path>,
     pub tool_retention: &'a ToolRetentionRegistrySnapshot,
     pub emit: &'a mut (dyn FnMut(crate::event::AgentEvent) -> Result<(), crate::error::HarnessError>
-                  + Send),
+                 + Send),
 }
 
 #[derive(Debug, Clone)]

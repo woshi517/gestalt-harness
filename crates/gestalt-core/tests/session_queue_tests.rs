@@ -137,10 +137,16 @@ fn test_context_state_delta_distinguishes_unchanged_set_and_clear() {
         active_checkpoint: StateUpdate::Set(checkpoint.clone()),
         ..ContextStateDelta::default()
     });
-    assert_eq!(session.context_state.active_checkpoint, Some(checkpoint.clone()));
+    assert_eq!(
+        session.context_state.active_checkpoint,
+        Some(checkpoint.clone())
+    );
 
     session.apply_context_state_delta(ContextStateDelta::default());
-    assert_eq!(session.context_state.active_checkpoint, Some(checkpoint.clone()));
+    assert_eq!(
+        session.context_state.active_checkpoint,
+        Some(checkpoint.clone())
+    );
 
     session.apply_context_state_delta(ContextStateDelta {
         active_checkpoint: StateUpdate::Clear,

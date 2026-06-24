@@ -104,7 +104,9 @@ impl ContextPipeline for MockContextPipeline {
     }
 
     fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
-        Some(Arc::new(gestalt_context::ContextMessageAssembler::new("pipeline-v1")))
+        Some(Arc::new(gestalt_context::ContextMessageAssembler::new(
+            "pipeline-v1",
+        )))
     }
 }
 
@@ -154,6 +156,16 @@ async fn test_runtime_event_bus_basic_fanout() {
     assert!(!events.is_empty());
     // The first event should be SessionSpawned
     assert!(matches!(events[0], RuntimeEvent::SessionSpawned { .. }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            RuntimeEvent::RuntimeGenerationAdopted {
+                generation: 0,
+                fingerprint,
+                ..
+            } if fingerprint.len() == 64
+        )
+    }));
 
     // Subsequent events should be Agent events
     let agent_events: Vec<_> = events

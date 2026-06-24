@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use gestalt_core::ContextStability;
 use gestalt_runtime::{
     Capabilities, Entrypoint, ExtensionManifest, GestaltExtension, Permissions, ProcessExtension,
@@ -1313,6 +1315,8 @@ done"#
     );
     let ext = Arc::new(ProcessExtension::new(manifest1, broker.clone()));
 
+    let registry = RuntimeRegistry::default();
+    let registry_snapshot = registry.snapshot();
     let runtime = AgentRuntime::new(
         Arc::new(FPProvider),
         Arc::new(FPToolCatalog),
@@ -1322,7 +1326,8 @@ done"#
         None,
         RuntimeConfig::default(),
         gestalt_core::HookRegistry::default(),
-        RuntimeRegistry::default(),
+        registry,
+        registry_snapshot,
         None,
         event_bus.clone(),
         Arc::new(gestalt_mcp::McpRegistry::new(

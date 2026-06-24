@@ -239,6 +239,103 @@ deny_read = ["/secret2"]
 }
 
 #[test]
+fn test_extension_instances_parse_without_dropping_legacy_fields() {
+    use gestalt_cli::config::WorkspaceConfig;
+
+    let json = r#"
+{
+  "version": 1,
+  "extensions": {
+    "explicit_loads": ["./legacy"],
+    "disabled": ["old-ext"],
+    "trusted": ["legacy-ext"],
+    "allow_untrusted": true,
+    "instances": {
+      "review-primary": {
+        "package": "com.example.review",
+        "enabled": true,
+        "components": {
+          "lifecycle": true,
+          "client-metadata": false
+        },
+        "config": {
+          "policySet": "default"
+        },
+        "grants": {
+          "workspaceRead": true,
+          "workspaceWrite": false,
+          "network": ["api.example.com"]
+        }
+      }
+    }
+  }
+}
+"#;
+
+    let config: WorkspaceConfig = serde_json::from_str(json).unwrap();
+    let extensions = config.extensions.unwrap();
+    let instance = extensions.instances.get("review-primary").unwrap();
+
+    assert_eq!(extensions.explicit_loads, ["./legacy"]);
+    assert_eq!(extensions.disabled, ["old-ext"]);
+    assert_eq!(extensions.trusted, ["legacy-ext"]);
+    assert!(extensions.allow_untrusted);
+    assert_eq!(instance.package, "com.example.review");
+    assert!(instance.enabled);
+    assert_eq!(instance.components.get("lifecycle"), Some(&true));
+    assert_eq!(instance.components.get("client-metadata"), Some(&false));
+    assert_eq!(instance.config["policySet"], "default");
+    assert!(instance.grants.workspace_read);
+    assert!(!instance.grants.workspace_write);
+    assert_eq!(instance.grants.network, ["api.example.com"]);
+}
+
+#[test]
+fn test_extension_instances_merge_additively() {
+    use gestalt_cli::config::WorkspaceConfig;
+
+    let global: WorkspaceConfig = serde_json::from_str(
+        r#"
+{
+  "version": 1,
+  "extensions": {
+    "instances": {
+      "global-review": {
+        "package": "com.example.review",
+        "enabled": true
+      }
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+    let workspace: WorkspaceConfig = serde_json::from_str(
+        r#"
+{
+  "version": 1,
+  "extensions": {
+    "instances": {
+      "workspace-review": {
+        "package": "com.example.review",
+        "enabled": false
+      }
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let merged = global.merge(workspace).unwrap();
+    let instances = merged.extensions.unwrap().instances;
+
+    assert!(instances.contains_key("global-review"));
+    assert!(instances.contains_key("workspace-review"));
+    assert!(!instances["workspace-review"].enabled);
+}
+
+#[test]
 fn test_effective_config_fingerprint_stability() {
     let _guard = ENV_MUTEX.lock().unwrap();
     clear_env_vars();

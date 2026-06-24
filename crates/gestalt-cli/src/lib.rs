@@ -23,7 +23,8 @@
     clippy::must_use_candidate,
     clippy::ignored_unit_patterns,
     clippy::manual_let_else,
-    clippy::useless_let_if_seq
+    clippy::useless_let_if_seq,
+    clippy::large_futures
 )]
 
 pub mod approval;

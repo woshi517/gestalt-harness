@@ -1,9 +1,12 @@
+#![allow(deprecated)]
+
 pub mod artifact_store;
 pub mod builder;
 pub mod compaction;
 pub mod composition_hooks;
 pub mod config;
 pub mod context;
+pub mod control;
 pub mod discovery;
 pub mod error;
 pub mod event_bus;
@@ -11,6 +14,7 @@ pub mod extension;
 pub mod extension_trust;
 pub mod inspect;
 pub mod jsonrpc;
+pub mod lifecycle;
 pub mod manifest;
 pub mod orchestration;
 pub mod permissions;
@@ -36,7 +40,8 @@ pub use composition_hooks::{
 };
 pub use config::RuntimeConfig;
 pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
-pub use discovery::{DiscoveredExtension, ExtensionDiscovery};
+pub use control::{ReloadExtensionsReport, ReloadExtensionsRequest, RuntimeControl};
+pub use discovery::{DiscoveredExtension, DiscoveredExtensionPackage, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};
 pub use extension::GestaltExtension;
@@ -58,7 +63,8 @@ pub use process_extension::{
 };
 pub use registry::{
     compute_schema_hash, compute_tool_schema_hash, ProviderFactory, ProviderMetadata,
-    RuntimeRegistry, ToolMetadata,
+    RuntimeFingerprint, RuntimeRegistry, RuntimeRegistryBuilder, RuntimeRegistrySnapshot,
+    ToolMetadata, ToolRegistrationSnapshot,
 };
 pub use runtime::{AgentRuntime, UserInput};
 pub use session_queue::InMemorySteeringQueue;

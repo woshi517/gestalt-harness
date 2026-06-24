@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use gestalt_core::ContextStability;
 use gestalt_runtime::{AgentRuntimeBuilder, GestaltExtension, RuntimeError, RuntimeRegistry};
 use std::sync::Arc;

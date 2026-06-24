@@ -1,0 +1,9 @@
+{
+  "component_id": "component:com.example.review:primary:lifecycle",
+  "capability": "context_provider",
+  "payload": {
+    "messages": [
+      { "role": "system", "content": "review guidance" }
+    ]
+  }
+}

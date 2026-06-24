@@ -25,9 +25,7 @@ struct CompactorOutput {
 
 fn is_checkpoint_message(message: &Message) -> bool {
     match message {
-        Message::System { content } => {
-            content.starts_with("### Session Checkpoint Summary")
-        }
+        Message::System { content } => content.starts_with("### Session Checkpoint Summary"),
         _ => false,
     }
 }

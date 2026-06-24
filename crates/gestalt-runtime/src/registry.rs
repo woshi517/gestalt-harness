@@ -5,6 +5,13 @@ use gestalt_core::ContextStability;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+pub mod snapshot;
+
+pub use snapshot::{
+    ContextContributorSnapshot, HookRegistration, RuntimeFingerprint, RuntimeRegistrySnapshot,
+    ToolRegistrationSnapshot, VerifierRegistration,
+};
+
 #[derive(Clone)]
 pub struct ToolMetadata {
     pub name: String,
@@ -57,7 +64,7 @@ impl Clone for ContextContributorMetadata {
 }
 
 #[derive(Clone)]
-pub struct RuntimeRegistry {
+pub struct RuntimeRegistryBuilder {
     pub tools: BTreeMap<String, ToolMetadata>,
     pub providers: BTreeMap<String, ProviderMetadata>,
     pub context_contributors: BTreeMap<String, ContextContributorMetadata>,
@@ -66,13 +73,16 @@ pub struct RuntimeRegistry {
     pub extensions: Vec<String>,
 }
 
-impl Default for RuntimeRegistry {
+#[deprecated(note = "use RuntimeRegistryBuilder for mutable registry construction")]
+pub type RuntimeRegistry = RuntimeRegistryBuilder;
+
+impl Default for RuntimeRegistryBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RuntimeRegistry {
+impl RuntimeRegistryBuilder {
     pub fn new() -> Self {
         Self {
             tools: BTreeMap::new(),
@@ -224,6 +234,10 @@ impl RuntimeRegistry {
         }
         self.extensions.push(name);
         Ok(())
+    }
+
+    pub fn snapshot(&self) -> RuntimeRegistrySnapshot {
+        RuntimeRegistrySnapshot::from_builder(self)
     }
 }
 
