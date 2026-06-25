@@ -1,13 +1,16 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
 use gestalt_runtime::extension::{
-    ComponentFingerprint, ComponentInstanceId, ComponentKind, ExtensionInventory, ExtensionManager,
-    ExtensionProcessInstance, ExtensionProcessState, ExtensionRuntimeComponent,
-    NoopExtensionLauncher, ResolvedExtensionPackage, RuntimeExtensionSnapshot, RuntimeGeneration,
+    ComponentFingerprint, ComponentInstanceId, ComponentKind, ExtensionInventory,
+    ExtensionLauncher, ExtensionManager, ExtensionProcessInstance, ExtensionProcessState,
+    ExtensionRuntimeComponent, NoopExtensionLauncher, ResolvedExtensionPackage,
+    RuntimeExtensionSnapshot, RuntimeGeneration,
 };
-use gestalt_runtime::{RuntimeEventBus, RuntimeRegistryBuilder};
+use gestalt_runtime::{ExtensionManifest, RuntimeEventBus, RuntimeRegistryBuilder};
 use serde_json::json;
 
 struct EmptyToolCatalog;
@@ -82,6 +85,73 @@ fn draining_process_instances_reject_new_calls_but_track_existing_calls() {
     assert_eq!(process.in_flight_calls(), 0);
 }
 
+#[tokio::test]
+async fn extension_manager_reuses_ready_processes_and_tracks_health() {
+    let launcher = Arc::new(CountingLauncher::default());
+    let manager = ExtensionManager::new(
+        Arc::new(snapshot_with_generation(0)),
+        RuntimeEventBus::new(),
+        launcher.clone(),
+    );
+    let component = runtime_component("com.example.review", "review-primary", "lifecycle");
+
+    let first = manager.launch_process(&component).await.unwrap();
+    let second = manager.launch_process(&component).await.unwrap();
+
+    assert!(Arc::ptr_eq(&first, &second));
+    assert_eq!(launcher.launch_count(), 1);
+    assert_eq!(manager.process_instances().len(), 1);
+    assert_eq!(
+        manager.process_health(),
+        vec![gestalt_runtime::extension::ExtensionInstanceHealth {
+            instance_id: component.id.canonical_id(),
+            status: gestalt_runtime::extension::ExtensionInstanceHealthStatus::Ready,
+            message: None,
+        }]
+    );
+
+    manager.drain_process(&component).await.unwrap();
+
+    assert_eq!(first.state(), ExtensionProcessState::Draining);
+    assert_eq!(
+        manager.process_health(),
+        vec![gestalt_runtime::extension::ExtensionInstanceHealth {
+            instance_id: component.id.canonical_id(),
+            status: gestalt_runtime::extension::ExtensionInstanceHealthStatus::Degraded,
+            message: Some("process is draining".to_string()),
+        }]
+    );
+
+    manager.shutdown_process(&component).await.unwrap();
+
+    assert!(manager.process_instances().is_empty());
+}
+
+#[tokio::test]
+async fn legacy_process_extensions_reuse_manager_owned_broker_instances() {
+    let manifest = mock_extension_manifest();
+    let manager = manager_with_snapshot(snapshot_with_generation(0));
+
+    let first = manager
+        .launch_legacy_process_extension(
+            manifest.clone(),
+            Default::default(),
+            Default::default(),
+            true,
+        )
+        .await
+        .unwrap();
+    let second = manager
+        .launch_legacy_process_extension(manifest, Default::default(), Default::default(), true)
+        .await
+        .unwrap();
+
+    assert_eq!(manager.process_instances().len(), 1);
+    assert!(Arc::ptr_eq(&first.broker, &second.broker));
+
+    manager.shutdown_all().await.unwrap();
+}
+
 fn manager_with_snapshot(snapshot: RuntimeExtensionSnapshot) -> ExtensionManager {
     ExtensionManager::new(
         Arc::new(snapshot),
@@ -147,5 +217,40 @@ fn runtime_component(
         grants_fingerprint: "grants-a".to_string(),
         trust_fingerprint: "trust-a".to_string(),
         protocol_fingerprint: Some("protocol-a".to_string()),
+        package_version: "1.0.0".to_string(),
+        manifest_hash: None,
+        executable_hash: None,
+        dependency_lock_hash: None,
+    }
+}
+
+fn mock_extension_manifest() -> ExtensionManifest {
+    let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
+    let content = std::fs::read_to_string(manifest_path).unwrap();
+    ExtensionManifest::parse(&content).unwrap()
+}
+
+#[derive(Default)]
+struct CountingLauncher {
+    launches: AtomicUsize,
+}
+
+impl CountingLauncher {
+    fn launch_count(&self) -> usize {
+        self.launches.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl ExtensionLauncher for CountingLauncher {
+    async fn launch(
+        &self,
+        component: &ExtensionRuntimeComponent,
+    ) -> gestalt_runtime::Result<Arc<ExtensionProcessInstance>> {
+        self.launches.fetch_add(1, Ordering::SeqCst);
+        let process = Arc::new(ExtensionProcessInstance::new(component.id.canonical_id()));
+        process.transition_to(ExtensionProcessState::Ready);
+        Ok(process)
     }
 }

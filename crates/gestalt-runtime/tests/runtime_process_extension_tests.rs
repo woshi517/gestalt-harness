@@ -909,7 +909,7 @@ done"#.to_string(),
     if let HookOutcome::Annotate { metadata } = result {
         assert_eq!(
             metadata,
-            serde_json::json!({ "annotation-ext": { "foo": "bar" } })
+            serde_json::json!({ "annotation-ext@annotation-ext": { "foo": "bar" } })
         );
     } else {
         panic!("Expected HookOutcome::Annotate, got {:?}", result);

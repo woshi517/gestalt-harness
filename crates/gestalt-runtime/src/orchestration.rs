@@ -27,31 +27,7 @@ pub trait Orchestrator: Send + Sync {
 }
 
 #[async_trait::async_trait]
-pub trait AgentRuntimeHandle: Send + Sync {
-    async fn spawn_session(
-        &self,
-        session_id: &str,
-        config_override: Option<crate::config::RuntimeConfig>,
-    ) -> Result<String>;
-    async fn send_message(
-        &self,
-        session_id: &str,
-        prompt: &str,
-    ) -> Result<gestalt_core::session::RunResult>;
-    fn subscribe(&self) -> broadcast::Receiver<Arc<RuntimeEvent>>;
-    fn artifact_store(&self) -> Arc<dyn ArtifactStore>;
-    async fn create_artifact(&self, session_id: &str, name: &str, content: &[u8])
-        -> Result<String>;
-    async fn read_artifact(&self, session_id: &str, name: &str) -> Result<Vec<u8>>;
-    async fn list_artifacts(&self, session_id: &str) -> Result<Vec<String>>;
-    async fn enqueue_steering_message(
-        &self,
-        session_id: &str,
-        content: &str,
-        source: gestalt_core::session_queue::MessageSource,
-        idempotency_key: Option<String>,
-    ) -> Result<gestalt_core::session_queue::QueueAck>;
-}
+pub trait AgentRuntimeHandle: crate::control::RuntimeControl {}
 
 pub struct DefaultAgentRuntimeHandle {
     builder: AgentRuntimeBuilder,
@@ -73,7 +49,7 @@ impl DefaultAgentRuntimeHandle {
 }
 
 #[async_trait::async_trait]
-impl AgentRuntimeHandle for DefaultAgentRuntimeHandle {
+impl crate::control::RuntimeControl for DefaultAgentRuntimeHandle {
     async fn spawn_session(
         &self,
         session_id: &str,
@@ -182,4 +158,62 @@ impl AgentRuntimeHandle for DefaultAgentRuntimeHandle {
     async fn list_artifacts(&self, session_id: &str) -> Result<Vec<String>> {
         self.artifact_store.list_artifacts(session_id)
     }
+
+    async fn inspect_runtime(&self) -> crate::inspect::RuntimeInspect {
+        let runtimes = self.runtimes.lock().unwrap();
+        if let Some(runtime) = runtimes.values().next() {
+            runtime.inspect()
+        } else if let Ok(runtime) = self.builder.clone().build() {
+            runtime.inspect()
+        } else {
+            crate::inspect::RuntimeInspect::default()
+        }
+    }
+
+    async fn reload_extensions(
+        &self,
+        request: crate::control::ReloadExtensionsRequest,
+    ) -> Result<crate::control::ReloadExtensionsReport> {
+        let runtimes: Vec<Arc<AgentRuntime>> = {
+            let guard = self.runtimes.lock().unwrap();
+            guard.values().cloned().collect()
+        };
+        let mut report = None;
+        for runtime in runtimes {
+            let rep = runtime.reload_extensions(request.clone()).await?;
+            if report.is_none() {
+                report = Some(rep);
+            }
+        }
+        if let Some(rep) = report {
+            Ok(rep)
+        } else {
+            let runtime = self.builder.clone().build()?;
+            runtime.reload_extensions(request).await
+        }
+    }
+
+    fn current_generation(&self) -> crate::extension::RuntimeGeneration {
+        let runtimes = self.runtimes.lock().unwrap();
+        if let Some(runtime) = runtimes.values().next() {
+            runtime.current_generation()
+        } else if let Ok(runtime) = self.builder.clone().build() {
+            runtime.current_generation()
+        } else {
+            crate::extension::RuntimeGeneration(0)
+        }
+    }
+
+    fn extension_health(&self) -> Vec<crate::extension::ExtensionInstanceHealth> {
+        let runtimes = self.runtimes.lock().unwrap();
+        if let Some(runtime) = runtimes.values().next() {
+            runtime.extension_health()
+        } else if let Ok(runtime) = self.builder.clone().build() {
+            runtime.extension_health()
+        } else {
+            Vec::new()
+        }
+    }
 }
+
+impl AgentRuntimeHandle for DefaultAgentRuntimeHandle {}

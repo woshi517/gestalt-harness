@@ -102,7 +102,7 @@ async fn command_tool_returns_structured_json() {
     );
     assert_eq!(
         tool.descriptor().id.to_string(),
-        "extension:com.example.tools:echo"
+        "extension:com.example.tools@primary:echo"
     );
 }
 
@@ -134,11 +134,65 @@ fn builder_registers_command_tool_components_as_tools() {
         .build()
         .unwrap();
 
-    assert!(runtime.tools.get("echo").is_some());
-    assert!(runtime.registry_snapshot.tools.contains_key("echo"));
+    assert!(runtime.tools.get("primary__echo").is_some());
+    assert!(runtime
+        .registry_snapshot
+        .tools
+        .contains_key("primary__echo"));
+}
+
+#[test]
+fn builder_keeps_same_component_names_unique_across_instances() {
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(Arc::new(MockProvider))
+        .tools(Arc::new(EmptyToolCatalog))
+        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+            "pipeline-v1",
+        )))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(RuntimeConfig::default())
+        .extension_package(command_tool_package("/bin/cat", &[]))
+        .extension_package(command_tool_package_with_instance(
+            "secondary",
+            "/bin/cat",
+            &[],
+        ))
+        .build()
+        .unwrap();
+
+    let primary = runtime
+        .tools
+        .get("extension:com.example.tools@primary:echo")
+        .unwrap();
+    let secondary = runtime
+        .tools
+        .get("extension:com.example.tools@secondary:echo")
+        .unwrap();
+
+    assert_ne!(
+        primary.descriptor().id.to_string(),
+        secondary.descriptor().id.to_string()
+    );
+    assert!(runtime
+        .registry_snapshot
+        .tools
+        .contains_key("primary__echo"));
+    assert!(runtime
+        .registry_snapshot
+        .tools
+        .contains_key("secondary__echo"));
 }
 
 fn command_tool_package(command: &str, args: &[&str]) -> ResolvedExtensionPackage {
+    command_tool_package_with_instance("primary", command, args)
+}
+
+fn command_tool_package_with_instance(
+    instance_id: &str,
+    command: &str,
+    args: &[&str],
+) -> ResolvedExtensionPackage {
     let args_toml = args
         .iter()
         .map(|arg| format!("\"{arg}\""))
@@ -168,7 +222,7 @@ args = [{args_toml}]
 "#
     ))
     .unwrap();
-    ResolvedExtensionPackage::from_v2_manifest(manifest, "primary").unwrap()
+    ResolvedExtensionPackage::from_v2_manifest(manifest, instance_id).unwrap()
 }
 
 fn tool_context() -> ToolContext {

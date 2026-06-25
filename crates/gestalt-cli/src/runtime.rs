@@ -351,22 +351,26 @@ pub async fn build_cli_runtime(
             });
     }
 
-    if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
+    if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
         for ext in discovered {
-            if config.extensions.disabled.contains(&ext.manifest.id) {
+            if config
+                .extensions
+                .disabled
+                .contains(&ext.package.descriptor.id)
+            {
                 continue;
             }
 
             let mut is_trusted_by_config = false;
             for trusted_entry in &config.extensions.trusted {
-                if trusted_entry == &ext.manifest.id {
+                if trusted_entry == &ext.package.descriptor.id {
                     eprintln!(
                         "Warning: Extension '{}' is trusted using a legacy ID-only entry. Please migrate to integrity-aware trust by specifying '{}:{}'",
-                        ext.manifest.id, ext.manifest.id, ext.manifest_hash
+                        ext.package.descriptor.id, ext.package.descriptor.id, ext.manifest_hash
                     );
                     is_trusted_by_config = true;
                     break;
-                } else if trusted_entry.starts_with(&format!("{}:", ext.manifest.id)) {
+                } else if trusted_entry.starts_with(&format!("{}:", ext.package.descriptor.id)) {
                     let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
                     if parts.len() == 2 {
                         let expected_hash = parts[1];
@@ -375,7 +379,7 @@ pub async fn build_cli_runtime(
                         } else {
                             eprintln!(
                                 "Warning: Extension '{}' trust invalid: manifest integrity hash has changed (expected '{}', found '{}')",
-                                ext.manifest.id, expected_hash, ext.manifest_hash
+                                ext.package.descriptor.id, expected_hash, ext.manifest_hash
                             );
                         }
                     }
@@ -385,14 +389,13 @@ pub async fn build_cli_runtime(
 
             if !is_trusted_by_config && !config.extensions.allow_untrusted {
                 builder.event_bus.publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
-                    extension_id: ext.manifest.id.clone(),
+                    extension_id: ext.package.descriptor.id.clone(),
                     reason: "Untrusted extension ignored. Enable it by adding its ID/hash to 'extensions.trusted' in gestalt.json or setting 'extensions.allow_untrusted' to true.".to_string(),
                 });
                 continue;
             }
 
-            builder =
-                builder.process_extension(ext.manifest, ext.manifest_hash, is_trusted_by_config);
+            builder = builder.extension_package(ext.package.clone());
         }
     }
 

@@ -12,9 +12,59 @@ use crate::manifest::ExtensionManifest;
 use crate::process_extension::{ProcessExtension, ProcessExtensionBroker};
 
 use super::{
-    ComponentInstanceId, ComponentKind, ExtensionInventory, ExtensionLauncher,
-    ExtensionProcessInstance, ExtensionProcessState, RuntimeExtensionSnapshot, RuntimeGeneration,
+    ComponentInstanceId, ComponentKind, ExtensionInstanceHealth, ExtensionInstanceHealthStatus,
+    ExtensionInventory, ExtensionLauncher, ExtensionProcessInstance, ExtensionProcessState,
+    RuntimeExtensionSnapshot, RuntimeGeneration,
 };
+
+pub fn compute_dependency_lock_hash(source_root: &std::path::Path) -> Option<String> {
+    let lockfiles = [
+        "Cargo.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "poetry.lock",
+        "uv.lock",
+        "requirements.txt",
+    ];
+    for lf in &lockfiles {
+        let path = source_root.join(lf);
+        if path.exists() {
+            if let Ok(content) = std::fs::read(&path) {
+                let mut hasher = Sha256::new();
+                hasher.update(&content);
+                return Some(format!("{:x}", hasher.finalize()));
+            }
+        }
+    }
+    None
+}
+
+pub fn compute_executable_hash(
+    source_root: &std::path::Path,
+    entrypoint_command: &str,
+    entrypoint_args: &[String],
+) -> Option<String> {
+    let local_cmd = source_root.join(entrypoint_command);
+    if local_cmd.exists() && local_cmd.is_file() {
+        if let Ok(content) = std::fs::read(&local_cmd) {
+            let mut hasher = Sha256::new();
+            hasher.update(&content);
+            return Some(format!("{:x}", hasher.finalize()));
+        }
+    }
+    for arg in entrypoint_args {
+        let path = source_root.join(arg);
+        if path.exists() && path.is_file() {
+            if let Ok(content) = std::fs::read(&path) {
+                let mut hasher = Sha256::new();
+                hasher.update(&content);
+                return Some(format!("{:x}", hasher.finalize()));
+            }
+        }
+    }
+    None
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ComponentFingerprint(pub String);
@@ -47,6 +97,20 @@ impl ComponentFingerprint {
             hasher.update(b"|");
             hasher.update(protocol.as_bytes());
         }
+        hasher.update(b"|");
+        hasher.update(component.package_version.as_bytes());
+        if let Some(mh) = &component.manifest_hash {
+            hasher.update(b"|manifest:");
+            hasher.update(mh.as_bytes());
+        }
+        if let Some(eh) = &component.executable_hash {
+            hasher.update(b"|exec:");
+            hasher.update(eh.as_bytes());
+        }
+        if let Some(lh) = &component.dependency_lock_hash {
+            hasher.update(b"|lock:");
+            hasher.update(lh.as_bytes());
+        }
         Self(format!("{:x}", hasher.finalize()))
     }
 }
@@ -64,6 +128,10 @@ pub struct ExtensionRuntimeComponent {
     pub grants_fingerprint: String,
     pub trust_fingerprint: String,
     pub protocol_fingerprint: Option<String>,
+    pub package_version: String,
+    pub manifest_hash: Option<String>,
+    pub executable_hash: Option<String>,
+    pub dependency_lock_hash: Option<String>,
 }
 
 impl ExtensionRuntimeComponent {
@@ -129,6 +197,122 @@ impl ExtensionManager {
             .unwrap_or_default()
     }
 
+    pub async fn launch_process(
+        &self,
+        component: &ExtensionRuntimeComponent,
+    ) -> Result<Arc<ExtensionProcessInstance>> {
+        let reuse_key = component.reuse_key();
+        if let Some(existing) = self
+            .process_instances
+            .read()
+            .ok()
+            .and_then(|instances| instances.get(&reuse_key).cloned())
+        {
+            match existing.state() {
+                ExtensionProcessState::Stopped | ExtensionProcessState::Failed => {}
+                _ => return Ok(existing),
+            }
+        }
+
+        let process = self.launcher.launch(component).await?;
+        let mut instances = self
+            .process_instances
+            .write()
+            .map_err(|_| RuntimeError::Extension("process instance lock poisoned".to_string()))?;
+        instances.insert(reuse_key, process.clone());
+        Ok(process)
+    }
+
+    pub async fn drain_process(&self, component: &ExtensionRuntimeComponent) -> Result<()> {
+        let reuse_key = component.reuse_key();
+        let process = self
+            .process_instances
+            .read()
+            .ok()
+            .and_then(|instances| instances.get(&reuse_key).cloned())
+            .ok_or_else(|| {
+                RuntimeError::Extension(format!(
+                    "No extension process tracked for '{}'",
+                    component.id.canonical_id()
+                ))
+            })?;
+        process.transition_to(ExtensionProcessState::Draining);
+        Ok(())
+    }
+
+    pub async fn shutdown_process(&self, component: &ExtensionRuntimeComponent) -> Result<()> {
+        let reuse_key = component.reuse_key();
+        let process = {
+            let mut instances = self.process_instances.write().map_err(|_| {
+                RuntimeError::Extension("process instance lock poisoned".to_string())
+            })?;
+            instances.remove(&reuse_key)
+        };
+
+        if let Some(process) = process {
+            process.transition_to(ExtensionProcessState::Stopping);
+            process.shutdown().await;
+        }
+
+        Ok(())
+    }
+
+    pub async fn shutdown_all(&self) -> Result<()> {
+        let processes = {
+            let mut instances = self.process_instances.write().map_err(|_| {
+                RuntimeError::Extension("process instance lock poisoned".to_string())
+            })?;
+            instances
+                .drain()
+                .map(|(_, process)| process)
+                .collect::<Vec<_>>()
+        };
+
+        for process in processes {
+            process.transition_to(ExtensionProcessState::Stopping);
+            process.shutdown().await;
+        }
+
+        Ok(())
+    }
+
+    pub fn process_health(&self) -> Vec<ExtensionInstanceHealth> {
+        let mut health = self
+            .process_instances()
+            .into_iter()
+            .map(|process| {
+                let (status, message) = match process.state() {
+                    ExtensionProcessState::Ready => (ExtensionInstanceHealthStatus::Ready, None),
+                    ExtensionProcessState::Starting
+                    | ExtensionProcessState::Draining
+                    | ExtensionProcessState::Stopping => (
+                        ExtensionInstanceHealthStatus::Degraded,
+                        Some(
+                            match process.state() {
+                                ExtensionProcessState::Starting => "process is starting",
+                                ExtensionProcessState::Draining => "process is draining",
+                                ExtensionProcessState::Stopping => "process is stopping",
+                                _ => unreachable!(),
+                            }
+                            .to_string(),
+                        ),
+                    ),
+                    ExtensionProcessState::Stopped | ExtensionProcessState::Failed => (
+                        ExtensionInstanceHealthStatus::Failed,
+                        Some(format!("process is {:?}", process.state()).to_lowercase()),
+                    ),
+                };
+                ExtensionInstanceHealth {
+                    instance_id: process.component_id.clone(),
+                    status,
+                    message,
+                }
+            })
+            .collect::<Vec<_>>();
+        health.sort_by(|left, right| left.instance_id.cmp(&right.instance_id));
+        health
+    }
+
     pub async fn launch_legacy_process_extension(
         &self,
         manifest: ExtensionManifest,
@@ -146,6 +330,10 @@ impl ExtensionManager {
             grants_fingerprint: format!("{:?}", manifest.permissions),
             trust_fingerprint: is_trusted.to_string(),
             protocol_fingerprint: manifest.protocol_version.clone(),
+            package_version: manifest.version.clone(),
+            manifest_hash: None,
+            executable_hash: None,
+            dependency_lock_hash: None,
         };
         let reuse_key = component.reuse_key();
         if let Some(existing) = self
@@ -155,27 +343,33 @@ impl ExtensionManager {
             .and_then(|instances| instances.get(&reuse_key).cloned())
         {
             if existing.state() == ExtensionProcessState::Ready {
-                // The legacy ProcessExtension wrapper still owns broker calls;
-                // reuse is tracked here for snapshot decisions and future MCP reuse.
+                if let Some(broker) = existing.broker() {
+                    return Ok(Arc::new(ProcessExtension::new(manifest, broker)));
+                }
             }
         }
 
-        let process = Arc::new(ExtensionProcessInstance::new(component.id.canonical_id()));
-        let broker = ProcessExtensionBroker::spawn(
-            manifest.clone(),
-            self.event_bus.clone(),
-            timeouts,
-            limits,
-            is_trusted,
-        )
-        .await?;
+        let broker = Arc::new(
+            ProcessExtensionBroker::spawn(
+                manifest.clone(),
+                self.event_bus.clone(),
+                timeouts,
+                limits,
+                is_trusted,
+            )
+            .await?,
+        );
+        let process = Arc::new(ExtensionProcessInstance::with_broker(
+            component.id.canonical_id(),
+            broker.clone(),
+        ));
         process.transition_to(ExtensionProcessState::Ready);
         let mut instances = self
             .process_instances
             .write()
             .map_err(|_| RuntimeError::Extension("process instance lock poisoned".to_string()))?;
         instances.insert(reuse_key, process);
-        Ok(Arc::new(ProcessExtension::new(manifest, Arc::new(broker))))
+        Ok(Arc::new(ProcessExtension::new(manifest, broker)))
     }
 
     pub fn publish_snapshot(&self, snapshot: Arc<RuntimeExtensionSnapshot>) -> Result<()> {

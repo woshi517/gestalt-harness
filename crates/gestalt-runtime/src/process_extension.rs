@@ -13,6 +13,7 @@ use crate::error::{Result, RuntimeError};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::extension::GestaltExtension;
 use crate::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
+use crate::lifecycle::InitializeRequestV2;
 use crate::manifest::{Capabilities, ExtensionManifest, ToolDeclaration};
 use crate::registry::RuntimeRegistry;
 
@@ -396,20 +397,36 @@ impl ProcessExtensionBroker {
         };
 
         // Initialize handshake
-        let init_params = serde_json::json!({
-            "capabilities": manifest.capabilities,
-            "version": manifest.protocol_version.clone().unwrap_or_else(|| "1.0".to_string())
-        });
+        let manifest_proto = manifest.protocol_version.as_deref().unwrap_or("1.0");
+        let init_params = if manifest_proto == "2.0" {
+            serde_json::to_value(InitializeRequestV2 {
+                supported_versions: vec!["2.0".to_string()],
+            })
+            .unwrap_or_else(|_| serde_json::json!({ "supported_versions": ["2.0"] }))
+        } else {
+            serde_json::json!({
+                "capabilities": manifest.capabilities,
+                "version": manifest.protocol_version.clone().unwrap_or_else(|| "1.0".to_string())
+            })
+        };
 
         let init_res = broker.call("initialize", Some(init_params)).await;
         let (negotiated_ver, negotiated_caps) = match init_res {
             Ok(val) => {
-                let ver = val
-                    .get("version")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("1.0")
-                    .to_string();
-                let caps = if let Some(caps_val) = val.get("capabilities") {
+                let ver = if manifest_proto == "2.0" {
+                    val.get("negotiated_version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string()
+                } else {
+                    val.get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1.0")
+                        .to_string()
+                };
+                let caps = if manifest_proto == "2.0" {
+                    Capabilities::default()
+                } else if let Some(caps_val) = val.get("capabilities") {
                     serde_json::from_value::<Capabilities>(caps_val.clone())
                         .unwrap_or_else(|_| manifest.capabilities.clone())
                 } else {
@@ -430,8 +447,21 @@ impl ProcessExtensionBroker {
             }
         };
 
-        let manifest_proto = manifest.protocol_version.as_deref().unwrap_or("1.0");
-        if manifest_proto == "1.1" {
+        if manifest_proto == "2.0" {
+            if negotiated_ver != "2.0" {
+                broker.shutdown().await;
+                event_bus.publish(RuntimeEvent::ExtensionRejected {
+                    extension_id: extension_id.clone(),
+                    reason: format!(
+                        "No mutually supported protocol version (manifest: {}, extension negotiated: {})",
+                        manifest_proto, negotiated_ver
+                    ),
+                });
+                return Err(RuntimeError::Extension(
+                    "No mutually supported protocol version".to_string(),
+                ));
+            }
+        } else if manifest_proto == "1.1" {
             if negotiated_ver != "1.1" && negotiated_ver != "1.0" {
                 broker.shutdown().await;
                 event_bus.publish(RuntimeEvent::ExtensionRejected {
@@ -881,18 +911,25 @@ impl crate::context::ContextContributor for ProcessBackedContextContributor {
 pub struct ProcessExtension {
     pub manifest: ExtensionManifest,
     pub broker: Arc<ProcessExtensionBroker>,
+    extension_identity: String,
 }
 
 impl ProcessExtension {
     pub fn new(manifest: ExtensionManifest, broker: Arc<ProcessExtensionBroker>) -> Self {
-        Self { manifest, broker }
+        let instance_id = manifest.id.clone();
+        let extension_identity = format!("{}@{}", manifest.id, instance_id);
+        Self {
+            manifest,
+            broker,
+            extension_identity,
+        }
     }
 }
 
 impl GestaltExtension for ProcessExtension {
     #[allow(clippy::misnamed_getters)]
     fn name(&self) -> &str {
-        &self.manifest.id
+        &self.extension_identity
     }
 
     fn as_process_extension(&self) -> Option<&crate::process_extension::ProcessExtension> {
@@ -900,7 +937,7 @@ impl GestaltExtension for ProcessExtension {
     }
 
     fn register(&self, registry: &mut RuntimeRegistry) -> Result<()> {
-        let extension_id = self.manifest.id.clone();
+        let extension_id = self.extension_identity.clone();
 
         for tool in &self.manifest.tools {
             let schema = tool.input_schema.clone();

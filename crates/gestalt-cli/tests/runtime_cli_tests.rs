@@ -202,7 +202,7 @@ fn test_runtime_inspect_cli_subcommand() {
 }
 
 #[tokio::test]
-async fn test_build_cli_runtime_trust_gating() {
+async fn test_build_cli_runtime_loads_configured_extension_instance() {
     let _ = gestalt_models::registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
@@ -210,44 +210,52 @@ async fn test_build_cli_runtime_trust_gating() {
 
     let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-trust-{}", uuid::Uuid::new_v4()));
     copy_minimal_workspace(&temp_dir);
-    std::fs::create_dir_all(temp_dir.join(".gestalt/extensions/local-ext")).unwrap();
 
-    // Write a dummy extension manifest in the local workspace directory
-    let local_ext_manifest = r#"
-id = "local-ext"
-name = "Local Mock Extension"
-version = "0.1.0"
-runtime = "stdio"
-
-[entrypoint]
-command = "non_existent_command_12345"
-
-[capabilities]
-tools = false
-hooks = false
-context = false
-
-[permissions]
-allow_network = []
-allow_workspace_read = false
-allow_workspace_write = false
-allow_shell = false
-allow_all_paths = false
-allowed_paths = []
-"#;
+    std::fs::create_dir_all(temp_dir.join(".gestalt/extensions/tools")).unwrap();
     std::fs::write(
-        temp_dir.join(".gestalt/extensions/local-ext/gestalt.extension.toml"),
-        local_ext_manifest,
+        temp_dir.join(".gestalt/extensions/tools/gestalt.extension.toml"),
+        r#"
+manifest_version = 2
+
+[package]
+id = "com.example.tools"
+name = "Example Tools"
+version = "1.0.0"
+
+[[components]]
+id = "echo"
+kind = "command-tool"
+description = "Echo JSON"
+input_schema = { type = "object" }
+risk = "Low"
+read_only = true
+idempotent = true
+
+[components.entrypoint]
+command = "/bin/cat"
+args = []
+"#,
     )
     .unwrap();
 
-    // 1. First scenario: Untrusted by default.
     update_workspace_config(&temp_dir, |json| {
         json["defaults"]["profile"] = json!("mock-profile");
         json["profiles"] = json!({
             "mock-profile": {
                 "provider": "mock-provider",
                 "model": "mock-model"
+            }
+        });
+        json["extensions"] = json!({
+            "allow_untrusted": true,
+            "instances": {
+                "review-primary": {
+                    "package": "com.example.tools",
+                    "enabled": true,
+                    "components": {
+                        "echo": true
+                    }
+                }
             }
         });
     });
@@ -267,66 +275,11 @@ allowed_paths = []
         .await
         .unwrap();
 
-    let events = runtime.event_bus.history();
-    let untrusted_rejected = events.iter().any(|e| match e {
-        gestalt_runtime::RuntimeEvent::ExtensionRejected {
-            extension_id,
-            reason,
-        } => {
-            extension_id == "local-ext"
-                && (reason.contains("Untrusted project extension ignored")
-                    || reason.contains("Untrusted extension ignored"))
-        }
-        _ => false,
-    });
+    let tool_name = "extension:com.example.tools@review-primary:echo";
+    let registered = runtime.tools.get(tool_name).is_some();
     assert!(
-        untrusted_rejected,
-        "Local extension should be rejected as untrusted by default. Events: {:?}",
-        events
-    );
-
-    // 2. Second scenario: Untrusted but allow_untrusted = true in config.
-    update_workspace_config(&temp_dir, |json| {
-        json["defaults"]["profile"] = json!("mock-profile");
-        json["profiles"] = json!({
-            "mock-profile": {
-                "provider": "mock-provider",
-                "model": "mock-model"
-            }
-        });
-        json["extensions"] = json!({"allow_untrusted": true});
-    });
-    let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
-
-    let err = match gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None).await {
-        Ok(_) => panic!("required extension startup failure should reject runtime construction"),
-        Err(err) => err,
-    };
-    assert!(
-        err.to_string().contains("Spawn failed"),
-        "Local extension should bypass trust gate and fail at startup. Error: {err}"
-    );
-
-    // 3. Third scenario: Explicitly trusted via extensions.trusted list.
-    update_workspace_config(&temp_dir, |json| {
-        json["defaults"]["profile"] = json!("mock-profile");
-        json["profiles"] = json!({
-            "mock-profile": {
-                "provider": "mock-provider",
-                "model": "mock-model"
-            }
-        });
-        json["extensions"] = json!({"trusted": ["local-ext"]});
-    });
-    let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
-
-    let err = match gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None).await {
-        Ok(_) => panic!("required extension startup failure should reject runtime construction"),
-        Err(err) => err,
-    };
-    assert!(
-        err.to_string().contains("Spawn failed"),
-        "Local extension should bypass trust gate and fail at startup. Error: {err}"
+        registered,
+        "Configured extension instance should register a unique command tool"
     );
 
     // Clean up

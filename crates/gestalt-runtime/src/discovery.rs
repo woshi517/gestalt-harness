@@ -15,6 +15,7 @@ pub struct DiscoveredExtension {
 #[derive(Debug, Clone)]
 pub struct DiscoveredExtensionPackage {
     pub manifest_path: PathBuf,
+    pub source_root: PathBuf,
     pub package: ResolvedExtensionPackage,
     pub manifest_hash: String,
     pub enabled: bool,
@@ -164,10 +165,18 @@ impl ExtensionDiscovery {
                 RuntimeError::Extension(format!("Invalid explicit manifest: {}", err))
             })?;
             if seen_ids.insert(package.descriptor.id.clone()) {
+                let source_root = manifest_path
+                    .parent()
+                    .map_or_else(|| self.workspace_root.clone(), |path| path.to_path_buf());
+                let manifest_hash = compute_content_hash(&content);
+                let mut package = package;
+                package.source_root = Some(source_root.clone());
+                package.manifest_hash = Some(manifest_hash.clone());
                 discovered.push(DiscoveredExtensionPackage {
                     manifest_path,
+                    source_root,
                     package,
-                    manifest_hash: compute_content_hash(&content),
+                    manifest_hash,
                     enabled: true,
                 });
             }
@@ -177,10 +186,18 @@ impl ExtensionDiscovery {
             if let Ok(content) = std::fs::read_to_string(&manifest_file) {
                 if let Ok(package) = parse_package_manifest(&content) {
                     if seen_ids.insert(package.descriptor.id.clone()) {
+                        let source_root = manifest_file
+                            .parent()
+                            .map_or_else(|| self.workspace_root.clone(), |path| path.to_path_buf());
+                        let manifest_hash = compute_content_hash(&content);
+                        let mut package = package;
+                        package.source_root = Some(source_root.clone());
+                        package.manifest_hash = Some(manifest_hash.clone());
                         discovered.push(DiscoveredExtensionPackage {
                             manifest_path: manifest_file,
+                            source_root,
                             package,
-                            manifest_hash: compute_content_hash(&content),
+                            manifest_hash,
                             enabled: true,
                         });
                     }
@@ -193,10 +210,18 @@ impl ExtensionDiscovery {
                 if let Ok(content) = std::fs::read_to_string(&manifest_file) {
                     if let Ok(package) = parse_package_manifest(&content) {
                         if seen_ids.insert(package.descriptor.id.clone()) {
+                            let source_root = manifest_file
+                                .parent()
+                                .map_or_else(|| self.workspace_root.clone(), |path| path.to_path_buf());
+                            let manifest_hash = compute_content_hash(&content);
+                            let mut package = package;
+                            package.source_root = Some(source_root.clone());
+                            package.manifest_hash = Some(manifest_hash.clone());
                             discovered.push(DiscoveredExtensionPackage {
                                 manifest_path: manifest_file,
+                                source_root,
                                 package,
-                                manifest_hash: compute_content_hash(&content),
+                                manifest_hash,
                                 enabled: true,
                             });
                         }

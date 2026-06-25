@@ -273,6 +273,7 @@ impl AgentRuntime {
             .await;
 
         let active_extension_snapshot = self.extension_manager.active_snapshot();
+        let pinned_tools = active_extension_snapshot.tool_catalog();
         self.event_bus
             .publish(RuntimeEvent::RuntimeGenerationAdopted {
                 session_id: session.id.clone(),
@@ -347,8 +348,8 @@ impl AgentRuntime {
                 skill_state: self.skill_state.clone(),
             });
 
-            let contributors: Vec<Arc<dyn ContextContributor>> = self
-                .registry
+            let contributors: Vec<Arc<dyn ContextContributor>> = active_extension_snapshot
+                .registry_snapshot
                 .context_contributors
                 .values()
                 .map(|c| c.contributor.clone())
@@ -381,7 +382,7 @@ impl AgentRuntime {
         let loop_result = {
             let loop_ = AgentLoop::new(
                 self.provider.clone(),
-                self.tools.clone(),
+                pinned_tools,
                 middleware,
                 policy,
                 self.approval.clone(),
@@ -454,7 +455,9 @@ impl AgentRuntime {
     }
 
     pub fn inspect(&self) -> RuntimeInspect {
-        let schemas = self.tools.schemas();
+        let active_extension_snapshot = self.extension_manager.active_snapshot();
+        let pinned_tool_catalog = active_extension_snapshot.tool_catalog();
+        let schemas = pinned_tool_catalog.schemas();
         let tools: Vec<ToolInspectInfo> = schemas
             .iter()
             .map(|s| {
@@ -464,7 +467,7 @@ impl AgentRuntime {
                     .unwrap_or("")
                     .to_string();
                 let schema_hash = crate::registry::compute_schema_hash(s);
-                let backend = self.tools.get(&name).and_then(|t| {
+                let backend = pinned_tool_catalog.get(&name).and_then(|t| {
                     t.descriptor()
                         .annotations
                         .get("backend")
@@ -479,7 +482,12 @@ impl AgentRuntime {
             .collect();
         let tool_schema_hash = crate::registry::compute_tool_schema_hash(&schemas);
 
-        let mut hook_names = self.registry.hooks.clone();
+        let mut hook_names = active_extension_snapshot
+            .registry_snapshot
+            .hooks
+            .iter()
+            .map(|hook| hook.name.clone())
+            .collect::<Vec<_>>();
         if self.composition_hooks.is_some() {
             hook_names.push("RuntimeContextHookAdapter".to_string());
             hook_names.push("RuntimeToolHookAdapter".to_string());
@@ -603,14 +611,17 @@ impl AgentRuntime {
             policy_source_path,
             hooks: hook_names,
             hook_contract_hash,
-            verifiers: self
+            verifiers: active_extension_snapshot
                 .registry_snapshot
                 .verifiers
                 .iter()
                 .map(|verifier| verifier.name.clone())
                 .collect(),
-            extensions: self.registry_snapshot.extensions.clone(),
-            context_injectors: self
+            extensions: active_extension_snapshot
+                .registry_snapshot
+                .extensions
+                .clone(),
+            context_injectors: active_extension_snapshot
                 .registry_snapshot
                 .context_contributors
                 .keys()

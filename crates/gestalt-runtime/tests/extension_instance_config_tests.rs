@@ -1,4 +1,7 @@
 use gestalt_runtime::extension::ExtensionsConfig;
+use gestalt_runtime::extension::{
+    resolve_configured_instances, ExtensionManifestV2, ResolvedExtensionPackage,
+};
 
 #[test]
 fn extension_instances_deserialize_with_grants_and_component_overrides() {
@@ -60,4 +63,80 @@ fn extension_instances_default_to_enabled_with_empty_grants() {
     assert!(instance.grants.network.is_empty());
     assert!(!instance.grants.workspace_read);
     assert!(!instance.grants.workspace_write);
+}
+
+#[test]
+fn configured_instances_select_components_and_apply_runtime_values() {
+    let package = package_with_two_components();
+    let config: ExtensionsConfig = serde_json::from_str(
+        r#"
+{
+  "instances": {
+    "strict-review": {
+      "package": "com.example.review",
+      "enabled": true,
+      "components": {
+        "lifecycle": true,
+        "client-metadata": false
+      },
+      "config": {
+        "policySet": "strict"
+      },
+      "grants": {
+        "workspaceRead": true,
+        "workspaceWrite": false,
+        "network": ["api.example.com"]
+      }
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let resolved = resolve_configured_instances(&[package], &config.instances).unwrap();
+    assert_eq!(resolved.len(), 1);
+    let instance = &resolved[0];
+    assert_eq!(instance.instance_id, "strict-review");
+    assert_eq!(instance.effective_config["policySet"], "strict");
+    assert!(instance.effective_grants.workspace_read);
+    assert!(!instance.effective_grants.workspace_write);
+    assert_eq!(instance.effective_grants.network, ["api.example.com"]);
+    assert_eq!(instance.components.len(), 1);
+    assert_eq!(instance.components[0].id.instance_id, "strict-review");
+    assert_eq!(instance.components[0].config["policySet"], "strict");
+    assert!(instance.components[0].grants.workspace_read);
+}
+
+fn package_with_two_components() -> ResolvedExtensionPackage {
+    let manifest = ExtensionManifestV2::parse(
+        r#"
+manifest_version = 2
+
+[package]
+id = "com.example.review"
+name = "Review"
+version = "1.0.0"
+
+[compatibility]
+gestalt = ">=0.1"
+
+[[components]]
+id = "lifecycle"
+kind = "gestalt-lifecycle"
+
+[components.entrypoint]
+command = "python"
+args = ["-m", "review.lifecycle"]
+
+[[components]]
+id = "client-metadata"
+kind = "client-product"
+optional = true
+descriptor = "client/contributions.json"
+"#,
+    )
+    .unwrap();
+
+    ResolvedExtensionPackage::from_v2_manifest(manifest, "review-default").unwrap()
 }

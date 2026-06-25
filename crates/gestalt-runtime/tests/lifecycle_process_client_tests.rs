@@ -1,0 +1,181 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use gestalt_core::tool::{ToolCatalog, ToolSchema};
+use gestalt_runtime::extension::{
+    ComponentInstanceId, ComponentKind, ExtensionManager, ExtensionRuntimeComponent,
+    LocalProcessLauncher, RuntimeExtensionSnapshot, RuntimeGeneration,
+};
+use gestalt_runtime::lifecycle::{
+    InitializeRequestV2, LifecycleCapabilityKind, LifecycleClient, LifecycleInvokeRequestV2,
+    ProcessLifecycleClient,
+};
+use gestalt_runtime::{RuntimeEventBus, RuntimeRegistryBuilder};
+use serde_json::json;
+
+struct EmptyToolCatalog;
+
+impl ToolCatalog for EmptyToolCatalog {
+    fn schemas(&self) -> Vec<ToolSchema> {
+        Vec::new()
+    }
+
+    fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+        None
+    }
+}
+
+#[tokio::test]
+async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process() {
+    let event_bus = RuntimeEventBus::new();
+    let manager = Arc::new(ExtensionManager::new(
+        Arc::new(snapshot_with_generation(0)),
+        event_bus.clone(),
+        Arc::new(LocalProcessLauncher),
+    ));
+    let component = lifecycle_component();
+    let client = ProcessLifecycleClient::new(manager.clone(), component.clone());
+
+    let initialized = client
+        .initialize(InitializeRequestV2 {
+            supported_versions: vec!["2.0".to_string()],
+        })
+        .await
+        .unwrap();
+    assert_eq!(initialized.negotiated_version, "2.0");
+
+    let described = client.describe_capabilities().await.unwrap();
+    assert_eq!(described.len(), 1);
+    assert_eq!(described[0].component_id, component.id.canonical_id());
+    assert_eq!(
+        described[0].capability,
+        LifecycleCapabilityKind::ContextProvider
+    );
+
+    let invoked = client
+        .invoke(LifecycleInvokeRequestV2 {
+            component_id: component.id.canonical_id(),
+            capability: LifecycleCapabilityKind::ContextProvider,
+            payload: json!({ "request": "context" }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        invoked.payload,
+        json!({
+            "component_id": component.id.canonical_id(),
+            "handled_capability": "context_provider",
+            "echo": { "request": "context" }
+        })
+    );
+
+    assert_eq!(manager.process_instances().len(), 1);
+    assert_eq!(
+        manager.process_instances()[0].state(),
+        gestalt_runtime::extension::ExtensionProcessState::Ready
+    );
+
+    client.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn process_lifecycle_client_reuses_processes_and_respects_draining_state() {
+    let manager = Arc::new(ExtensionManager::new(
+        Arc::new(snapshot_with_generation(0)),
+        RuntimeEventBus::new(),
+        Arc::new(LocalProcessLauncher),
+    ));
+    let component = lifecycle_component();
+    let first = ProcessLifecycleClient::new(manager.clone(), component.clone());
+    let second = ProcessLifecycleClient::new(manager.clone(), component.clone());
+
+    first.describe_capabilities().await.unwrap();
+    second.describe_capabilities().await.unwrap();
+
+    assert_eq!(manager.process_instances().len(), 1);
+
+    manager.drain_process(&component).await.unwrap();
+
+    let err = second.describe_capabilities().await.unwrap_err();
+    assert!(
+        err.to_string().contains("not accepting new calls"),
+        "unexpected error: {err}"
+    );
+
+    manager.shutdown_all().await.unwrap();
+}
+
+fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
+    let registry = RuntimeRegistryBuilder::new().snapshot();
+    let catalog = Arc::new(EmptyToolCatalog);
+    let mcp = Arc::new(gestalt_mcp::McpRegistry::new(
+        std::env::current_dir().unwrap(),
+        HashMap::new(),
+    ));
+    RuntimeExtensionSnapshot::from_registry_snapshot(
+        RuntimeGeneration(generation),
+        registry,
+        catalog,
+        mcp,
+    )
+}
+
+fn lifecycle_component() -> ExtensionRuntimeComponent {
+    ExtensionRuntimeComponent {
+        id: ComponentInstanceId::new("com.example.lifecycle", "primary", "lifecycle"),
+        kind: ComponentKind::GestaltLifecycle,
+        optional: false,
+        entrypoint_command: "python3".to_string(),
+        entrypoint_args: vec![
+            "-c".to_string(),
+            r#"import json,sys
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    req = json.loads(line)
+    method = req.get("method")
+    req_id = req.get("id")
+    params = req.get("params") or {}
+    if method == "initialize":
+        versions = params.get("supported_versions")
+        if versions is not None:
+            result = {"negotiated_version": "2.0"}
+        else:
+            result = {"version": "1.0", "capabilities": {}}
+    elif method == "capabilities/describe":
+        result = [{
+            "component_id": "component:com.example.lifecycle:primary:lifecycle",
+            "capability": "context_provider",
+            "priority": 10,
+            "timeout_ms": 250,
+            "failure_mode": "fail_open",
+            "data_scope": "current_turn"
+        }]
+    elif method == "lifecycle/invoke":
+        result = {
+            "payload": {
+                "component_id": params["component_id"],
+                "handled_capability": params["capability"],
+                "echo": params["payload"]
+            }
+        }
+    elif method == "shutdown":
+        result = {}
+    else:
+        result = {}
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "result": result, "id": req_id}) + "\n")
+    sys.stdout.flush()
+"#
+            .to_string(),
+        ],
+        config: json!({ "policySet": "default" }),
+        grants_fingerprint: "grants-a".to_string(),
+        trust_fingerprint: "true".to_string(),
+        protocol_fingerprint: Some("2.0".to_string()),
+        package_version: "1.0.0".to_string(),
+        manifest_hash: None,
+        executable_hash: None,
+        dependency_lock_hash: None,
+    }
+}

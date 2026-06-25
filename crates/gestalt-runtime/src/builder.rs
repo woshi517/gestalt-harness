@@ -261,8 +261,14 @@ impl AgentRuntimeBuilder {
             ));
         }
 
+        let resolved_extension_packages = crate::extension::resolve_configured_instances(
+            &self.extension_packages,
+            &self.config.extension_instances,
+        )?;
+
         // Apply extensions before constructing AgentRuntime
-        for package in &self.extension_packages {
+        for package in &resolved_extension_packages {
+            let extension_identity = format!("{}@{}", package.descriptor.id, package.instance_id);
             for component in &package.components {
                 if component.kind == crate::extension::ComponentKind::CommandTool {
                     let tool = Arc::new(crate::extension::CommandTool::from_component(component)?);
@@ -270,13 +276,13 @@ impl AgentRuntimeBuilder {
                         tool.name().to_string(),
                         tool.schema(),
                         tool,
-                        Some(package.descriptor.id.clone()),
+                        Some(extension_identity.clone()),
                     )?;
                 }
             }
-            if !self.registry.extensions.contains(&package.descriptor.id) {
+            if !self.registry.extensions.contains(&extension_identity) {
                 self.registry
-                    .register_extension(package.descriptor.id.clone())?;
+                    .register_extension(extension_identity.clone())?;
             }
         }
 
@@ -296,7 +302,7 @@ impl AgentRuntimeBuilder {
 
         self.config.mcp_servers = crate::extension::merge_mcp_server_configs(
             self.config.mcp_servers.clone(),
-            &self.extension_packages,
+            &resolved_extension_packages,
         )?;
 
         // Register skill context contributors if skills are configured
@@ -545,6 +551,21 @@ impl AgentRuntimeBuilder {
             mcp_discovery_state,
             self.extensions.clone(),
         );
+
+        let complete_fp = crate::extension::compute_complete_fingerprint(
+            &runtime.extension_snapshot.fingerprint.0,
+            &resolved_extension_packages,
+        );
+        let mut new_snapshot = (*runtime.extension_snapshot).clone();
+        new_snapshot.fingerprint = crate::registry::RuntimeFingerprint(complete_fp);
+        let new_snapshot = Arc::new(new_snapshot);
+        runtime.extension_snapshot = new_snapshot.clone();
+        runtime.extension_manager = Arc::new(crate::extension::ExtensionManager::new(
+            new_snapshot,
+            runtime.event_bus.clone(),
+            runtime.extension_manager.launcher.clone(),
+        ));
+
         if let Some(extension_manager) = self.extension_manager {
             extension_manager.publish_snapshot(runtime.extension_snapshot.clone())?;
             runtime.extension_manager = extension_manager;

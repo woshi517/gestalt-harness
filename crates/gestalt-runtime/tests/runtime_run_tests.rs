@@ -309,6 +309,159 @@ async fn test_prepare_next_turn_switch_model() {
 }
 
 #[tokio::test]
+async fn test_run_prompt_uses_pinned_extension_snapshot_tool_catalog() {
+    struct SnapshotTool;
+
+    #[async_trait::async_trait]
+    impl gestalt_core::tool::Tool for SnapshotTool {
+        fn name(&self) -> &str {
+            "snapshot-tool"
+        }
+        fn description(&self) -> &str {
+            "snapshot tool"
+        }
+        fn schema(&self) -> ToolSchema {
+            serde_json::from_value(serde_json::json!({
+                "name": "snapshot-tool",
+                "description": "snapshot tool",
+                "input_schema": { "type": "object", "properties": {} }
+            }))
+            .unwrap()
+        }
+        fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
+            gestalt_core::tool::RiskLevel::Low
+        }
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _ctx: &ToolContext,
+        ) -> Result<ToolOutput, gestalt_core::error::ToolError> {
+            Ok(ToolOutput::Text {
+                content: "ok".to_string(),
+            })
+        }
+    }
+
+    struct SnapshotToolCatalog {
+        tool: Arc<dyn gestalt_core::tool::Tool>,
+    }
+
+    impl ToolCatalog for SnapshotToolCatalog {
+        fn schemas(&self) -> Vec<ToolSchema> {
+            vec![self.tool.schema()]
+        }
+
+        fn get(&self, name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+            if name == self.tool.name() {
+                Some(self.tool.clone())
+            } else {
+                None
+            }
+        }
+    }
+
+    struct ToolThenEndTurnMockProvider(std::sync::Mutex<usize>);
+
+    #[async_trait::async_trait]
+    impl Provider for ToolThenEndTurnMockProvider {
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn display_name(&self) -> &str {
+            "Mock"
+        }
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+        fn capabilities(&self) -> &ProviderCapabilities {
+            static CAP: ProviderCapabilities = ProviderCapabilities {
+                supports_tools: true,
+                supports_parallel_tools: false,
+                supports_vision: false,
+                supports_documents: false,
+                supports_thinking: false,
+                supports_json_schema_tools: true,
+                supports_prompt_caching: false,
+                supports_usage_reporting: false,
+                supports_streaming: true,
+                supports_strict_schema: false,
+            };
+            &CAP
+        }
+        fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+            None
+        }
+        fn count_tokens(
+            &self,
+            _model: &str,
+            _messages: &[Message],
+        ) -> Result<usize, gestalt_core::error::HarnessError> {
+            Ok(0)
+        }
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+        ) -> Result<EventStream, gestalt_core::error::HarnessError> {
+            let mut turn = self.0.lock().unwrap();
+            let current_turn = *turn;
+            *turn += 1;
+
+            let events = if current_turn == 0 {
+                vec![
+                    AgentEvent::ToolCallStreamed {
+                        id: "call-1".to_string(),
+                        name: "snapshot-tool".to_string(),
+                        input_delta: "{}".to_string(),
+                    },
+                    AgentEvent::Stop {
+                        reason: StopReason::ToolUse,
+                    },
+                ]
+            } else {
+                vec![AgentEvent::Stop {
+                    reason: StopReason::EndTurn,
+                }]
+            };
+
+            let stream = futures::stream::iter(
+                events
+                    .into_iter()
+                    .map(Ok::<_, gestalt_core::error::HarnessError>),
+            );
+            Ok(Box::pin(stream))
+        }
+    }
+
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(Arc::new(ToolThenEndTurnMockProvider(
+            std::sync::Mutex::new(0),
+        )))
+        .tools(Arc::new(SnapshotToolCatalog {
+            tool: Arc::new(SnapshotTool),
+        }))
+        .middleware(Arc::new(MockContextPipeline))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(config_without_context_management())
+        .build()
+        .unwrap();
+
+    let mut runtime = runtime;
+    runtime.tools = Arc::new(MockToolCatalog);
+
+    let input = UserInput {
+        prompt: "hi".to_string(),
+        session_id: None,
+        cancel_token: gestalt_core::cancel::CancelToken::new(),
+        event_tx: None,
+        artifact_dir: None,
+    };
+
+    let res = runtime.run_prompt(input).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
 async fn test_prepare_next_turn_block_stops_session() {
     struct BlockCompositionHooks;
 

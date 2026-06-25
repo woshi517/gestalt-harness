@@ -15,7 +15,9 @@ use super::ResolvedExtensionComponent;
 
 pub struct CommandTool {
     package_id: String,
-    name: String,
+    instance_id: String,
+    component_id: String,
+    runtime_name: String,
     description: String,
     schema: ToolSchema,
     risk: RiskLevel,
@@ -45,15 +47,21 @@ impl CommandTool {
                 component.id.canonical_id()
             ))
         })?;
+        let runtime_name = format!(
+            "{}__{}",
+            component.id.instance_id, component.id.component_id
+        );
         let schema = serde_json::json!({
-            "name": component.id.component_id,
+            "name": runtime_name,
             "description": description,
             "input_schema": input_schema,
         });
 
         Ok(Self {
             package_id: component.id.package_id.clone(),
-            name: component.id.component_id.clone(),
+            instance_id: component.id.instance_id.clone(),
+            component_id: component.id.component_id.clone(),
+            runtime_name,
             description,
             schema,
             risk,
@@ -68,7 +76,7 @@ impl CommandTool {
 #[async_trait]
 impl Tool for CommandTool {
     fn name(&self) -> &str {
-        &self.name
+        &self.runtime_name
     }
 
     fn description(&self) -> &str {
@@ -98,8 +106,11 @@ impl Tool for CommandTool {
         ]);
         ToolDescriptor {
             id: CanonicalToolId {
-                namespace: ToolNamespace::Extension(self.package_id.clone()),
-                name: self.name.clone(),
+                namespace: ToolNamespace::Extension(format!(
+                    "{}@{}",
+                    self.package_id, self.instance_id
+                )),
+                name: self.component_id.clone(),
             },
             description: self.description.clone(),
             schema: self.schema.clone(),
@@ -152,14 +163,14 @@ impl Tool for CommandTool {
         let output = tokio::time::timeout(timeout, child.wait_with_output())
             .await
             .map_err(|_| ToolError::Timeout {
-                tool_name: self.name.clone(),
+                tool_name: self.runtime_name.clone(),
                 timeout_secs: timeout.as_secs(),
             })?
             .map_err(ToolError::ExecutionFailed)?;
 
         if output.stdout.len() > ctx.max_output_bytes {
             return Err(ToolError::OutputTooLarge {
-                tool_name: self.name.clone(),
+                tool_name: self.runtime_name.clone(),
                 limit: ctx.max_output_bytes,
             });
         }

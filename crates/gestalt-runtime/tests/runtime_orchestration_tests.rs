@@ -11,7 +11,7 @@ use gestalt_core::{
 };
 use gestalt_runtime::{
     AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, InMemoryArtifactStore,
-    OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig, RuntimeEvent,
+    OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig, RuntimeControl, RuntimeEvent,
 };
 use std::sync::Arc;
 

@@ -28,9 +28,11 @@ pub struct ExtensionInstanceHealth {
     pub message: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct RuntimeExtensionSnapshot {
     pub generation: RuntimeGeneration,
     pub fingerprint: RuntimeFingerprint,
+    pub registry_snapshot: RuntimeRegistrySnapshot,
     pub tool_catalog: Arc<dyn ToolCatalog>,
     pub context_plan: Arc<ContextProviderPlan>,
     pub policy_plan: Arc<PolicyGuardPlan>,
@@ -49,11 +51,14 @@ impl RuntimeExtensionSnapshot {
         tool_catalog: Arc<dyn ToolCatalog>,
         mcp_registry: Arc<gestalt_mcp::McpRegistry>,
     ) -> Self {
+        let context_plan = Self::context_plan_from_registry(&registry_snapshot, false);
+        let fingerprint = registry_snapshot.fingerprint.clone();
         Self {
             generation,
-            fingerprint: registry_snapshot.fingerprint.clone(),
+            fingerprint,
+            registry_snapshot,
             tool_catalog,
-            context_plan: Arc::new(Self::context_plan_from_registry(&registry_snapshot, false)),
+            context_plan: Arc::new(context_plan),
             policy_plan: Arc::new(PolicyGuardPlan::default()),
             routing_plan: Arc::new(TurnRouterPlan::default()),
             verification_plan: Arc::new(ExternalVerifierPlan::default()),
@@ -64,16 +69,17 @@ impl RuntimeExtensionSnapshot {
         }
     }
 
+    pub fn tool_catalog(&self) -> Arc<dyn ToolCatalog> {
+        self.tool_catalog.clone()
+    }
+
+    pub fn mcp_registry(&self) -> Arc<gestalt_mcp::McpRegistry> {
+        self.mcp_registry.clone()
+    }
+
     pub fn with_native_composition_plans(mut self) -> Self {
         self.context_plan = Arc::new(Self::context_plan_from_registry(
-            &RuntimeRegistrySnapshot {
-                fingerprint: self.fingerprint.clone(),
-                tools: Default::default(),
-                context_contributors: Default::default(),
-                hooks: Vec::new(),
-                verifiers: Vec::new(),
-                extensions: Vec::new(),
-            },
+            &self.registry_snapshot,
             true,
         ));
         self.policy_plan = Arc::new(PolicyGuardPlan::new(vec![PolicyGuardRegistration {

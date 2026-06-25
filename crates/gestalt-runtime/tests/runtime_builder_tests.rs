@@ -95,6 +95,60 @@ impl ToolCatalog for MockToolCatalog {
     }
 }
 
+struct InspectToolCatalog {
+    tool: Arc<dyn gestalt_core::tool::Tool>,
+}
+
+impl ToolCatalog for InspectToolCatalog {
+    fn schemas(&self) -> Vec<ToolSchema> {
+        vec![self.tool.schema()]
+    }
+
+    fn get(&self, name: &str) -> Option<Arc<dyn gestalt_core::tool::Tool>> {
+        if name == self.tool.name() {
+            Some(self.tool.clone())
+        } else {
+            None
+        }
+    }
+}
+
+struct SnapshotTool;
+
+#[async_trait::async_trait]
+impl gestalt_core::tool::Tool for SnapshotTool {
+    fn name(&self) -> &str {
+        "snapshot-tool"
+    }
+
+    fn description(&self) -> &str {
+        "snapshot tool"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "snapshot-tool",
+            "description": "snapshot tool",
+            "input_schema": { "type": "object", "properties": {} }
+        }))
+        .unwrap()
+    }
+
+    fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
+        gestalt_core::tool::RiskLevel::Low
+    }
+
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &gestalt_core::tool::ToolContext,
+    ) -> Result<gestalt_core::tool::ToolOutput, gestalt_core::error::ToolError> {
+        Ok(gestalt_core::tool::ToolOutput::Text {
+            content: "ok".to_string(),
+        })
+    }
+}
+
 struct MockPolicyEngine;
 #[async_trait::async_trait]
 impl PolicyEngine for MockPolicyEngine {
@@ -168,6 +222,32 @@ fn test_builder_publishes_registry_snapshot() {
 }
 
 #[test]
+fn test_inspect_reads_tool_catalog_from_pinned_snapshot() {
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(Arc::new(MockProvider))
+        .tools(Arc::new(InspectToolCatalog {
+            tool: Arc::new(SnapshotTool),
+        }))
+        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+            "pipeline-v1",
+        )))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(RuntimeConfig::default())
+        .build()
+        .unwrap();
+
+    let mut runtime = runtime;
+    runtime.tools = Arc::new(MockToolCatalog);
+
+    let inspect = runtime.inspect();
+    assert!(inspect
+        .tools
+        .iter()
+        .any(|tool| tool.name == "snapshot-tool"));
+}
+
+#[test]
 fn test_sync_builder_rejects_pending_process_extensions() {
     let manifest = mock_extension_manifest();
     let res = AgentRuntimeBuilder::new()
@@ -209,7 +289,7 @@ async fn test_async_builder_launches_process_extensions_through_manager() {
     assert!(runtime
         .registry_snapshot
         .extensions
-        .contains(&"mock-ext".to_string()));
+        .contains(&"mock-ext@mock-ext".to_string()));
     assert_eq!(
         runtime.extension_manager.process_instances()[0].state(),
         gestalt_runtime::extension::ExtensionProcessState::Ready

@@ -7,3 +7,6 @@ Gestalt extensions are modeled as packages containing typed components. A config
 This separates runtime modules, packages, components, configured instances, process instances, runtime generations, and client/product descriptors. Client/product descriptors are inventory for embedding hosts and are not executed by the runtime.
 
 Deferred: sandbox implementation, package registries, dependency lockfiles, remote extension transport, and client code loading.
+
+*Note on Implementation:* The configuration resolution logic (`resolve_configured_instances`) is fully integrated into the builder and CLI runtime construction. `ExtensionManager` acts as the operational manager for process spawning, reuse, draining states, health metrics, and shutdown, tracking instances using distinct `ReuseKey` entries. Command tools are namespaced by instance ID to avoid collisions.
+

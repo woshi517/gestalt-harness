@@ -3,6 +3,7 @@ pub mod context_provider;
 pub mod event_observer;
 pub mod plan;
 pub mod policy_guard;
+pub mod process_client;
 pub mod protocol;
 pub mod turn_router;
 pub mod verifier;
@@ -17,6 +18,7 @@ pub use plan::{
     TurnRouterRegistration, TypedCapabilityDescriptor,
 };
 pub use policy_guard::{PolicyGuard, PolicyGuardRequest};
+pub use process_client::ProcessLifecycleClient;
 pub use protocol::{
     CapabilityDescriptorV2, InitializeRequestV2, InitializeResponseV2, LifecycleCapabilityKind,
     LifecycleInvokeRequestV2, LifecycleInvokeResponseV2,

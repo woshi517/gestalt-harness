@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::error::{Result, RuntimeError};
+use crate::process_extension::ProcessExtensionBroker;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtensionProcessState {
@@ -13,11 +14,21 @@ pub enum ExtensionProcessState {
     Failed,
 }
 
-#[derive(Debug)]
 pub struct ExtensionProcessInstance {
     pub component_id: String,
     state: Arc<Mutex<ExtensionProcessState>>,
     in_flight: Arc<AtomicUsize>,
+    broker: Option<Arc<ProcessExtensionBroker>>,
+}
+
+impl std::fmt::Debug for ExtensionProcessInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtensionProcessInstance")
+            .field("component_id", &self.component_id)
+            .field("state", &self.state())
+            .field("in_flight_calls", &self.in_flight_calls())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ExtensionProcessInstance {
@@ -26,6 +37,16 @@ impl ExtensionProcessInstance {
             component_id,
             state: Arc::new(Mutex::new(ExtensionProcessState::Starting)),
             in_flight: Arc::new(AtomicUsize::new(0)),
+            broker: None,
+        }
+    }
+
+    pub fn with_broker(component_id: String, broker: Arc<ProcessExtensionBroker>) -> Self {
+        Self {
+            component_id,
+            state: Arc::new(Mutex::new(ExtensionProcessState::Starting)),
+            in_flight: Arc::new(AtomicUsize::new(0)),
+            broker: Some(broker),
         }
     }
 
@@ -62,6 +83,17 @@ impl ExtensionProcessInstance {
 
     pub fn in_flight_calls(&self) -> usize {
         self.in_flight.load(Ordering::SeqCst)
+    }
+
+    pub fn broker(&self) -> Option<Arc<ProcessExtensionBroker>> {
+        self.broker.clone()
+    }
+
+    pub async fn shutdown(&self) {
+        if let Some(broker) = &self.broker {
+            broker.shutdown().await;
+        }
+        self.transition_to(ExtensionProcessState::Stopped);
     }
 }
 
