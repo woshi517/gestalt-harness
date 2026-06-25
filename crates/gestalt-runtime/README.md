@@ -2,6 +2,8 @@
 
 The `gestalt-runtime` crate is the **Runtime Composition Layer** of the Gestalt agent harness. It wraps `AgentLoop` (from `gestalt-core`) with concrete implementations of providers, tool registries, policy engines, context pipelines, trace hooks, and a full **process-backed extension system** that lets child processes register tools, hooks, and context contributors via JSON-RPC 2.0 over stdio.
 
+For a detailed view of the traits, configuration structures, and fingerprinting mechanisms, please consult the complete [API Reference](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/REFERENCE.md).
+
 This crate is the primary integration point for:
 - Building an `AgentRuntime` with all required dependencies
 - Loading and managing **process extensions** (child processes that communicate over stdio)
