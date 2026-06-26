@@ -8,43 +8,67 @@ use gestalt_cli::config::{
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-/// Restores an environment variable on drop, even if the test panics.
-struct EnvVarGuard {
-    key: &'static str,
-    original: Option<String>,
+fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+    ENV_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-impl EnvVarGuard {
-    fn set(key: &'static str, value: &std::path::Path) -> Self {
-        let original = std::env::var(key).ok();
-        std::env::set_var(key, value);
-        Self { key, original }
+/// Restores the config-related environment on drop, even if the test panics.
+struct TestEnvGuard {
+    vars: Vec<(&'static str, Option<String>)>,
+}
+
+impl TestEnvGuard {
+    fn clear() -> Self {
+        const VARS: [&str; 6] = [
+            "GESTALT_PROFILE",
+            "GESTALT_PROVIDER",
+            "GESTALT_MODEL",
+            "GESTALT_MODE",
+            "GESTALT_MAX_TURNS",
+            "XDG_CONFIG_HOME",
+        ];
+        let vars = VARS
+            .iter()
+            .map(|key| (*key, std::env::var(key).ok()))
+            .collect::<Vec<_>>();
+
+        std::env::remove_var("GESTALT_PROFILE");
+        std::env::remove_var("GESTALT_PROVIDER");
+        std::env::remove_var("GESTALT_MODEL");
+        std::env::remove_var("GESTALT_MODE");
+        std::env::remove_var("GESTALT_MAX_TURNS");
+        std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
+
+        Self { vars }
     }
-}
 
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        if let Some(ref val) = self.original {
-            std::env::set_var(self.key, val);
-        } else {
-            std::env::remove_var(self.key);
+    fn set_xdg_config_home(path: &std::path::Path) -> Self {
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", path);
+        Self {
+            vars: vec![("XDG_CONFIG_HOME", original)],
         }
     }
 }
 
-fn clear_env_vars() {
-    std::env::remove_var("GESTALT_PROFILE");
-    std::env::remove_var("GESTALT_PROVIDER");
-    std::env::remove_var("GESTALT_MODEL");
-    std::env::remove_var("GESTALT_MODE");
-    std::env::remove_var("GESTALT_MAX_TURNS");
-    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
+impl Drop for TestEnvGuard {
+    fn drop(&mut self) {
+        for (key, value) in &self.vars {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+    }
 }
 
 #[test]
 fn validate_workspace_fixture_config() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    clear_env_vars();
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
     let config = validate_workspace_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/minimal")),
         ..CliOverrides::default()
@@ -60,8 +84,8 @@ fn validate_workspace_fixture_config() {
 
 #[test]
 fn test_config_precedence_and_sources() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    clear_env_vars();
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
 
     // Create temporary directories
     let unique_id = uuid::Uuid::new_v4().to_string();
@@ -74,7 +98,7 @@ fn test_config_precedence_and_sources() {
     fs::create_dir_all(&workspace_config_dir).unwrap();
 
     // Set XDG_CONFIG_HOME to temp_dir so dirs::config_dir() points to temp_dir
-    let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", &temp_dir);
+    let _xdg_guard = TestEnvGuard::set_xdg_config_home(&temp_dir);
 
     // Write global config.toml - defines [tools] but NOT [context]
     let global_toml = r"
@@ -137,8 +161,8 @@ max_context_window = 60000
 
 #[test]
 fn test_profile_resolution() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    clear_env_vars();
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
     let config = validate_workspace_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/profiled")),
         ..CliOverrides::default()
@@ -154,8 +178,8 @@ fn test_profile_resolution() {
 
 #[test]
 fn test_profile_cli_override() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    clear_env_vars();
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
     let config = validate_workspace_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/profiled")),
         profile: Some("anthropic".to_string()),
@@ -172,8 +196,8 @@ fn test_profile_cli_override() {
 
 #[test]
 fn test_provider_model_cli_overrides_beat_profile() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    clear_env_vars();
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
     let config = validate_workspace_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/profiled")),
         provider: Some("openai".to_string()),
@@ -337,8 +361,8 @@ fn test_extension_instances_merge_additively() {
 
 #[test]
 fn test_effective_config_fingerprint_stability() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    clear_env_vars();
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
 
     let config1 = validate_workspace_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/minimal")),
@@ -406,8 +430,8 @@ fn test_variant_fingerprint_changes() {
 
 #[test]
 fn test_structured_config_validation_and_precedence() {
-    let _guard = ENV_MUTEX.lock().unwrap();
-    clear_env_vars();
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
 
     let unique_id = uuid::Uuid::new_v4().to_string();
     let temp_dir = std::env::temp_dir().join(format!("gestalt_test_{}", unique_id));
