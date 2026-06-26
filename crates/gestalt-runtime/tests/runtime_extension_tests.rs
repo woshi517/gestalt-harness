@@ -40,10 +40,7 @@ fn test_duplicate_extension_fails() {
 
 #[tokio::test]
 async fn test_context_contributor_stability_is_exposed() {
-    let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let manifest = gestalt_runtime::ExtensionManifest::parse(&content).unwrap();
+    let manifest = mock_extension_manifest();
 
     let event_bus = gestalt_runtime::RuntimeEventBus::new();
     let broker = std::sync::Arc::new(
@@ -65,4 +62,16 @@ async fn test_context_contributor_stability_is_exposed() {
 
     let metadata = registry.context_contributors.get("bash_context").unwrap();
     assert_eq!(metadata.stability, ContextStability::TurnDynamic);
+}
+
+fn mock_extension_manifest() -> gestalt_runtime::ExtensionManifest {
+    let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
+    let content = std::fs::read_to_string(manifest_path).unwrap();
+    let mut manifest = gestalt_runtime::ExtensionManifest::parse(&content).unwrap();
+    manifest.entrypoint.command = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/extensions/mock-ext/mock_ext.sh")
+        .to_string_lossy()
+        .into_owned();
+    manifest
 }

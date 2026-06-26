@@ -401,7 +401,12 @@ fn mock_extension_manifest() -> ExtensionManifest {
     let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
     let content = std::fs::read_to_string(manifest_path).unwrap();
-    ExtensionManifest::parse(&content).unwrap()
+    let mut manifest = ExtensionManifest::parse(&content).unwrap();
+    manifest.entrypoint.command = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/extensions/mock-ext/mock_ext.sh")
+        .to_string_lossy()
+        .into_owned();
+    manifest
 }
 
 #[derive(Default)]
