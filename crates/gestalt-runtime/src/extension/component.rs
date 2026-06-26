@@ -36,6 +36,8 @@ pub struct ExtensionComponentDescriptor {
     pub read_only: Option<bool>,
     #[serde(default)]
     pub idempotent: Option<bool>,
+    #[serde(default)]
+    pub permissions: Option<Permissions>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +45,7 @@ pub struct ResolvedExtensionComponent {
     pub id: ComponentInstanceId,
     pub kind: ComponentKind,
     pub optional: bool,
+    pub supports_cancellation: bool,
     pub entrypoint: Entrypoint,
     pub descriptor: Option<String>,
     pub config: serde_json::Value,
@@ -57,4 +60,5 @@ pub struct ResolvedExtensionComponent {
     pub risk: Option<gestalt_core::tool::RiskLevel>,
     pub read_only: bool,
     pub idempotent: bool,
+    pub package_source_root: Option<std::path::PathBuf>,
 }

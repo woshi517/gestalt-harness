@@ -7,7 +7,7 @@ This document serves as the comprehensive API reference for the `gestalt-runtime
 ## 1. Orchestration & Control API
 
 ### `RuntimeControl` (Trait)
-The authoritative trait defining runtime control, session management, event subscription, and extension reloading. It is implemented by both `AgentRuntime` (for single-session execution) and `DefaultAgentRuntimeHandle` (for multi-session orchestration).
+The runtime-scoped control trait for inspecting an already-built runtime, reloading its extension composition, and querying generation/health state. It is implemented by `AgentRuntime`, `RuntimeHost`, and `DefaultAgentRuntimeHandle`.
 
 ```rust
 #[async_trait]
@@ -28,21 +28,25 @@ pub trait RuntimeControl: Send + Sync {
     /// Inspect the health status of active extension instances.
     fn extension_health(&self) -> Vec<ExtensionInstanceHealth>;
 
-    /// Spawn a new isolated session with optional configuration overrides.
+}
+```
+
+### `HostControl` (Trait)
+The host-scoped orchestration trait for multi-session control. Only host-oriented types implement this trait; `AgentRuntime` does not expose these methods.
+
+```rust
+#[async_trait]
+pub trait HostControl: Send + Sync {
     async fn spawn_session(
         &self,
         session_id: &str,
         config_override: Option<RuntimeConfig>,
     ) -> Result<String>;
-
-    /// Deliver a prompt to an active session, driving the agent turn until completion.
     async fn send_message(
         &self,
         session_id: &str,
         prompt: &str,
     ) -> Result<gestalt_core::session::RunResult>;
-
-    /// Enqueue a steering message to influence the active session execution flow.
     async fn enqueue_steering_message(
         &self,
         session_id: &str,
@@ -50,39 +54,33 @@ pub trait RuntimeControl: Send + Sync {
         source: gestalt_core::session_queue::MessageSource,
         idempotency_key: Option<String>,
     ) -> Result<gestalt_core::session_queue::QueueAck>;
-
-    /// Subscribe to the runtime event stream.
     fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Arc<RuntimeEvent>>;
-
-    /// Returns a reference to the active `ArtifactStore`.
     fn artifact_store(&self) -> Arc<dyn ArtifactStore>;
-
-    /// Persist a binary artifact associated with a session.
-    async fn create_artifact(
-        &self,
-        session_id: &str,
-        name: &str,
-        content: &[u8],
-    ) -> Result<String>;
-
-    /// Read a persisted artifact for a session.
+    async fn create_artifact(&self, session_id: &str, name: &str, content: &[u8])
+        -> Result<String>;
     async fn read_artifact(&self, session_id: &str, name: &str) -> Result<Vec<u8>>;
-
-    /// List all artifact names created by a session.
     async fn list_artifacts(&self, session_id: &str) -> Result<Vec<String>>;
+    async fn respond_to_approval(
+        &self,
+        approval_id: &str,
+        decision: gestalt_core::approval::ApprovalDecision,
+    ) -> Result<()>;
 }
 ```
 
 ### `AgentRuntimeHandle` (Trait)
-A marker trait extending `RuntimeControl` used by orchestrators to manage sessions.
+A compatibility trait used by orchestrators. It combines runtime-scoped inspection/reload with host-scoped session orchestration.
 
 ```rust
 #[async_trait]
-pub trait AgentRuntimeHandle: RuntimeControl {}
+pub trait AgentRuntimeHandle: RuntimeControl + HostControl {}
 ```
 
+### `RuntimeHost` (Struct)
+`RuntimeHost` is the single host boundary for one workspace and one extension-generation lineage. It owns the shared `ExtensionManager`, session registry, event bus, artifact store, and approval broker.
+
 ### `DefaultAgentRuntimeHandle` (Struct)
-Thread-safe implementation of `AgentRuntimeHandle`. It maintains a map of active session `AgentRuntime` instances and handles delegation, configuration overrides, and event routing.
+Thread-safe compatibility adapter over `Arc<RuntimeHost>`.
 
 ```rust
 pub struct DefaultAgentRuntimeHandle {
@@ -148,8 +146,19 @@ pub struct AgentRuntimeBuilder {
 - **`approval(Arc<dyn ApprovalProvider>)`**: Bind human-in-the-loop action gate.
 - **`config(RuntimeConfig)`**: Pass configuration.
 - **`extension_package(ResolvedExtensionPackage)`**: Register resolved extension packages.
-- **`build() -> Result<AgentRuntime>`**: Validates config, constructs composition layers, resolves tools, and returns the runtime.
-- **`async fn build_async() -> Result<AgentRuntime>`**: Spawns out-of-process process extensions (v1 & v2) via the `ExtensionManager`.
+- **`build() -> Result<AgentRuntime>`**: Validates config, constructs the base composition, and activates configured extension packages through `ExtensionActivationPipeline`.
+- **`async fn build_async() -> Result<AgentRuntime>`**: Converts pending legacy manifests into resolved packages and uses the same activation pipeline as `build()`.
+
+### Activation and Reload Invariants
+
+- Startup and reload both execute through `ExtensionActivationPipeline`.
+- `ActivationCandidate` owns newly-started resources until commit. Dropping an uncommitted candidate rolls them back.
+- `RuntimeSnapshotLease` pins a generation for the duration of a run. Retired generations are drained only after the last lease is released.
+- `ExtensionManager::combined_health()` merges immutable snapshot diagnostics with live process state.
+
+### Lifecycle Protocol v2
+
+`InitializeResponseV2` reports the negotiated protocol version together with an explicit `supports_cancellation` flag. Cancellation is best-effort when declared and is surfaced through the negotiated lifecycle client rather than as an untyped hook outcome.
 
 ---
 
@@ -228,7 +237,7 @@ pub struct RuntimeInspect {
 The Gestalt substrate ensures hot-reload stability and security auditability by computing deterministic hashes representing all loaded state:
 
 #### 1. Snapshot Fingerprint (`compute_complete_fingerprint`)
-Folds in the base registry configuration with all resolved extension packages and components, computing a final SHA-256 hash. If changes occur in dependency lockfiles, binary files, or manifest contents, the fingerprint changes, triggering process replacement during reload.
+Folds in the base registry configuration with all resolved extension packages and components, computing a final SHA-256 hash. The fingerprint incorporates direct MCP server configuration, declared and resolved entrypoints, package trust state, cancellation declarations, permissions/grants/configuration, lifecycle declarations, and dependency lock/executable hashes. Non-file entrypoints such as `python -m ...` or `python -c ...` are distinguished by their declared command/argument material even when no executable file hash exists.
 
 ```rust
 pub fn compute_complete_fingerprint(

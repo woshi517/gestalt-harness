@@ -19,6 +19,7 @@ use crate::registry::RuntimeRegistry;
 
 pub struct ProcessExtensionBroker {
     manifest: ExtensionManifest,
+    pub(crate) grants: Option<crate::extension::ExtensionGrantConfig>,
     pub(crate) event_bus: RuntimeEventBus,
     tx: mpsc::Sender<(
         JsonRpcRequest,
@@ -142,22 +143,55 @@ impl ProcessExtensionBroker {
         limits: ExtensionLimitsConfig,
         is_trusted: bool,
     ) -> Result<Self> {
+        Self::spawn_with_grants(
+            manifest, None, None, event_bus, timeouts, limits, is_trusted,
+        )
+        .await
+    }
+
+    pub async fn spawn_with_grants(
+        manifest: ExtensionManifest,
+        grants: Option<crate::extension::ExtensionGrantConfig>,
+        package_source_root: Option<std::path::PathBuf>,
+        event_bus: RuntimeEventBus,
+        timeouts: ExtensionTimeoutsConfig,
+        limits: ExtensionLimitsConfig,
+        is_trusted: bool,
+    ) -> Result<Self> {
         let extension_id = manifest.id.clone();
 
-        if let Err(reason) = crate::manifest::validate_shell_entrypoint(
-            &manifest.entrypoint,
-            manifest.permissions.allow_shell,
-        ) {
+        let shell_allowed = crate::permissions::check_shell_permission_effective(
+            &manifest.permissions,
+            grants.as_ref(),
+            &event_bus,
+            &manifest.id,
+        )
+        .is_ok();
+
+        if let Err(reason) =
+            crate::manifest::validate_shell_entrypoint(&manifest.entrypoint, shell_allowed)
+        {
             event_bus.publish(RuntimeEvent::ExtensionRejected {
                 extension_id: extension_id.clone(),
-                reason,
+                reason: reason.clone(),
             });
-            return Err(RuntimeError::Extension(
-                "Missing shell permission for command".to_string(),
-            ));
+            return Err(RuntimeError::Extension(reason));
         }
 
-        let mut cmd = Command::new(&manifest.entrypoint.command);
+        let mut cmd = if let Some(ref source_root) = package_source_root {
+            let resolved_cmd_path =
+                if std::path::Path::new(&manifest.entrypoint.command).is_absolute() {
+                    std::path::PathBuf::from(&manifest.entrypoint.command)
+                } else {
+                    source_root.join(&manifest.entrypoint.command)
+                };
+            let mut c = Command::new(resolved_cmd_path);
+            c.current_dir(source_root);
+            c
+        } else {
+            Command::new(&manifest.entrypoint.command)
+        };
+
         cmd.args(&manifest.entrypoint.args);
         cmd.env_clear();
 
@@ -385,6 +419,7 @@ impl ProcessExtensionBroker {
 
         let broker = Self {
             manifest: manifest.clone(),
+            grants,
             event_bus: event_bus.clone(),
             tx,
             child: child_arc,
@@ -425,7 +460,7 @@ impl ProcessExtensionBroker {
                         .to_string()
                 };
                 let caps = if manifest_proto == "2.0" {
-                    Capabilities::default()
+                    manifest.capabilities.clone()
                 } else if let Some(caps_val) = val.get("capabilities") {
                     serde_json::from_value::<Capabilities>(caps_val.clone())
                         .unwrap_or_else(|_| manifest.capabilities.clone())
@@ -639,6 +674,7 @@ impl ProcessExtensionBroker {
 
 fn check_input_permissions(
     manifest: &ExtensionManifest,
+    grants: Option<&crate::extension::ExtensionGrantConfig>,
     input: &serde_json::Value,
     workspace_root: &std::path::Path,
     event_bus: &RuntimeEventBus,
@@ -661,12 +697,14 @@ fn check_input_permissions(
                             || key_lower.contains("output")
                             || key_lower.contains("target");
                         let p = std::path::Path::new(s);
-                        if let Err(e) = crate::permissions::check_path_permission(
-                            manifest,
+                        if let Err(e) = crate::permissions::check_path_permission_effective(
+                            &manifest.permissions,
+                            grants,
                             workspace_root,
                             p,
                             is_write,
                             event_bus,
+                            &manifest.id,
                         ) {
                             return Err(gestalt_core::error::ToolError::PathNotAllowed(e));
                         }
@@ -681,20 +719,25 @@ fn check_input_permissions(
                         } else {
                             s.clone()
                         };
-                        if let Err(e) =
-                            crate::permissions::check_network_permission(manifest, &host, event_bus)
-                        {
+                        if let Err(e) = crate::permissions::check_network_permission_effective(
+                            &manifest.permissions,
+                            grants,
+                            true, // host_allow_network
+                            &host,
+                            event_bus,
+                            &manifest.id,
+                        ) {
                             return Err(gestalt_core::error::ToolError::NetworkDenied(e));
                         }
                     }
                 } else {
-                    check_input_permissions(manifest, v, workspace_root, event_bus)?;
+                    check_input_permissions(manifest, grants, v, workspace_root, event_bus)?;
                 }
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                check_input_permissions(manifest, v, workspace_root, event_bus)?;
+                check_input_permissions(manifest, grants, v, workspace_root, event_bus)?;
             }
         }
         _ => {}
@@ -762,6 +805,7 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
 
         check_input_permissions(
             &self.broker.manifest,
+            self.broker.grants.as_ref(),
             &input,
             workspace_root,
             &self.broker.event_bus,
@@ -837,12 +881,14 @@ impl crate::context::ContextContributor for ProcessBackedContextContributor {
             ));
         }
 
-        if let Err(e) = crate::permissions::check_path_permission(
-            &self.broker.manifest,
+        if let Err(e) = crate::permissions::check_path_permission_effective(
+            &self.broker.manifest.permissions,
+            self.broker.grants.as_ref(),
             workspace_root,
             workspace_root,
             false,
             &self.broker.event_bus,
+            &self.broker.manifest.id,
         ) {
             return Err(RuntimeError::Extension(e));
         }

@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 use crate::error::{Result, RuntimeError};
-use crate::manifest::{Entrypoint, ExtensionManifest, Permissions};
+use crate::manifest::{Entrypoint, ExtensionManifest};
+use sha2::{Digest, Sha256};
 
 use super::{
     ComponentInstanceId, ComponentKind, ExtensionComponentDescriptor, ExtensionGrantConfig,
@@ -163,6 +164,7 @@ impl ResolvedExtensionPackage {
             component.id.instance_id = instance_id.clone();
             component.config = config.clone();
             component.grants = grants.clone();
+            component.package_source_root = self.source_root.clone();
         }
         self
     }
@@ -182,6 +184,7 @@ impl ResolvedExtensionPackage {
             id: ComponentInstanceId::new(&manifest.id, &instance_id, "legacy"),
             kind: ComponentKind::LegacyProcess,
             optional: false,
+            supports_cancellation: manifest.capabilities.supports_cancellation,
             entrypoint: manifest.entrypoint.clone(),
             descriptor: None,
             config: serde_json::Value::Null,
@@ -196,6 +199,7 @@ impl ResolvedExtensionPackage {
             risk: None,
             read_only: false,
             idempotent: false,
+            package_source_root: None,
         };
 
         Ok(Self {
@@ -225,10 +229,12 @@ impl ResolvedExtensionPackage {
                     command: String::new(),
                     args: Vec::new(),
                 });
+                let component_perms = component.permissions.clone().unwrap_or_default();
                 ResolvedExtensionComponent {
                     id: ComponentInstanceId::new(&manifest.package.id, &instance_id, component.id),
                     kind: component.kind,
                     optional: component.optional,
+                    supports_cancellation: false,
                     entrypoint,
                     descriptor: component.descriptor,
                     config: serde_json::Value::Null,
@@ -236,13 +242,14 @@ impl ResolvedExtensionPackage {
                     tools: Vec::new(),
                     hooks: Vec::new(),
                     context_injectors: Vec::new(),
-                    permissions: Permissions::default(),
+                    permissions: component_perms,
                     protocol_version: None,
                     description: component.description,
                     input_schema: component.input_schema,
                     risk: component.risk,
                     read_only: component.read_only.unwrap_or(false),
                     idempotent: component.idempotent.unwrap_or(false),
+                    package_source_root: None,
                 }
             })
             .collect();
@@ -258,34 +265,55 @@ impl ResolvedExtensionPackage {
         })
     }
 
-    pub fn to_runtime_component(&self, component_id: &str) -> Option<super::ExtensionRuntimeComponent> {
-        let component = self.components.iter().find(|c| c.id.component_id == component_id)?;
+    pub fn to_runtime_component(
+        &self,
+        component_id: &str,
+    ) -> Option<super::ExtensionRuntimeComponent> {
+        let component = self
+            .components
+            .iter()
+            .find(|c| c.id.component_id == component_id)?;
         let manifest_hash = self.manifest_hash.clone();
-        
-        let dependency_lock_hash = self.source_root.as_ref()
+
+        let dependency_lock_hash = self
+            .source_root
+            .as_ref()
             .and_then(|root| super::manager::compute_dependency_lock_hash(root));
-            
-        let executable_hash = self.source_root.as_ref()
-            .and_then(|root| super::manager::compute_executable_hash(
+
+        let executable_hash = self.source_root.as_ref().and_then(|root| {
+            super::manager::compute_executable_hash(
                 root,
                 &component.entrypoint.command,
                 &component.entrypoint.args,
-            ));
-            
+            )
+        });
+
+        let trust = if let Some(ref hash) = manifest_hash {
+            crate::extension_trust::ExtensionTrust::IntegrityTrusted {
+                manifest_hash: hash.clone(),
+            }
+        } else {
+            crate::extension_trust::ExtensionTrust::Untrusted
+        };
+
         Some(super::ExtensionRuntimeComponent {
             id: component.id.clone(),
             kind: component.kind.clone(),
             optional: component.optional,
+            supports_cancellation: component.supports_cancellation,
             entrypoint_command: component.entrypoint.command.clone(),
             entrypoint_args: component.entrypoint.args.clone(),
             config: component.config.clone(),
-            grants_fingerprint: format!("{:?}", component.grants),
-            trust_fingerprint: "true".to_string(),
+            grants_fingerprint: fingerprint_json(&component.grants),
+            trust,
             protocol_fingerprint: component.protocol_version.clone(),
             package_version: self.descriptor.version.clone(),
             manifest_hash,
             executable_hash,
             dependency_lock_hash,
+            permissions: component.permissions.clone(),
+            grants: component.grants.clone(),
+            package_source_root: self.source_root.clone(),
         })
     }
 }
@@ -381,7 +409,6 @@ pub fn compute_complete_fingerprint(
     if resolved_packages.is_empty() {
         return registry_fingerprint.to_string();
     }
-    use sha2::{Sha256, Digest};
     let mut hasher = Sha256::new();
     hasher.update(registry_fingerprint.as_bytes());
     hasher.update(b"|packages:");
@@ -395,7 +422,7 @@ pub fn compute_complete_fingerprint(
             hasher.update(b":");
             hasher.update(mh.as_bytes());
         }
-        
+
         // Compute and fold package-level dependency lock hash
         if let Some(ref source_root) = package.source_root {
             if let Some(lh) = super::manager::compute_dependency_lock_hash(source_root) {
@@ -403,19 +430,66 @@ pub fn compute_complete_fingerprint(
                 hasher.update(lh.as_bytes());
             }
         }
-        
+
         hasher.update(b";");
         for component in &package.components {
             hasher.update(component.id.component_id.as_bytes());
             hasher.update(b":");
             hasher.update(format!("{:?}", component.kind).as_bytes());
             hasher.update(b":");
-            hasher.update(serde_json::to_string(&component.config).unwrap_or_default().as_bytes());
+            hasher.update(component.optional.to_string().as_bytes());
             hasher.update(b":");
-            hasher.update(format!("{:?}", component.grants).as_bytes());
-            
+            hasher.update(component.supports_cancellation.to_string().as_bytes());
+            hasher.update(b":");
+            hasher.update(
+                serde_json::to_string(&component.config)
+                    .unwrap_or_default()
+                    .as_bytes(),
+            );
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.grants).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.permissions).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.tools).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.hooks).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.context_injectors).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.descriptor).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.description).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.input_schema).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.risk).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.read_only).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.idempotent).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.protocol_version).as_bytes());
+            hasher.update(b":");
+            hasher.update(fingerprint_json(&component.package_source_root).as_bytes());
+            hasher.update(b":");
+            hasher.update(component.entrypoint.command.as_bytes());
+            for arg in &component.entrypoint.args {
+                hasher.update(b"\0");
+                hasher.update(arg.as_bytes());
+            }
+
             // Compute and fold component-level executable hash
             if let Some(ref source_root) = package.source_root {
+                let resolved_command = if std::path::Path::new(&component.entrypoint.command)
+                    .is_absolute()
+                {
+                    PathBuf::from(&component.entrypoint.command)
+                } else {
+                    source_root.join(&component.entrypoint.command)
+                };
+                hasher.update(b":resolved:");
+                hasher.update(resolved_command.to_string_lossy().as_bytes());
                 if let Some(eh) = super::manager::compute_executable_hash(
                     source_root,
                     &component.entrypoint.command,
@@ -425,9 +499,18 @@ pub fn compute_complete_fingerprint(
                     hasher.update(eh.as_bytes());
                 }
             }
-            
+
             hasher.update(b";");
         }
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn fingerprint_json<T: serde::Serialize>(value: &T) -> String {
+    let mut hasher = Sha256::new();
+    match serde_json::to_vec(value) {
+        Ok(serialized) => hasher.update(serialized),
+        Err(err) => hasher.update(err.to_string().as_bytes()),
     }
     format!("{:x}", hasher.finalize())
 }

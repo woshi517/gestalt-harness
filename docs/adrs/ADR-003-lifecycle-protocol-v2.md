@@ -8,5 +8,6 @@ The stable method set is `initialize`, `capabilities/describe`, `lifecycle/invok
 
 Protocol v1 remains compatible through adapters. `HookOutcome::Aggregated` is not part of the v2 external contract.
 
-*Note on Implementation:* The process-backed client `ProcessLifecycleClient` is fully implemented and tested. It negotiates the version via `initialize`, retrieves descriptors via `capabilities/describe`, executes hooks/actions via `lifecycle/invoke` over the child process stdin/stdout, and issues `shutdown` signals.
+`initialize` declares the negotiated protocol version. `InitializeResponseV2` includes an explicit `supports_cancellation` flag; when set, cancellation is treated as best-effort.
 
+*Note on Implementation:* The process-backed client `ProcessLifecycleClient` negotiates the version via `initialize`, retrieves descriptors via `capabilities/describe`, executes hooks/actions via `lifecycle/invoke` over the child process stdin/stdout, and issues `shutdown` signals. Runtime execution pins one `RuntimeSnapshotLease` per run so capability dispatch remains isolated from later reloads.

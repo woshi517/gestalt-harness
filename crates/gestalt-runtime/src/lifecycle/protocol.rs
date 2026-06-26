@@ -30,6 +30,7 @@ pub struct InitializeRequestV2 {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InitializeResponseV2 {
     pub negotiated_version: String,
+    pub supports_cancellation: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -2,7 +2,8 @@
 
 use gestalt_runtime::{
     extension::{
-        ComponentKind, ExtensionManifestV2, ExtensionPackageDescriptor, ResolvedExtensionPackage,
+        compute_complete_fingerprint, ComponentKind, ExtensionManifestV2,
+        ExtensionPackageDescriptor, ResolvedExtensionPackage,
     },
     ExtensionDiscovery, ExtensionManifest,
 };
@@ -205,6 +206,28 @@ fn discovery_exposes_package_inventory_for_v1_and_v2_manifests() {
     assert!(packages.iter().all(|package| package.enabled));
 }
 
+#[test]
+fn package_fingerprint_changes_for_non_file_entrypoint_arguments() {
+    let left = legacy_package("python", &["-m", "review.lifecycle"], false);
+    let right = legacy_package("python", &["-m", "review.other"], false);
+
+    let left_fp = compute_complete_fingerprint("registry-a", &[left]);
+    let right_fp = compute_complete_fingerprint("registry-a", &[right]);
+
+    assert_ne!(left_fp, right_fp);
+}
+
+#[test]
+fn package_fingerprint_changes_with_cancellation_declaration() {
+    let left = legacy_package("python", &["-m", "review.lifecycle"], false);
+    let right = legacy_package("python", &["-m", "review.lifecycle"], true);
+
+    let left_fp = compute_complete_fingerprint("registry-a", &[left]);
+    let right_fp = compute_complete_fingerprint("registry-a", &[right]);
+
+    assert_ne!(left_fp, right_fp);
+}
+
 fn write_v1_extension(dir: &Path, id: &str, name: &str) {
     fs::create_dir_all(dir).unwrap();
     fs::write(
@@ -256,6 +279,46 @@ args = ["-m", "lifecycle"]
         ),
     )
     .unwrap();
+}
+
+fn legacy_package(
+    command: &str,
+    args: &[&str],
+    supports_cancellation: bool,
+) -> ResolvedExtensionPackage {
+    let args_toml = args
+        .iter()
+        .map(|arg| format!("\"{arg}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let manifest = ExtensionManifest::parse(&format!(
+        r#"
+id = "legacy-package"
+name = "Legacy Package"
+version = "1.0.0"
+manifest_version = "1"
+protocol_version = "1.0"
+runtime = "stdio"
+
+[entrypoint]
+command = "{command}"
+args = [{args_toml}]
+
+[capabilities]
+tools = true
+hooks = true
+context = true
+supports_cancellation = {supports_cancellation}
+
+[[tools]]
+name = "search"
+description = "Search"
+input_schema = {{ type = "object" }}
+"#
+    ))
+    .unwrap();
+
+    ResolvedExtensionPackage::from_v1_manifest(manifest).unwrap()
 }
 
 struct TempTree {

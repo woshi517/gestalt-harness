@@ -32,9 +32,26 @@ async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process(
         Arc::new(snapshot_with_generation(0)),
         event_bus.clone(),
         Arc::new(LocalProcessLauncher),
+        gestalt_runtime::activation::HostLaunchContext::default(),
     ));
     let component = lifecycle_component();
-    let client = ProcessLifecycleClient::new(manager.clone(), component.clone());
+    let host_context = gestalt_runtime::activation::HostLaunchContext {
+        event_bus: event_bus.clone(),
+        workspace_root: std::path::PathBuf::from("."),
+        effective_permissions: None,
+        timeout_initialize_ms: 10000,
+        timeout_hook_ms: 5000,
+        timeout_context_ms: 15000,
+        timeout_tool_ms: 60000,
+        timeout_shutdown_ms: 5000,
+        max_message_bytes: 8_388_608,
+        max_pending_requests: 16,
+        environment: std::collections::HashMap::new(),
+        package_source_root: None,
+        extension_instances: std::collections::BTreeMap::new(),
+        mcp_servers: std::collections::HashMap::new(),
+    };
+    let client = ProcessLifecycleClient::new(manager.clone(), component.clone(), host_context);
 
     let initialized = client
         .initialize(InitializeRequestV2 {
@@ -43,6 +60,7 @@ async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process(
         .await
         .unwrap();
     assert_eq!(initialized.negotiated_version, "2.0");
+    assert!(initialized.supports_cancellation);
 
     let described = client.describe_capabilities().await.unwrap();
     assert_eq!(described.len(), 1);
@@ -84,10 +102,28 @@ async fn process_lifecycle_client_reuses_processes_and_respects_draining_state()
         Arc::new(snapshot_with_generation(0)),
         RuntimeEventBus::new(),
         Arc::new(LocalProcessLauncher),
+        gestalt_runtime::activation::HostLaunchContext::default(),
     ));
     let component = lifecycle_component();
-    let first = ProcessLifecycleClient::new(manager.clone(), component.clone());
-    let second = ProcessLifecycleClient::new(manager.clone(), component.clone());
+    let host_context = gestalt_runtime::activation::HostLaunchContext {
+        event_bus: manager.event_bus.clone(),
+        workspace_root: std::path::PathBuf::from("."),
+        effective_permissions: None,
+        timeout_initialize_ms: 10000,
+        timeout_hook_ms: 5000,
+        timeout_context_ms: 15000,
+        timeout_tool_ms: 60000,
+        timeout_shutdown_ms: 5000,
+        max_message_bytes: 8_388_608,
+        max_pending_requests: 16,
+        environment: std::collections::HashMap::new(),
+        package_source_root: None,
+        extension_instances: std::collections::BTreeMap::new(),
+        mcp_servers: std::collections::HashMap::new(),
+    };
+    let first =
+        ProcessLifecycleClient::new(manager.clone(), component.clone(), host_context.clone());
+    let second = ProcessLifecycleClient::new(manager.clone(), component.clone(), host_context);
 
     first.describe_capabilities().await.unwrap();
     second.describe_capabilities().await.unwrap();
@@ -125,6 +161,7 @@ fn lifecycle_component() -> ExtensionRuntimeComponent {
         id: ComponentInstanceId::new("com.example.lifecycle", "primary", "lifecycle"),
         kind: ComponentKind::GestaltLifecycle,
         optional: false,
+        supports_cancellation: true,
         entrypoint_command: "python3".to_string(),
         entrypoint_args: vec![
             "-c".to_string(),
@@ -171,11 +208,20 @@ while True:
         ],
         config: json!({ "policySet": "default" }),
         grants_fingerprint: "grants-a".to_string(),
-        trust_fingerprint: "true".to_string(),
+        trust: gestalt_runtime::ExtensionTrust::BuiltIn,
         protocol_fingerprint: Some("2.0".to_string()),
         package_version: "1.0.0".to_string(),
         manifest_hash: None,
         executable_hash: None,
         dependency_lock_hash: None,
+        permissions: gestalt_runtime::manifest::Permissions {
+            allow_shell: true,
+            ..Default::default()
+        },
+        grants: gestalt_runtime::extension::ExtensionGrantConfig {
+            shell: true,
+            ..Default::default()
+        },
+        package_source_root: None,
     }
 }

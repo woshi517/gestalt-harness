@@ -11,18 +11,31 @@ use super::protocol::{
     LifecycleInvokeResponseV2, PROTOCOL_V2_METHOD_DESCRIBE_CAPABILITIES, PROTOCOL_V2_METHOD_INVOKE,
 };
 
+use crate::activation::HostLaunchContext;
+
 pub struct ProcessLifecycleClient {
     manager: Arc<ExtensionManager>,
     component: ExtensionRuntimeComponent,
+    host_context: HostLaunchContext,
 }
 
 impl ProcessLifecycleClient {
-    pub fn new(manager: Arc<ExtensionManager>, component: ExtensionRuntimeComponent) -> Self {
-        Self { manager, component }
+    pub fn new(
+        manager: Arc<ExtensionManager>,
+        component: ExtensionRuntimeComponent,
+        host_context: HostLaunchContext,
+    ) -> Self {
+        Self {
+            manager,
+            component,
+            host_context,
+        }
     }
 
     async fn process(&self) -> Result<Arc<crate::extension::ExtensionProcessInstance>> {
-        self.manager.launch_process(&self.component).await
+        self.manager
+            .launch_process(&self.component, &self.host_context)
+            .await
     }
 
     async fn broker(&self) -> Result<Arc<crate::process_extension::ProcessExtensionBroker>> {
@@ -48,7 +61,10 @@ impl LifecycleClient for ProcessLifecycleClient {
                 negotiated_version
             )));
         }
-        Ok(InitializeResponseV2 { negotiated_version })
+        Ok(InitializeResponseV2 {
+            negotiated_version,
+            supports_cancellation: broker.negotiated_capabilities().supports_cancellation,
+        })
     }
 
     async fn describe_capabilities(&self) -> Result<Vec<CapabilityDescriptorV2>> {

@@ -119,7 +119,7 @@ lifecycle_point = "before_context_build"  # One of: before_context_build, after_
                                           # before_tool_policy, after_tool_result, prepare_next_turn, on_event
 ```
 
-Hooks receive lifecycle context and can return one of five outcomes: `continue`, `block`, `add_context`, `annotate`, or `switch_model`. The runtime calls hooks via the `hooks/call` method.
+Lifecycle capabilities use typed request/response DTOs. The runtime calls them via the `lifecycle/invoke` method.
 
 ### 3.7 Context Injector Declarations
 
@@ -266,38 +266,18 @@ Dispatched before each agent turn to gather context contributions.
 
 The `content` field is used as a system message injected into the context window.
 
-### 4.5 `hooks/call` Method
+### 4.5 `lifecycle/invoke` Method
 
-Dispatched when a lifecycle hook point fires. The params describe the hook name and lifecycle context.
+Dispatched when a typed lifecycle capability fires. The params and result payloads are capability-specific and are wrapped in versioned DTOs.
 
 **Request:**
 ```json
-{"jsonrpc":"2.0","method":"hooks/call","params":{"name":"validate_before_tool","lifecycle_point":"before_context_build","context":{"session_id":"...","history":[]}},"id":"uuid-789"}
+{"jsonrpc":"2.0","method":"lifecycle/invoke","params":{"component_id":"component:com.example.lifecycle:primary:lifecycle","capability":"context_provider","payload":{"session_id":"...","history":[]}},"id":"uuid-789"}
 ```
 
-**Possible responses:**
-
-| Response | Behavior |
-|---|---|
-| `"continue"` or `{"type":"continue"}` | Allow the lifecycle to proceed |
-| `{"type":"block","reason":"..."}` | Block the lifecycle; the reason is surfaced to the agent |
-| `{"type":"add_context","message":{...}}` | Add a `Message` to the context |
-| `{"type":"annotate","metadata":{...}}` | Annotate the lifecycle with metadata |
-| `{"type":"switch_model","model":"...","provider":"..."}` | V1-only: override the next turn's model; provider override is accepted but not yet reliably honored unless it matches the active provider |
-
-**Full response examples:**
-
+**Response:**
 ```json
-{"jsonrpc":"2.0","result":"continue","id":"uuid-789"}
-```
-```json
-{"jsonrpc":"2.0","result":{"type":"block","reason":"Not authenticated"},"id":"uuid-789"}
-```
-```json
-{"jsonrpc":"2.0","result":{"type":"add_context","message":{"role":"system","content":"Extra context"}},"id":"uuid-789"}
-```
-```json
-{"jsonrpc":"2.0","result":{"type":"switch_model","model":"claude-sonnet-4-20250514","provider":"anthropic"},"id":"uuid-789"}
+{"jsonrpc":"2.0","result":{"payload":{"content":"Extra context"}},"id":"uuid-789"}
 ```
 
 ### 4.6 Error Codes
@@ -377,8 +357,8 @@ for line in sys.stdin:
         injector_name = params.get("name", "")
         respond(req_id, {"content": f"Injected from {injector_name}"})
 
-    elif method == "hooks/call":
-        respond(req_id, "continue")
+    elif method == "lifecycle/invoke":
+        respond(req_id, {"payload": {"content": f"Lifecycle payload for {params.get('component_id', '')}"}})
 
     else:
         respond(req_id, None,
@@ -425,8 +405,8 @@ rl.on("line", (line) => {
       respond(id, { content: `Node.js context from ${params.name}` });
       break;
 
-    case "hooks/call":
-      respond(id, "continue");
+    case "lifecycle/invoke":
+      respond(id, { payload: { content: `Lifecycle payload for ${params.component_id}` } });
       break;
 
     default:
@@ -491,8 +471,8 @@ fn main() {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 respond(&id, Some(json!({"content": format!("Rust context: {}", name)})), None);
             }
-            "hooks/call" => {
-                respond(&id, Some(json!("continue")), None);
+            "lifecycle/invoke" => {
+                respond(&id, Some(json!({"payload": {"content": format!("Lifecycle payload for {}", params.get("component_id").and_then(|v| v.as_str()).unwrap_or(""))}})), None);
             }
             _ => {
                 respond(&id, None, Some(json!({"code": -32601, "message": format!("Unknown method: {}", method)})));
@@ -748,7 +728,7 @@ while let Ok(evt) = sub.try_recv() {
 - **Missing newlines:** Every response must end with `\n`. Use `println!` / `write!` with `\n` / `sys.stdout.write(msg + "\n")`.
 - **Not flushing stdout:** The runtime reads from stdout with line-buffered I/O, but some languages (especially Python with `print()` when piped) may buffer. Always flush after each response.
 - **Stalling on initialize:** The runtime blocks on the initialize handshake. If your extension doesn't respond, it will be killed after 30 seconds.
-- **Unhandled methods:** Only recognized methods are `initialize`, `tools/call`, `context/inject`, and `hooks/call`. Unknown methods should return error code `-32601`.
+- **Unhandled methods:** Only recognized methods are `initialize`, `tools/call`, `context/inject`, and `lifecycle/invoke`. Unknown methods should return error code `-32601`.
 - **Environment assumptions:** The environment is cleared to safe vars only. Don't assume `API_KEY` or other secrets are inherited — use a dedicated config file instead.
 - **Path traversal in tool input:** The host-side input scanner checks tool call arguments for path and URL fields. If your extension receives path arguments, declare the appropriate permissions in the manifest.
 
@@ -827,8 +807,8 @@ while read -r line; do
     echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":\"TEST_SECRET=$val_secret PATH=$val_path\"},\"id\":\"$req_id\"}"
   elif [ "$method" = "context/inject" ]; then
     echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":\"injected context\"},\"id\":\"$req_id\"}"
-  elif [ "$method" = "hooks/call" ]; then
-    echo "{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"block\",\"reason\":\"blocked by mock extension hook\"},\"id\":\"$req_id\"}"
+  elif [ "$method" = "lifecycle/invoke" ]; then
+    echo "{\"jsonrpc\":\"2.0\",\"result\":{\"payload\":{\"content\":\"blocked by mock extension capability\"}},\"id\":\"$req_id\"}"
   fi
 done
 ```
@@ -838,4 +818,4 @@ This fixture validates:
 - Basic JSON-RPC handshake and dispatch
 - Tool execution with text output
 - Context injection returning system-message content
-- Hook dispatch returning a `block` outcome
+- Lifecycle capability dispatch returning a typed payload

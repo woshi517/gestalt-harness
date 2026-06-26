@@ -2,11 +2,10 @@
 
 Status: Accepted
 
-The runtime owns immutable generation snapshots. `ExtensionManager` publishes snapshots atomically through `RwLock<Arc<RuntimeExtensionSnapshot>>`; runs adopt the active snapshot at run/session entry.
+The runtime owns immutable generation snapshots. `ExtensionManager` publishes snapshots atomically through `RwLock<Arc<RuntimeExtensionSnapshot>>`; runs adopt a `RuntimeSnapshotLease` at run/session entry and execute against the pinned snapshot for the duration of the run.
 
-Reload candidates are validated before publication. Dry-runs return the candidate generation and fingerprint without publishing. Failed required candidates must leave the active generation untouched.
+Startup and reload both execute through `ExtensionActivationPipeline`. Reload candidates are validated before publication. Dry-runs return the candidate generation and fingerprint without publishing. Failed required candidates must leave the active generation untouched.
 
-*Note on Implementation:* In Phase 1 scaffolding, the `reload_extensions` command acts as a generation-incrementing placeholder that clones the active snapshot and updates the generation and fingerprint. Real candidate reconstruction (including rediscovery, instance resolution, component diffing, validation, launching, draining, and rollback) is deferred.
+`ActivationCandidate` owns newly-started resources until commit. When a new generation is published, the previous generation is retired but remains callable while leases exist. Non-reused resources drain only after the final lease releases.
 
 Deferred: automatic file watching, remote package registry integration, optimizing publication with `arc-swap`, and transactional hot reload (candidate reconstruction, diffing, and draining).
-

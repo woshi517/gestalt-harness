@@ -78,6 +78,8 @@ impl ComponentFingerprint {
         hasher.update(b"|");
         hasher.update(component.optional.to_string().as_bytes());
         hasher.update(b"|");
+        hasher.update(component.supports_cancellation.to_string().as_bytes());
+        hasher.update(b"|");
         hasher.update(component.entrypoint_command.as_bytes());
         for arg in &component.entrypoint_args {
             hasher.update(b"\0");
@@ -92,7 +94,7 @@ impl ComponentFingerprint {
         hasher.update(b"|");
         hasher.update(component.grants_fingerprint.as_bytes());
         hasher.update(b"|");
-        hasher.update(component.trust_fingerprint.as_bytes());
+        hasher.update(format!("{:?}", component.trust).as_bytes());
         if let Some(protocol) = &component.protocol_fingerprint {
             hasher.update(b"|");
             hasher.update(protocol.as_bytes());
@@ -116,6 +118,9 @@ impl ComponentFingerprint {
 }
 
 pub type ReuseKey = (ComponentInstanceId, ComponentFingerprint);
+type LaunchResultSender =
+    tokio::sync::broadcast::Sender<std::result::Result<Arc<ExtensionProcessInstance>, String>>;
+type SingleFlightMap = Arc<std::sync::Mutex<HashMap<ReuseKey, LaunchResultSender>>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtensionRuntimeComponent {
@@ -126,12 +131,16 @@ pub struct ExtensionRuntimeComponent {
     pub entrypoint_args: Vec<String>,
     pub config: Value,
     pub grants_fingerprint: String,
-    pub trust_fingerprint: String,
+    pub trust: crate::extension_trust::ExtensionTrust,
     pub protocol_fingerprint: Option<String>,
     pub package_version: String,
     pub manifest_hash: Option<String>,
     pub executable_hash: Option<String>,
     pub dependency_lock_hash: Option<String>,
+    pub permissions: crate::manifest::Permissions,
+    pub grants: crate::extension::ExtensionGrantConfig,
+    pub package_source_root: Option<std::path::PathBuf>,
+    pub supports_cancellation: bool,
 }
 
 impl ExtensionRuntimeComponent {
@@ -147,6 +156,14 @@ pub struct ExtensionManager {
     pub reload_mutex: Arc<AsyncMutex<()>>,
     pub event_bus: RuntimeEventBus,
     pub launcher: Arc<dyn ExtensionLauncher>,
+
+    pub leases: Arc<std::sync::Mutex<HashMap<RuntimeGeneration, usize>>>,
+    pub retired_generations:
+        Arc<std::sync::Mutex<HashMap<RuntimeGeneration, Arc<RuntimeExtensionSnapshot>>>>,
+    pub managed_resources:
+        Arc<RwLock<HashMap<ReuseKey, crate::activation::ManagedExtensionResource>>>,
+    pub single_flights: SingleFlightMap,
+    pub host_context: crate::activation::HostLaunchContext,
 }
 
 impl ExtensionManager {
@@ -154,6 +171,7 @@ impl ExtensionManager {
         initial_snapshot: Arc<RuntimeExtensionSnapshot>,
         event_bus: RuntimeEventBus,
         launcher: Arc<dyn ExtensionLauncher>,
+        host_context: crate::activation::HostLaunchContext,
     ) -> Self {
         Self {
             inventory: Arc::new(RwLock::new(ExtensionInventory::default())),
@@ -162,6 +180,11 @@ impl ExtensionManager {
             reload_mutex: Arc::new(AsyncMutex::new(())),
             event_bus,
             launcher,
+            leases: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            retired_generations: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            managed_resources: Arc::new(RwLock::new(HashMap::new())),
+            single_flights: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            host_context,
         }
     }
 
@@ -200,6 +223,7 @@ impl ExtensionManager {
     pub async fn launch_process(
         &self,
         component: &ExtensionRuntimeComponent,
+        host_context: &crate::activation::HostLaunchContext,
     ) -> Result<Arc<ExtensionProcessInstance>> {
         let reuse_key = component.reuse_key();
         if let Some(existing) = self
@@ -214,12 +238,60 @@ impl ExtensionManager {
             }
         }
 
-        let process = self.launcher.launch(component).await?;
+        // Single flight logic
+        let (rx, _is_leader) = {
+            let mut flights = self.single_flights.lock().unwrap();
+            if let Some(tx) = flights.get(&reuse_key) {
+                (Some(tx.subscribe()), false)
+            } else {
+                let (tx, _) = tokio::sync::broadcast::channel(1);
+                flights.insert(reuse_key.clone(), tx.clone());
+                (None, true)
+            }
+        };
+
+        if let Some(mut rx) = rx {
+            match rx.recv().await {
+                Ok(Ok(proc)) => return Ok(proc),
+                Ok(Err(e)) => return Err(RuntimeError::Extension(e)),
+                Err(_) => {
+                    return Err(RuntimeError::Extension(
+                        "Single-flight launch channel closed".to_string(),
+                    ))
+                }
+            }
+        }
+
+        let result = self.launcher.launch(component, host_context).await;
+
+        let flights_tx = {
+            let mut flights = self.single_flights.lock().unwrap();
+            flights.remove(&reuse_key)
+        };
+
+        if let Some(tx) = flights_tx {
+            let broadcast_val = result
+                .as_ref()
+                .map(|p| p.clone())
+                .map_err(|e| e.to_string());
+            let _ = tx.send(broadcast_val);
+        }
+
+        let process = result?;
+
         let mut instances = self
             .process_instances
             .write()
             .map_err(|_| RuntimeError::Extension("process instance lock poisoned".to_string()))?;
-        instances.insert(reuse_key, process.clone());
+        instances.insert(reuse_key.clone(), process.clone());
+
+        if let Ok(mut managed) = self.managed_resources.write() {
+            managed.insert(
+                reuse_key,
+                crate::activation::ManagedExtensionResource::Process(process.clone()),
+            );
+        }
+
         Ok(process)
     }
 
@@ -313,6 +385,56 @@ impl ExtensionManager {
         health
     }
 
+    pub fn combined_health(
+        &self,
+        snapshot: &RuntimeExtensionSnapshot,
+    ) -> Vec<ExtensionInstanceHealth> {
+        fn health_rank(status: &ExtensionInstanceHealthStatus) -> u8 {
+            match status {
+                ExtensionInstanceHealthStatus::Ready => 0,
+                ExtensionInstanceHealthStatus::Degraded => 1,
+                ExtensionInstanceHealthStatus::Failed => 2,
+            }
+        }
+
+        let mut by_instance = std::collections::BTreeMap::<String, ExtensionInstanceHealth>::new();
+
+        for health in self.process_health() {
+            by_instance.insert(health.instance_id.clone(), health);
+        }
+
+        for diagnostic in snapshot.diagnostics.iter() {
+            let diagnostic_status = match diagnostic.severity {
+                crate::activation::DiagnosticSeverity::Warning => {
+                    ExtensionInstanceHealthStatus::Degraded
+                }
+                crate::activation::DiagnosticSeverity::Error => {
+                    ExtensionInstanceHealthStatus::Failed
+                }
+            };
+
+            by_instance
+                .entry(diagnostic.component_id.canonical_id())
+                .and_modify(|existing| {
+                    if health_rank(&diagnostic_status) > health_rank(&existing.status) {
+                        existing.status = diagnostic_status.clone();
+                    }
+                    existing.message = match (&existing.message, &diagnostic.message) {
+                        (Some(current), next) if current == next => Some(current.clone()),
+                        (Some(current), next) => Some(format!("{current}; {next}")),
+                        (None, next) => Some(next.clone()),
+                    };
+                })
+                .or_insert_with(|| ExtensionInstanceHealth {
+                    instance_id: diagnostic.component_id.canonical_id(),
+                    status: diagnostic_status,
+                    message: Some(diagnostic.message.clone()),
+                });
+        }
+
+        by_instance.into_values().collect()
+    }
+
     pub async fn launch_legacy_process_extension(
         &self,
         manifest: ExtensionManifest,
@@ -324,16 +446,30 @@ impl ExtensionManager {
             id: ComponentInstanceId::new(&manifest.id, "default", "legacy-process"),
             kind: ComponentKind::LegacyProcess,
             optional: false,
+            supports_cancellation: manifest.capabilities.supports_cancellation,
             entrypoint_command: manifest.entrypoint.command.clone(),
             entrypoint_args: manifest.entrypoint.args.clone(),
             config: serde_json::Value::Null,
-            grants_fingerprint: format!("{:?}", manifest.permissions),
-            trust_fingerprint: is_trusted.to_string(),
+            grants_fingerprint: fingerprint_json(&manifest.permissions),
+            trust: if is_trusted {
+                crate::extension_trust::ExtensionTrust::BuiltIn
+            } else {
+                crate::extension_trust::ExtensionTrust::Untrusted
+            },
             protocol_fingerprint: manifest.protocol_version.clone(),
             package_version: manifest.version.clone(),
             manifest_hash: None,
             executable_hash: None,
             dependency_lock_hash: None,
+            permissions: manifest.permissions.clone(),
+            grants: crate::extension::ExtensionGrantConfig {
+                workspace_read: true,
+                workspace_write: true,
+                shell: true,
+                network: vec!["*".to_string()],
+                allowed_paths: vec![std::path::PathBuf::from("*")],
+            },
+            package_source_root: None,
         };
         let reuse_key = component.reuse_key();
         if let Some(existing) = self
@@ -350,8 +486,10 @@ impl ExtensionManager {
         }
 
         let broker = Arc::new(
-            ProcessExtensionBroker::spawn(
+            ProcessExtensionBroker::spawn_with_grants(
                 manifest.clone(),
+                Some(component.grants.clone()),
+                None,
                 self.event_bus.clone(),
                 timeouts,
                 limits,
@@ -372,12 +510,106 @@ impl ExtensionManager {
         Ok(Arc::new(ProcessExtension::new(manifest, broker)))
     }
 
+    pub fn acquire_lease(self: &Arc<Self>) -> crate::activation::RuntimeSnapshotLease {
+        let snapshot = self.active_snapshot();
+        let gen = snapshot.generation;
+
+        let mut leases = self.leases.lock().unwrap();
+        *leases.entry(gen).or_insert(0) += 1;
+
+        let retirement = Arc::new(crate::activation::GenerationRetirement { generation: gen });
+
+        crate::activation::RuntimeSnapshotLease {
+            snapshot,
+            retirement,
+            manager: Arc::downgrade(self),
+        }
+    }
+
+    pub fn release_lease(&self, gen: RuntimeGeneration) {
+        let mut leases = self.leases.lock().unwrap();
+        if let Some(count) = leases.get_mut(&gen) {
+            *count -= 1;
+            if *count == 0 {
+                leases.remove(&gen);
+                let previous = self.retired_generations.lock().unwrap().remove(&gen);
+                if let Some(prev) = previous {
+                    let active = self.active_snapshot();
+                    self.drain_unused_resources(&prev, &active);
+                }
+            }
+        }
+    }
+
     pub fn publish_snapshot(&self, snapshot: Arc<RuntimeExtensionSnapshot>) -> Result<()> {
-        let mut guard = self
-            .active_snapshot
-            .write()
-            .map_err(|_| RuntimeError::Extension("active snapshot lock poisoned".to_string()))?;
-        *guard = snapshot;
+        let previous = {
+            let mut guard = self.active_snapshot.write().map_err(|_| {
+                RuntimeError::Extension("active snapshot lock poisoned".to_string())
+            })?;
+            let prev = guard.clone();
+            *guard = snapshot.clone();
+            prev
+        };
+
+        let gen = previous.generation;
+        let has_leases = {
+            let leases = self.leases.lock().unwrap();
+            leases.contains_key(&gen)
+        };
+
+        if has_leases {
+            self.retired_generations
+                .lock()
+                .unwrap()
+                .insert(gen, previous);
+        } else {
+            self.drain_unused_resources(&previous, &snapshot);
+        }
+
         Ok(())
     }
+
+    fn drain_unused_resources(
+        &self,
+        previous: &RuntimeExtensionSnapshot,
+        active: &RuntimeExtensionSnapshot,
+    ) {
+        for res in previous.managed_resources.iter() {
+            let id = res.id();
+            let is_reused = active.managed_resources.iter().any(|r| r.id() == id);
+            if !is_reused {
+                let res_clone = res.clone();
+                tokio::spawn(async move {
+                    match res_clone {
+                        crate::activation::ManagedExtensionResource::Process(p) => {
+                            p.transition_to(ExtensionProcessState::Draining);
+                            for _ in 0..20 {
+                                if p.in_flight_calls() == 0 {
+                                    break;
+                                }
+                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            }
+                            p.transition_to(ExtensionProcessState::Stopping);
+                            p.shutdown().await;
+                        }
+                        crate::activation::ManagedExtensionResource::Mcp(_m) => {
+                            // MCP draining
+                        }
+                        crate::activation::ManagedExtensionResource::Observer(_o) => {
+                            // Observer draining
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+fn fingerprint_json<T: serde::Serialize>(value: &T) -> String {
+    let mut hasher = Sha256::new();
+    match serde_json::to_vec(value) {
+        Ok(serialized) => hasher.update(serialized),
+        Err(err) => hasher.update(err.to_string().as_bytes()),
+    }
+    format!("{:x}", hasher.finalize())
 }
