@@ -8,6 +8,7 @@ use gestalt_cli::config::{
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
+// These tests mutate process-global env vars, so keep the whole file serialized.
 fn lock_env() -> std::sync::MutexGuard<'static, ()> {
     ENV_MUTEX
         .lock()
@@ -215,6 +216,7 @@ fn test_provider_model_cli_overrides_beat_profile() {
 
 #[test]
 fn test_policy_monotonicity_enforcement() {
+    let _guard = lock_env();
     use gestalt_cli::config::WorkspaceConfig;
     let global_toml = r#"
 [policies.paths]
@@ -241,6 +243,7 @@ allow_read = ["/a", "/c"]
 
 #[test]
 fn test_policy_deny_union_merge() {
+    let _guard = lock_env();
     use gestalt_cli::config::WorkspaceConfig;
     let global_toml = r#"
 [policies.paths]
@@ -264,6 +267,7 @@ deny_read = ["/secret2"]
 
 #[test]
 fn test_extension_instances_parse_without_dropping_legacy_fields() {
+    let _guard = lock_env();
     use gestalt_cli::config::WorkspaceConfig;
 
     let json = r#"
@@ -316,6 +320,7 @@ fn test_extension_instances_parse_without_dropping_legacy_fields() {
 
 #[test]
 fn test_extension_instances_merge_additively() {
+    let _guard = lock_env();
     use gestalt_cli::config::WorkspaceConfig;
 
     let global: WorkspaceConfig = serde_json::from_str(
@@ -388,6 +393,7 @@ fn test_effective_config_fingerprint_stability() {
 
 #[test]
 fn test_variant_fingerprint_changes() {
+    let _guard = lock_env();
     let fp1 = gestalt_runtime::inspect::compute_variant_fingerprint(
         "model-a",
         "provider-a",

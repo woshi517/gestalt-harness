@@ -17,6 +17,8 @@ mkdir -p "$install_root" "$home_root/.config"
 export CARGO_HOME="$cargo_home"
 export HOME="$home_root"
 export XDG_CONFIG_HOME="$home_root/.config"
+# CI runners may not have a rustup default toolchain configured, so pin stable here.
+export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 
 cargo install \
   --locked \
