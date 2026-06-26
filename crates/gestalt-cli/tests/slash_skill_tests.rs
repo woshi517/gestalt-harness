@@ -6,8 +6,33 @@ use gestalt_cli::config::{CliOverrides, EffectiveConfig, SkillsConfig};
 use gestalt_cli::slash::{handle_slash_command, SlashOutcome};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
+static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(ref val) = self.original {
+            std::env::set_var(self.key, val);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
 
 fn temp_workspace() -> PathBuf {
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -57,7 +82,8 @@ fn load_config(workspace: &Path) -> EffectiveConfig {
 
 #[tokio::test]
 async fn slash_skill_unknown_name_does_not_activate() {
-    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
@@ -76,12 +102,12 @@ async fn slash_skill_unknown_name_does_not_activate() {
         matches!(outcome, SlashOutcome::None),
         "unknown name must not produce SkillActivated; got {outcome:?}"
     );
-    std::env::remove_var("GESTALT_NO_GLOBAL_SKILLS");
 }
 
 #[tokio::test]
 async fn slash_skill_known_name_returns_activation_outcome() {
-    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
@@ -94,12 +120,12 @@ async fn slash_skill_known_name_returns_activation_outcome() {
         SlashOutcome::SkillActivated(name) => assert_eq!(name, "pdf"),
         other => panic!("expected SkillActivated, got {other:?}"),
     }
-    std::env::remove_var("GESTALT_NO_GLOBAL_SKILLS");
 }
 
 #[tokio::test]
 async fn slash_skill_off_known_name_returns_deactivation_outcome() {
-    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
@@ -118,12 +144,12 @@ async fn slash_skill_off_known_name_returns_deactivation_outcome() {
         SlashOutcome::SkillDeactivated(name) => assert_eq!(name, "pdf"),
         other => panic!("expected SkillDeactivated, got {other:?}"),
     }
-    std::env::remove_var("GESTALT_NO_GLOBAL_SKILLS");
 }
 
 #[tokio::test]
 async fn slash_skill_off_unknown_name_does_not_return_outcome() {
-    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
     let config = load_config(&workspace);
@@ -142,12 +168,12 @@ async fn slash_skill_off_unknown_name_does_not_return_outcome() {
         matches!(outcome, SlashOutcome::None),
         "unknown deactivation target must not produce SkillDeactivated; got {outcome:?}"
     );
-    std::env::remove_var("GESTALT_NO_GLOBAL_SKILLS");
 }
 
 #[tokio::test]
 async fn slash_skill_missing_args_is_noop() {
-    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     let config = load_config(&workspace);
     let mut overrides = overrides_with_workspace(&workspace);
@@ -156,12 +182,12 @@ async fn slash_skill_missing_args_is_noop() {
         .await
         .expect("slash handler returns Ok");
     assert!(matches!(outcome, SlashOutcome::None));
-    std::env::remove_var("GESTALT_NO_GLOBAL_SKILLS");
 }
 
 #[tokio::test]
 async fn slash_skill_off_missing_args_is_noop() {
-    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
+    let _guard = ENV_MUTEX.lock().unwrap();
+    let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     let config = load_config(&workspace);
     let mut overrides = overrides_with_workspace(&workspace);
@@ -170,5 +196,4 @@ async fn slash_skill_off_missing_args_is_noop() {
         .await
         .expect("slash handler returns Ok");
     assert!(matches!(outcome, SlashOutcome::None));
-    std::env::remove_var("GESTALT_NO_GLOBAL_SKILLS");
 }

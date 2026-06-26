@@ -8,6 +8,29 @@ use gestalt_runtime::{
 use std::path::PathBuf;
 use std::sync::Arc;
 
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(ref value) = self.original {
+            std::env::set_var(self.key, value);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
+
 fn mock_extension_manifest() -> ExtensionManifest {
     load_fixture_manifest("mock-ext/gestalt.extension.toml", "mock-ext/mock_ext.sh")
 }
@@ -98,7 +121,7 @@ async fn test_process_extension_lifecycle_and_execution() {
         current_tool_call_id: None,
         ignore_patterns: Vec::new(),
     };
-    std::env::set_var("TEST_SECRET", "super_secret");
+    let _test_secret_guard = EnvVarGuard::set("TEST_SECRET", "super_secret");
     let output = tool.execute(serde_json::json!({}), &ctx).await.unwrap();
     if let gestalt_core::tool::ToolOutput::Text { content } = output {
         assert!(
