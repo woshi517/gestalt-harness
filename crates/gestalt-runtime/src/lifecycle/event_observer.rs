@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use gestalt_core::event::AgentEvent;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EventObserverRequest {
     pub session_id: String,
     pub event: AgentEvent,

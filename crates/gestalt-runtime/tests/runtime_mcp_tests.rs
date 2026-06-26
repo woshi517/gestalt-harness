@@ -280,3 +280,46 @@ async fn test_runtime_mcp_policy_check_and_execution() {
         "AssertingPolicyEngine was not called for mock_tool"
     );
 }
+
+#[tokio::test]
+async fn host_network_policy_denies_direct_http_mcp() {
+    let mut config = RuntimeConfig::default();
+    config.allow_network = false;
+    config.mcp_servers.insert(
+        "http-server".to_string(),
+        McpServerConfig {
+            name: "http-server".to_string(),
+            enabled: true,
+            transport: McpTransportConfig::Http {
+                url: "http://127.0.0.1:65535".to_string(),
+                headers: std::collections::HashMap::new(),
+            },
+            lifecycle: McpLifecycleMode::Lazy,
+            trust_level: Some("high".to_string()),
+            allow_sampling: false,
+            env: std::collections::HashMap::new(),
+            tool_annotations: std::collections::HashMap::new(),
+            timeouts: None,
+            display_name: None,
+        },
+    );
+
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(Arc::new(DummyProvider))
+        .tools(Arc::new(DummyToolCatalog))
+        .middleware(Arc::new(DummyContextPipeline))
+        .policy(Arc::new(AssertingPolicyEngine {
+            called: Arc::new(AtomicBool::new(false)),
+        }))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(config)
+        .build()
+        .unwrap();
+
+    let err = match runtime.mcp_registry.get_client("http-server").await {
+        Ok(_) => panic!("expected host policy to deny direct HTTP MCP"),
+        Err(err) => err.to_string(),
+    };
+    assert!(err.contains("Permission denied for MCP server"));
+    assert!(err.contains("host policy"));
+}

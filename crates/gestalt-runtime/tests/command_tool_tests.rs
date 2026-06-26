@@ -91,7 +91,8 @@ async fn command_tool_returns_structured_json() {
         &package.components[0],
         std::path::PathBuf::from("."),
         gestalt_runtime::event_bus::RuntimeEventBus::new(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let output = tool
         .execute(serde_json::json!({ "message": "hello" }), &tool_context())
@@ -117,7 +118,8 @@ async fn command_tool_invalid_json_output_is_execution_error() {
         &package.components[0],
         std::path::PathBuf::from("."),
         gestalt_runtime::event_bus::RuntimeEventBus::new(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let err = tool
         .execute(serde_json::json!({ "message": "hello" }), &tool_context())

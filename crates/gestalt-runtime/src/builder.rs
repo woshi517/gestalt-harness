@@ -198,6 +198,7 @@ impl AgentRuntimeBuilder {
             let mut package =
                 crate::extension::ResolvedExtensionPackage::from_v1_manifest(pending_ext.manifest)?;
             package.manifest_hash = Some(pending_ext.manifest_hash);
+            package.apply_trust_decision(pending_ext.is_trusted);
             self.extension_packages.push(package);
         }
         self.build_inner()
@@ -231,6 +232,11 @@ impl AgentRuntimeBuilder {
             &self.extension_packages,
             &self.config.extension_instances,
         )?;
+        let mut resolved_extension_packages = resolved_extension_packages;
+        crate::extension::apply_trust_decisions(
+            &mut resolved_extension_packages,
+            &self.config.trusted_extension_ids,
+        );
 
         for ext in &self.extensions {
             let name = ext.name().to_string();
@@ -278,6 +284,64 @@ impl AgentRuntimeBuilder {
                 self.config.workspace_root.clone(),
                 self.config.mcp_servers.clone(),
             ))
+        });
+
+        let mut package_permissions = std::collections::HashMap::new();
+        for package in &resolved_extension_packages {
+            for component in &package.components {
+                if component.kind == crate::extension::ComponentKind::McpServer {
+                    let server_name = crate::extension::package_mcp_server_name(
+                        &component.id.package_id,
+                        &component.id.instance_id,
+                        &component.id.component_id,
+                    );
+                    package_permissions.insert(
+                        server_name,
+                        (component.permissions.clone(), component.grants.clone()),
+                    );
+                }
+            }
+        }
+
+        let event_bus = self.event_bus.clone();
+        let allow_network = self.config.allow_network;
+        mcp_registry.set_permission_validator(move |name, config| {
+            match &config.transport {
+                gestalt_mcp::McpTransportConfig::Stdio { .. } => {
+                    if let Some((permissions, grants)) = package_permissions.get(name) {
+                        crate::permissions::check_shell_permission_effective(
+                            permissions,
+                            Some(grants),
+                            &event_bus,
+                            name,
+                        )
+                        .map_err(|e| e.clone())?;
+                    }
+                }
+                gestalt_mcp::McpTransportConfig::Http { url, .. } => {
+                    let host = if let Ok(parsed_url) = url::Url::parse(url) {
+                        parsed_url.host_str().unwrap_or("").to_string()
+                    } else {
+                        url.clone()
+                    };
+                    if let Some((permissions, grants)) = package_permissions.get(name) {
+                        crate::permissions::check_network_permission_effective(
+                            permissions,
+                            Some(grants),
+                            allow_network,
+                            &host,
+                            &event_bus,
+                            name,
+                        )
+                        .map_err(|e| e.clone())?;
+                    } else if !allow_network {
+                        return Err(format!(
+                            "Network access to host '{host}' is not allowed by host policy"
+                        ));
+                    }
+                }
+            }
+            Ok(())
         });
 
         // Publish configuration events
@@ -551,6 +615,8 @@ impl AgentRuntimeBuilder {
                 }?;
                 extension_manager.publish_snapshot(candidate.snapshot.clone())?;
                 runtime.extension_snapshot = candidate.snapshot.clone();
+                runtime.tools = candidate.snapshot.tool_catalog();
+                runtime.registry_snapshot = candidate.snapshot.registry_snapshot.clone();
                 candidate.commit();
             }
             runtime.extension_manager = extension_manager;

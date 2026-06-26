@@ -38,7 +38,9 @@ async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process(
     let host_context = gestalt_runtime::activation::HostLaunchContext {
         event_bus: event_bus.clone(),
         workspace_root: std::path::PathBuf::from("."),
+        allow_network: false,
         effective_permissions: None,
+        trusted_extension_ids: vec![],
         timeout_initialize_ms: 10000,
         timeout_hook_ms: 5000,
         timeout_context_ms: 15000,
@@ -108,7 +110,9 @@ async fn process_lifecycle_client_reuses_processes_and_respects_draining_state()
     let host_context = gestalt_runtime::activation::HostLaunchContext {
         event_bus: manager.event_bus.clone(),
         workspace_root: std::path::PathBuf::from("."),
+        allow_network: false,
         effective_permissions: None,
+        trusted_extension_ids: vec![],
         timeout_initialize_ms: 10000,
         timeout_hook_ms: 5000,
         timeout_context_ms: 15000,

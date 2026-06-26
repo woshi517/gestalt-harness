@@ -432,12 +432,23 @@
     "ExtensionGrantConfig": {
       "type": "object",
       "properties": {
+        "allowed_paths": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "network": {
           "default": [],
           "type": "array",
           "items": {
             "type": "string"
           }
+        },
+        "shell": {
+          "default": false,
+          "type": "boolean"
         },
         "workspace_read": {
           "default": false,
@@ -472,7 +483,9 @@
         },
         "grants": {
           "default": {
+            "allowed_paths": [],
             "network": [],
+            "shell": false,
             "workspace_read": false,
             "workspace_write": false
           },

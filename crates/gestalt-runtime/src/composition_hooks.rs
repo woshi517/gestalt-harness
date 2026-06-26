@@ -2,6 +2,11 @@ use crate::context::ContextContributor;
 use crate::error::Result;
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::extension::GestaltExtension;
+use crate::lifecycle::{
+    ContextProviderRequest, ContextProviderResponse, EventObserverRequest, ExternalVerifierReport,
+    ExternalVerifierRequest, LifecycleCapabilityKind, LifecycleClient, LifecycleInvokeRequestV2,
+    PolicyGuardRequest, TurnRouteDecision, TurnRouterRequest,
+};
 use async_trait::async_trait;
 use gestalt_core::{
     context::{ContextPacket, PromptSnapshot},
@@ -1075,6 +1080,270 @@ impl CompositionHooks for ComposedCompositionHooks {
                 }
             }
         }
+        Ok(())
+    }
+}
+
+pub struct LifecycleCompositionHooks {
+    pub base: Arc<dyn CompositionHooks>,
+    pub snapshot: Arc<crate::extension::RuntimeExtensionSnapshot>,
+}
+
+impl LifecycleCompositionHooks {
+    pub fn new(
+        base: Arc<dyn CompositionHooks>,
+        snapshot: Arc<crate::extension::RuntimeExtensionSnapshot>,
+    ) -> Self {
+        Self { base, snapshot }
+    }
+
+    fn client(&self, component_id: &str) -> Option<Arc<dyn LifecycleClient>> {
+        self.snapshot.lifecycle_clients.get(component_id).cloned()
+    }
+}
+
+#[async_trait]
+impl CompositionHooks for LifecycleCompositionHooks {
+    async fn before_context_build(&self, context: &BeforeContextBuildCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
+        let base_outcome = self.base.before_context_build(context).await?;
+        match &base_outcome {
+            HookOutcome::Continue => {}
+            HookOutcome::Block { .. } => return Ok(base_outcome),
+            outcome => outcomes.push(outcome.clone()),
+        }
+
+        for reg in self.snapshot.context_plan.registrations.iter() {
+            let Some(client) = self.client(&reg.descriptor.component_id) else {
+                continue;
+            };
+            let request = ContextProviderRequest {
+                session_id: context.session_id.clone(),
+                current_turn: context.history.clone(),
+            };
+            let response = client
+                .invoke(LifecycleInvokeRequestV2 {
+                    component_id: reg.descriptor.component_id.clone(),
+                    capability: LifecycleCapabilityKind::ContextProvider,
+                    payload: serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                })
+                .await?;
+            let response: ContextProviderResponse = serde_json::from_value(response.payload)
+                .map_err(|err| {
+                    crate::error::RuntimeError::Extension(format!(
+                        "invalid context provider response: {err}"
+                    ))
+                })?;
+            for message in response.messages {
+                outcomes.push(HookOutcome::AddContext { message });
+            }
+        }
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
+    }
+
+    async fn after_context_build(&self, context: &AfterContextBuildCtx) -> Result<HookOutcome> {
+        self.base.after_context_build(context).await
+    }
+
+    async fn before_tool_policy(&self, context: &BeforeToolPolicyCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
+        let base_outcome = self.base.before_tool_policy(context).await?;
+        match &base_outcome {
+            HookOutcome::Continue => {}
+            HookOutcome::Block { .. } => return Ok(base_outcome),
+            outcome => outcomes.push(outcome.clone()),
+        }
+
+        for reg in self.snapshot.policy_plan.registrations.iter() {
+            let Some(client) = self.client(&reg.descriptor.component_id) else {
+                continue;
+            };
+            let request = PolicyGuardRequest {
+                session_id: context.session_id.clone(),
+                tool_name: context.tool_name.clone(),
+                tool_input: context.tool_input.clone(),
+            };
+            let response = client
+                .invoke(LifecycleInvokeRequestV2 {
+                    component_id: reg.descriptor.component_id.clone(),
+                    capability: LifecycleCapabilityKind::PolicyGuard,
+                    payload: serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                })
+                .await?;
+            let decision: gestalt_core::policy::PolicyDecision =
+                serde_json::from_value(response.payload).map_err(|err| {
+                    crate::error::RuntimeError::Extension(format!(
+                        "invalid policy guard response: {err}"
+                    ))
+                })?;
+            match decision.status {
+                gestalt_core::event::PolicyStatus::Allowed => {}
+                gestalt_core::event::PolicyStatus::Confirm
+                | gestalt_core::event::PolicyStatus::Denied => {
+                    return Ok(HookOutcome::Block {
+                        reason: decision.reason.unwrap_or_else(|| {
+                            format!(
+                                "policy guard '{}' denied the request",
+                                reg.descriptor.component_id
+                            )
+                        }),
+                    });
+                }
+            }
+        }
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
+    }
+
+    async fn after_tool_result(&self, context: &AfterToolResultCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
+        let base_outcome = self.base.after_tool_result(context).await?;
+        match &base_outcome {
+            HookOutcome::Continue => {}
+            HookOutcome::Block { .. } => return Ok(base_outcome),
+            outcome => outcomes.push(outcome.clone()),
+        }
+
+        for reg in self.snapshot.verification_plan.registrations.iter() {
+            let Some(client) = self.client(&reg.descriptor.component_id) else {
+                continue;
+            };
+            let request = ExternalVerifierRequest {
+                session_id: context.session_id.clone(),
+                payload: serde_json::to_value(&context.result).unwrap_or(serde_json::Value::Null),
+            };
+            let response = client
+                .invoke(LifecycleInvokeRequestV2 {
+                    component_id: reg.descriptor.component_id.clone(),
+                    capability: LifecycleCapabilityKind::Verifier,
+                    payload: serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                })
+                .await?;
+            let report: ExternalVerifierReport =
+                serde_json::from_value(response.payload).map_err(|err| {
+                    crate::error::RuntimeError::Extension(format!(
+                        "invalid verifier response: {err}"
+                    ))
+                })?;
+            if !report.passed {
+                return Ok(HookOutcome::Block {
+                    reason: report.message.unwrap_or_else(|| {
+                        format!(
+                            "verifier '{}' rejected the tool result",
+                            reg.descriptor.component_id
+                        )
+                    }),
+                });
+            }
+            outcomes.push(HookOutcome::Annotate {
+                metadata: serde_json::json!({
+                    "component_id": report.component_id,
+                    "passed": true,
+                    "message": report.message,
+                }),
+            });
+        }
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
+    }
+
+    async fn prepare_next_turn(&self, context: &PrepareNextTurnCtx) -> Result<HookOutcome> {
+        let mut outcomes = Vec::new();
+
+        let base_outcome = self.base.prepare_next_turn(context).await?;
+        match &base_outcome {
+            HookOutcome::Continue => {}
+            HookOutcome::Block { .. } => return Ok(base_outcome),
+            outcome => outcomes.push(outcome.clone()),
+        }
+
+        for reg in self.snapshot.routing_plan.registrations.iter() {
+            let Some(client) = self.client(&reg.descriptor.component_id) else {
+                continue;
+            };
+            let request = TurnRouterRequest {
+                session_id: context.session_id.clone(),
+                turn_index: context.turn_index,
+            };
+            let response = client
+                .invoke(LifecycleInvokeRequestV2 {
+                    component_id: reg.descriptor.component_id.clone(),
+                    capability: LifecycleCapabilityKind::TurnRouter,
+                    payload: serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                })
+                .await?;
+            let decision: TurnRouteDecision =
+                serde_json::from_value(response.payload).map_err(|err| {
+                    crate::error::RuntimeError::Extension(format!(
+                        "invalid turn router response: {err}"
+                    ))
+                })?;
+            match decision {
+                TurnRouteDecision::Continue => {}
+                TurnRouteDecision::Stop { reason } => {
+                    return Ok(HookOutcome::Block { reason });
+                }
+                TurnRouteDecision::Route { target } => {
+                    outcomes.push(HookOutcome::SwitchModel {
+                        model: target,
+                        provider: None,
+                        variant: Some(reg.descriptor.component_id.clone()),
+                    });
+                }
+            }
+        }
+
+        if outcomes.is_empty() {
+            Ok(HookOutcome::Continue)
+        } else if outcomes.len() == 1 {
+            Ok(outcomes.remove(0))
+        } else {
+            Ok(HookOutcome::Aggregated(outcomes))
+        }
+    }
+
+    async fn on_event(&self, context: &OnEventCtx) -> Result<()> {
+        self.base.on_event(context).await?;
+
+        for reg in self.snapshot.observer_plan.registrations.iter() {
+            let Some(client) = self.client(&reg.descriptor.component_id) else {
+                continue;
+            };
+            let request = EventObserverRequest {
+                session_id: context.session_id.clone(),
+                event: context.event.clone(),
+            };
+            let _ = client
+                .invoke(LifecycleInvokeRequestV2 {
+                    component_id: reg.descriptor.component_id.clone(),
+                    capability: LifecycleCapabilityKind::EventObserver,
+                    payload: serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                })
+                .await;
+        }
+
         Ok(())
     }
 }

@@ -28,6 +28,7 @@ pub struct ProcessExtensionBroker {
     child: Arc<Mutex<Option<Child>>>,
     timeouts: ExtensionTimeoutsConfig,
     _limits: ExtensionLimitsConfig,
+    host_allow_network: bool,
     is_trusted: bool,
     negotiated_version: Arc<Mutex<String>>,
     negotiated_capabilities: Arc<Mutex<Capabilities>>,
@@ -144,7 +145,7 @@ impl ProcessExtensionBroker {
         is_trusted: bool,
     ) -> Result<Self> {
         Self::spawn_with_grants(
-            manifest, None, None, event_bus, timeouts, limits, is_trusted,
+            manifest, None, None, event_bus, timeouts, limits, true, is_trusted,
         )
         .await
     }
@@ -156,6 +157,7 @@ impl ProcessExtensionBroker {
         event_bus: RuntimeEventBus,
         timeouts: ExtensionTimeoutsConfig,
         limits: ExtensionLimitsConfig,
+        host_allow_network: bool,
         is_trusted: bool,
     ) -> Result<Self> {
         let extension_id = manifest.id.clone();
@@ -425,6 +427,7 @@ impl ProcessExtensionBroker {
             child: child_arc,
             timeouts,
             _limits: limits,
+            host_allow_network,
             is_trusted,
             negotiated_version: negotiated_version.clone(),
             negotiated_capabilities: negotiated_capabilities.clone(),
@@ -677,6 +680,7 @@ fn check_input_permissions(
     grants: Option<&crate::extension::ExtensionGrantConfig>,
     input: &serde_json::Value,
     workspace_root: &std::path::Path,
+    host_allow_network: bool,
     event_bus: &RuntimeEventBus,
 ) -> std::result::Result<(), gestalt_core::error::ToolError> {
     match input {
@@ -722,7 +726,7 @@ fn check_input_permissions(
                         if let Err(e) = crate::permissions::check_network_permission_effective(
                             &manifest.permissions,
                             grants,
-                            true, // host_allow_network
+                            host_allow_network,
                             &host,
                             event_bus,
                             &manifest.id,
@@ -731,13 +735,27 @@ fn check_input_permissions(
                         }
                     }
                 } else {
-                    check_input_permissions(manifest, grants, v, workspace_root, event_bus)?;
+                    check_input_permissions(
+                        manifest,
+                        grants,
+                        v,
+                        workspace_root,
+                        host_allow_network,
+                        event_bus,
+                    )?;
                 }
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                check_input_permissions(manifest, grants, v, workspace_root, event_bus)?;
+                check_input_permissions(
+                    manifest,
+                    grants,
+                    v,
+                    workspace_root,
+                    host_allow_network,
+                    event_bus,
+                )?;
             }
         }
         _ => {}
@@ -808,6 +826,7 @@ impl gestalt_core::tool::Tool for ProcessBackedTool {
             self.broker.grants.as_ref(),
             &input,
             workspace_root,
+            self.broker.host_allow_network,
             &self.broker.event_bus,
         )?;
 

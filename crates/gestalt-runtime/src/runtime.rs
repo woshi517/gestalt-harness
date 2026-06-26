@@ -278,6 +278,16 @@ impl AgentRuntime {
         let snapshot_lease = self.extension_manager.acquire_lease();
         let active_extension_snapshot = snapshot_lease.snapshot.clone();
         let pinned_tools = active_extension_snapshot.tool_catalog();
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
+            Arc::new(crate::composition_hooks::ComposedCompositionHooks {
+                user_hooks: self.composition_hooks.clone(),
+                extensions: self.extensions.clone(),
+            });
+        let lifecycle_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
+            Arc::new(crate::composition_hooks::LifecycleCompositionHooks::new(
+                composed_hooks,
+                active_extension_snapshot.clone(),
+            ));
         self.event_bus
             .publish(RuntimeEvent::RuntimeGenerationAdopted {
                 session_id: session.id.clone(),
@@ -293,14 +303,17 @@ impl AgentRuntime {
         let mut maybe_trace_worker = None;
         let mut maybe_trace_tx = None;
 
-        if let Some(ref comp_hooks) = self.composition_hooks {
+        if self.composition_hooks.is_some()
+            || !self.extensions.is_empty()
+            || !active_extension_snapshot.lifecycle_clients.is_empty()
+        {
             let block_reason = Arc::new(Mutex::new(None));
             maybe_block_reason = Some(block_reason.clone());
 
             let (trace_tx, mut trace_rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
             maybe_trace_tx = Some(trace_tx.clone());
 
-            let comp_hooks_clone = comp_hooks.clone();
+            let comp_hooks_clone = lifecycle_hooks.clone();
             let session_id_clone = session.id.clone();
             let event_bus_clone = self.event_bus.clone();
             let trace_worker = tokio::spawn(async move {
@@ -346,7 +359,7 @@ impl AgentRuntime {
 
             policy = Arc::new(RuntimePolicyEngine {
                 base: policy.clone(),
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 session_id: session.id.clone(),
                 event_bus: self.event_bus.clone(),
                 skill_state: self.skill_state.clone(),
@@ -360,7 +373,7 @@ impl AgentRuntime {
                 .collect();
 
             core_hooks.register_context_hook(Arc::new(RuntimeContextHookAdapter {
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 patch_store,
                 contributors,
                 workspace_root: self.config.workspace_root.clone(),
@@ -371,12 +384,12 @@ impl AgentRuntime {
             }));
 
             core_hooks.register_tool_hook(Arc::new(RuntimeToolHookAdapter {
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 event_bus: self.event_bus.clone(),
             }));
 
             core_hooks.register_next_turn_hook(Arc::new(RuntimeNextTurnHookAdapter {
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 event_bus: self.event_bus.clone(),
             }));
 

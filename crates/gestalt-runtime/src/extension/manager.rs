@@ -286,9 +286,13 @@ impl ExtensionManager {
         instances.insert(reuse_key.clone(), process.clone());
 
         if let Ok(mut managed) = self.managed_resources.write() {
+            let managed_key = reuse_key.clone();
             managed.insert(
-                reuse_key,
-                crate::activation::ManagedExtensionResource::Process(process.clone()),
+                managed_key,
+                crate::activation::ManagedExtensionResource::Process {
+                    reuse_key,
+                    process: process.clone(),
+                },
             );
         }
 
@@ -324,6 +328,9 @@ impl ExtensionManager {
         if let Some(process) = process {
             process.transition_to(ExtensionProcessState::Stopping);
             process.shutdown().await;
+            if let Ok(mut managed) = self.managed_resources.write() {
+                managed.remove(&reuse_key);
+            }
         }
 
         Ok(())
@@ -343,6 +350,9 @@ impl ExtensionManager {
         for process in processes {
             process.transition_to(ExtensionProcessState::Stopping);
             process.shutdown().await;
+        }
+        if let Ok(mut managed) = self.managed_resources.write() {
+            managed.clear();
         }
 
         Ok(())
@@ -493,6 +503,7 @@ impl ExtensionManager {
                 self.event_bus.clone(),
                 timeouts,
                 limits,
+                self.host_context.allow_network,
                 is_trusted,
             )
             .await?,
@@ -575,13 +586,20 @@ impl ExtensionManager {
         active: &RuntimeExtensionSnapshot,
     ) {
         for res in previous.managed_resources.iter() {
-            let id = res.id();
-            let is_reused = active.managed_resources.iter().any(|r| r.id() == id);
+            let reuse_key = res.reuse_key().clone();
+            let is_reused = active
+                .managed_resources
+                .iter()
+                .any(|r| r.reuse_key() == &reuse_key);
             if !is_reused {
                 let res_clone = res.clone();
+                let process_instances = self.process_instances.clone();
+                let managed_resources = self.managed_resources.clone();
                 tokio::spawn(async move {
                     match res_clone {
-                        crate::activation::ManagedExtensionResource::Process(p) => {
+                        crate::activation::ManagedExtensionResource::Process {
+                            process: p, ..
+                        } => {
                             p.transition_to(ExtensionProcessState::Draining);
                             for _ in 0..20 {
                                 if p.in_flight_calls() == 0 {
@@ -591,11 +609,17 @@ impl ExtensionManager {
                             }
                             p.transition_to(ExtensionProcessState::Stopping);
                             p.shutdown().await;
+                            if let Ok(mut instances) = process_instances.write() {
+                                instances.remove(&reuse_key);
+                            }
+                            if let Ok(mut managed) = managed_resources.write() {
+                                managed.remove(&reuse_key);
+                            }
                         }
-                        crate::activation::ManagedExtensionResource::Mcp(_m) => {
+                        crate::activation::ManagedExtensionResource::Mcp { .. } => {
                             // MCP draining
                         }
-                        crate::activation::ManagedExtensionResource::Observer(_o) => {
+                        crate::activation::ManagedExtensionResource::Observer { .. } => {
                             // Observer draining
                         }
                     }

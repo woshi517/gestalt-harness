@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use gestalt_core::policy::PolicyDecision;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PolicyGuardRequest {
     pub session_id: String,
     pub tool_name: String,

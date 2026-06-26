@@ -4,8 +4,8 @@ use gestalt_core::tool::ToolCatalog;
 
 use crate::lifecycle::{
     CapabilityDataScope, CapabilityFailureMode, ContextProviderPlan, ContextProviderRegistration,
-    EventObserverPlan, ExternalVerifierPlan, PolicyGuardPlan, PolicyGuardRegistration,
-    TurnRouterPlan, TypedCapabilityDescriptor,
+    EventObserverPlan, ExternalVerifierPlan, LifecycleClient, PolicyGuardPlan,
+    PolicyGuardRegistration, TurnRouterPlan, TypedCapabilityDescriptor,
 };
 use crate::registry::{RuntimeFingerprint, RuntimeRegistrySnapshot};
 
@@ -45,6 +45,7 @@ pub struct RuntimeExtensionSnapshot {
     pub diagnostics: Arc<[crate::activation::ActivationDiagnostic]>,
     pub managed_resources: Arc<[crate::activation::ManagedExtensionResource]>,
     pub negotiated_protocol: Arc<std::collections::HashMap<String, String>>,
+    pub lifecycle_clients: Arc<std::collections::HashMap<String, Arc<dyn LifecycleClient>>>,
     pub resolved_packages: Arc<[crate::extension::ResolvedExtensionPackage]>,
 }
 
@@ -73,6 +74,7 @@ impl RuntimeExtensionSnapshot {
             diagnostics: Arc::from([]),
             managed_resources: Arc::from([]),
             negotiated_protocol: Arc::new(std::collections::HashMap::new()),
+            lifecycle_clients: Arc::new(std::collections::HashMap::new()),
             resolved_packages: Arc::from([]),
         }
     }

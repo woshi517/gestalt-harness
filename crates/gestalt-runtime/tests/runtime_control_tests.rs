@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gestalt_core::{
@@ -8,7 +10,12 @@ use gestalt_core::{
     tool::{ToolCatalog, ToolSchema},
 };
 use gestalt_runtime::{
-    AgentRuntimeBuilder, HostControl, ReloadExtensionsRequest, RuntimeConfig, RuntimeControl,
+    activation::HostLaunchContext, AgentRuntimeBuilder, HostControl, ReloadExtensionsRequest,
+    RuntimeConfig, RuntimeControl, RuntimeHost,
+};
+use gestalt_runtime::{
+    discovery::{DiscoverySource, ExtensionDiscovery},
+    extension::{ExtensionManager, ResolvedExtensionPackage, RuntimeExtensionSnapshot},
 };
 
 struct EmptyToolCatalog;
@@ -236,5 +243,277 @@ async fn host_reload_advances_shared_generation_only_once_across_sessions() {
     let sessions = host.session_registry.lock().unwrap();
     for runtime in sessions.values() {
         assert_eq!(runtime.current_generation().0, 1);
+    }
+}
+
+#[tokio::test]
+async fn runtime_host_initialization_activates_configured_packages() {
+    let temp = TempTree::new("gestalt-runtime-host-init");
+    let workspace_root = temp.path().join("workspace");
+    fs::create_dir_all(&workspace_root).unwrap();
+
+    let package = lifecycle_package(
+        &workspace_root.join("host-init-package"),
+        "host-init-package",
+        "Host Init Package",
+        "1.0.0",
+    );
+
+    let builder = test_builder(workspace_root.clone())
+        .config(RuntimeConfig {
+            workspace_root: workspace_root.clone(),
+            trusted_extension_ids: vec![package.descriptor.id.clone()],
+            ..Default::default()
+        })
+        .extension_package(package);
+
+    let host = RuntimeHost::new(
+        builder,
+        Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+    );
+
+    assert_eq!(host.current_generation().0, 1);
+    assert_eq!(host.extension_manager.process_instances().len(), 1);
+    assert_eq!(
+        host.extension_manager
+            .active_snapshot()
+            .resolved_packages
+            .len(),
+        1
+    );
+    assert_eq!(
+        host.extension_manager.active_snapshot().resolved_packages[0]
+            .descriptor
+            .id,
+        "host-init-package"
+    );
+    assert_eq!(
+        host.extension_manager
+            .active_snapshot()
+            .lifecycle_clients
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn reload_rediscovers_added_removed_and_changed_packages() {
+    let temp = TempTree::new("gestalt-runtime-reload");
+    let workspace_root = temp.path().join("workspace");
+    fs::create_dir_all(&workspace_root).unwrap();
+
+    write_lifecycle_manifest(
+        &workspace_root.join(".gestalt/extensions/alpha"),
+        "alpha",
+        "Alpha Extension",
+        "1.0.0",
+    );
+
+    let builder = test_builder(workspace_root.clone()).config(RuntimeConfig {
+        workspace_root: workspace_root.clone(),
+        trusted_extension_ids: vec!["alpha".to_string(), "beta".to_string()],
+        ..Default::default()
+    });
+    let host = Arc::new(runtime_host_with_discovery(builder, workspace_root.clone()));
+
+    let first = host
+        .reload_extensions(ReloadExtensionsRequest::default())
+        .await
+        .unwrap();
+    assert!(first.published);
+    assert_eq!(
+        host.extension_manager
+            .active_snapshot()
+            .resolved_packages
+            .iter()
+            .map(|pkg| pkg.descriptor.id.as_str())
+            .collect::<Vec<_>>(),
+        ["alpha"]
+    );
+
+    write_lifecycle_manifest(
+        &workspace_root.join(".gestalt/extensions/beta"),
+        "beta",
+        "Beta Extension",
+        "2.0.0",
+    );
+    fs::remove_dir_all(workspace_root.join(".gestalt/extensions/alpha")).unwrap();
+
+    let second = host
+        .reload_extensions(ReloadExtensionsRequest::default())
+        .await
+        .unwrap();
+    assert!(second.published);
+    let active = host.extension_manager.active_snapshot();
+    assert_eq!(
+        active
+            .resolved_packages
+            .iter()
+            .map(|pkg| pkg.descriptor.id.as_str())
+            .collect::<Vec<_>>(),
+        ["beta"]
+    );
+    assert_eq!(active.resolved_packages[0].descriptor.version, "2.0.0");
+    assert_ne!(first.candidate_fingerprint, second.candidate_fingerprint);
+}
+
+fn test_builder(workspace_root: PathBuf) -> AgentRuntimeBuilder {
+    AgentRuntimeBuilder::new()
+        .provider(Arc::new(MockProvider))
+        .tools(Arc::new(EmptyToolCatalog))
+        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+            "pipeline-v1",
+        )))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .config(RuntimeConfig {
+            workspace_root,
+            ..Default::default()
+        })
+}
+
+fn runtime_host_with_discovery(
+    builder: AgentRuntimeBuilder,
+    workspace_root: PathBuf,
+) -> RuntimeHost {
+    let config = builder.config.clone();
+    let event_bus = builder.event_bus.clone();
+    let approval_broker = Arc::new(gestalt_runtime::activation::HostApprovalBroker::new());
+    let extension_source: Arc<dyn gestalt_runtime::activation::ExtensionSource> =
+        Arc::new(DiscoverySource::new(
+            ExtensionDiscovery::new(workspace_root.clone(), None),
+            Vec::new(),
+        ));
+    let registry_snapshot = builder.registry.snapshot();
+    let mcp_registry = builder.mcp_registry.clone().unwrap_or_else(|| {
+        Arc::new(gestalt_mcp::McpRegistry::new(
+            workspace_root.clone(),
+            std::collections::HashMap::new(),
+        ))
+    });
+    let extension_snapshot = RuntimeExtensionSnapshot::from_registry_snapshot(
+        gestalt_runtime::extension::RuntimeGeneration(0),
+        registry_snapshot,
+        builder.tools.clone().unwrap(),
+        mcp_registry,
+    );
+    let extension_manager = Arc::new(ExtensionManager::new(
+        Arc::new(extension_snapshot),
+        event_bus.clone(),
+        Arc::new(gestalt_runtime::extension::LocalProcessLauncher),
+        HostLaunchContext::from_runtime_config(&config, event_bus.clone()),
+    ));
+
+    RuntimeHost {
+        workspace_root,
+        config,
+        extension_manager,
+        session_registry: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        event_bus,
+        artifact_store: Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+        approval_broker,
+        extension_source,
+        builder,
+    }
+}
+
+fn write_lifecycle_manifest(dir: &Path, package_id: &str, package_name: &str, version: &str) {
+    fs::create_dir_all(dir).unwrap();
+    let script_path = dir.join("lifecycle.py");
+    fs::write(&script_path, lifecycle_script(package_id)).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+    }
+
+    let manifest = format!(
+        r#"
+manifest_version = 2
+
+[package]
+id = "{package_id}"
+name = "{package_name}"
+version = "{version}"
+
+[[components]]
+id = "lifecycle"
+kind = "gestalt-lifecycle"
+
+[components.entrypoint]
+command = "{}"
+args = []
+"#,
+        script_path.display()
+    );
+    fs::write(dir.join("gestalt.extension.toml"), manifest).unwrap();
+}
+
+fn lifecycle_package(
+    dir: &Path,
+    package_id: &str,
+    package_name: &str,
+    version: &str,
+) -> ResolvedExtensionPackage {
+    write_lifecycle_manifest(dir, package_id, package_name, version);
+    let content = fs::read_to_string(dir.join("gestalt.extension.toml")).unwrap();
+    let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&content).unwrap();
+    ResolvedExtensionPackage::from_v2_manifest(manifest, package_id).unwrap()
+}
+
+fn lifecycle_script(package_id: &str) -> String {
+    let component_id = format!("component:{package_id}:{package_id}:lifecycle");
+    format!(
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+component_id = "{component_id}"
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    req = json.loads(line)
+    method = req.get("method")
+    req_id = req.get("id")
+    if method == "initialize":
+        result = {{"negotiated_version": "2.0", "supports_cancellation": True}}
+    elif method == "capabilities/describe":
+        result = [{{"component_id": component_id, "capability": "context_provider", "priority": 0, "timeout_ms": 250, "failure_mode": "fail_open", "data_scope": "current_turn"}}]
+    elif method == "shutdown":
+        result = {{}}
+    else:
+        result = {{}}
+    sys.stdout.write(json.dumps({{"jsonrpc": "2.0", "result": result, "id": req_id}}) + "\n")
+    sys.stdout.flush()
+"#
+    )
+}
+
+struct TempTree {
+    path: PathBuf,
+}
+
+impl TempTree {
+    fn new(prefix: &str) -> Self {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("{prefix}-{nonce}"));
+        fs::create_dir_all(&path).unwrap();
+        Self { path }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempTree {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
     }
 }

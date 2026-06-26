@@ -105,6 +105,7 @@ impl ExtensionLauncher for LocalProcessLauncher {
                 host_context.event_bus.clone(),
                 timeouts,
                 limits,
+                host_context.allow_network,
                 component.trust.is_trusted(),
             )
             .await?,

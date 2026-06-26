@@ -3,7 +3,6 @@ use crate::event_bus::RuntimeEventBus;
 use crate::extension::{
     ComponentInstanceId, ExtensionProcessInstance, RuntimeExtensionSnapshot, RuntimeGeneration,
 };
-use crate::lifecycle::LifecycleClient;
 use gestalt_core::tool::Tool;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,7 +37,9 @@ pub struct BaseRuntimeComposition {
 pub struct HostLaunchContext {
     pub event_bus: RuntimeEventBus,
     pub workspace_root: PathBuf,
+    pub allow_network: bool,
     pub effective_permissions: Option<crate::extension::ExtensionGrantConfig>,
+    pub trusted_extension_ids: Vec<String>,
     pub timeout_initialize_ms: u64,
     pub timeout_hook_ms: u64,
     pub timeout_context_ms: u64,
@@ -57,7 +58,9 @@ impl std::fmt::Debug for HostLaunchContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HostLaunchContext")
             .field("workspace_root", &self.workspace_root)
+            .field("allow_network", &self.allow_network)
             .field("effective_permissions", &self.effective_permissions)
+            .field("trusted_extension_ids", &self.trusted_extension_ids)
             .field("timeout_initialize_ms", &self.timeout_initialize_ms)
             .field("timeout_hook_ms", &self.timeout_hook_ms)
             .field("timeout_context_ms", &self.timeout_context_ms)
@@ -90,7 +93,9 @@ impl HostLaunchContext {
         Self {
             event_bus,
             workspace_root: config.workspace_root.clone(),
+            allow_network: config.allow_network,
             effective_permissions: None,
+            trusted_extension_ids: config.trusted_extension_ids.clone(),
             timeout_initialize_ms: config.extension_timeouts.initialize_ms.unwrap_or(10_000),
             timeout_hook_ms: config.extension_timeouts.hook_ms.unwrap_or(5_000),
             timeout_context_ms: config.extension_timeouts.context_ms.unwrap_or(15_000),
@@ -141,27 +146,44 @@ pub struct ObserverWorker {
 
 #[derive(Clone)]
 pub enum ManagedExtensionResource {
-    Process(Arc<ExtensionProcessInstance>),
-    Mcp(Arc<ManagedMcpServer>),
-    Observer(Arc<ObserverWorker>),
+    Process {
+        reuse_key: crate::extension::ReuseKey,
+        process: Arc<ExtensionProcessInstance>,
+    },
+    Mcp {
+        reuse_key: crate::extension::ReuseKey,
+        server: Arc<ManagedMcpServer>,
+    },
+    Observer {
+        reuse_key: crate::extension::ReuseKey,
+        worker: Arc<ObserverWorker>,
+    },
 }
 
 impl std::fmt::Debug for ManagedExtensionResource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Process(p) => f.debug_tuple("Process").field(p).finish(),
-            Self::Mcp(m) => f.debug_tuple("Mcp").field(m).finish(),
-            Self::Observer(o) => f.debug_tuple("Observer").field(o).finish(),
+            Self::Process { process, .. } => f.debug_tuple("Process").field(process).finish(),
+            Self::Mcp { server, .. } => f.debug_tuple("Mcp").field(server).finish(),
+            Self::Observer { worker, .. } => f.debug_tuple("Observer").field(worker).finish(),
         }
     }
 }
 
 impl ManagedExtensionResource {
+    pub fn reuse_key(&self) -> &crate::extension::ReuseKey {
+        match self {
+            Self::Process { reuse_key, .. } => reuse_key,
+            Self::Mcp { reuse_key, .. } => reuse_key,
+            Self::Observer { reuse_key, .. } => reuse_key,
+        }
+    }
+
     pub fn id(&self) -> String {
         match self {
-            Self::Process(p) => p.component_id.clone(),
-            Self::Mcp(m) => m.name.clone(),
-            Self::Observer(o) => o.component_id.clone(),
+            Self::Process { process, .. } => process.component_id.clone(),
+            Self::Mcp { server, .. } => server.name.clone(),
+            Self::Observer { worker, .. } => worker.component_id.clone(),
         }
     }
 }
@@ -206,7 +228,7 @@ impl Drop for ActivationCandidate {
     fn drop(&mut self) {
         if !self.committed {
             for res in &self.newly_started {
-                if let ManagedExtensionResource::Process(p) = res {
+                if let ManagedExtensionResource::Process { process: p, .. } = res {
                     let p = p.clone();
                     tokio::spawn(async move {
                         p.transition_to(crate::extension::ExtensionProcessState::Stopping);
@@ -312,6 +334,11 @@ impl ExtensionActivationPipeline {
 
         // 1. Discover packages
         let discovered = self.discovery.discover_packages()?;
+        let mut discovered = discovered;
+        crate::extension::apply_trust_decisions(
+            &mut discovered,
+            &self.host_context.trusted_extension_ids,
+        );
 
         // 2. Resolve configured instances or targeted instance
         let mut final_resolved_packages = Vec::new();
@@ -489,6 +516,10 @@ impl ExtensionActivationPipeline {
         let mut newly_started = Vec::new();
         let mut reused = Vec::new();
         let mut diagnostics = Vec::new();
+        let mut lifecycle_clients: std::collections::HashMap<
+            String,
+            Arc<dyn crate::lifecycle::LifecycleClient>,
+        > = std::collections::HashMap::new();
 
         let mut context_registrations = Vec::new();
         let mut policy_registrations = Vec::new();
@@ -589,10 +620,15 @@ impl ExtensionActivationPipeline {
                         )?;
                     }
                     crate::extension::ComponentKind::LegacyProcess => {
-                        let process = if let Some(ManagedExtensionResource::Process(p)) =
-                            reused_resource
+                        let process = if let Some(ManagedExtensionResource::Process {
+                            process: p,
+                            ..
+                        }) = reused_resource
                         {
-                            reused.push(ManagedExtensionResource::Process(p.clone()));
+                            reused.push(ManagedExtensionResource::Process {
+                                reuse_key: reuse_key.clone(),
+                                process: p.clone(),
+                            });
                             p
                         } else {
                             let launch_result = manager
@@ -600,8 +636,10 @@ impl ExtensionActivationPipeline {
                                 .await;
                             match launch_result {
                                 Ok(p) => {
-                                    newly_started
-                                        .push(ManagedExtensionResource::Process(p.clone()));
+                                    newly_started.push(ManagedExtensionResource::Process {
+                                        reuse_key: reuse_key.clone(),
+                                        process: p.clone(),
+                                    });
                                     p
                                 }
                                 Err(e) => {
@@ -614,7 +652,11 @@ impl ExtensionActivationPipeline {
                                         continue;
                                     } else {
                                         for res in &newly_started {
-                                            if let ManagedExtensionResource::Process(p) = res {
+                                            if let ManagedExtensionResource::Process {
+                                                process: p,
+                                                ..
+                                            } = res
+                                            {
                                                 p.transition_to(crate::extension::ExtensionProcessState::Stopping);
                                                 p.shutdown().await;
                                             }
@@ -654,16 +696,30 @@ impl ExtensionActivationPipeline {
                         }
                     }
                     crate::extension::ComponentKind::GestaltLifecycle => {
-                        if let Some(ManagedExtensionResource::Process(p)) = reused_resource {
-                            reused.push(ManagedExtensionResource::Process(p.clone()));
+                        let client: Arc<dyn crate::lifecycle::LifecycleClient> =
+                            Arc::new(crate::lifecycle::ProcessLifecycleClient::new(
+                                manager.clone(),
+                                runtime_component.clone(),
+                                self.host_context.clone(),
+                            ));
+
+                        if let Some(ManagedExtensionResource::Process { process: p, .. }) =
+                            reused_resource
+                        {
+                            reused.push(ManagedExtensionResource::Process {
+                                reuse_key: reuse_key.clone(),
+                                process: p.clone(),
+                            });
                         } else {
                             let launch_result = manager
                                 .launch_process(&runtime_component, &self.host_context)
                                 .await;
                             match launch_result {
                                 Ok(p) => {
-                                    newly_started
-                                        .push(ManagedExtensionResource::Process(p.clone()));
+                                    newly_started.push(ManagedExtensionResource::Process {
+                                        reuse_key: reuse_key.clone(),
+                                        process: p.clone(),
+                                    });
                                 }
                                 Err(e) => {
                                     if component.optional {
@@ -678,7 +734,11 @@ impl ExtensionActivationPipeline {
                                         continue;
                                     } else {
                                         for res in &newly_started {
-                                            if let ManagedExtensionResource::Process(p) = res {
+                                            if let ManagedExtensionResource::Process {
+                                                process: p,
+                                                ..
+                                            } = res
+                                            {
                                                 p.transition_to(crate::extension::ExtensionProcessState::Stopping);
                                                 p.shutdown().await;
                                             }
@@ -688,6 +748,8 @@ impl ExtensionActivationPipeline {
                                 }
                             }
                         }
+
+                        lifecycle_clients.insert(component.id.canonical_id(), client.clone());
 
                         if !request.force
                             && active.resolved_packages.iter().any(|p| {
@@ -724,11 +786,6 @@ impl ExtensionActivationPipeline {
                                 }
                             }
                         } else {
-                            let client = crate::lifecycle::ProcessLifecycleClient::new(
-                                manager.clone(),
-                                runtime_component.clone(),
-                                self.host_context.clone(),
-                            );
                             let init_req = crate::lifecycle::InitializeRequestV2 {
                                 supported_versions: vec!["2.0".to_string()],
                             };
@@ -809,7 +866,11 @@ impl ExtensionActivationPipeline {
                                                 });
                                         } else {
                                             for res in &newly_started {
-                                                if let ManagedExtensionResource::Process(p) = res {
+                                                if let ManagedExtensionResource::Process {
+                                                    process: p,
+                                                    ..
+                                                } = res
+                                                {
                                                     p.transition_to(crate::extension::ExtensionProcessState::Stopping);
                                                     p.shutdown().await;
                                                 }
@@ -827,7 +888,11 @@ impl ExtensionActivationPipeline {
                                         });
                                     } else {
                                         for res in &newly_started {
-                                            if let ManagedExtensionResource::Process(p) = res {
+                                            if let ManagedExtensionResource::Process {
+                                                process: p,
+                                                ..
+                                            } = res
+                                            {
                                                 p.transition_to(crate::extension::ExtensionProcessState::Stopping);
                                                 p.shutdown().await;
                                             }
@@ -848,9 +913,15 @@ impl ExtensionActivationPipeline {
                             name: mcp_name.clone(),
                         });
                         if reused_resource.is_some() {
-                            reused.push(ManagedExtensionResource::Mcp(mcp_res));
+                            reused.push(ManagedExtensionResource::Mcp {
+                                reuse_key: reuse_key.clone(),
+                                server: mcp_res,
+                            });
                         } else {
-                            newly_started.push(ManagedExtensionResource::Mcp(mcp_res));
+                            newly_started.push(ManagedExtensionResource::Mcp {
+                                reuse_key: reuse_key.clone(),
+                                server: mcp_res,
+                            });
                         }
                     }
                     _ => {}
@@ -902,10 +973,11 @@ impl ExtensionActivationPipeline {
         }
 
         let event_bus = self.host_context.event_bus.clone();
+        let allow_network = self.host_context.allow_network;
         mcp_registry.set_permission_validator(move |name, config| {
-            if let Some((permissions, grants)) = package_permissions.get(name) {
-                match &config.transport {
-                    gestalt_mcp::McpTransportConfig::Stdio { .. } => {
+            match &config.transport {
+                gestalt_mcp::McpTransportConfig::Stdio { .. } => {
+                    if let Some((permissions, grants)) = package_permissions.get(name) {
                         crate::permissions::check_shell_permission_effective(
                             permissions,
                             Some(grants),
@@ -914,21 +986,27 @@ impl ExtensionActivationPipeline {
                         )
                         .map_err(|e| e.clone())?;
                     }
-                    gestalt_mcp::McpTransportConfig::Http { url, .. } => {
-                        let host = if let Ok(parsed_url) = url::Url::parse(url) {
-                            parsed_url.host_str().unwrap_or("").to_string()
-                        } else {
-                            url.clone()
-                        };
+                }
+                gestalt_mcp::McpTransportConfig::Http { url, .. } => {
+                    let host = if let Ok(parsed_url) = url::Url::parse(url) {
+                        parsed_url.host_str().unwrap_or("").to_string()
+                    } else {
+                        url.clone()
+                    };
+                    if let Some((permissions, grants)) = package_permissions.get(name) {
                         crate::permissions::check_network_permission_effective(
                             permissions,
                             Some(grants),
-                            true,
+                            allow_network,
                             &host,
                             &event_bus,
                             name,
                         )
                         .map_err(|e| e.clone())?;
+                    } else if !allow_network {
+                        return Err(format!(
+                            "Network access to host '{host}' is not allowed by host policy"
+                        ));
                     }
                 }
             }
@@ -1007,14 +1085,14 @@ impl ExtensionActivationPipeline {
 
         let mut process_instances = Vec::new();
         for res in &all_managed_resources {
-            if let ManagedExtensionResource::Process(p) = res {
+            if let ManagedExtensionResource::Process { process: p, .. } = res {
                 process_instances.push(p.clone());
             }
         }
 
         let mut negotiated_protocols = std::collections::HashMap::new();
         for res in &all_managed_resources {
-            if let ManagedExtensionResource::Process(p) = res {
+            if let ManagedExtensionResource::Process { process: p, .. } = res {
                 if let Some(broker) = p.broker() {
                     negotiated_protocols
                         .insert(p.component_id.clone(), broker.negotiated_version());
@@ -1089,6 +1167,7 @@ impl ExtensionActivationPipeline {
             diagnostics: Arc::from(diagnostics.clone()),
             managed_resources: Arc::from(all_managed_resources),
             negotiated_protocol: Arc::new(negotiated_protocols),
+            lifecycle_clients: Arc::new(lifecycle_clients),
             resolved_packages: Arc::from(final_resolved_packages),
         });
 

@@ -198,19 +198,34 @@ fn test_permissions_effective_shell() {
     // 1. Both allow
     manifest.allow_shell = true;
     grant.shell = true;
-    let res = gestalt_runtime::check_shell_permission_effective(&manifest, Some(&grant), &event_bus, "test");
+    let res = gestalt_runtime::check_shell_permission_effective(
+        &manifest,
+        Some(&grant),
+        &event_bus,
+        "test",
+    );
     assert!(res.is_ok());
 
     // 2. Only manifest allows
     manifest.allow_shell = true;
     grant.shell = false;
-    let res = gestalt_runtime::check_shell_permission_effective(&manifest, Some(&grant), &event_bus, "test");
+    let res = gestalt_runtime::check_shell_permission_effective(
+        &manifest,
+        Some(&grant),
+        &event_bus,
+        "test",
+    );
     assert!(res.is_err());
 
     // 3. Only grant allows
     manifest.allow_shell = false;
     grant.shell = true;
-    let res = gestalt_runtime::check_shell_permission_effective(&manifest, Some(&grant), &event_bus, "test");
+    let res = gestalt_runtime::check_shell_permission_effective(
+        &manifest,
+        Some(&grant),
+        &event_bus,
+        "test",
+    );
     assert!(res.is_err());
 }
 
@@ -225,7 +240,14 @@ fn test_permissions_effective_network_wildcard() {
     grant.network = vec!["example.com".to_string()];
 
     // example.com allowed
-    let res = gestalt_runtime::check_network_permission_effective(&manifest, Some(&grant), true, "example.com", &event_bus, "test");
+    let res = gestalt_runtime::check_network_permission_effective(
+        &manifest,
+        Some(&grant),
+        true,
+        "example.com",
+        &event_bus,
+        "test",
+    );
     assert!(res.is_ok());
 
     // google.com denied (since grant restricts it)
@@ -235,14 +257,28 @@ fn test_permissions_effective_network_wildcard() {
     // Grant allows wildcard, manifest allows example.com
     manifest.allow_network = vec!["example.com".to_string()];
     grant.network = vec!["*".to_string()];
-    let res = gestalt_runtime::check_network_permission_effective(&manifest, Some(&grant), true, "example.com", &event_bus, "test");
+    let res = gestalt_runtime::check_network_permission_effective(
+        &manifest,
+        Some(&grant),
+        true,
+        "example.com",
+        &event_bus,
+        "test",
+    );
     assert!(res.is_ok());
-    
+
     let res = gestalt_network_check(&manifest, &grant, "google.com");
     assert!(res.is_err());
 
     // Host policy denies network
-    let res = gestalt_runtime::check_network_permission_effective(&manifest, Some(&grant), false, "example.com", &event_bus, "test");
+    let res = gestalt_runtime::check_network_permission_effective(
+        &manifest,
+        Some(&grant),
+        false,
+        "example.com",
+        &event_bus,
+        "test",
+    );
     assert!(res.is_err());
 }
 
@@ -252,7 +288,14 @@ fn gestalt_network_check(
     host: &str,
 ) -> Result<(), String> {
     let event_bus = RuntimeEventBus::new();
-    gestalt_runtime::check_network_permission_effective(manifest, Some(grant), true, host, &event_bus, "test")
+    gestalt_runtime::check_network_permission_effective(
+        manifest,
+        Some(grant),
+        true,
+        host,
+        &event_bus,
+        "test",
+    )
 }
 
 #[test]
@@ -266,10 +309,26 @@ fn test_permissions_effective_paths_intersection() {
     manifest.allow_all_paths = true;
     grant.allowed_paths = vec![std::path::PathBuf::from("/tmp/allowed")];
 
-    let res = gestalt_runtime::check_path_permission_effective(&manifest, Some(&grant), workspace, Path::new("/tmp/allowed/file.txt"), false, &event_bus, "test");
+    let res = gestalt_runtime::check_path_permission_effective(
+        &manifest,
+        Some(&grant),
+        workspace,
+        Path::new("/tmp/allowed/file.txt"),
+        false,
+        &event_bus,
+        "test",
+    );
     assert!(res.is_ok());
 
-    let res = gestalt_runtime::check_path_permission_effective(&manifest, Some(&grant), workspace, Path::new("/etc/passwd"), false, &event_bus, "test");
+    let res = gestalt_runtime::check_path_permission_effective(
+        &manifest,
+        Some(&grant),
+        workspace,
+        Path::new("/etc/passwd"),
+        false,
+        &event_bus,
+        "test",
+    );
     assert!(res.is_err()); // Restricted by grant layers
 
     // Read/write independence: workspace read allowed, write denied
@@ -278,9 +337,25 @@ fn test_permissions_effective_paths_intersection() {
     grant.workspace_read = true;
     grant.workspace_write = false;
 
-    let res = gestalt_runtime::check_path_permission_effective(&manifest, Some(&grant), workspace, Path::new("/workspace/file.txt"), false, &event_bus, "test");
+    let res = gestalt_runtime::check_path_permission_effective(
+        &manifest,
+        Some(&grant),
+        workspace,
+        Path::new("/workspace/file.txt"),
+        false,
+        &event_bus,
+        "test",
+    );
     assert!(res.is_ok());
 
-    let res = gestalt_runtime::check_path_permission_effective(&manifest, Some(&grant), workspace, Path::new("/workspace/file.txt"), true, &event_bus, "test");
+    let res = gestalt_runtime::check_path_permission_effective(
+        &manifest,
+        Some(&grant),
+        workspace,
+        Path::new("/workspace/file.txt"),
+        true,
+        &event_bus,
+        "test",
+    );
     assert!(res.is_err()); // Write denied by grant
 }

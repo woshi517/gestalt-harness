@@ -2,7 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gestalt_runtime::{ExtensionDiscovery, ExtensionManifest};
+use gestalt_runtime::{
+    extension::{ExtensionManifestV2, ResolvedExtensionPackage},
+    ExtensionDiscovery, ExtensionManifest, ExtensionTrust,
+};
 
 const FULL_V1_MANIFEST: &str = r#"
 id = "baseline-ext"
@@ -161,6 +164,38 @@ fn discovery_records_stable_content_hashes_for_trust_baselines() {
         .manifest_hash
         .chars()
         .all(|c| c.is_ascii_hexdigit()));
+}
+
+#[test]
+fn allow_untrusted_package_remains_untrusted() {
+    let manifest = ExtensionManifestV2::parse(
+        r#"
+manifest_version = 2
+
+[package]
+id = "trust-regression"
+name = "Trust Regression"
+version = "1.0.0"
+
+[[components]]
+id = "lifecycle"
+kind = "gestalt-lifecycle"
+
+[components.entrypoint]
+command = "python3"
+args = ["-c", "print('noop')"]
+"#,
+    )
+    .unwrap();
+
+    let mut package = ResolvedExtensionPackage::from_v2_manifest(manifest, "instance-a").unwrap();
+    package.manifest_hash =
+        Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
+
+    let component = package.to_runtime_component("lifecycle").unwrap();
+
+    assert_eq!(package.trust, ExtensionTrust::Untrusted);
+    assert_eq!(component.trust, ExtensionTrust::Untrusted);
 }
 
 fn write_extension(dir: &Path, id: &str, name: &str) {

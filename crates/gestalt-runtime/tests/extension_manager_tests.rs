@@ -158,7 +158,9 @@ async fn extension_manager_reuses_ready_processes_and_tracks_health() {
     let host_context = HostLaunchContext {
         event_bus: manager.event_bus.clone(),
         workspace_root: std::path::PathBuf::from("."),
+        allow_network: false,
         effective_permissions: None,
+        trusted_extension_ids: vec![],
         timeout_initialize_ms: 10000,
         timeout_hook_ms: 5000,
         timeout_context_ms: 15000,
@@ -233,6 +235,89 @@ async fn legacy_process_extensions_reuse_manager_owned_broker_instances() {
     assert!(Arc::ptr_eq(&first.broker, &second.broker));
 
     manager.shutdown_all().await.unwrap();
+}
+
+#[tokio::test]
+async fn replaced_same_id_resource_drains_after_old_lease_drops() {
+    let host_context = HostLaunchContext {
+        event_bus: RuntimeEventBus::new(),
+        workspace_root: std::path::PathBuf::from("."),
+        allow_network: false,
+        effective_permissions: None,
+        trusted_extension_ids: vec![],
+        timeout_initialize_ms: 10000,
+        timeout_hook_ms: 5000,
+        timeout_context_ms: 15000,
+        timeout_tool_ms: 60000,
+        timeout_shutdown_ms: 5000,
+        max_message_bytes: 8_388_608,
+        max_pending_requests: 16,
+        environment: HashMap::new(),
+        package_source_root: None,
+        extension_instances: std::collections::BTreeMap::new(),
+        mcp_servers: std::collections::HashMap::new(),
+    };
+
+    let old_component = runtime_component("com.example.review", "review-primary", "lifecycle");
+    let old_process = Arc::new(ExtensionProcessInstance::new(
+        old_component.id.canonical_id(),
+    ));
+    let launcher = Arc::new(FixedProcessLauncher::new(old_process.clone()));
+    let previous_snapshot = RuntimeExtensionSnapshot {
+        managed_resources: Arc::from([
+            gestalt_runtime::activation::ManagedExtensionResource::Process {
+                reuse_key: old_component.reuse_key(),
+                process: old_process.clone(),
+            },
+        ]),
+        ..snapshot_with_generation(0)
+    };
+    let manager = ExtensionManager::new(
+        Arc::new(previous_snapshot),
+        RuntimeEventBus::new(),
+        launcher,
+        host_context.clone(),
+    );
+
+    let launched = manager
+        .launch_process(&old_component, &host_context)
+        .await
+        .unwrap();
+    assert!(Arc::ptr_eq(&launched, &old_process));
+
+    let mut new_component = old_component.clone();
+    new_component.entrypoint_command = "python3".to_string();
+    new_component.package_version = "2.0.0".to_string();
+    let new_snapshot = RuntimeExtensionSnapshot {
+        managed_resources: Arc::from([
+            gestalt_runtime::activation::ManagedExtensionResource::Process {
+                reuse_key: new_component.reuse_key(),
+                process: Arc::new(ExtensionProcessInstance::new(
+                    new_component.id.canonical_id(),
+                )),
+            },
+        ]),
+        ..snapshot_with_generation(1)
+    };
+
+    manager.publish_snapshot(Arc::new(new_snapshot)).unwrap();
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if manager.process_instances().is_empty()
+                && manager.managed_resources.read().unwrap().is_empty()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(launched.state(), ExtensionProcessState::Stopped);
+    assert!(manager.process_instances().is_empty());
+    assert!(manager.managed_resources.read().unwrap().is_empty());
 }
 
 fn manager_with_snapshot(snapshot: RuntimeExtensionSnapshot) -> ExtensionManager {
@@ -327,6 +412,32 @@ struct CountingLauncher {
 impl CountingLauncher {
     fn launch_count(&self) -> usize {
         self.launches.load(Ordering::SeqCst)
+    }
+}
+
+struct FixedProcessLauncher {
+    launches: AtomicUsize,
+    process: Arc<ExtensionProcessInstance>,
+}
+
+impl FixedProcessLauncher {
+    fn new(process: Arc<ExtensionProcessInstance>) -> Self {
+        Self {
+            launches: AtomicUsize::new(0),
+            process,
+        }
+    }
+}
+
+#[async_trait]
+impl ExtensionLauncher for FixedProcessLauncher {
+    async fn launch(
+        &self,
+        _component: &ExtensionRuntimeComponent,
+        _host_context: &HostLaunchContext,
+    ) -> gestalt_runtime::Result<Arc<ExtensionProcessInstance>> {
+        self.launches.fetch_add(1, Ordering::SeqCst);
+        Ok(self.process.clone())
     }
 }
 

@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum TurnRouteDecision {
     Continue,
     Stop { reason: String },
     Route { target: String },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TurnRouterRequest {
     pub session_id: String,
     pub turn_index: usize,

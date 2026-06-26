@@ -77,7 +77,7 @@ pub trait AgentRuntimeHandle: RuntimeControl + HostControl {}
 ```
 
 ### `RuntimeHost` (Struct)
-`RuntimeHost` is the single host boundary for one workspace and one extension-generation lineage. It owns the shared `ExtensionManager`, session registry, event bus, artifact store, and approval broker.
+`RuntimeHost` is the single host boundary for one workspace and one extension-generation lineage. It owns the shared `ExtensionManager`, discovery source, session registry, event bus, artifact store, and approval broker.
 
 ### `DefaultAgentRuntimeHandle` (Struct)
 Thread-safe compatibility adapter over `Arc<RuntimeHost>`.
@@ -154,6 +154,10 @@ pub struct AgentRuntimeBuilder {
 - Startup and reload both execute through `ExtensionActivationPipeline`.
 - `ActivationCandidate` owns newly-started resources until commit. Dropping an uncommitted candidate rolls them back.
 - `RuntimeSnapshotLease` pins a generation for the duration of a run. Retired generations are drained only after the last lease is released.
+- `ResolvedExtensionPackage::trust` is explicit and independent of `manifest_hash`; discovery and trust policy are applied separately.
+- `RuntimeExtensionSnapshot` carries executable lifecycle client handles, and `run_session()` only dispatches lifecycle hooks against the pinned snapshot clients.
+- `ManagedExtensionResource` tracks a `ReuseKey`; retirement compares reuse keys so replaced components can drain correctly.
+- `HostLaunchContext` carries host network policy and trusted extension IDs so permission checks can enforce the host layer alongside manifests and grants.
 - `ExtensionManager::combined_health()` merges immutable snapshot diagnostics with live process state.
 
 ### Lifecycle Protocol v2

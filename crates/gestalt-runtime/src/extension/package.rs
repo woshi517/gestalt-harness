@@ -144,12 +144,27 @@ pub struct ResolvedExtensionPackage {
     pub instance_id: String,
     pub source_root: Option<PathBuf>,
     pub manifest_hash: Option<String>,
+    pub trust: crate::extension_trust::ExtensionTrust,
     pub effective_config: serde_json::Value,
     pub effective_grants: ExtensionGrantConfig,
     pub components: Vec<ResolvedExtensionComponent>,
 }
 
 impl ResolvedExtensionPackage {
+    pub fn apply_trust_decision(&mut self, trusted: bool) {
+        if !trusted {
+            self.trust = crate::extension_trust::ExtensionTrust::Untrusted;
+            return;
+        }
+
+        self.trust = match self.manifest_hash.clone() {
+            Some(manifest_hash) => {
+                crate::extension_trust::ExtensionTrust::IntegrityTrusted { manifest_hash }
+            }
+            None => crate::extension_trust::ExtensionTrust::BuiltIn,
+        };
+    }
+
     pub fn with_instance(
         mut self,
         instance_id: impl Into<String>,
@@ -207,6 +222,7 @@ impl ResolvedExtensionPackage {
             instance_id,
             source_root: None,
             manifest_hash: None,
+            trust: crate::extension_trust::ExtensionTrust::Untrusted,
             effective_config: serde_json::Value::Null,
             effective_grants: ExtensionGrantConfig::default(),
             components: vec![component],
@@ -259,6 +275,7 @@ impl ResolvedExtensionPackage {
             instance_id,
             source_root: None,
             manifest_hash: None,
+            trust: crate::extension_trust::ExtensionTrust::Untrusted,
             effective_config: serde_json::Value::Null,
             effective_grants: ExtensionGrantConfig::default(),
             components,
@@ -288,14 +305,6 @@ impl ResolvedExtensionPackage {
             )
         });
 
-        let trust = if let Some(ref hash) = manifest_hash {
-            crate::extension_trust::ExtensionTrust::IntegrityTrusted {
-                manifest_hash: hash.clone(),
-            }
-        } else {
-            crate::extension_trust::ExtensionTrust::Untrusted
-        };
-
         Some(super::ExtensionRuntimeComponent {
             id: component.id.clone(),
             kind: component.kind.clone(),
@@ -305,7 +314,7 @@ impl ResolvedExtensionPackage {
             entrypoint_args: component.entrypoint.args.clone(),
             config: component.config.clone(),
             grants_fingerprint: fingerprint_json(&component.grants),
-            trust,
+            trust: self.trust.clone(),
             protocol_fingerprint: component.protocol_version.clone(),
             package_version: self.descriptor.version.clone(),
             manifest_hash,
@@ -370,6 +379,15 @@ pub fn resolve_configured_instances(
     Ok(resolved)
 }
 
+pub fn apply_trust_decisions(packages: &mut [ResolvedExtensionPackage], trusted_ids: &[String]) {
+    for package in packages {
+        let trusted = trusted_ids
+            .iter()
+            .any(|trusted_id| trusted_id == &package.descriptor.id);
+        package.apply_trust_decision(trusted);
+    }
+}
+
 fn requires_entrypoint(kind: &ComponentKind) -> bool {
     matches!(
         kind,
@@ -422,6 +440,8 @@ pub fn compute_complete_fingerprint(
             hasher.update(b":");
             hasher.update(mh.as_bytes());
         }
+        hasher.update(b":trust:");
+        hasher.update(fingerprint_json(&package.trust).as_bytes());
 
         // Compute and fold package-level dependency lock hash
         if let Some(ref source_root) = package.source_root {
@@ -481,13 +501,12 @@ pub fn compute_complete_fingerprint(
 
             // Compute and fold component-level executable hash
             if let Some(ref source_root) = package.source_root {
-                let resolved_command = if std::path::Path::new(&component.entrypoint.command)
-                    .is_absolute()
-                {
-                    PathBuf::from(&component.entrypoint.command)
-                } else {
-                    source_root.join(&component.entrypoint.command)
-                };
+                let resolved_command =
+                    if std::path::Path::new(&component.entrypoint.command).is_absolute() {
+                        PathBuf::from(&component.entrypoint.command)
+                    } else {
+                        source_root.join(&component.entrypoint.command)
+                    };
                 hasher.update(b":resolved:");
                 hasher.update(resolved_command.to_string_lossy().as_bytes());
                 if let Some(eh) = super::manager::compute_executable_hash(

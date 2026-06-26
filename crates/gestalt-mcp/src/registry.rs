@@ -27,9 +27,7 @@ pub struct McpRegistry {
         std::sync::RwLock<
             Option<
                 Arc<
-                    dyn Fn(&str, &McpServerConfig) -> std::result::Result<(), String>
-                        + Send
-                        + Sync,
+                    dyn Fn(&str, &McpServerConfig) -> std::result::Result<(), String> + Send + Sync,
                 >,
             >,
         >,

@@ -34,6 +34,7 @@ pub struct RuntimeHost {
     pub event_bus: RuntimeEventBus,
     pub artifact_store: Arc<dyn ArtifactStore>,
     pub approval_broker: Arc<crate::activation::HostApprovalBroker>,
+    pub extension_source: Arc<dyn crate::activation::ExtensionSource>,
     pub builder: AgentRuntimeBuilder,
 }
 
@@ -48,12 +49,24 @@ impl gestalt_core::tool::ToolCatalog for EmptyToolCatalog {
     }
 }
 
+fn default_global_extension_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".gestalt"))
+}
+
 impl RuntimeHost {
     pub fn new(builder: AgentRuntimeBuilder, artifact_store: Arc<dyn ArtifactStore>) -> Self {
         let workspace_root = builder.config.workspace_root.clone();
         let config = builder.config.clone();
         let event_bus = builder.event_bus.clone();
         let approval_broker = Arc::new(crate::activation::HostApprovalBroker::new());
+        let discovery_source: Arc<dyn crate::activation::ExtensionSource> =
+            Arc::new(crate::discovery::DiscoverySource::new(
+                crate::discovery::ExtensionDiscovery::new(
+                    workspace_root.clone(),
+                    default_global_extension_dir(),
+                ),
+                Vec::new(),
+            ));
 
         let registry_snapshot = builder.registry.snapshot();
         let extension_snapshot = crate::extension::RuntimeExtensionSnapshot::from_registry_snapshot(
@@ -81,9 +94,69 @@ impl RuntimeHost {
         let extension_manager = Arc::new(crate::extension::ExtensionManager::new(
             extension_snapshot.clone(),
             event_bus.clone(),
-            Arc::new(crate::extension::NoopExtensionLauncher),
+            Arc::new(crate::extension::LocalProcessLauncher),
             host_context,
         ));
+
+        if !builder.extension_packages.is_empty() {
+            let mut packages = builder.extension_packages.clone();
+            crate::extension::apply_trust_decisions(&mut packages, &config.trusted_extension_ids);
+            let pipeline = crate::activation::ExtensionActivationPipeline {
+                discovery: Arc::new(crate::activation::StaticExtensionSource::new(packages)),
+                launcher: Arc::new(crate::extension::LocalProcessLauncher),
+                base_composition: Arc::new(crate::activation::BaseRuntimeComposition {
+                    tool_catalog: builder.tools.clone().unwrap_or_else(|| {
+                        Arc::new(
+                            crate::tool_catalog::ComposedToolCatalog::new(
+                                Arc::new(EmptyToolCatalog),
+                                std::collections::BTreeMap::new(),
+                            )
+                            .unwrap(),
+                        )
+                    }),
+                    mcp_registry: builder.mcp_registry.clone().unwrap_or_else(|| {
+                        Arc::new(gestalt_mcp::McpRegistry::new(
+                            workspace_root.clone(),
+                            std::collections::HashMap::new(),
+                        ))
+                    }),
+                    base_registry: registry_snapshot.clone(),
+                }),
+                host_context: crate::activation::HostLaunchContext::from_runtime_config(
+                    &config,
+                    event_bus.clone(),
+                ),
+            };
+            let manager = extension_manager.clone();
+            let pipeline_result = std::thread::spawn(move || {
+                let runtime = tokio::runtime::Runtime::new().map_err(|err| {
+                    RuntimeError::Builder(format!(
+                        "failed to create tokio runtime for extension activation: {err}"
+                    ))
+                })?;
+                runtime.block_on(async move {
+                    let request = crate::activation::ActivationRequest {
+                        current: Some(extension_snapshot.clone()),
+                        target_instance: None,
+                        force: false,
+                        mode: crate::activation::ActivationMode::Commit,
+                    };
+                    let mut candidate = pipeline.run(request, &manager).await?;
+                    manager.publish_snapshot(candidate.snapshot.clone())?;
+                    candidate.commit();
+                    Ok::<(), RuntimeError>(())
+                })
+            })
+            .join()
+            .unwrap_or_else(|_| {
+                Err(RuntimeError::Builder(
+                    "extension activation thread panicked".to_string(),
+                ))
+            });
+            if let Err(err) = pipeline_result {
+                panic!("failed to initialize runtime host extensions: {err}");
+            }
+        }
 
         Self {
             workspace_root,
@@ -93,16 +166,9 @@ impl RuntimeHost {
             event_bus,
             artifact_store,
             approval_broker,
+            extension_source: discovery_source,
             builder,
         }
-    }
-
-    fn runtime_for_host_control(&self) -> Result<AgentRuntime> {
-        let mut builder = self.builder.clone();
-        builder.event_bus = self.event_bus.clone();
-        builder.extension_manager = Some(self.extension_manager.clone());
-        builder.approval = Some(self.approval_broker.clone());
-        builder.build()
     }
 }
 
@@ -254,9 +320,67 @@ impl crate::control::RuntimeControl for RuntimeHost {
         &self,
         request: crate::control::ReloadExtensionsRequest,
     ) -> Result<crate::control::ReloadExtensionsReport> {
-        self.runtime_for_host_control()?
-            .reload_extensions(request)
-            .await
+        let active = self.extension_manager.active_snapshot();
+        let mut discovered = self.extension_source.discover_packages()?;
+        crate::extension::apply_trust_decisions(
+            &mut discovered,
+            &self.config.trusted_extension_ids,
+        );
+        let pipeline = crate::activation::ExtensionActivationPipeline {
+            discovery: Arc::new(crate::activation::StaticExtensionSource::new(discovered)),
+            launcher: self.extension_manager.launcher.clone(),
+            base_composition: Arc::new(crate::activation::BaseRuntimeComposition {
+                tool_catalog: self.builder.tools.clone().unwrap_or_else(|| {
+                    Arc::new(
+                        crate::tool_catalog::ComposedToolCatalog::new(
+                            Arc::new(EmptyToolCatalog),
+                            std::collections::BTreeMap::new(),
+                        )
+                        .unwrap(),
+                    )
+                }),
+                mcp_registry: self.builder.mcp_registry.clone().unwrap_or_else(|| {
+                    Arc::new(gestalt_mcp::McpRegistry::new(
+                        self.workspace_root.clone(),
+                        std::collections::HashMap::new(),
+                    ))
+                }),
+                base_registry: self.builder.registry.snapshot(),
+            }),
+            host_context: self.extension_manager.host_context.clone(),
+        };
+
+        let mut candidate = pipeline
+            .run(
+                crate::activation::ActivationRequest {
+                    current: Some(active.clone()),
+                    target_instance: request.instance_id.clone(),
+                    force: request.force,
+                    mode: if request.dry_run {
+                        crate::activation::ActivationMode::DryRun
+                    } else {
+                        crate::activation::ActivationMode::Commit
+                    },
+                },
+                &self.extension_manager,
+            )
+            .await?;
+
+        let report = crate::control::ReloadExtensionsReport {
+            previous_generation: active.generation,
+            candidate_generation: candidate.snapshot.generation,
+            candidate_fingerprint: candidate.snapshot.fingerprint.clone(),
+            published: !request.dry_run,
+            validation_errors: Vec::new(),
+        };
+
+        if !request.dry_run {
+            self.extension_manager
+                .publish_snapshot(candidate.snapshot.clone())?;
+            candidate.commit();
+        }
+
+        Ok(report)
     }
 
     fn current_generation(&self) -> crate::extension::RuntimeGeneration {
