@@ -23,8 +23,8 @@ pub use launcher::{ExtensionLauncher, LocalProcessLauncher, NoopExtensionLaunche
 pub use manager::{ComponentFingerprint, ExtensionManager, ExtensionRuntimeComponent, ReuseKey};
 pub use mcp_component::{merge_mcp_server_configs, package_mcp_server_name, package_mcp_servers};
 pub use package::{
-    resolve_configured_instances, compute_complete_fingerprint, ExtensionCompatibility, ExtensionManifestV2,
-    ExtensionPackageDescriptor, ResolvedExtensionPackage,
+    compute_complete_fingerprint, resolve_configured_instances, ExtensionCompatibility,
+    ExtensionManifestV2, ExtensionPackageDescriptor, ResolvedExtensionPackage,
 };
 pub use process_instance::{ExtensionProcessInstance, ExtensionProcessState, InFlightCallGuard};
 pub use runtime_module::{GestaltExtension, RuntimeModule};

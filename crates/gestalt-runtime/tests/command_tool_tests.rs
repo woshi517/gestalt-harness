@@ -87,7 +87,11 @@ impl PolicyEngine for MockPolicyEngine {
 #[tokio::test]
 async fn command_tool_returns_structured_json() {
     let package = command_tool_package("/bin/cat", &[]);
-    let tool = CommandTool::from_component(&package.components[0]).unwrap();
+    let tool = CommandTool::from_component(
+        &package.components[0],
+        std::path::PathBuf::from("."),
+        gestalt_runtime::event_bus::RuntimeEventBus::new(),
+    ).unwrap();
 
     let output = tool
         .execute(serde_json::json!({ "message": "hello" }), &tool_context())
@@ -109,7 +113,11 @@ async fn command_tool_returns_structured_json() {
 #[tokio::test]
 async fn command_tool_invalid_json_output_is_execution_error() {
     let package = command_tool_package("/bin/echo", &["not-json"]);
-    let tool = CommandTool::from_component(&package.components[0]).unwrap();
+    let tool = CommandTool::from_component(
+        &package.components[0],
+        std::path::PathBuf::from("."),
+        gestalt_runtime::event_bus::RuntimeEventBus::new(),
+    ).unwrap();
 
     let err = tool
         .execute(serde_json::json!({ "message": "hello" }), &tool_context())
@@ -219,10 +227,19 @@ idempotent = true
 [components.entrypoint]
 command = "{command}"
 args = [{args_toml}]
+
+[components.permissions]
+allow_shell = true
 "#
     ))
     .unwrap();
-    ResolvedExtensionPackage::from_v2_manifest(manifest, instance_id).unwrap()
+    let grants = gestalt_runtime::extension::ExtensionGrantConfig {
+        shell: true,
+        ..Default::default()
+    };
+    ResolvedExtensionPackage::from_v2_manifest(manifest, instance_id)
+        .unwrap()
+        .with_instance(instance_id, serde_json::Value::Null, grants)
 }
 
 fn tool_context() -> ToolContext {

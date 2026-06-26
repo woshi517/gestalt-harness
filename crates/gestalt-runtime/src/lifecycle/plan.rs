@@ -76,6 +76,14 @@ pub struct TurnRouterPlan {
     pub registrations: Arc<[TurnRouterRegistration]>,
 }
 
+impl TurnRouterPlan {
+    pub fn new(registrations: Vec<TurnRouterRegistration>) -> Self {
+        Self {
+            registrations: Arc::from(registrations),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalVerifierRegistration {
     pub descriptor: TypedCapabilityDescriptor,
@@ -87,6 +95,14 @@ pub struct ExternalVerifierPlan {
     pub registrations: Arc<[ExternalVerifierRegistration]>,
 }
 
+impl ExternalVerifierPlan {
+    pub fn new(registrations: Vec<ExternalVerifierRegistration>) -> Self {
+        Self {
+            registrations: Arc::from(registrations),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventObserverRegistration {
     pub descriptor: TypedCapabilityDescriptor,
@@ -96,4 +112,12 @@ pub struct EventObserverRegistration {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EventObserverPlan {
     pub registrations: Arc<[EventObserverRegistration]>,
+}
+
+impl EventObserverPlan {
+    pub fn new(registrations: Vec<EventObserverRegistration>) -> Self {
+        Self {
+            registrations: Arc::from(registrations),
+        }
+    }
 }

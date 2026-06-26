@@ -10,8 +10,9 @@ use gestalt_core::{
     tool::{Tool, ToolCatalog, ToolSchema},
 };
 use gestalt_runtime::{
-    AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, InMemoryArtifactStore,
-    OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig, RuntimeControl, RuntimeEvent,
+    AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, HostControl,
+    InMemoryArtifactStore, OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig,
+    RuntimeEvent,
 };
 use std::sync::Arc;
 

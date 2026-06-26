@@ -1,5 +1,6 @@
 #![allow(deprecated)]
 
+pub mod activation;
 pub mod artifact_store;
 pub mod builder;
 pub mod compaction;
@@ -31,6 +32,12 @@ pub mod workspace_context;
 pub mod mcp;
 pub mod mcp_discovery;
 
+pub use activation::{
+    ActivationCandidate, ActivationDiagnostic, ActivationMode, ActivationRequest,
+    BaseRuntimeComposition, DiagnosticSeverity, ExtensionActivationPipeline,
+    ExtensionGenerationDiff, ExtensionSource, HostApprovalBroker, HostLaunchContext,
+    ManagedExtensionResource, RuntimeSnapshotLease, StaticExtensionSource,
+};
 pub use artifact_store::{ArtifactStore, FilesystemArtifactStore, InMemoryArtifactStore};
 pub use builder::AgentRuntimeBuilder;
 pub use composition_hooks::{
@@ -40,12 +47,12 @@ pub use composition_hooks::{
 };
 pub use config::RuntimeConfig;
 pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
-pub use control::{ReloadExtensionsReport, ReloadExtensionsRequest, RuntimeControl};
+pub use control::{HostControl, ReloadExtensionsReport, ReloadExtensionsRequest, RuntimeControl};
 pub use discovery::{DiscoveredExtension, DiscoveredExtensionPackage, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};
 pub use extension::GestaltExtension;
-pub use extension_trust::build_extension_tool_descriptor;
+pub use extension_trust::{build_extension_tool_descriptor, ExtensionTrust};
 pub use inspect::{
     compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
 };
@@ -54,9 +61,12 @@ pub use mcp::McpBackedTool;
 pub use mcp_discovery::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
 pub use orchestration::{
     AgentRuntimeHandle, DefaultAgentRuntimeHandle, OrchestrationResult, OrchestrationTask,
-    Orchestrator,
+    Orchestrator, RuntimeHost,
 };
-pub use permissions::{check_network_permission, check_path_permission, check_shell_permission};
+pub use permissions::{
+    check_network_permission, check_network_permission_effective, check_path_permission,
+    check_path_permission_effective, check_shell_permission, check_shell_permission_effective,
+};
 pub use policy::RuntimePolicyEngine;
 pub use process_extension::{
     ProcessBackedContextContributor, ProcessBackedTool, ProcessExtension, ProcessExtensionBroker,

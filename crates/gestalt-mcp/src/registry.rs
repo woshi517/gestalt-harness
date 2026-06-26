@@ -23,6 +23,17 @@ pub struct McpRegistry {
     >,
     failures: Arc<Mutex<HashMap<String, String>>>, // server_name -> error_msg
     event_callback: Arc<std::sync::Mutex<Option<crate::model::McpEventCallback>>>,
+    permission_validator: Arc<
+        std::sync::RwLock<
+            Option<
+                Arc<
+                    dyn Fn(&str, &McpServerConfig) -> std::result::Result<(), String>
+                        + Send
+                        + Sync,
+                >,
+            >,
+        >,
+    >,
 }
 
 impl std::fmt::Debug for McpRegistry {
@@ -42,12 +53,22 @@ impl McpRegistry {
             clients: Arc::new(Mutex::new(HashMap::new())),
             failures: Arc::new(Mutex::new(HashMap::new())),
             event_callback: Arc::new(std::sync::Mutex::new(None)),
+            permission_validator: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
     pub fn set_event_callback(&self, callback: crate::model::McpEventCallback) {
         if let Ok(mut lock) = self.event_callback.lock() {
             *lock = Some(callback);
+        }
+    }
+
+    pub fn set_permission_validator<F>(&self, validator: F)
+    where
+        F: Fn(&str, &McpServerConfig) -> std::result::Result<(), String> + Send + Sync + 'static,
+    {
+        if let Ok(mut lock) = self.permission_validator.write() {
+            *lock = Some(Arc::new(validator));
         }
     }
 
@@ -62,17 +83,31 @@ impl McpRegistry {
             }
         }
 
+        if !self.configs.contains_key(name) {
+            return Err(McpError::Config(format!(
+                "MCP Server '{}' not found in config",
+                name
+            )));
+        }
+
+        {
+            let validator = self.permission_validator.read().unwrap();
+            if let Some(ref validator_fn) = *validator {
+                let config = self.configs.get(name).unwrap();
+                if let Err(e) = validator_fn(name, config) {
+                    return Err(McpError::Initialization(format!(
+                        "Permission denied for MCP server '{}': {}",
+                        name, e
+                    )));
+                }
+            }
+        }
+
         let cell = {
             let mut clients = self.clients.lock().await;
             if let Some(cell) = clients.get(name) {
                 cell.clone()
             } else {
-                if !self.configs.contains_key(name) {
-                    return Err(McpError::Config(format!(
-                        "MCP Server '{}' not found in config",
-                        name
-                    )));
-                }
                 let cell = Arc::new(tokio::sync::OnceCell::new());
                 clients.insert(name.to_string(), cell.clone());
                 cell

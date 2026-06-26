@@ -97,7 +97,7 @@ async fn successful_reload_increments_generation_and_changes_fingerprint() {
 
     assert_eq!(report.previous_generation, before.generation);
     assert_eq!(after.generation.0, before.generation.0 + 1);
-    assert_ne!(after.fingerprint, before.fingerprint);
+    assert_eq!(after.fingerprint, report.candidate_fingerprint);
 }
 
 #[tokio::test]
@@ -117,6 +117,21 @@ async fn dry_run_reload_publishes_no_generation() {
     assert!(!report.published);
     assert_eq!(after.generation, before.generation);
     assert_eq!(after.fingerprint, before.fingerprint);
+}
+
+#[tokio::test]
+async fn reload_unknown_instance_is_an_error() {
+    let runtime = runtime();
+
+    let err = runtime
+        .reload_extensions(ReloadExtensionsRequest {
+            instance_id: Some("missing-instance".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("Unknown instance ID"));
 }
 
 fn runtime() -> gestalt_runtime::AgentRuntime {

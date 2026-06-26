@@ -287,9 +287,46 @@ async fn test_async_builder_launches_process_extensions_through_manager() {
         .unwrap();
 
     assert!(runtime
+        .extension_snapshot
         .registry_snapshot
         .extensions
         .contains(&"mock-ext@mock-ext".to_string()));
+    assert_eq!(
+        runtime.extension_manager.process_instances()[0].state(),
+        gestalt_runtime::extension::ExtensionProcessState::Ready
+    );
+    assert!(runtime
+        .extension_snapshot
+        .resolved_packages
+        .iter()
+        .any(|pkg| pkg.descriptor.id == "mock-ext"));
+}
+
+#[test]
+fn test_sync_builder_activates_v1_extension_packages_through_pipeline() {
+    let manifest = mock_extension_manifest();
+    let package =
+        gestalt_runtime::extension::ResolvedExtensionPackage::from_v1_manifest(manifest).unwrap();
+
+    let runtime = AgentRuntimeBuilder::new()
+        .provider(Arc::new(MockProvider))
+        .tools(Arc::new(MockToolCatalog))
+        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+            "pipeline-v1",
+        )))
+        .policy(Arc::new(MockPolicyEngine))
+        .approval(Arc::new(AutoApprovalProvider))
+        .extension_package(package)
+        .config(RuntimeConfig::default())
+        .build()
+        .unwrap();
+
+    assert!(runtime
+        .extension_snapshot
+        .resolved_packages
+        .iter()
+        .any(|pkg| pkg.descriptor.id == "mock-ext"));
+    assert_eq!(runtime.extension_manager.process_instances().len(), 1);
     assert_eq!(
         runtime.extension_manager.process_instances()[0].state(),
         gestalt_runtime::extension::ExtensionProcessState::Ready

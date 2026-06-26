@@ -210,9 +210,10 @@ impl ExtensionDiscovery {
                 if let Ok(content) = std::fs::read_to_string(&manifest_file) {
                     if let Ok(package) = parse_package_manifest(&content) {
                         if seen_ids.insert(package.descriptor.id.clone()) {
-                            let source_root = manifest_file
-                                .parent()
-                                .map_or_else(|| self.workspace_root.clone(), |path| path.to_path_buf());
+                            let source_root = manifest_file.parent().map_or_else(
+                                || self.workspace_root.clone(),
+                                |path| path.to_path_buf(),
+                            );
                             let manifest_hash = compute_content_hash(&content);
                             let mut package = package;
                             package.source_root = Some(source_root.clone());
@@ -294,4 +295,25 @@ fn is_manifest_v2(content: &str) -> std::result::Result<bool, String> {
         .get("manifest_version")
         .and_then(toml::Value::as_integer)
         == Some(2))
+}
+
+pub struct DiscoverySource {
+    pub discovery: ExtensionDiscovery,
+    pub explicit_paths: Vec<PathBuf>,
+}
+
+impl DiscoverySource {
+    pub fn new(discovery: ExtensionDiscovery, explicit_paths: Vec<PathBuf>) -> Self {
+        Self {
+            discovery,
+            explicit_paths,
+        }
+    }
+}
+
+impl crate::activation::ExtensionSource for DiscoverySource {
+    fn discover_packages(&self) -> Result<Vec<ResolvedExtensionPackage>> {
+        let discovered = self.discovery.discover_packages(&self.explicit_paths)?;
+        Ok(discovered.into_iter().map(|dp| dp.package).collect())
+    }
 }

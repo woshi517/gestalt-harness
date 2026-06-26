@@ -1,11 +1,6 @@
 use gestalt_core::{
-    approval::ApprovalProvider,
-    context::ContextPipeline,
-    policy::PolicyEngine,
-    provider::Provider,
-    tool::{Tool, ToolCatalog},
-    trace::TraceSink,
-    HookRegistry,
+    approval::ApprovalProvider, context::ContextPipeline, policy::PolicyEngine, provider::Provider,
+    tool::ToolCatalog, trace::TraceSink, HookRegistry,
 };
 use std::sync::Arc;
 
@@ -15,7 +10,6 @@ use crate::registry::RuntimeRegistry;
 use crate::runtime::AgentRuntime;
 
 use crate::composition_hooks::CompositionHooks;
-use crate::config::{ExtensionLimitsConfig, ExtensionTimeoutsConfig};
 use crate::event_bus::RuntimeEventBus;
 use crate::extension::GestaltExtension;
 use crate::manifest::ExtensionManifest;
@@ -193,29 +187,7 @@ impl AgentRuntimeBuilder {
     }
 
     pub async fn build_async(mut self) -> Result<AgentRuntime> {
-        let extension_snapshot = Arc::new(
-            crate::extension::RuntimeExtensionSnapshot::from_registry_snapshot(
-                crate::extension::RuntimeGeneration(0),
-                self.registry.snapshot(),
-                self.tools
-                    .clone()
-                    .ok_or_else(|| RuntimeError::Builder("Missing tools".to_string()))?,
-                self.mcp_registry.clone().unwrap_or_else(|| {
-                    Arc::new(gestalt_mcp::McpRegistry::new(
-                        self.config.workspace_root.clone(),
-                        self.config.mcp_servers.clone(),
-                    ))
-                }),
-            ),
-        );
-        let manager = Arc::new(crate::extension::ExtensionManager::new(
-            extension_snapshot,
-            self.event_bus.clone(),
-            Arc::new(crate::extension::LocalProcessLauncher),
-        ));
         let pending = std::mem::take(&mut self.pending_process_extensions);
-        let timeouts: ExtensionTimeoutsConfig = self.config.extension_timeouts.clone();
-        let limits: ExtensionLimitsConfig = self.config.extension_limits.clone();
         for pending_ext in pending {
             self.event_bus
                 .publish(crate::event_bus::RuntimeEvent::ExtensionDiscovered {
@@ -223,17 +195,11 @@ impl AgentRuntimeBuilder {
                     manifest_path: String::new(),
                     manifest_hash: pending_ext.manifest_hash.clone(),
                 });
-            let extension = manager
-                .launch_legacy_process_extension(
-                    pending_ext.manifest,
-                    timeouts.clone(),
-                    limits.clone(),
-                    pending_ext.is_trusted,
-                )
-                .await?;
-            self.extensions.push(extension);
+            let mut package =
+                crate::extension::ResolvedExtensionPackage::from_v1_manifest(pending_ext.manifest)?;
+            package.manifest_hash = Some(pending_ext.manifest_hash);
+            self.extension_packages.push(package);
         }
-        self.extension_manager = Some(manager);
         self.build_inner()
     }
 
@@ -266,26 +232,6 @@ impl AgentRuntimeBuilder {
             &self.config.extension_instances,
         )?;
 
-        // Apply extensions before constructing AgentRuntime
-        for package in &resolved_extension_packages {
-            let extension_identity = format!("{}@{}", package.descriptor.id, package.instance_id);
-            for component in &package.components {
-                if component.kind == crate::extension::ComponentKind::CommandTool {
-                    let tool = Arc::new(crate::extension::CommandTool::from_component(component)?);
-                    self.registry.register_executable_tool(
-                        tool.name().to_string(),
-                        tool.schema(),
-                        tool,
-                        Some(extension_identity.clone()),
-                    )?;
-                }
-            }
-            if !self.registry.extensions.contains(&extension_identity) {
-                self.registry
-                    .register_extension(extension_identity.clone())?;
-            }
-        }
-
         for ext in &self.extensions {
             let name = ext.name().to_string();
             if self.registry.extensions.contains(&name) {
@@ -299,11 +245,6 @@ impl AgentRuntimeBuilder {
             })?;
             self.registry.register_extension(name)?;
         }
-
-        self.config.mcp_servers = crate::extension::merge_mcp_server_configs(
-            self.config.mcp_servers.clone(),
-            &resolved_extension_packages,
-        )?;
 
         // Register skill context contributors if skills are configured
         let skill_state_handle = if self.config.discovered_skills.is_empty() {
@@ -552,22 +493,66 @@ impl AgentRuntimeBuilder {
             self.extensions.clone(),
         );
 
-        let complete_fp = crate::extension::compute_complete_fingerprint(
-            &runtime.extension_snapshot.fingerprint.0,
-            &resolved_extension_packages,
-        );
-        let mut new_snapshot = (*runtime.extension_snapshot).clone();
-        new_snapshot.fingerprint = crate::registry::RuntimeFingerprint(complete_fp);
-        let new_snapshot = Arc::new(new_snapshot);
-        runtime.extension_snapshot = new_snapshot.clone();
-        runtime.extension_manager = Arc::new(crate::extension::ExtensionManager::new(
-            new_snapshot,
-            runtime.event_bus.clone(),
-            runtime.extension_manager.launcher.clone(),
-        ));
-
         if let Some(extension_manager) = self.extension_manager {
-            extension_manager.publish_snapshot(runtime.extension_snapshot.clone())?;
+            runtime.extension_snapshot = extension_manager.active_snapshot();
+            runtime.extension_manager = extension_manager;
+        } else {
+            let host_context = crate::activation::HostLaunchContext::from_runtime_config(
+                &runtime.config,
+                runtime.event_bus.clone(),
+            );
+            let extension_manager = Arc::new(crate::extension::ExtensionManager::new(
+                runtime.extension_snapshot.clone(),
+                runtime.event_bus.clone(),
+                Arc::new(crate::extension::LocalProcessLauncher),
+                host_context.clone(),
+            ));
+            if !resolved_extension_packages.is_empty() {
+                let pipeline = crate::activation::ExtensionActivationPipeline {
+                    discovery: Arc::new(crate::activation::StaticExtensionSource::new(
+                        resolved_extension_packages.clone(),
+                    )),
+                    launcher: Arc::new(crate::extension::LocalProcessLauncher),
+                    base_composition: Arc::new(crate::activation::BaseRuntimeComposition {
+                        tool_catalog: runtime.tools.clone(),
+                        mcp_registry: runtime.mcp_registry.clone(),
+                        base_registry: runtime.registry_snapshot.clone(),
+                    }),
+                    host_context,
+                };
+                let request = crate::activation::ActivationRequest {
+                    current: Some(runtime.extension_snapshot.clone()),
+                    target_instance: None,
+                    force: false,
+                    mode: crate::activation::ActivationMode::Commit,
+                };
+                let mut candidate = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let manager = extension_manager.clone();
+                    std::thread::spawn(move || {
+                        let _ = handle;
+                        let tokio_runtime = tokio::runtime::Runtime::new().map_err(|err| {
+                            RuntimeError::Builder(format!(
+                                "failed to create tokio runtime for extension activation: {err}"
+                            ))
+                        })?;
+                        tokio_runtime.block_on(pipeline.run(request, &manager))
+                    })
+                    .join()
+                    .map_err(|_| {
+                        RuntimeError::Builder("extension activation thread panicked".to_string())
+                    })?
+                } else {
+                    let tokio_runtime = tokio::runtime::Runtime::new().map_err(|err| {
+                        RuntimeError::Builder(format!(
+                            "failed to create tokio runtime for extension activation: {err}"
+                        ))
+                    })?;
+                    tokio_runtime.block_on(pipeline.run(request, &extension_manager))
+                }?;
+                extension_manager.publish_snapshot(candidate.snapshot.clone())?;
+                runtime.extension_snapshot = candidate.snapshot.clone();
+                candidate.commit();
+            }
             runtime.extension_manager = extension_manager;
         }
         runtime.workspace_context_snapshot = self.workspace_context_snapshot;

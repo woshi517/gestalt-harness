@@ -26,7 +26,11 @@ pub struct ExtensionGrantConfig {
     #[serde(default, alias = "workspaceWrite")]
     pub workspace_write: bool,
     #[serde(default)]
+    pub shell: bool,
+    #[serde(default)]
     pub network: Vec<String>,
+    #[serde(default, alias = "allowedPaths")]
+    pub allowed_paths: Vec<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

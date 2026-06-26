@@ -113,10 +113,13 @@ impl AgentRuntime {
                 .with_policy_plan(policy_plan);
         }
         let extension_snapshot = Arc::new(extension_snapshot);
+        let host_context =
+            crate::activation::HostLaunchContext::from_runtime_config(&config, event_bus.clone());
         let extension_manager = Arc::new(crate::extension::ExtensionManager::new(
             extension_snapshot.clone(),
             event_bus.clone(),
             Arc::new(crate::extension::NoopExtensionLauncher),
+            host_context,
         ));
 
         Self {
@@ -272,7 +275,8 @@ impl AgentRuntime {
             .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)
             .await;
 
-        let active_extension_snapshot = self.extension_manager.active_snapshot();
+        let snapshot_lease = self.extension_manager.acquire_lease();
+        let active_extension_snapshot = snapshot_lease.snapshot.clone();
         let pinned_tools = active_extension_snapshot.tool_catalog();
         self.event_bus
             .publish(RuntimeEvent::RuntimeGenerationAdopted {

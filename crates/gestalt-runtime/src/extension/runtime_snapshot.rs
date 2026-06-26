@@ -42,6 +42,10 @@ pub struct RuntimeExtensionSnapshot {
     pub mcp_registry: Arc<gestalt_mcp::McpRegistry>,
     pub process_instances: Arc<[Arc<ExtensionProcessInstance>]>,
     pub package_health: Arc<[ExtensionInstanceHealth]>,
+    pub diagnostics: Arc<[crate::activation::ActivationDiagnostic]>,
+    pub managed_resources: Arc<[crate::activation::ManagedExtensionResource]>,
+    pub negotiated_protocol: Arc<std::collections::HashMap<String, String>>,
+    pub resolved_packages: Arc<[crate::extension::ResolvedExtensionPackage]>,
 }
 
 impl RuntimeExtensionSnapshot {
@@ -66,6 +70,10 @@ impl RuntimeExtensionSnapshot {
             mcp_registry,
             process_instances: Arc::from([]),
             package_health: Arc::from([]),
+            diagnostics: Arc::from([]),
+            managed_resources: Arc::from([]),
+            negotiated_protocol: Arc::new(std::collections::HashMap::new()),
+            resolved_packages: Arc::from([]),
         }
     }
 

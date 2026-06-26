@@ -25,10 +25,18 @@ pub struct CommandTool {
     idempotent: bool,
     command: String,
     args: Vec<String>,
+    permissions: crate::manifest::Permissions,
+    grants: crate::extension::ExtensionGrantConfig,
+    package_source_root: Option<std::path::PathBuf>,
+    event_bus: crate::event_bus::RuntimeEventBus,
 }
 
 impl CommandTool {
-    pub fn from_component(component: &ResolvedExtensionComponent) -> crate::Result<Self> {
+    pub fn from_component(
+        component: &ResolvedExtensionComponent,
+        _workspace_root: std::path::PathBuf,
+        event_bus: crate::event_bus::RuntimeEventBus,
+    ) -> crate::Result<Self> {
         let description = component.description.clone().ok_or_else(|| {
             crate::RuntimeError::Extension(format!(
                 "Command tool '{}' is missing description",
@@ -69,6 +77,10 @@ impl CommandTool {
             idempotent: component.idempotent,
             command: component.entrypoint.command.clone(),
             args: component.entrypoint.args.clone(),
+            permissions: component.permissions.clone(),
+            grants: component.grants.clone(),
+            package_source_root: component.package_source_root.clone(),
+            event_bus,
         })
     }
 }
@@ -133,9 +145,32 @@ impl Tool for CommandTool {
         input: serde_json::Value,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ToolError> {
-        let mut child = Command::new(&self.command)
+        // Enforce effective shell permission
+        crate::permissions::check_shell_permission_effective(
+            &self.permissions,
+            Some(&self.grants),
+            &self.event_bus,
+            &format!("{}@{}", self.package_id, self.instance_id),
+        )
+        .map_err(|e| {
+            ToolError::ExecutionFailed(std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))
+        })?;
+
+        let working_dir = self
+            .package_source_root
+            .clone()
+            .unwrap_or_else(|| ctx.working_dir.clone());
+        let resolved_command = if std::path::Path::new(&self.command).is_absolute() {
+            std::path::PathBuf::from(&self.command)
+        } else if let Some(ref source_root) = self.package_source_root {
+            source_root.join(&self.command)
+        } else {
+            std::path::PathBuf::from(&self.command)
+        };
+
+        let mut child = Command::new(resolved_command)
             .args(&self.args)
-            .current_dir(&ctx.working_dir)
+            .current_dir(working_dir)
             .env_clear()
             .envs(&ctx.environment)
             .stdin(Stdio::piped())

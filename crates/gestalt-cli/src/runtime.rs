@@ -463,7 +463,9 @@ fn convert_extension_instances(
                     grants: gestalt_runtime::extension::ExtensionGrantConfig {
                         workspace_read: instance.grants.workspace_read,
                         workspace_write: instance.grants.workspace_write,
+                        shell: instance.grants.shell,
                         network: instance.grants.network.clone(),
+                        allowed_paths: instance.grants.allowed_paths.clone(),
                     },
                 },
             )

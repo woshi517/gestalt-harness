@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use crate::artifact_store::ArtifactStore;
 use crate::error::Result;
-use crate::extension::{ExtensionInstanceHealth, RuntimeExtensionSnapshot, RuntimeGeneration};
+use crate::event_bus::RuntimeEvent;
+use crate::extension::{ExtensionInstanceHealth, RuntimeGeneration};
 use crate::inspect::RuntimeInspect;
 use crate::registry::RuntimeFingerprint;
-use crate::event_bus::RuntimeEvent;
-use crate::artifact_store::ArtifactStore;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReloadExtensionsRequest {
@@ -34,8 +34,10 @@ pub trait RuntimeControl: Send + Sync {
     ) -> Result<ReloadExtensionsReport>;
     fn current_generation(&self) -> RuntimeGeneration;
     fn extension_health(&self) -> Vec<ExtensionInstanceHealth>;
+}
 
-    // Orchestration methods moved from AgentRuntimeHandle
+#[async_trait]
+pub trait HostControl: Send + Sync {
     async fn spawn_session(
         &self,
         session_id: &str,
@@ -59,6 +61,11 @@ pub trait RuntimeControl: Send + Sync {
         source: gestalt_core::session_queue::MessageSource,
         idempotency_key: Option<String>,
     ) -> Result<gestalt_core::session_queue::QueueAck>;
+    async fn respond_to_approval(
+        &self,
+        approval_id: &str,
+        decision: gestalt_core::approval::ApprovalDecision,
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -73,35 +80,45 @@ impl RuntimeControl for crate::runtime::AgentRuntime {
     ) -> Result<ReloadExtensionsReport> {
         let _guard = self.extension_manager.reload_mutex.lock().await;
         let active = self.extension_manager.active_snapshot();
-        let candidate_generation = RuntimeGeneration(active.generation.0 + 1);
-        let candidate_fingerprint = RuntimeFingerprint(format!(
-            "{}:generation:{}",
-            active.fingerprint, candidate_generation.0
-        ));
+        let pipeline = crate::activation::ExtensionActivationPipeline {
+            discovery: Arc::new(crate::activation::StaticExtensionSource::new(
+                active.resolved_packages.iter().cloned().collect(),
+            )),
+            launcher: self.extension_manager.launcher.clone(),
+            base_composition: Arc::new(crate::activation::BaseRuntimeComposition {
+                tool_catalog: self.tools.clone(),
+                mcp_registry: self.mcp_registry.clone(),
+                base_registry: self.registry_snapshot.clone(),
+            }),
+            host_context: self.extension_manager.host_context.clone(),
+        };
+        let mut candidate = pipeline
+            .run(
+                crate::activation::ActivationRequest {
+                    current: Some(active.clone()),
+                    target_instance: request.instance_id.clone(),
+                    force: request.force,
+                    mode: if request.dry_run {
+                        crate::activation::ActivationMode::DryRun
+                    } else {
+                        crate::activation::ActivationMode::Commit
+                    },
+                },
+                &self.extension_manager,
+            )
+            .await?;
         let report = ReloadExtensionsReport {
             previous_generation: active.generation,
-            candidate_generation,
-            candidate_fingerprint: candidate_fingerprint.clone(),
+            candidate_generation: candidate.snapshot.generation,
+            candidate_fingerprint: candidate.snapshot.fingerprint.clone(),
             published: !request.dry_run,
             validation_errors: Vec::new(),
         };
 
         if !request.dry_run {
-            let candidate = Arc::new(RuntimeExtensionSnapshot {
-                generation: candidate_generation,
-                fingerprint: candidate_fingerprint,
-                registry_snapshot: active.registry_snapshot.clone(),
-                tool_catalog: active.tool_catalog.clone(),
-                context_plan: active.context_plan.clone(),
-                policy_plan: active.policy_plan.clone(),
-                routing_plan: active.routing_plan.clone(),
-                verification_plan: active.verification_plan.clone(),
-                observer_plan: active.observer_plan.clone(),
-                mcp_registry: active.mcp_registry.clone(),
-                process_instances: active.process_instances.clone(),
-                package_health: active.package_health.clone(),
-            });
-            self.extension_manager.publish_snapshot(candidate)?;
+            self.extension_manager
+                .publish_snapshot(candidate.snapshot.clone())?;
+            candidate.commit();
         }
 
         Ok(report)
@@ -113,71 +130,6 @@ impl RuntimeControl for crate::runtime::AgentRuntime {
 
     fn extension_health(&self) -> Vec<ExtensionInstanceHealth> {
         self.extension_manager
-            .active_snapshot()
-            .package_health
-            .iter()
-            .cloned()
-            .collect()
-    }
-
-    async fn spawn_session(
-        &self,
-        _session_id: &str,
-        _config_override: Option<crate::config::RuntimeConfig>,
-    ) -> Result<String> {
-        Err(crate::error::RuntimeError::Orchestration(
-            "spawn_session is not supported on a single AgentRuntime".to_string()
-        ))
-    }
-
-    async fn send_message(
-        &self,
-        _session_id: &str,
-        prompt: &str,
-    ) -> Result<gestalt_core::session::RunResult> {
-        let input = crate::runtime::UserInput {
-            prompt: prompt.to_string(),
-            session_id: Some(_session_id.to_string()),
-            cancel_token: gestalt_core::cancel::CancelToken::new(),
-            event_tx: None,
-            artifact_dir: None,
-        };
-        self.run_prompt(input).await
-    }
-
-    fn subscribe(&self) -> broadcast::Receiver<Arc<RuntimeEvent>> {
-        self.event_bus.subscribe()
-    }
-
-    fn artifact_store(&self) -> Arc<dyn ArtifactStore> {
-        panic!("artifact_store is not supported on a single AgentRuntime")
-    }
-
-    async fn create_artifact(&self, _session_id: &str, _name: &str, _content: &[u8]) -> Result<String> {
-        Err(crate::error::RuntimeError::Orchestration(
-            "create_artifact is not supported on a single AgentRuntime".to_string()
-        ))
-    }
-
-    async fn read_artifact(&self, _session_id: &str, _name: &str) -> Result<Vec<u8>> {
-        Err(crate::error::RuntimeError::Orchestration(
-            "read_artifact is not supported on a single AgentRuntime".to_string()
-        ))
-    }
-
-    async fn list_artifacts(&self, _session_id: &str) -> Result<Vec<String>> {
-        Err(crate::error::RuntimeError::Orchestration(
-            "list_artifacts is not supported on a single AgentRuntime".to_string()
-        ))
-    }
-
-    async fn enqueue_steering_message(
-        &self,
-        session_id: &str,
-        content: &str,
-        source: gestalt_core::session_queue::MessageSource,
-        idempotency_key: Option<String>,
-    ) -> Result<gestalt_core::session_queue::QueueAck> {
-        self.enqueue_message(session_id.to_string(), content.to_string(), source, idempotency_key).await
+            .combined_health(&self.extension_manager.active_snapshot())
     }
 }
