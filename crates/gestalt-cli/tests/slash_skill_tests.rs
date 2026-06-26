@@ -6,10 +6,10 @@ use gestalt_cli::config::{CliOverrides, EffectiveConfig, SkillsConfig};
 use gestalt_cli::slash::{handle_slash_command, SlashOutcome};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
-static ENV_MUTEX: Mutex<()> = Mutex::new(());
+static ENV_MUTEX: Mutex<()> = Mutex::const_new(());
 
 struct EnvVarGuard {
     key: &'static str,
@@ -82,7 +82,7 @@ fn load_config(workspace: &Path) -> EffectiveConfig {
 
 #[tokio::test]
 async fn slash_skill_unknown_name_does_not_activate() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
@@ -106,7 +106,7 @@ async fn slash_skill_unknown_name_does_not_activate() {
 
 #[tokio::test]
 async fn slash_skill_known_name_returns_activation_outcome() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
@@ -124,7 +124,7 @@ async fn slash_skill_known_name_returns_activation_outcome() {
 
 #[tokio::test]
 async fn slash_skill_off_known_name_returns_deactivation_outcome() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
@@ -148,7 +148,7 @@ async fn slash_skill_off_known_name_returns_deactivation_outcome() {
 
 #[tokio::test]
 async fn slash_skill_off_unknown_name_does_not_return_outcome() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     make_skill_dir(&workspace, "pdf");
@@ -172,7 +172,7 @@ async fn slash_skill_off_unknown_name_does_not_return_outcome() {
 
 #[tokio::test]
 async fn slash_skill_missing_args_is_noop() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     let config = load_config(&workspace);
@@ -186,7 +186,7 @@ async fn slash_skill_missing_args_is_noop() {
 
 #[tokio::test]
 async fn slash_skill_off_missing_args_is_noop() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _env_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let workspace = temp_workspace();
     let config = load_config(&workspace);

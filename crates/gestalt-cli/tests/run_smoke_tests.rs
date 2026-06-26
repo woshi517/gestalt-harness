@@ -7,9 +7,9 @@ use gestalt_core::{
     HarnessError,
 };
 use std::sync::Arc;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
-static ENV_MUTEX: Mutex<()> = Mutex::new(());
+static ENV_MUTEX: Mutex<()> = Mutex::const_new(());
 
 struct EnvVarGuard {
     key: &'static str,
@@ -107,7 +107,7 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
 
 #[tokio::test]
 async fn test_cli_smoke_prompt_source() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
@@ -261,7 +261,7 @@ default = "confirm"
 
 #[tokio::test]
 async fn test_cli_smoke_custom_provider_via_profile() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
