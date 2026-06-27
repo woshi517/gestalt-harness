@@ -16,6 +16,6 @@ pub use auth::{
     ResolvedCredential,
 };
 pub use catalog::ModelCatalog;
-pub use openai::{OpenAiChatCompletionsProvider, OpenAiProvider, OpenAiResponsesProvider};
+pub use openai::{OpenAiChatCompletionsProvider, OpenAiResponsesProvider};
 pub use registry::get_by_api_format_with_resolver;
 pub use tool_schema_adapter::ToolSchemaAdapter;

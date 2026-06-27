@@ -1,7 +1,7 @@
 use std::fs;
 
 use gestalt_core::{AgentEvent, StopReason};
-use gestalt_models::{AnthropicProvider, OpenAiProvider};
+use gestalt_models::{AnthropicProvider, OpenAiChatCompletionsProvider};
 
 fn fixture(path: &str) -> String {
     fs::read_to_string(format!("../../tests/fixtures/provider-streams/{path}"))
@@ -10,7 +10,7 @@ fn fixture(path: &str) -> String {
 
 #[test]
 fn openai_normalizes_multiple_tool_calls_in_order() {
-    let events = OpenAiProvider::normalize_sse(&fixture("openai-multiple-tools.sse"));
+    let events = OpenAiChatCompletionsProvider::normalize_sse(&fixture("openai-multiple-tools.sse"));
     let events = events
         .into_iter()
         .collect::<Result<Vec<_>, _>>()

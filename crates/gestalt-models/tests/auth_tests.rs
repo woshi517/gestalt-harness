@@ -3,7 +3,7 @@ use std::sync::Arc;
 use gestalt_core::provider::Provider;
 use gestalt_models::{
     auth::{ConfiguredCredential, CredentialResolver, CredentialSource, ProviderAuthConfig},
-    AnthropicProvider, OpenAiProvider, ResolvedCredential,
+    AnthropicProvider, OpenAiChatCompletionsProvider, ResolvedCredential,
 };
 use serde_json::json;
 
@@ -46,7 +46,7 @@ fn anthropic_auth_resolves_custom_env_var() {
 
 #[test]
 fn openai_compatible_preserves_base_url_and_model() {
-    let provider = OpenAiProvider::new(json!({
+    let provider = OpenAiChatCompletionsProvider::new(json!({
         "id": "openai-compatible",
         "base_url": "https://example.test/v1",
         "default_model": "gpt-4o-mini",
