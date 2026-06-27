@@ -6,6 +6,9 @@
 
 > This document is the single source of truth for runtime structure, trait contracts, data models, and dependency boundaries. The PRD retains ownership of product vision, feature scope, roadmap, and user-facing design. When the two conflict, this document governs implementation.
 
+> [!NOTE]
+> Extension architecture is currently governed by [ADR-028](./adrs/ADR-028-extension-package-components.md) through [ADR-030](./adrs/ADR-030-lifecycle-protocol-v2.md) and [docs/feature-spec/product-neutral-extension-architecture.md](./feature-spec/product-neutral-extension-architecture.md).
+
 ---
 
 ## Table of Contents

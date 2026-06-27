@@ -1,50 +1,46 @@
 # Gestalt Runtime Crate (`gestalt-runtime`)
 
-The `gestalt-runtime` crate is the **Runtime Composition Layer** of the Gestalt agent harness. It wraps `AgentLoop` (from `gestalt-core`) with concrete implementations of providers, tool registries, policy engines, context pipelines, trace hooks, and a full **process-backed extension system** that lets child processes register tools, hooks, and context contributors via JSON-RPC 2.0 over stdio.
+The `gestalt-runtime` crate is the **Runtime Composition Layer** of the Gestalt agent harness. It wraps `AgentLoop` (from `gestalt-core`) with concrete implementations of LLM providers, tool catalogs, policy engines, and a transaction-safe extension architecture. This crate implements the V2 package/component architecture supporting hot-reloadable snapshots, lifecycle clients, command tools, and host-level network policies, while maintaining compatibility with legacy V1 process-backed extensions.
 
-For a detailed view of the traits, configuration structures, and fingerprinting mechanisms, please consult the complete [API Reference](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/crates/gestalt-runtime/REFERENCE.md).
+For a detailed view of the traits, configuration structures, and fingerprinting mechanisms, please consult the complete [API Reference](./REFERENCE.md).
 
 This crate is the primary integration point for:
-- Building an `AgentRuntime` with all required dependencies
-- Loading and managing **process extensions** (child processes that communicate over stdio)
-- Implementing **composition hooks** to intercept and modify the agent lifecycle
-- Registering **context contributors** that inject system messages into the context packet
-- Applying **permission sandboxing** (filesystem, network, shell) against extension manifests
-- Composing base tools with extension-provided tools via `ComposedToolCatalog`
-- Coordinating multi-session orchestration with `ArtifactStore` and `AgentRuntimeHandle`
+- Orchestrating workspace environments through `RuntimeHost`
+- Executing extension package configurations via `ExtensionActivationPipeline` and `ExtensionManager`
+- Publishing generation snapshots atomically using `RuntimeExtensionSnapshot` and pinning execution using `RuntimeSnapshotLease`
+- Dispatching capability hooks, command tools, and MCP servers via V2 lifecycle clients
+- Enforcing sandboxing policies and host-level trust settings
 
 ---
 
 ## Architecture Overview
 
-`gestalt-runtime` sits between applications (CLI, TUI, SDK clients) and the core agent execution engine:
+`gestalt-runtime` coordinates the runtime lifecycle, extension loading, and session execution:
 
 ```mermaid
 graph TD
-    App[CLI / TUI / SDK Client] -->|invokes| Runtime[gestalt-runtime::AgentRuntime]
-    Runtime -->|composed of| Registry[RuntimeRegistry]
-    Runtime -->|manages| Adapters[Hook Adapters]
-    Adapters -->|wrap| Hooks[CompositionHooks]
+    App[CLI / TUI / SDK Client] -->|invokes| Host[RuntimeHost]
+    Host -->|spawns sessions with| Runtime[AgentRuntime]
+    Host -->|manages| ExtMgr[ExtensionManager]
+    ExtMgr -->|runs activation/reload| Pipeline[ExtensionActivationPipeline]
+    Pipeline -->|publishes atomic| Snapshot[RuntimeExtensionSnapshot]
+    Runtime -->|pins execution state via| Lease[RuntimeSnapshotLease]
+    Lease -->|binds| Snapshot
+    Snapshot -->|holds| ComponentInstances[Configured Instances]
+
+    subgraph Extensions V2 [Extension Packages & Components]
+        ComponentInstances -->|executes| LifecycleV2[Lifecycle Client V2]
+        LifecycleV2 -->|MCP Server| MCPServer[MCP Server Component]
+        LifecycleV2 -->|Command Tool| CmdTool[Command Tool]
+        LifecycleV2 -->|Lifecycle Component| LifecycleComp[Lifecycle Component]
+    end
+
+    subgraph Legacy V1 Compatibility
+        ComponentInstances -->|adapter| LegacyBroker[ProcessExtensionBroker]
+        LegacyBroker -->|wraps| ProcessBackedTool[ProcessBackedTool]
+    end
+
     Runtime -->|orchestrates| AgentLoop[gestalt-core::AgentLoop]
-
-    subgraph Extensions[Process-Backed Extensions]
-        Broker[ProcessExtensionBroker]
-        Tools[ProcessBackedTool]
-        Ctx[ProcessBackedContextContributor]
-        Discovery[ExtensionDiscovery]
-        Manifest[gestalt.extension.toml]
-    end
-
-    Discovery -->|spawns| Broker
-    Broker -->|wraps| Tools
-    Broker -->|wraps| Ctx
-    Manifest -->|discovered by| Discovery
-    Registry -->|registers| Tools
-    Registry -->|registers| Ctx
-
-    subgraph Core Boundaries [gestalt-core (Pure)]
-        AgentLoop
-    end
 ```
 
 ---
@@ -255,13 +251,13 @@ Schema hashing utilities:
 
 ---
 
-## Process-Backed Extensions
+## Legacy V1 Process Extension Compatibility
 
-The extension system is the primary mechanism for extending the runtime with **out-of-process plugins** — child processes that communicate via JSON-RPC 2.0 over stdio.
+The runtime remains backwards-compatible with the legacy V1 process-backed extension model, allowing child processes to register tools, hooks, and context contributors over a single stdio channel using JSON-RPC 2.0.
 
 ### Concept
 
-Instead of compiling Rust code into the runtime, extensions run as separate OS processes. Each extension declares its capabilities in a `gestalt.extension.toml` manifest. The `ProcessExtensionBroker` spawns the process, performs a JSON-RPC 2.0 initialization handshake, and routes tool calls / context injections / hook invocations over the stdio channel.
+For compatibility, older extensions that declare their capabilities in a `gestalt.extension.toml` manifest run as separate OS processes. The `ProcessExtensionBroker` spawns the process, performs a JSON-RPC 2.0 initialization handshake, and maps their tool calls / context injections / hook invocations into the modern V2 runtime capabilities via adapters.
 
 ### Extension Manifest (`gestalt.extension.toml`)
 

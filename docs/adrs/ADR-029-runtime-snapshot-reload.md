@@ -1,4 +1,4 @@
-# ADR-002 Runtime Snapshot Reload
+# ADR-029 Runtime Snapshot Reload
 
 Status: Accepted
 
@@ -8,4 +8,4 @@ Startup and reload both execute through `ExtensionActivationPipeline`. Reload ca
 
 `ActivationCandidate` owns newly-started resources until commit. When a new generation is published, the previous generation is retired but remains callable while leases exist. Non-reused resources drain only after the final lease releases.
 
-Deferred: automatic file watching, remote package registry integration, optimizing publication with `arc-swap`, and transactional hot reload (candidate reconstruction, diffing, and draining).
+Deferred: automatic file watching, remote package registry integration, optimized publication via arc-swap, and richer reload reporting.

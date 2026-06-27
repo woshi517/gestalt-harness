@@ -1,144 +1,118 @@
 ## Extension Development Guide
 
 **Status:** Living Document  
-**Applies to:** gestalt-harness v0.1+  
-**Runtime protocol:** JSON-RPC 2.0 over stdio  
+**Applies to:** gestalt-harness v0.2+  
+**Primary Model:** V2 Package & Components  
+**Runtime protocol:** Lifecycle Protocol V2 / MCP / Stdio  
 
 ---
 
 ## 1. Introduction
 
-Gestalt extensions are out-of-process programs that extend the agent's capabilities. An extension runs as a child process and communicates with the Gestalt runtime via newline-delimited JSON-RPC 2.0 messages over stdin/stdout.
+Gestalt extensions are structured packages containing one or more typed runtime components. The runtime activates these components as part of an immutable snapshot generation, coordinating lifecycles, configuration, and security permissions.
 
-Extensions can contribute three kinds of functionality:
+Extensions can contribute the following kinds of functionality:
 
-- **Tools** — callable functions the agent can invoke (e.g., a custom search API, a database query tool)
-- **Context injectors** — system-message fragments that are injected into the context window before each agent turn (e.g., weather data, time-of-day, stock prices)
-- **Hooks** — lifecycle callbacks that fire at specific points in the agent loop (before context build, after tool result, etc.) and can block, annotate, or add context
+- **Command Tools** — executable binaries or scripts wrapped as tools.
+- **MCP Server Components** — Model Context Protocol servers run over stdio transport.
+- **Lifecycle Components** — custom code implementing the Lifecycle Protocol V2 to hook into agent phases, turn routing, context assembly, policy guards, or verifiers.
+- **Client/Product Descriptors** — metadata/inventory for visual, SDK, or GUI hosts (not executed directly by the runtime core).
+- **Skills** — agent instructions and patterns.
 
-You might write an extension when:
+These components are configured as package instances and verified using a cryptographic trust/grants model.
 
-- Your tool has dependencies (Python libraries, Node packages, system binaries) that don't belong in the Gestalt binary
-- You want to write a plugin in a language other than Rust
-- You need to isolate untrusted or third-party code behind a process boundary
-- You want to offer a reusable capability that can be distributed independently of Gestalt itself
-
-MVP extensions use the `stdio` runtime — the runtime spawns your process, writes JSON-RPC requests to its stdin, and reads JSON-RPC responses from its stdout. No HTTP, no Unix sockets, no extra infrastructure.
+Legacy V1 process-backed extensions (which register individual tools, context injectors, or hooks over a single stdio channel) remain supported via adapters. For details on migrating older manifests, see [Extension Manifest V1 to V2 Migration](./migrations/extension-manifest-v1-to-v2.md).
 
 ---
 
-## 2. Getting Started
+## 2. Getting Started with V2 Packages
 
-The architecture is straightforward:
+The Gestalt V2 architecture is component-centric:
 
 ```
-┌──────────────────────┐         stdin (JSON-RPC 2.0)         ┌──────────────────────┐
-│  Gestalt Runtime     │ ──── "initialize", "tools/call" ──→  │  Extension Process   │
-│  (ProcessBroker)     │ ←── response ──────────────────────  │  (Python/Node/Rust)  │
-│                      │         stderr (drained, logged)     │                      │
-└──────────────────────┘                                      └──────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│                      Runtime Host                      │
+│  ┌─────────────────────────┐   ┌────────────────────┐  │
+│  │   AgentRuntime (Run)    │   │  ExtensionManager  │  │
+│  └────────────┬────────────┘   └─────────┬──────────┘  │
+│               │                          │             │
+│  adopts lease │                          │ spawns &    │
+│               ▼                          ▼ manages     │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │             RuntimeExtensionSnapshot             │  │
+│  │  ┌────────────────────────────────────────────┐  │  │
+│  │  │            Configured Instances            │  │  │
+│  │  │  ┌──────────────┐ ┌────────────┐ ┌──────┐  │  │  │
+│  │  │  │ Command Tool │ │ MCP Server │ │ ...  │  │  │  │
+│  │  │  └──────────────┘ └────────────┘ └──────┘  │  │  │
+│  │  └────────────────────────────────────────────┘  │  │
+│  └──────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
 ```
 
-1. You write a program in any language that reads JSON lines from stdin and writes JSON lines to stdout.
-2. You write a `gestalt.extension.toml` manifest that declares your extension's identity, capabilities, tools, and permissions.
-3. The user installs the extension by placing it in their project's `.gestalt/extensions/` directory or a global extensions directory.
-4. On startup, Gestalt discovers the manifest, spawns the process, performs an initialize handshake, and routes RPC calls to your process.
+1. You declare a package manifest `gestalt.extension.toml` with `manifest_version = 2`.
+2. You declare one or more typed `[[components]]` (e.g., `command-tool`, `mcp-server`, `gestalt-lifecycle`).
+3. You configure instances of these components under host configuration.
+4. The runtime manages generation leases, sandboxing policies, and host-level network grants for each active component instance.
 
 ---
 
-## 3. The Extension Manifest
+## 3. The V2 Extension Manifest
 
-Every extension must ship a `gestalt.extension.toml` file. This is the extension's identity and contract.
+Every V2 extension package must contain a `gestalt.extension.toml` file at its root.
 
-### 3.1 Top-Level Fields
-
-```toml
-id = "my-ext"                     # Required. Unique identifier across all extensions.
-name = "My Extension"             # Required. Human-readable display name.
-version = "0.1.0"                 # Required. Semver string.
-runtime = "stdio"                 # Required. Only "stdio" is supported in MVP.
-```
-
-### 3.2 Entrypoint
+### 3.1 Package Metadata
 
 ```toml
-[entrypoint]
-command = "python3"               # Required. The executable to spawn.
-args = ["-m", "my_extension"]     # Optional. Arguments passed to the command.
+manifest_version = 2              # Required. Must be 2 for the package model.
+
+[package]
+id = "com.example.review"         # Required. Unique identifier.
+name = "Review Extensions"         # Required. Human-readable name.
+version = "1.0.0"                 # Required. Semver string.
+description = "V2 review tools"   # Optional. Description.
 ```
 
-The command is spawned directly via `Command::new()`. If `allow_shell` is `false` (the default), the command must not contain shell metacharacters (spaces, `|`, `&`, `;`, `>`, `<`) and must not be a known shell (`sh`, `bash`, `zsh`, `ksh`, `csh`, `tcsh`, `cmd`, `powershell`, `pwsh`, `fish`).
+### 3.2 Components
 
-### 3.3 Capabilities
+A package contains a list of component declarations. Each component must declare an `id`, `kind`, and its `entrypoint`:
 
 ```toml
-[capabilities]
-tools = true    # Optional, default false. Enable if you declare [[tools]].
-hooks = false   # Optional, default false. Enable if you declare [[hooks]].
-context = true  # Optional, default false. Enable if you declare [[context_injectors]].
+[[components]]
+id = "reviewer"
+kind = "gestalt-lifecycle"
+
+[components.entrypoint]
+command = "python"
+args = ["-m", "review_ext"]
 ```
 
-Validation rule: if you declare any `[[tools]]` entries, `capabilities.tools` must be `true`. Same for `hooks` and `context`. Violations cause the extension to be rejected.
+#### Component Kinds:
+- `gestalt-lifecycle` — Implements the Lifecycle Protocol V2.
+- `command-tool` — A script/binary executed directly to fulfill a single tool.
+- `mcp-server` — An external MCP server communicating via stdio JSON-RPC.
 
-### 3.4 Permissions
+### 3.3 Sandboxing & Permissions
+
+Component execution is governed by a permissions schema:
 
 ```toml
 [permissions]
-allow_network = []                # List of allowed hostnames. "*" means any host.
-allow_workspace_read = true       # Allow reading files inside the workspace root.
-allow_workspace_write = false     # Allow writing files inside the workspace root.
-allow_shell = false               # Allow shell-interpreted commands in entrypoint.
-allow_all_paths = false           # Bypass all path checks (dangerous).
-allowed_paths = []                # Additional paths outside workspace that are allowed.
+allow_network = ["api.github.com"] # List of allowed hostnames. "*" means any host.
+allow_workspace_read = true        # Allow reading files inside the workspace root.
+allow_workspace_write = false      # Allow writing files inside the workspace root.
+allow_shell = false                # Allow shell-interpreted commands.
+allow_all_paths = false            # Bypass path verification checks (dangerous).
+allowed_paths = []                 # Additional paths outside the workspace that are allowed.
 ```
 
-Network entries are matched by exact hostname or `*` wildcard. Path checks use canonicalization (`fs::canonicalize`) to prevent traversal attacks. See section 6 for full details.
+Host-level MCP network policies are applied to outgoing connections.
 
-### 3.5 Tool Declarations
+### 3.4 Legacy V1 Manifest Format (Compatibility Mode)
 
-```toml
-[[tools]]
-name = "search_docs"
-description = "Search the project documentation index"
-input_schema = { type = "object", properties = { query = { type = "string" } }, required = ["query"] }
-risk = "low"                      # Optional. One of low, medium, high, critical. Defaults to high.
-read_only = true                  # Optional. Set to true if the tool does not write or mutate.
-idempotent = true                 # Optional. Set to true if repeated calls produce the same result.
-```
+For details on the legacy V1 format (manifests without `manifest_version = 2`), please see the [V1 to V2 Migration Guide](./migrations/extension-manifest-v1-to-v2.md). Legacy v1 process extensions register tools, context injectors, and hooks on a single stdio broker.
 
-The `input_schema` is a raw JSON Schema object. The `risk` field influences whether the tool can run in parallel with other tools (low risk tools can; high/critical tools are serialized).
-
-`read_only` and `idempotent` are self-declared annotations. They are recorded as `ExtensionDeclared` and never enable automatic retry unless your extension ID is in the user's `[extensions].trusted` list, which promotes annotations to `BuiltInTrusted`.
-
-### 3.6 Hook Declarations
-
-```toml
-[[hooks]]
-name = "validate_before_tool"
-lifecycle_point = "before_context_build"  # One of: before_context_build, after_context_build,
-                                          # before_tool_policy, after_tool_result, prepare_next_turn, on_event
-```
-
-Lifecycle capabilities use typed request/response DTOs. The runtime calls them via the `lifecycle/invoke` method.
-
-### 3.7 Context Injector Declarations
-
-```toml
-[[context_injectors]]
-name = "current_weather"
-```
-
-Context injectors are invoked via `context/inject`. The response should contain a `content` field with the system message text to inject.
-
-### 3.8 Validation Rules (from `ExtensionManifest::validate`)
-
-- `id` must be non-empty
-- `name` must be non-empty
-- `runtime` must be `"stdio"`
-- `entrypoint.command` must be non-empty
-- If `tools` is non-empty, `capabilities.tools` must be `true`
-- If `hooks` is non-empty, `capabilities.hooks` must be `true`
-- If `context_injectors` is non-empty, `capabilities.context` must be `true`
+----empty, `capabilities.context` must be `true`
 - If `allow_shell` is `false`, the entrypoint command must not contain shell metacharacters or be a shell executable
 
 ### 3.9 Complete Worked Example

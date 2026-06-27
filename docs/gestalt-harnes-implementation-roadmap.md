@@ -897,4 +897,4 @@ Following a comprehensive v0.1 harness-engineering review, we hardened the primi
 - **Regression Verification:** Shipped `TraceFixture` / `GoldenTrace` registry and `GoldenTraceRunner` (asserting event ordering, policy decisions, and tool executions against canonical trace files) with `TraceEvaluator` hook.
 - **Default Overridable System Prompt:** Added a default system prompt coverage in `MinimalContextPipeline` with overrides via `prompt.override` or `prompt.override_file` in `gestalt.json`.
 
-For detailed analysis, refer to [Harness Engineering Review Learnings](file:///home/woshi/Code/Noentic/gestalt/gestalt-harness/docs/solutions/2026-06-01-001-v0-1-harness-engineering-review.md).
+For detailed analysis, refer to [Harness Engineering Review Learnings](./solutions/2026-06-01-001-v0-1-harness-engineering-review.md).

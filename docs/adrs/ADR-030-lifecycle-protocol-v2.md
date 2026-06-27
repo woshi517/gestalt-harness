@@ -1,4 +1,4 @@
-# ADR-003 Lifecycle Protocol V2
+# ADR-030 Lifecycle Protocol V2
 
 Status: Accepted
 

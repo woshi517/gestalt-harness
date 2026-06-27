@@ -1,4 +1,4 @@
-# ADR-001 Extension Package Components
+# ADR-028 Extension Package Components
 
 Status: Accepted
 

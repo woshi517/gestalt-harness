@@ -189,12 +189,6 @@ Manage and inspect your agent workspace with the following CLI commands:
   ```
   Provides a top-level summary of active options, configuration health, recent runs count, and provider credential warnings.
 
-- **Check Workspace Status:**
-  ```bash
-  gestalt status
-  ```
-  Provides a top-level summary of active options, configuration health, recent runs count, and provider credential warnings.
-
 - **Workspace Diagnostics (`workspace` subcommands):**
   - **Info**: List paths to configuration and data files.
     ```bash
@@ -215,7 +209,7 @@ You can use `--format json` to get machine-readable output envelopes for any of 
 
 ## Extensions & Runtime Composition
 
-`gestalt-harness` supports loading dynamic extensions over stdio JSON-RPC. Extensions can register tools, hooks, and context contributors and declare their required permissions.
+Gestalt extensions are packages containing typed runtime components such as command tools, MCP servers, lifecycle components, skills, and optional client/product descriptors. Legacy V1 process extensions remain supported through compatibility activation.
 
 Manage and diagnose extensions with the following CLI commands:
 
