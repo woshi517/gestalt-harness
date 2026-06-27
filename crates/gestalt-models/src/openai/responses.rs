@@ -33,6 +33,7 @@ pub struct OpenAiResponsesProvider {
 
 #[derive(Debug, Clone, Default)]
 struct ToolCallState {
+    call_id: String,
     name: String,
 }
 
@@ -439,27 +440,34 @@ fn normalize_payload(
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
+                    let call_id = item
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&id)
+                        .to_string();
                     let name = item
                         .get("name")
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
                     let mut map = state.lock().map_err(|_| poisoned())?;
-                    map.insert(id, ToolCallState { name });
+                    map.insert(id, ToolCallState { call_id, name });
                 }
             }
         }
         "response.function_call_arguments.delta" => {
-            let call_id = value
+            let item_id = value
                 .get("item_id")
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
             let mut name = String::new();
+            let mut call_id = item_id.clone();
             {
                 let map = state.lock().map_err(|_| poisoned())?;
-                if let Some(state) = map.get(&call_id) {
+                if let Some(state) = map.get(&item_id) {
                     name = state.name.clone();
+                    call_id = state.call_id.clone();
                 }
             }
             if let Some(delta) = value.get("delta").and_then(Value::as_str) {
