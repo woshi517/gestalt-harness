@@ -526,8 +526,8 @@ pub fn calculate_continuation_state(
     token_budget.reserved_output = config
         .context
         .reserved_output_tokens
-        .or(Some(current_model.max_output_tokens))
-        .or(config.tools.max_output_tokens)
+        .or(Some(current_model.max_output_tokens.min(8192)))
+        .or(config.tools.max_output_tokens.map(|v| v.min(8192)))
         .unwrap_or(4096);
 
     (context_state, token_budget, model_changed)

@@ -219,7 +219,7 @@ fn test_provider_switch_and_projection_reset() {
     assert!(model_changed, "model must be detected as changed");
     assert!(context_state.active_checkpoint.is_none());
     assert_eq!(token_budget.model_limit, 128_000);
-    assert_eq!(token_budget.reserved_output, 16_384);
+    assert_eq!(token_budget.reserved_output, 8192);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
