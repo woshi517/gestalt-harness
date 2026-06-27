@@ -6,7 +6,7 @@ use std::{
 use gestalt_core::{error::HarnessError, provider::Provider};
 use serde_json::json;
 
-use crate::{AnthropicProvider, OpenAiProvider};
+use crate::{AnthropicProvider, OpenAiChatCompletionsProvider};
 
 pub type ProviderConfig = serde_json::Value;
 
@@ -37,7 +37,7 @@ pub fn get_with_resolver(
         "anthropic" => Ok(Arc::new(AnthropicProvider::new_with_resolver(
             &config, resolver,
         )?)),
-        "openai" => Ok(Arc::new(OpenAiProvider::new_with_resolver(
+        "openai" => Ok(Arc::new(OpenAiChatCompletionsProvider::new_with_resolver(
             &config, resolver,
         )?)),
         "openai-compatible" => {
@@ -49,7 +49,7 @@ pub fn get_with_resolver(
                     "api_key_env": "OPENAI_COMPATIBLE_API_KEY"
                 }),
             );
-            Ok(Arc::new(OpenAiProvider::new_with_resolver(
+            Ok(Arc::new(OpenAiChatCompletionsProvider::new_with_resolver(
                 &config, resolver,
             )?))
         }
@@ -155,7 +155,7 @@ fn init_defaults() -> RwLock<HashMap<&'static str, ProviderFactory>> {
 
     map.insert(
         "openai",
-        Box::new(|config| Ok(Arc::new(OpenAiProvider::new(config)?))),
+        Box::new(|config| Ok(Arc::new(OpenAiChatCompletionsProvider::new(config)?))),
     );
 
     map.insert(
@@ -169,7 +169,7 @@ fn init_defaults() -> RwLock<HashMap<&'static str, ProviderFactory>> {
                     "api_key_env": "OPENAI_COMPATIBLE_API_KEY"
                 }),
             );
-            Ok(Arc::new(OpenAiProvider::new(config)?))
+            Ok(Arc::new(OpenAiChatCompletionsProvider::new(config)?))
         }),
     );
 
