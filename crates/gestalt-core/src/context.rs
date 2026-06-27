@@ -112,6 +112,15 @@ impl PromptSnapshot {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderCacheKey {
+    pub provider_id: String,
+    pub api_format: crate::provider::ApiFormat,
+    pub model_id: String,
+    pub prompt_prefix_hash: String,
+    pub tool_schema_hash: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptCachePlan {
     pub strategy: PromptAssemblyStrategy,

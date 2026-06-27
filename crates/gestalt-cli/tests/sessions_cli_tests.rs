@@ -322,7 +322,25 @@ model = "mock-model"
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
-        resolved_model: None,
+        resolved_model: Some(gestalt_core::ResolvedModelSnapshot {
+            selection: gestalt_core::ModelSelection {
+                provider_id: "mock-provider".to_string(),
+                model_id: "mock-model".to_string(),
+                variant: None,
+            },
+            api_format: gestalt_core::ApiFormat::OpenAiChatCompletions,
+            display_name: Some("Mock Model".to_string()),
+            max_context_tokens: 32_000,
+            max_output_tokens: 4096,
+            capabilities: gestalt_core::ModelCapabilities {
+                streaming: true,
+                tools: true,
+                vision: false,
+                json_mode: false,
+                reasoning: false,
+                prompt_cache: gestalt_core::PromptCacheMode::None,
+            },
+        }),
         compatibility_fingerprint: fingerprint.clone(),
     };
 
