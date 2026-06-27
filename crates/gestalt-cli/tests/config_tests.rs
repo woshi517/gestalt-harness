@@ -540,3 +540,52 @@ fn test_config_show_redaction() {
     assert!(!json_str.contains("sk-ant-test-secret"));
     assert!(json_str.contains("[REDACTED]"));
 }
+
+#[test]
+fn test_reasoning_and_thinking_validation() {
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
+
+    let unique_id = uuid::Uuid::new_v4().to_string();
+    let temp_dir = std::env::temp_dir().join(format!("gestalt_test_val_{}", unique_id));
+    let workspace_dir = temp_dir.join("workspace");
+    let workspace_config_dir = workspace_dir.join(".gestalt");
+    fs::create_dir_all(&workspace_config_dir).unwrap();
+
+    let overrides = CliOverrides {
+        workspace: Some(workspace_dir.clone()),
+        ..CliOverrides::default()
+    };
+
+    // 1. gpt-4o-mini (reasoning = false) with reasoning_effort should fail
+    let toml_reasoning = r#"
+[defaults]
+model = "gpt-4o-mini"
+provider = "openai"
+[providers.openai.options]
+reasoning_effort = "high"
+"#;
+    fs::write(workspace_config_dir.join("config.toml"), toml_reasoning).unwrap();
+    let res = load_effective_config(&overrides);
+    assert!(
+        res.is_err(),
+        "reasoning_effort on non-reasoning model must fail"
+    );
+
+    // 2. claude-3-5-sonnet (reasoning = false) with thinking should fail
+    let toml_thinking = r#"
+[defaults]
+model = "claude-3-5-sonnet"
+provider = "anthropic"
+[providers.anthropic.options.thinking]
+budget_tokens = 1024
+"#;
+    fs::write(workspace_config_dir.join("config.toml"), toml_thinking).unwrap();
+    let res2 = load_effective_config(&overrides);
+    assert!(
+        res2.is_err(),
+        "thinking on non-reasoning Anthropic model must fail"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

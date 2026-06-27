@@ -2335,6 +2335,20 @@ impl EffectiveConfig {
             }
         }
 
+        if api_format == ApiFormat::OpenAiResponses
+            && provider_name != "openai"
+            && provider_name != "openai-compatible"
+        {
+            warnings.push(ConfigWarning {
+                code: ConfigWarningCode::UnknownAdapterOption,
+                field: format!("providers.{}.api_format", provider_name),
+                message: format!(
+                    "Provider '{}' is configured with api_format = openai_responses, but this provider may only support Chat Completions.",
+                    provider_name
+                ),
+            });
+        }
+
         let default_env = match provider_name.as_str() {
             "openai" => "OPENAI_API_KEY",
             "anthropic" => "ANTHROPIC_API_KEY",
@@ -2432,7 +2446,7 @@ impl EffectiveConfig {
 
     fn validate_model_options(
         api_format: ApiFormat,
-        _capabilities: &ModelCapabilities,
+        capabilities: &ModelCapabilities,
         options: &ModelOptionsConfig,
     ) -> Result<(), HarnessError> {
         if (api_format == ApiFormat::AnthropicMessages
@@ -2449,6 +2463,23 @@ impl EffectiveConfig {
             return Err(HarnessError::Config(ConfigError::InvalidValue {
                 field: "thinking".to_string(),
                 reason: "thinking option is not supported by openai_responses format".to_string(),
+            }));
+        }
+
+        if !capabilities.reasoning && options.reasoning_effort.is_some() {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: "reasoning_effort".to_string(),
+                reason: "reasoning_effort option is not supported by this model (reasoning capability is false)".to_string(),
+            }));
+        }
+
+        if api_format == ApiFormat::AnthropicMessages
+            && !capabilities.reasoning
+            && options.thinking.is_some()
+        {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: "thinking".to_string(),
+                reason: "thinking option is not supported by this Anthropic model (reasoning capability is false)".to_string(),
             }));
         }
 
