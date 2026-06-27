@@ -10,11 +10,11 @@ fn test_responses_sse_parsing() {
     // Simulate raw event streams from OpenAI Responses API
     let raw_events = vec![
         r#"event: response.output_item.added
-data: {"type":"response.output_item.added","item":{"id":"call_123","type":"function_call","name":"execute_tool"}}"#,
+data: {"type":"response.output_item.added","item":{"id":"fc_123","call_id":"call_123","type":"function_call","name":"execute_tool"}}"#,
         r#"event: response.function_call_arguments.delta
-data: {"type":"response.function_call_arguments.delta","item_id":"call_123","delta":"{\"query\":"}"#,
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_123","delta":"{\"query\":"}"#,
         r#"event: response.function_call_arguments.delta
-data: {"type":"response.function_call_arguments.delta","item_id":"call_123","delta":"\"hello\"}"}"#,
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_123","delta":"\"hello\"}"}"#,
         r#"event: response.completed
 data: {"type":"response.completed","response":{"usage":{"input_tokens":140,"output_tokens":85}}}"#,
     ];
