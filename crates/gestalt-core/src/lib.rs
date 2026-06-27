@@ -69,10 +69,11 @@ pub use hook::{
     VerificationHook,
 };
 pub use message::{ContentBlock, ContentTrust, DocumentSource, ImageSource, Message};
-pub use model::{ModelInfo, ModelInfoSource};
+pub use model::{ModelInfo, ModelInfoSource, ModelSelection, ModelCapabilities, ResolvedModelSnapshot};
 pub use policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 pub use provider::{
     EventStream, Provider, ProviderCapabilities, ProviderRequest, ProviderToolSchema,
+    ApiFormat, PromptCacheMode,
 };
 pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
 pub use session_queue::{

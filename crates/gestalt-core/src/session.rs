@@ -152,6 +152,8 @@ impl Session {
     }
 }
 
+use crate::model::ResolvedModelSnapshot;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionConfig {
     pub model: String,
@@ -167,6 +169,8 @@ pub struct SessionConfig {
     pub text_verbosity: Option<crate::provider::TextVerbosity>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_model: Option<ResolvedModelSnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

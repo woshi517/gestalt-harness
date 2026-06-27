@@ -163,6 +163,7 @@ fn make_session() -> Session {
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            resolved_model: None,
         },
         TokenBudget {
             model_limit: 1000,
