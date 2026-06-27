@@ -2,7 +2,7 @@ use crate::config::{
     global_config_path, mutate_workspace_config_file, workspace_config_path, EffectiveConfig,
 };
 use crate::output::{ProfilesInspectReport, ProfilesListReport, ProfilesUseReport};
-use gestalt_core::{ConfigError, HarnessError};
+use gestalt_core::{ApiFormat, ConfigError, HarnessError};
 
 pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, HarnessError> {
     let active_profile = config.resolve_provider().ok().and_then(|r| r.profile_name);
@@ -97,13 +97,31 @@ pub fn inspect_profile(
 
     Ok(ProfilesInspectReport {
         name: name.to_string(),
-        provider: resolved.provider_name,
-        model: resolved.model,
+        provider: resolved.provider_name().to_string(),
+        model: resolved.model().to_string(),
         active,
-        resolved_provider_kind: resolved.kind,
-        resolved_base_url: resolved.base_url,
-        resolved_auth_ref: resolved.auth_ref,
-        resolved_api_key_env: resolved.api_key_env,
+        resolved_provider_kind: match resolved.api_format() {
+            ApiFormat::AnthropicMessages => "anthropic".to_string(),
+            ApiFormat::OpenAiResponses => "openai".to_string(),
+            ApiFormat::OpenAiChatCompletions => {
+                if resolved.provider_name() == "openai" {
+                    "openai".to_string()
+                } else {
+                    "openai-compatible".to_string()
+                }
+            }
+        },
+        resolved_base_url: Some(resolved.base_url.clone()),
+        resolved_auth_ref: match &resolved.auth.credential {
+            gestalt_models::auth::ConfiguredCredential::Keychain(acc) => {
+                Some(format!("keychain:{}", acc))
+            }
+            _ => None,
+        },
+        resolved_api_key_env: match &resolved.auth.credential {
+            gestalt_models::auth::ConfiguredCredential::Environment(var) => Some(var.clone()),
+            _ => None,
+        },
     })
 }
 

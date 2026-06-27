@@ -101,6 +101,7 @@ where
 
 #[tokio::test]
 async fn test_inspect_runtime_cli() {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let _ = gestalt_models::registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
@@ -131,6 +132,7 @@ async fn test_inspect_runtime_cli() {
         provider: None,
         profile: Some("mock-profile".to_string()),
         skills: Vec::new(),
+        context_window_override: None,
     };
 
     let inspect = inspect_runtime(&overrides, None).await.unwrap();
@@ -150,6 +152,7 @@ async fn test_inspect_runtime_cli() {
 
 #[test]
 fn test_runtime_inspect_cli_subcommand() {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let temp_dir =
         std::env::temp_dir().join(format!("gestalt-cli-inspect-sub-{}", uuid::Uuid::new_v4()));
     copy_minimal_workspace(&temp_dir);
@@ -165,6 +168,7 @@ fn test_runtime_inspect_cli_subcommand() {
     });
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_gestalt"))
+        .env("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir")
         .arg("--workspace")
         .arg(&temp_dir)
         .arg("--format")
@@ -203,6 +207,7 @@ fn test_runtime_inspect_cli_subcommand() {
 
 #[tokio::test]
 async fn test_build_cli_runtime_loads_configured_extension_instance() {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let _ = gestalt_models::registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
@@ -268,6 +273,7 @@ args = []
         provider: None,
         profile: None,
         skills: Vec::new(),
+        context_window_override: None,
     };
     let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
 

@@ -48,6 +48,7 @@ pub async fn diagnose_workspace(
                 extensions: Default::default(),
                 skills: Default::default(),
                 mcp: None,
+                context_window_override: None,
             }
         }
     };

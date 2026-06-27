@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::approval::SessionGrant;
+use crate::model::ResolvedModelSnapshot;
 use crate::session::ExecutionMode;
 use crate::tool::RiskLevel;
-use crate::model::ResolvedModelSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

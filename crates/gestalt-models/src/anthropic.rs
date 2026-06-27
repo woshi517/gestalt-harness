@@ -28,6 +28,7 @@ pub struct AnthropicProvider {
     resolver: Arc<dyn CredentialResolver>,
     capabilities: ProviderCapabilities,
     headers: HashMap<String, String>,
+    request_path: Option<String>,
 }
 
 impl Default for AnthropicProvider {
@@ -38,8 +39,9 @@ impl Default for AnthropicProvider {
             default_model: "claude-3-5-sonnet-20241022".to_string(),
             auth: ProviderAuthConfig {
                 provider_id: "anthropic".to_string(),
-                api_key_env: "ANTHROPIC_API_KEY".to_string(),
-                auth_ref: None,
+                credential: crate::auth::ConfiguredCredential::Environment(
+                    "ANTHROPIC_API_KEY".to_string(),
+                ),
             },
             resolver: Arc::new(EnvironmentCredentialResolver),
             capabilities: ProviderCapabilities {
@@ -51,6 +53,7 @@ impl Default for AnthropicProvider {
                 ..ProviderCapabilities::default()
             },
             headers: HashMap::new(),
+            request_path: None,
         }
     }
 }
@@ -68,6 +71,15 @@ impl AnthropicProvider {
         config: &Value,
         resolver: Arc<dyn CredentialResolver>,
     ) -> Result<Self, HarnessError> {
+        let auth = provider_auth_config(config, "anthropic", "ANTHROPIC_API_KEY")?;
+        Self::new_with_auth_and_resolver(config, auth, resolver)
+    }
+
+    pub fn new_with_auth_and_resolver(
+        config: &Value,
+        auth: ProviderAuthConfig,
+        resolver: Arc<dyn CredentialResolver>,
+    ) -> Result<Self, HarnessError> {
         let base_url = config
             .get("base_url")
             .and_then(Value::as_str)
@@ -78,7 +90,6 @@ impl AnthropicProvider {
             .and_then(Value::as_str)
             .unwrap_or("claude-3-5-sonnet-20241022")
             .to_string();
-        let auth = provider_auth_config(config, "anthropic", "ANTHROPIC_API_KEY")?;
         let headers = config
             .get("headers")
             .and_then(|h| serde_json::from_value::<HashMap<String, String>>(h.clone()).ok())
@@ -98,6 +109,11 @@ impl AnthropicProvider {
             }
         }
 
+        let request_path = config
+            .get("request_path")
+            .and_then(Value::as_str)
+            .map(String::from);
+
         Ok(Self {
             client: reqwest::Client::new(),
             base_url,
@@ -106,6 +122,7 @@ impl AnthropicProvider {
             resolver,
             capabilities,
             headers,
+            request_path,
         })
     }
 
@@ -134,8 +151,12 @@ impl AnthropicProvider {
 
     fn headers(&self) -> Result<HeaderMap, HarnessError> {
         let mut headers = HeaderMap::new();
-        let has_auth = self.auth.auth_ref.is_some()
-            || (!self.auth.api_key_env.is_empty() && self.auth.api_key_env != "none");
+        let credential_ref = self.auth.credential_ref();
+        let has_auth = !matches!(credential_ref, crate::auth::CredentialRef::Session)
+            || matches!(
+                &self.auth.credential,
+                crate::auth::ConfiguredCredential::Inline(_)
+            );
         if has_auth {
             let credential = self.resolver.resolve(&self.auth)?;
             headers.insert(
@@ -282,7 +303,8 @@ impl Provider for AnthropicProvider {
         use eventsource_stream::Eventsource;
         use futures::StreamExt;
 
-        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        let path = self.request_path.as_deref().unwrap_or("/v1/messages");
+        let url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
         let response = self
             .client
             .post(&url)

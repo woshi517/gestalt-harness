@@ -281,7 +281,9 @@ fn test_tool_trait_object_descriptor() {
     assert_eq!(desc.id.name, "dummy_tool");
 }
 
-use gestalt_core::{ApiFormat, ResolvedModelSnapshot, ModelSelection, ModelCapabilities, PromptCacheMode};
+use gestalt_core::{
+    ApiFormat, ModelCapabilities, ModelSelection, PromptCacheMode, ResolvedModelSnapshot,
+};
 
 #[test]
 fn api_format_uses_snake_case_wire_names() {
@@ -319,4 +321,3 @@ fn resolved_model_snapshot_round_trips() {
         snapshot
     );
 }
-

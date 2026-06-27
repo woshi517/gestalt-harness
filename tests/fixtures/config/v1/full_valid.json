@@ -62,7 +62,6 @@
       "base_url": "https://api.openai.com/v1",
       "default_model": "gpt-5.5-preview",
       "api_key_env": "OPENAI_API_KEY",
-      "kind": "openai-compatible",
       "models": {
         "gpt-5.5-preview": {
           "display_name": "GPT-5.5 Preview",

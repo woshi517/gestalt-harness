@@ -35,6 +35,7 @@ impl Drop for EnvVarGuard {
 }
 
 fn temp_workspace() -> PathBuf {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir =
         std::env::temp_dir().join(format!("gestalt-slash-skills-{}-{}", std::process::id(), n));

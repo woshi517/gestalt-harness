@@ -40,6 +40,7 @@ pub struct ResumeAnalysis {
     pub last_checkpoint_seq: Option<u64>,
     pub snapshot_hash: Option<String>,
     pub prompt_snapshot: Option<PromptSnapshot>,
+    pub resolved_model: Option<gestalt_core::ResolvedModelSnapshot>,
 }
 
 impl ResumeAnalysis {
@@ -81,6 +82,7 @@ impl ResumeAnalyzer {
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
                 prompt_snapshot: None,
+                resolved_model: None,
             };
         }
 
@@ -97,6 +99,7 @@ impl ResumeAnalyzer {
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
                     prompt_snapshot: None,
+                    resolved_model: None,
                 };
             }
         };
@@ -113,6 +116,7 @@ impl ResumeAnalyzer {
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
                     prompt_snapshot: None,
+                    resolved_model: manifest.resolved_model.clone(),
                 };
             }
         }
@@ -128,6 +132,7 @@ impl ResumeAnalyzer {
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
                 prompt_snapshot: None,
+                resolved_model: manifest.resolved_model.clone(),
             };
         }
 
@@ -144,6 +149,7 @@ impl ResumeAnalyzer {
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
                     prompt_snapshot: None,
+                    resolved_model: manifest.resolved_model.clone(),
                 };
             }
         };
@@ -171,6 +177,7 @@ impl ResumeAnalyzer {
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
                 prompt_snapshot: None,
+                resolved_model: manifest.resolved_model.clone(),
             };
         }
 
@@ -193,6 +200,7 @@ impl ResumeAnalyzer {
                             last_checkpoint_seq: None,
                             snapshot_hash: None,
                             prompt_snapshot: None,
+                            resolved_model: manifest.resolved_model.clone(),
                         };
                     }
                 };
@@ -208,6 +216,7 @@ impl ResumeAnalyzer {
                         last_checkpoint_seq: None,
                         snapshot_hash: None,
                         prompt_snapshot: None,
+                        resolved_model: manifest.resolved_model.clone(),
                     };
                 }
 
@@ -225,6 +234,7 @@ impl ResumeAnalyzer {
                     last_checkpoint_seq: None,
                     snapshot_hash: None,
                     prompt_snapshot: None,
+                    resolved_model: manifest.resolved_model.clone(),
                 };
             }
         };
@@ -274,6 +284,7 @@ impl ResumeAnalyzer {
                 last_checkpoint_seq: None,
                 snapshot_hash: None,
                 prompt_snapshot: prompt_snapshot.clone(),
+                resolved_model: manifest.resolved_model.clone(),
             };
         }
 
@@ -311,6 +322,7 @@ impl ResumeAnalyzer {
                 last_checkpoint_seq: last_checkpoint.map(|e| e.seq),
                 snapshot_hash: recorded_snapshot_hash,
                 prompt_snapshot: prompt_snapshot.clone(),
+                resolved_model: manifest.resolved_model.clone(),
             };
         }
 
@@ -407,6 +419,7 @@ impl ResumeAnalyzer {
             last_checkpoint_seq: last_checkpoint.map(|e| e.seq),
             snapshot_hash: recorded_snapshot_hash,
             prompt_snapshot,
+            resolved_model: manifest.resolved_model,
         }
     }
 }
@@ -473,6 +486,7 @@ mod tests {
             interrupted_phase: None,
             prompt_snapshot_hash: None,
             prompt_snapshot_path: None,
+            resolved_model: None,
             compatibility_fingerprint: fp,
         };
         manifest.save_to(&dir.join("run.json")).unwrap();
@@ -498,6 +512,7 @@ mod tests {
             interrupted_phase: None,
             prompt_snapshot_hash: Some(snapshot_hash),
             prompt_snapshot_path: Some(PROMPT_SNAPSHOT_RELATIVE_PATH.to_string()),
+            resolved_model: None,
             compatibility_fingerprint: fp,
         };
         manifest.save_to(&dir.join("run.json")).unwrap();

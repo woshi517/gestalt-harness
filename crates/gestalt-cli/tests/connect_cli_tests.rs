@@ -67,11 +67,11 @@ fn test_connect_openrouter() {
     // Reload effective config to verify provider and profile are present
     let config2 = load_effective_config(&overrides).expect("reload config");
     let resolved = config2.resolve_provider().expect("resolve provider");
-    assert_eq!(resolved.provider_name, "openrouter");
-    assert_eq!(resolved.model, "openrouter/free");
+    assert_eq!(resolved.provider_name(), "openrouter");
+    assert_eq!(resolved.model(), "openrouter/free");
     assert_eq!(
-        resolved.auth_ref.as_deref(),
-        Some("secret:provider/openrouter")
+        resolved.auth.credential_ref(),
+        gestalt_models::auth::CredentialRef::Keychain("gestalt/openrouter".to_string())
     );
 
     // Verify disconnect
@@ -82,8 +82,11 @@ fn test_connect_openrouter() {
 
     let config3 = load_effective_config(&overrides).expect("reload config");
     let resolved3 = config3.resolve_provider().expect("resolve provider");
-    assert_eq!(resolved3.provider_name, "openrouter");
-    assert!(resolved3.auth_ref.is_none());
+    assert_eq!(resolved3.provider_name(), "openrouter");
+    assert!(matches!(
+        resolved3.auth.credential_ref(),
+        gestalt_models::auth::CredentialRef::Environment(_)
+    ));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

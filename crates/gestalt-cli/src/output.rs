@@ -1392,6 +1392,9 @@ fn redact_effective_config(
         if prov.auth_ref.is_some() {
             prov.auth_ref = Some("[REDACTED]".to_string());
         }
+        if prov.api_key.is_some() {
+            prov.api_key = Some(crate::config::SecretString("[REDACTED]".to_string()));
+        }
     }
     config
 }
@@ -1419,11 +1422,34 @@ fn redact_explain_map(
     map
 }
 
-#[derive(Serialize)]
 pub struct ConfigShowReport {
     pub config: crate::config::EffectiveConfig,
     pub source: bool,
     pub explain_map: Option<std::collections::HashMap<String, crate::config::ConfigSourceInfo>>,
+}
+
+impl Serialize for ConfigShowReport {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct RedactedConfigShowReport {
+            config: crate::config::EffectiveConfig,
+            source: bool,
+            explain_map: Option<std::collections::HashMap<String, crate::config::ConfigSourceInfo>>,
+        }
+
+        let redacted = RedactedConfigShowReport {
+            config: redact_effective_config(self.config.clone()),
+            source: self.source,
+            explain_map: self
+                .explain_map
+                .as_ref()
+                .map(|m| redact_explain_map(m.clone())),
+        };
+        redacted.serialize(serializer)
+    }
 }
 
 impl CliReport for ConfigShowReport {
@@ -1465,9 +1491,25 @@ impl CliReport for ConfigShowReport {
     }
 }
 
-#[derive(Serialize)]
 pub struct ConfigExplainReport {
     pub explain_map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>,
+}
+
+impl Serialize for ConfigExplainReport {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct RedactedConfigExplainReport {
+            explain_map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>,
+        }
+
+        let redacted = RedactedConfigExplainReport {
+            explain_map: redact_explain_map(self.explain_map.clone()),
+        };
+        redacted.serialize(serializer)
+    }
 }
 
 impl CliReport for ConfigExplainReport {

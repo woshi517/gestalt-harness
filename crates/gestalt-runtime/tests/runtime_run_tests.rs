@@ -828,6 +828,7 @@ async fn test_runtime_run_session_preserves_history() {
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            resolved_model: None,
         },
         TokenBudget {
             model_limit: 100,
@@ -918,6 +919,7 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            resolved_model: None,
         },
         TokenBudget {
             model_limit: 100,

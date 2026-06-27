@@ -69,6 +69,8 @@ pub struct RunManifest {
     pub prompt_snapshot_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_snapshot_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_model: Option<gestalt_core::ResolvedModelSnapshot>,
     pub compatibility_fingerprint: CompatibilityFingerprint,
 }
 

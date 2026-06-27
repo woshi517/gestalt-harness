@@ -380,6 +380,7 @@ async fn run_session_invokes_all_pinned_lifecycle_capabilities() {
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            resolved_model: None,
         },
         Default::default(),
         ToolContext {

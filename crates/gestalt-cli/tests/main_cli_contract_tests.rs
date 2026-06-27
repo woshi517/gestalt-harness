@@ -7,6 +7,7 @@ fn get_bin() -> &'static str {
 }
 
 fn create_temp_workspace() -> std::path::PathBuf {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let temp = std::env::temp_dir().join(format!("gestalt-bin-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp).unwrap();
     temp
@@ -18,6 +19,7 @@ fn test_cli_format_json_envelope() {
     init_workspace(&temp_root, false).unwrap();
 
     let output = Command::new(get_bin())
+        .env("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir")
         .arg("--workspace")
         .arg(&temp_root)
         .arg("--format")
@@ -39,6 +41,7 @@ fn test_cli_format_json_envelope() {
 #[test]
 fn test_cli_invalid_format_exits_non_zero() {
     let output = Command::new(get_bin())
+        .env("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir")
         .arg("--format")
         .arg("xml")
         .arg("status")

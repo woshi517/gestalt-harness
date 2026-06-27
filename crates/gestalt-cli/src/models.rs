@@ -9,84 +9,71 @@ use serde::Deserialize;
 use crate::config::EffectiveConfig;
 use crate::output::ModelsRefreshReport;
 
-pub fn list_models(config: &EffectiveConfig, provider_filter: Option<&str>) -> Vec<ModelInfo> {
-    let mut models = ModelCatalog::new().list();
+pub fn get_user_defined_models(config: &EffectiveConfig) -> Vec<ModelInfo> {
+    let catalog = ModelCatalog::default(); // built-in layer only
+    let mut user_models = Vec::new();
 
-    let builtins = vec![
-        ModelInfo {
-            qualified_id: "openrouter/free".to_string(),
-            model_id: "free".to_string(),
-            display_name: "Google: Gemini 2.5 Flash (free)".to_string(),
-            max_context_tokens: 1_048_576,
-            max_output_tokens: 8192,
-            supports_tools: true,
-            supports_vision: true,
-            supports_json_schema: true,
-            supports_thinking: false,
-            supports_prompt_caching: false,
-            input_cost_per_million: Some(0.0),
-            output_cost_per_million: Some(0.0),
-            source: ModelInfoSource::BuiltIn,
-            last_updated: None,
-        },
-        ModelInfo {
-            qualified_id: "openrouter/auto".to_string(),
-            model_id: "auto".to_string(),
-            display_name: "OpenRouter Auto Routing".to_string(),
-            max_context_tokens: 4096,
-            max_output_tokens: 1024,
-            supports_tools: true,
-            supports_vision: false,
-            supports_json_schema: false,
-            supports_thinking: false,
-            supports_prompt_caching: false,
-            input_cost_per_million: None,
-            output_cost_per_million: None,
-            source: ModelInfoSource::BuiltIn,
-            last_updated: None,
-        },
-        ModelInfo {
-            qualified_id: "ollama/llama3".to_string(),
-            model_id: "llama3".to_string(),
-            display_name: "Llama 3 (local)".to_string(),
-            max_context_tokens: 8192,
-            max_output_tokens: 2048,
-            supports_tools: true,
-            supports_vision: false,
-            supports_json_schema: false,
-            supports_thinking: false,
-            supports_prompt_caching: false,
-            input_cost_per_million: None,
-            output_cost_per_million: None,
-            source: ModelInfoSource::BuiltIn,
-            last_updated: None,
-        },
-        ModelInfo {
-            qualified_id: "groq/llama3-8b-8192".to_string(),
-            model_id: "llama3-8b-8192".to_string(),
-            display_name: "Llama 3 8B (Groq)".to_string(),
-            max_context_tokens: 8192,
-            max_output_tokens: 2048,
-            supports_tools: true,
-            supports_vision: false,
-            supports_json_schema: false,
-            supports_thinking: false,
-            supports_prompt_caching: false,
-            input_cost_per_million: None,
-            output_cost_per_million: None,
-            source: ModelInfoSource::BuiltIn,
-            last_updated: None,
-        },
-    ];
+    for (provider_id, provider_cfg) in &config.providers {
+        for (model_id, model_def) in &provider_cfg.models {
+            let qualified_id = format!("{provider_id}/{model_id}");
+            let mut info = if let Some(builtin) = catalog.get_qualified(&qualified_id) {
+                builtin.clone()
+            } else {
+                ModelInfo {
+                    qualified_id: qualified_id.clone(),
+                    model_id: model_id.clone(),
+                    display_name: model_id.clone(),
+                    max_context_tokens: 32000,
+                    max_output_tokens: 4096,
+                    supports_tools: true,
+                    supports_vision: false,
+                    supports_json_schema: false,
+                    supports_thinking: false,
+                    supports_prompt_caching: false,
+                    input_cost_per_million: None,
+                    output_cost_per_million: None,
+                    source: ModelInfoSource::UserDefined,
+                    last_updated: None,
+                }
+            };
 
-    for builtin in builtins {
-        if !models
-            .iter()
-            .any(|m| m.qualified_id == builtin.qualified_id)
-        {
-            models.push(builtin);
+            info.source = ModelInfoSource::UserDefined;
+            if let Some(ref display) = model_def.display_name {
+                info.display_name.clone_from(display);
+            }
+            if let Some(max_ctx) = model_def.max_context_tokens {
+                info.max_context_tokens = max_ctx;
+            }
+            if let Some(max_out) = model_def.max_output_tokens {
+                info.max_output_tokens = max_out;
+            }
+            if let Some(ref caps) = model_def.capabilities {
+                if let Some(tools) = caps.tools {
+                    info.supports_tools = tools;
+                }
+                if let Some(vision) = caps.vision {
+                    info.supports_vision = vision;
+                }
+                if let Some(json_mode) = caps.json_mode {
+                    info.supports_json_schema = json_mode;
+                }
+                if let Some(reasoning) = caps.reasoning {
+                    info.supports_thinking = reasoning;
+                }
+                if let Some(ref cache) = caps.prompt_cache {
+                    info.supports_prompt_caching =
+                        !matches!(cache, gestalt_core::PromptCacheMode::None);
+                }
+            }
+            user_models.push(info);
         }
     }
+    user_models
+}
+
+pub fn list_models(config: &EffectiveConfig, provider_filter: Option<&str>) -> Vec<ModelInfo> {
+    let user_models = get_user_defined_models(config);
+    let mut models = ModelCatalog::new().with_layer(user_models).list();
 
     let mut cached_providers = vec![
         "openrouter".to_string(),
@@ -103,7 +90,9 @@ pub fn list_models(config: &EffectiveConfig, provider_filter: Option<&str>) -> V
         if let Some(cached) = crate::model_cache::load_cached_models(&p) {
             for m in cached {
                 if let Some(pos) = models.iter().position(|x| x.qualified_id == m.qualified_id) {
-                    models[pos] = m;
+                    if models[pos].source != ModelInfoSource::UserDefined {
+                        models[pos] = m;
+                    }
                 } else {
                     models.push(m);
                 }
@@ -161,7 +150,7 @@ pub async fn refresh_models(
     }
 
     let resolved = config.resolve_provider()?;
-    let provider_name = resolved.provider_name.clone();
+    let provider_name = resolved.provider_name().to_string();
 
     let endpoint = if let Some(ref ep) = resolved.models_endpoint {
         ep.clone()
@@ -175,22 +164,19 @@ pub async fn refresh_models(
                 let count = list_models(config, None).len();
                 return Ok(ModelsRefreshReport {
                     count,
-                    status: "unsupported".to_string(),
+                    status: "offline".to_string(),
                 });
             }
         }
     };
 
-    let total_count = list_models(config, None).len();
-    let provider_config = resolved.provider_json();
-    let auth_config =
-        gestalt_models::auth::provider_auth_config(&provider_config, &provider_name, "DUMMY_KEY")?;
     let cred_resolver = crate::auth::build_credential_resolver(None, false);
-
-    let api_key = match cred_resolver.resolve(&auth_config) {
+    let api_key = match cred_resolver.resolve(&resolved.auth) {
         Ok(cred) => Some(cred.secret().to_string()),
         Err(_) => None,
     };
+
+    let total_count = list_models(config, None).len();
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -206,10 +192,8 @@ pub async fn refresh_models(
         req_builder = req_builder.bearer_auth(key);
     }
 
-    if let Some(ref hdrs) = resolved.headers {
-        for (k, v) in hdrs {
-            req_builder = req_builder.header(k, v);
-        }
+    for (k, v) in &resolved.headers {
+        req_builder = req_builder.header(k, v);
     }
 
     // Keep live refresh best-effort so CI and offline environments can still validate the command.

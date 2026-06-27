@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 fn create_temp_workspace() -> PathBuf {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let temp = std::env::temp_dir().join(format!("gestalt-test-runs-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp).unwrap();
     temp
@@ -370,6 +371,7 @@ fn test_runs_descendant_aware_prune_and_delete() {
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     parent_manifest
@@ -390,6 +392,7 @@ fn test_runs_descendant_aware_prune_and_delete() {
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     child_manifest.save_to(&child_dir.join("run.json")).unwrap();

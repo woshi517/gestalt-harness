@@ -98,6 +98,7 @@ pub fn inspect_trace(
 
     for env in &envelopes {
         let variant_name = match &env.event {
+            AgentEvent::RunStarted { .. } => "run_started",
             AgentEvent::UserMessage { .. } => "user_message",
             AgentEvent::ContextBuilt { .. } => "context_built",
             AgentEvent::PromptSnapshotCreated { .. } => "prompt_snapshot_created",

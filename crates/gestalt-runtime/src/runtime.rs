@@ -193,10 +193,15 @@ impl AgentRuntime {
                 reasoning_effort: self.config.reasoning_effort,
                 text_verbosity: self.config.text_verbosity,
                 metadata: self.config.metadata.clone(),
+                resolved_model: self.config.resolved_model.clone(),
             },
             TokenBudget {
                 model_limit: self.config.max_context_window.unwrap_or(120_000),
-                reserved_output: self.config.reserved_output_tokens.unwrap_or(8_000),
+                reserved_output: self
+                    .config
+                    .reserved_output_tokens
+                    .or(self.config.max_output_tokens)
+                    .unwrap_or(4096),
                 used_system: 0,
                 used_history: 0,
                 used_sources: 0,
@@ -270,6 +275,19 @@ impl AgentRuntime {
         event_tx: Option<UnboundedSender<AgentEvent>>,
         initial_prompt_snapshot_hash: Option<String>,
     ) -> Result<RunResult> {
+        if let Some(ref resolved_model) = session.config.resolved_model {
+            let run_started_event = AgentEvent::RunStarted {
+                resolved_model: resolved_model.clone(),
+            };
+            self.event_bus.publish_agent(run_started_event.clone());
+            if let Some(ref sink) = self.trace_sink {
+                let _ = sink.emit(run_started_event.clone());
+            }
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(run_started_event);
+            }
+        }
+
         let _ = self
             .steering_queue
             .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)

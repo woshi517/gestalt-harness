@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use gestalt_core::provider::Provider;
 use gestalt_models::{
-    auth::{CredentialResolver, CredentialSource, ProviderAuthConfig},
+    auth::{ConfiguredCredential, CredentialResolver, CredentialSource, ProviderAuthConfig},
     AnthropicProvider, OpenAiProvider, ResolvedCredential,
 };
 use serde_json::json;
@@ -14,11 +14,13 @@ impl CredentialResolver for StubResolver {
         &self,
         auth: &ProviderAuthConfig,
     ) -> Result<ResolvedCredential, gestalt_core::HarnessError> {
+        let var = match &auth.credential {
+            ConfiguredCredential::Environment(v) => v.clone(),
+            _ => "DUMMY".to_string(),
+        };
         Ok(ResolvedCredential::new(
             "sk-ant-test-secret".to_string(),
-            CredentialSource::Environment {
-                variable: auth.api_key_env.clone(),
-            },
+            CredentialSource::Environment { variable: var },
         ))
     }
 }
@@ -55,8 +57,8 @@ fn openai_compatible_preserves_base_url_and_model() {
     assert_eq!(provider.id(), "openai-compatible");
     assert_eq!(provider.default_model(), "gpt-4o-mini");
     assert_eq!(
-        provider.auth_config().api_key_env,
-        "GESTALT_TEST_OPENAI_KEY"
+        provider.auth_config().credential_ref(),
+        gestalt_models::auth::CredentialRef::Environment("GESTALT_TEST_OPENAI_KEY".to_string())
     );
 }
 
@@ -104,8 +106,7 @@ fn test_chain_credential_resolver() {
 
     let auth = ProviderAuthConfig {
         provider_id: "test".to_string(),
-        api_key_env: "ENV_VAR".to_string(),
-        auth_ref: None,
+        credential: ConfiguredCredential::Environment("ENV_VAR".to_string()),
     };
 
     let chain = gestalt_models::auth::ChainCredentialResolver::new(vec![
@@ -122,8 +123,7 @@ fn test_chain_credential_resolver() {
 fn test_credential_ref_parsing() {
     let auth_keychain = ProviderAuthConfig {
         provider_id: "test".to_string(),
-        api_key_env: "ENV_VAR".to_string(),
-        auth_ref: Some("secret:provider/openrouter".to_string()),
+        credential: ConfiguredCredential::Keychain("provider/openrouter".to_string()),
     };
     assert_eq!(
         auth_keychain.credential_ref(),
@@ -132,8 +132,7 @@ fn test_credential_ref_parsing() {
 
     let auth_env = ProviderAuthConfig {
         provider_id: "test".to_string(),
-        api_key_env: "ENV_VAR".to_string(),
-        auth_ref: None,
+        credential: ConfiguredCredential::Environment("ENV_VAR".to_string()),
     };
     assert_eq!(
         auth_env.credential_ref(),

@@ -11,9 +11,11 @@ pub mod tool_schema_adapter;
 
 pub use anthropic::AnthropicProvider;
 pub use auth::{
-    ChainCredentialResolver, CredentialRef, CredentialResolver, CredentialSource,
-    EnvironmentCredentialResolver, ProviderAuthConfig, ResolvedCredential,
+    ChainCredentialResolver, ConfiguredCredential, CredentialRef, CredentialResolver,
+    CredentialSource, EnvironmentCredentialResolver, InlineCredentialResolver, ProviderAuthConfig,
+    ResolvedCredential,
 };
 pub use catalog::ModelCatalog;
-pub use openai::OpenAiProvider;
+pub use openai::{OpenAiChatCompletionsProvider, OpenAiProvider, OpenAiResponsesProvider};
+pub use registry::get_by_api_format_with_resolver;
 pub use tool_schema_adapter::ToolSchemaAdapter;

@@ -3,6 +3,7 @@ use gestalt_cli::policy::{explain_policy, test_policy};
 
 #[tokio::test]
 async fn test_policy_input_validation() {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let overrides = CliOverrides::default();
 
     // 1. Malformed JSON should fail with JSON parsing error

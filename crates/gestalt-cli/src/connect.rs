@@ -1,11 +1,10 @@
 use crate::auth::{delete_keychain_secret, set_keychain_secret};
 use crate::config::{
     global_config_path, legacy_global_config_path, mutate_workspace_config_file,
-    write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, ProviderKind,
-    WorkspaceConfig,
+    write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig,
 };
 use crate::output::{ConnectReport, DisconnectReport};
-use gestalt_core::{ConfigError, HarnessError};
+use gestalt_core::{ApiFormat, ConfigError, HarnessError};
 use std::collections::HashMap;
 use std::io::IsTerminal;
 
@@ -62,13 +61,13 @@ pub fn connect_provider(
         }));
     }
 
-    let (conn_name, kind, base_url, default_model, api_key_env, headers, models_endpoint) =
+    let (conn_name, api_format, base_url, default_model, api_key_env, headers, models_endpoint) =
         match provider {
             "openrouter" => {
                 let builtin = crate::provider_catalog::get_builtin_provider("openrouter").unwrap();
                 (
                     "openrouter".to_string(),
-                    ProviderKind::OpenaiCompatible,
+                    ApiFormat::OpenAiChatCompletions,
                     builtin.base_url.unwrap(),
                     builtin.default_model.unwrap(),
                     builtin.api_key_env,
@@ -109,7 +108,7 @@ pub fn connect_provider(
                 });
                 (
                     conn_name,
-                    ProviderKind::OpenaiCompatible,
+                    ApiFormat::OpenAiChatCompletions,
                     base_url,
                     default_model,
                     env_val,
@@ -121,7 +120,9 @@ pub fn connect_provider(
                 if let Some(builtin) = crate::provider_catalog::get_builtin_provider(provider) {
                     (
                         provider.to_string(),
-                        builtin.kind.unwrap_or(ProviderKind::OpenaiCompatible),
+                        builtin
+                            .api_format
+                            .unwrap_or(ApiFormat::OpenAiChatCompletions),
                         builtin.base_url.unwrap_or_default(),
                         builtin.default_model.unwrap_or_default(),
                         builtin.api_key_env.or_else(|| {
@@ -167,10 +168,10 @@ pub fn connect_provider(
 
     if let Some(ref secret) = key_val {
         if !no_keychain {
-            let account = format!("provider/{conn_name}");
+            let account = format!("gestalt/{conn_name}");
             match set_keychain_secret(&account, secret) {
                 Ok(_) => {
-                    auth_ref = Some(format!("secret:{account}"));
+                    auth_ref = Some(format!("keychain:{account}"));
                     keychain_stored = true;
                 }
                 Err(err) => {
@@ -190,16 +191,23 @@ pub fn connect_provider(
             id: Some(conn_name.clone()),
             display_name: Some(conn_name.clone()),
             protocol: None,
+            api_format: Some(api_format),
             base_url: Some(base_url),
             default_model: Some(default_model),
-            api_key_env: api_key_env.clone(),
+            api_key_env: if auth_ref.is_some() {
+                None
+            } else {
+                api_key_env.clone()
+            },
             auth_ref,
-            kind: Some(kind),
-            models_endpoint,
-            headers,
+            api_key: None,
+            request_path: None,
             request: None,
             capabilities: None,
             models: HashMap::new(),
+            models_endpoint,
+            headers,
+            kind: None,
         };
         ws_cfg.providers.insert(conn_name.clone(), prov_config);
 
@@ -290,7 +298,7 @@ pub fn disconnect_provider(
         }
     }
 
-    let account = format!("provider/{provider}");
+    let account = format!("gestalt/{provider}");
     let keychain_cleared = delete_keychain_secret(&account).is_ok();
 
     write_workspace_config_file(&global_path, &ws_cfg)?;

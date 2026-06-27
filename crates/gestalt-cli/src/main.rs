@@ -49,6 +49,8 @@ struct Cli {
     profile: Option<String>,
     #[arg(long, global = true)]
     api_key: Option<String>,
+    #[arg(long, global = true)]
+    context_window: Option<usize>,
     #[arg(long, default_value = "text")]
     format: OutputFormat,
     #[arg(long, short, global = true)]
@@ -608,6 +610,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         workspace: cli.workspace.clone(),
         profile: cli.profile.clone(),
         skills: Vec::new(),
+        context_window_override: cli.context_window,
     };
 
     let format = cli.format;

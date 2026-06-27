@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn temp_workspace() -> PathBuf {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("gestalt-cli-skills-{}-{}", std::process::id(), n));
     let _ = std::fs::remove_dir_all(&dir);
@@ -77,6 +78,7 @@ fn empty_effective_config() -> EffectiveConfig {
         extensions: ExtensionsConfig::default(),
         skills: SkillsConfig::default(),
         mcp: None,
+        context_window_override: None,
     }
 }
 

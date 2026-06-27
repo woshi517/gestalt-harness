@@ -34,6 +34,7 @@ impl Drop for EnvVarGuard {
 }
 
 fn test_config(temp_dir: &std::path::Path) -> gestalt_cli::config::EffectiveConfig {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     load_effective_config(&CliOverrides {
         workspace: Some(temp_dir.to_path_buf()),
         ..CliOverrides::default()

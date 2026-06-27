@@ -5,7 +5,8 @@ use std::{
 };
 
 use gestalt_core::{
-    ConfigError, ExecutionMode, HarnessError, PromptAssemblyStrategy, ProviderError,
+    ApiFormat, ConfigError, ExecutionMode, HarnessError, ModelCapabilities, ModelSelection,
+    PromptAssemblyStrategy, PromptCacheMode, ProviderError, ResolvedModelSnapshot,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ fn version_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema
     schemars::schema::Schema::Object(schema)
 }
 
-fn is_json_output() -> bool {
+pub fn is_json_output() -> bool {
     let args: Vec<String> = std::env::args().collect();
     for i in 0..args.len() {
         if (args[i] == "--format" || args[i] == "-f") && i + 1 < args.len() && args[i + 1] == "json"
@@ -54,44 +55,23 @@ pub enum PolicyAction {
     Deny,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(from = "String", into = "String")]
-pub enum ProviderKind {
-    Openai,
-    Anthropic,
-    OpenaiCompatible,
-    Custom(String),
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecretString(pub String);
+
+impl std::fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[REDACTED]")
+    }
 }
 
-impl schemars::JsonSchema for ProviderKind {
+impl schemars::JsonSchema for SecretString {
     fn schema_name() -> String {
-        "ProviderKind".to_string()
+        "SecretString".to_string()
     }
 
     fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
         String::json_schema(gen)
-    }
-}
-
-impl From<String> for ProviderKind {
-    fn from(s: String) -> Self {
-        match s.as_str() {
-            "openai" => Self::Openai,
-            "anthropic" => Self::Anthropic,
-            "openai-compatible" => Self::OpenaiCompatible,
-            _ => Self::Custom(s),
-        }
-    }
-}
-
-impl From<ProviderKind> for String {
-    fn from(k: ProviderKind) -> Self {
-        match k {
-            ProviderKind::Openai => "openai".to_string(),
-            ProviderKind::Anthropic => "anthropic".to_string(),
-            ProviderKind::OpenaiCompatible => "openai-compatible".to_string(),
-            ProviderKind::Custom(s) => s,
-        }
     }
 }
 
@@ -122,6 +102,32 @@ pub enum AnthropicThinkingConfig {
     Disabled,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCapabilitiesConfig {
+    pub streaming: Option<bool>,
+    pub tools: Option<bool>,
+    pub vision: Option<bool>,
+    pub json_mode: Option<bool>,
+    pub reasoning: Option<bool>,
+    pub prompt_cache: Option<PromptCacheMode>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderCapabilitiesConfig {
+    pub supports_tools: Option<bool>,
+    pub supports_parallel_tools: Option<bool>,
+    pub supports_vision: Option<bool>,
+    pub supports_documents: Option<bool>,
+    pub supports_thinking: Option<bool>,
+    pub supports_json_schema_tools: Option<bool>,
+    pub supports_prompt_caching: Option<bool>,
+    pub supports_usage_reporting: Option<bool>,
+    pub supports_streaming: Option<bool>,
+    pub supports_strict_schema: Option<bool>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ModelOptionsConfig {
@@ -145,6 +151,9 @@ pub struct ModelVariantConfig {
 #[serde(deny_unknown_fields)]
 pub struct ModelDefinitionConfig {
     pub display_name: Option<String>,
+    pub max_context_tokens: Option<usize>,
+    pub max_output_tokens: Option<usize>,
+    pub capabilities: Option<ModelCapabilitiesConfig>,
     pub options: Option<ModelOptionsConfig>,
     #[serde(default)]
     pub variants: HashMap<String, ModelVariantConfig>,
@@ -167,13 +176,18 @@ pub struct ProviderConfig {
     pub default_model: Option<String>,
     pub api_key_env: Option<String>,
     pub auth_ref: Option<String>,
-    pub kind: Option<ProviderKind>,
+    pub api_key: Option<SecretString>,
+    pub api_format: Option<ApiFormat>,
+    pub request_path: Option<String>,
     pub models_endpoint: Option<String>,
     pub headers: Option<HashMap<String, String>>,
     pub request: Option<ProviderRequestConfig>,
-    pub capabilities: Option<serde_json::Value>,
+    pub capabilities: Option<ProviderCapabilitiesConfig>,
     #[serde(default)]
     pub models: HashMap<String, ModelDefinitionConfig>,
+    #[serde(default, skip_serializing)]
+    #[schemars(skip)]
+    pub kind: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -436,6 +450,7 @@ pub struct ProfileConfig {
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub variant: Option<String>,
+    pub context_window_override: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -491,8 +506,8 @@ pub struct ContextConfig {
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
-            context_window_override: Some(120_000),
-            reserved_output_tokens: Some(8_000),
+            context_window_override: None,
+            reserved_output_tokens: None,
             safety_margin_tokens: Some(2048),
             workspace_file: None,
             memory_file: None,
@@ -895,6 +910,7 @@ pub struct CliOverrides {
     pub workspace: Option<PathBuf>,
     pub profile: Option<String>,
     pub skills: Vec<String>,
+    pub context_window_override: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -911,6 +927,7 @@ pub struct EffectiveConfig {
     pub policies: PoliciesConfig,
     pub provider_override: Option<String>,
     pub model_override: Option<String>,
+    pub context_window_override: Option<usize>,
     pub tui: TuiConfig,
     pub extensions: ExtensionsConfig,
     pub skills: SkillsConfig,
@@ -919,6 +936,15 @@ pub struct EffectiveConfig {
 
 impl EffectiveConfig {
     pub fn compute_fingerprint(&self) -> String {
+        let mut stable_providers = self.providers.clone();
+        for provider in stable_providers.values_mut() {
+            if let Some(ref mut key) = provider.api_key {
+                if !key.0.starts_with('$') {
+                    key.0 = "[INLINE_API_KEY]".to_string();
+                }
+            }
+        }
+
         #[derive(Serialize)]
         struct StableConfig<'a> {
             defaults: &'a DefaultsConfig,
@@ -942,7 +968,7 @@ impl EffectiveConfig {
             tools: &self.tools,
             context: &self.context,
             observe: &self.observe,
-            providers: &self.providers,
+            providers: &stable_providers,
             profiles: &self.profiles,
             prompt: &self.prompt,
             policies: &self.policies,
@@ -982,6 +1008,16 @@ impl WorkspaceConfig {
                     field: "version".to_string(),
                     reason: "missing field `version`".to_string(),
                 }));
+            }
+            if let Some(providers) = v.get("providers").and_then(|p| p.as_object()) {
+                for (name, provider) in providers {
+                    if provider.get("kind").is_some() {
+                        return Err(HarnessError::Config(ConfigError::InvalidValue {
+                            field: format!("providers.{}.kind", name),
+                            reason: "field `kind` is not supported in gestalt.json. Use `protocol` or `api_format` instead.".to_string(),
+                        }));
+                    }
+                }
             }
             serde_json::from_value(v).map_err(|err| {
                 HarnessError::Config(ConfigError::InvalidValue {
@@ -1061,6 +1097,7 @@ impl WorkspaceConfig {
                 }
             }
         }
+        validate_config_layer(&cfg)?;
         Ok(cfg)
     }
 
@@ -1328,10 +1365,272 @@ impl WorkspaceConfig {
             self.mcp = Some(self_mcp);
         }
 
-        self.providers.extend(other.providers);
-        self.profiles.extend(other.profiles);
+        for (k, v) in other.providers {
+            let merged = if let Some(base) = self.providers.remove(&k) {
+                merge_provider_config(base, v)
+            } else {
+                v
+            };
+            self.providers.insert(k, merged);
+        }
+        for (k, v) in other.profiles {
+            let merged = if let Some(base) = self.profiles.remove(&k) {
+                merge_profile_config(base, v)
+            } else {
+                v
+            };
+            self.profiles.insert(k, merged);
+        }
         Ok(self)
     }
+}
+
+fn merge_provider_config(mut base: ProviderConfig, overlay: ProviderConfig) -> ProviderConfig {
+    if overlay.id.is_some() {
+        base.id = overlay.id;
+    }
+    if overlay.display_name.is_some() {
+        base.display_name = overlay.display_name;
+    }
+    if overlay.protocol.is_some() {
+        base.protocol = overlay.protocol;
+    }
+    if overlay.base_url.is_some() {
+        base.base_url = overlay.base_url;
+    }
+    if overlay.default_model.is_some() {
+        base.default_model = overlay.default_model;
+    }
+    if overlay.api_format.is_some() {
+        base.api_format = overlay.api_format;
+    }
+    if overlay.request_path.is_some() {
+        base.request_path = overlay.request_path;
+    }
+    if overlay.models_endpoint.is_some() {
+        base.models_endpoint = overlay.models_endpoint;
+    }
+    if overlay.kind.is_some() {
+        base.kind = overlay.kind;
+    }
+
+    if overlay.api_key.is_some() || overlay.api_key_env.is_some() || overlay.auth_ref.is_some() {
+        base.api_key = None;
+        base.api_key_env = None;
+        base.auth_ref = None;
+    }
+    if overlay.api_key.is_some() {
+        base.api_key = overlay.api_key;
+    }
+    if overlay.api_key_env.is_some() {
+        base.api_key_env = overlay.api_key_env;
+    }
+    if overlay.auth_ref.is_some() {
+        base.auth_ref = overlay.auth_ref;
+    }
+
+    if let Some(overlay_headers) = overlay.headers {
+        let mut base_headers = base.headers.unwrap_or_default();
+        for (k, v) in overlay_headers {
+            base_headers.insert(k, v);
+        }
+        base.headers = Some(base_headers);
+    }
+
+    if let Some(overlay_req) = overlay.request {
+        let mut base_req = base.request.unwrap_or_default();
+        if overlay_req.timeout_ms.is_some() {
+            base_req.timeout_ms = overlay_req.timeout_ms;
+        }
+        if overlay_req.stream_chunk_timeout_ms.is_some() {
+            base_req.stream_chunk_timeout_ms = overlay_req.stream_chunk_timeout_ms;
+        }
+        base.request = Some(base_req);
+    }
+
+    if let Some(caps) = overlay.capabilities {
+        let base_caps = base.capabilities.unwrap_or_default();
+        base.capabilities = Some(merge_provider_capabilities(base_caps, caps));
+    }
+
+    for (k, v) in overlay.models {
+        let merged_model = if let Some(base_model) = base.models.remove(&k) {
+            merge_model_definition(base_model, v)
+        } else {
+            v
+        };
+        base.models.insert(k, merged_model);
+    }
+
+    base
+}
+
+fn merge_model_definition(
+    mut base: ModelDefinitionConfig,
+    overlay: ModelDefinitionConfig,
+) -> ModelDefinitionConfig {
+    if overlay.display_name.is_some() {
+        base.display_name = overlay.display_name;
+    }
+    if overlay.max_context_tokens.is_some() {
+        base.max_context_tokens = overlay.max_context_tokens;
+    }
+    if overlay.max_output_tokens.is_some() {
+        base.max_output_tokens = overlay.max_output_tokens;
+    }
+
+    if let Some(opts) = overlay.options {
+        let base_opts = base.options.unwrap_or_default();
+        base.options = Some(merge_options(base_opts, opts));
+    }
+
+    if let Some(caps) = overlay.capabilities {
+        let base_caps = base.capabilities.unwrap_or_default();
+        base.capabilities = Some(merge_model_capabilities(base_caps, caps));
+    }
+
+    for (k, v) in overlay.variants {
+        let merged_variant = if let Some(base_variant) = base.variants.remove(&k) {
+            merge_model_variant(base_variant, v)
+        } else {
+            v
+        };
+        base.variants.insert(k, merged_variant);
+    }
+
+    base
+}
+
+fn merge_model_variant(
+    mut base: ModelVariantConfig,
+    overlay: ModelVariantConfig,
+) -> ModelVariantConfig {
+    if overlay.extends.is_some() {
+        base.extends = overlay.extends;
+    }
+    if let Some(opts) = overlay.options {
+        let base_opts = base.options.unwrap_or_default();
+        base.options = Some(merge_options(base_opts, opts));
+    }
+    base
+}
+
+fn merge_profile_config(mut base: ProfileConfig, overlay: ProfileConfig) -> ProfileConfig {
+    if overlay.provider.is_some() {
+        base.provider = overlay.provider;
+    }
+    if overlay.model.is_some() {
+        base.model = overlay.model;
+    }
+    if overlay.mode.is_some() {
+        base.mode = overlay.mode;
+    }
+    if overlay.max_turns.is_some() {
+        base.max_turns = overlay.max_turns;
+    }
+    if overlay.max_output_tokens.is_some() {
+        base.max_output_tokens = overlay.max_output_tokens;
+    }
+    if overlay.temperature.is_some() {
+        base.temperature = overlay.temperature;
+    }
+    if overlay.top_p.is_some() {
+        base.top_p = overlay.top_p;
+    }
+    if overlay.variant.is_some() {
+        base.variant = overlay.variant;
+    }
+    if overlay.context_window_override.is_some() {
+        base.context_window_override = overlay.context_window_override;
+    }
+    base
+}
+
+fn merge_model_capabilities(
+    mut base: ModelCapabilitiesConfig,
+    overlay: ModelCapabilitiesConfig,
+) -> ModelCapabilitiesConfig {
+    if overlay.streaming.is_some() {
+        base.streaming = overlay.streaming;
+    }
+    if overlay.tools.is_some() {
+        base.tools = overlay.tools;
+    }
+    if overlay.vision.is_some() {
+        base.vision = overlay.vision;
+    }
+    if overlay.json_mode.is_some() {
+        base.json_mode = overlay.json_mode;
+    }
+    if overlay.reasoning.is_some() {
+        base.reasoning = overlay.reasoning;
+    }
+    if overlay.prompt_cache.is_some() {
+        base.prompt_cache = overlay.prompt_cache;
+    }
+    base
+}
+
+fn merge_provider_capabilities(
+    mut base: ProviderCapabilitiesConfig,
+    overlay: ProviderCapabilitiesConfig,
+) -> ProviderCapabilitiesConfig {
+    if overlay.supports_tools.is_some() {
+        base.supports_tools = overlay.supports_tools;
+    }
+    if overlay.supports_parallel_tools.is_some() {
+        base.supports_parallel_tools = overlay.supports_parallel_tools;
+    }
+    if overlay.supports_vision.is_some() {
+        base.supports_vision = overlay.supports_vision;
+    }
+    if overlay.supports_documents.is_some() {
+        base.supports_documents = overlay.supports_documents;
+    }
+    if overlay.supports_thinking.is_some() {
+        base.supports_thinking = overlay.supports_thinking;
+    }
+    if overlay.supports_json_schema_tools.is_some() {
+        base.supports_json_schema_tools = overlay.supports_json_schema_tools;
+    }
+    if overlay.supports_prompt_caching.is_some() {
+        base.supports_prompt_caching = overlay.supports_prompt_caching;
+    }
+    if overlay.supports_usage_reporting.is_some() {
+        base.supports_usage_reporting = overlay.supports_usage_reporting;
+    }
+    if overlay.supports_streaming.is_some() {
+        base.supports_streaming = overlay.supports_streaming;
+    }
+    if overlay.supports_strict_schema.is_some() {
+        base.supports_strict_schema = overlay.supports_strict_schema;
+    }
+    base
+}
+
+fn validate_config_layer(config: &WorkspaceConfig) -> Result<(), HarnessError> {
+    for (name, provider) in &config.providers {
+        let mut specified = Vec::new();
+        if provider.api_key.is_some() {
+            specified.push("api_key");
+        }
+        if provider.api_key_env.is_some() {
+            specified.push("api_key_env");
+        }
+        if provider.auth_ref.is_some() {
+            specified.push("auth_ref");
+        }
+        if specified.len() > 1 {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: format!("providers.{}", name),
+                reason: format!(
+                    "mutually exclusive fields specified: {}",
+                    specified.join(" and ")
+                ),
+            }));
+        }
+    }
+    Ok(())
 }
 
 fn merge_unions(a: Option<Vec<String>>, b: Option<Vec<String>>) -> Option<Vec<String>> {
@@ -1584,6 +1883,8 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
     }
     let mcp = config.mcp;
 
+    let context_window_override = overrides.context_window_override;
+
     Ok(EffectiveConfig {
         workspace_root,
         config_path,
@@ -1597,6 +1898,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         policies,
         provider_override,
         model_override,
+        context_window_override,
         tui,
         extensions,
         skills,
@@ -1604,34 +1906,68 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
     })
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigWarningCode {
+    InlineCredential,
+    ConservativeModelFallback,
+    UnknownAdapterOption,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ConfigWarning {
+    pub code: ConfigWarningCode,
+    pub field: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedProvider {
     pub profile_name: Option<String>,
-    pub provider_name: String,
-    pub kind: String,
-    pub model: String,
-    pub auth_ref: Option<String>,
-    pub base_url: Option<String>,
-    pub api_key_env: Option<String>,
+    pub resolved_model: ResolvedModelSnapshot,
+    pub base_url: String,
+    pub request_path: Option<String>,
+    #[serde(skip)]
+    pub auth: gestalt_models::auth::ProviderAuthConfig,
+    pub protocol: Option<String>,
     pub models_endpoint: Option<String>,
-    pub headers: Option<HashMap<String, String>>,
+    pub headers: BTreeMap<String, String>,
+    pub request: ProviderRequestConfig,
     pub resolved_options: ModelOptionsConfig,
-    pub capabilities: Option<serde_json::Value>,
+    pub warnings: Vec<ConfigWarning>,
 }
 
 impl ResolvedProvider {
+    pub fn provider_name(&self) -> &str {
+        &self.resolved_model.selection.provider_id
+    }
+
+    pub fn model(&self) -> &str {
+        &self.resolved_model.selection.model_id
+    }
+
+    pub const fn api_format(&self) -> ApiFormat {
+        self.resolved_model.api_format
+    }
+
     pub fn provider_json(&self) -> Value {
         json!({
-            "id": self.provider_name.clone(),
-            "display_name": Some(self.provider_name.clone()),
-            "kind": self.kind.clone(),
-            "base_url": self.base_url,
-            "default_model": Some(self.model.clone()),
-            "api_key_env": self.api_key_env,
-            "auth_ref": self.auth_ref,
-            "models_endpoint": self.models_endpoint,
+            "id": self.provider_name().to_string(),
+            "display_name": self.resolved_model.display_name.clone().unwrap_or_else(|| self.provider_name().to_string()),
+            "api_format": self.api_format(),
+            "base_url": Some(self.base_url.clone()),
+            "default_model": Some(self.model().to_string()),
+            "request_path": self.request_path.clone(),
+            "models_endpoint": self.models_endpoint.clone(),
             "headers": self.headers,
-            "capabilities": self.capabilities,
+            "request": self.request,
+            "capabilities": self.resolved_model.capabilities,
+            "auth": match self.auth.credential {
+                gestalt_models::auth::ConfiguredCredential::None => "none",
+                gestalt_models::auth::ConfiguredCredential::Environment(_) => "environment",
+                gestalt_models::auth::ConfiguredCredential::Keychain(_) => "keychain",
+                gestalt_models::auth::ConfiguredCredential::Inline(_) => "inline",
+            }
         })
     }
 }
@@ -1715,93 +2051,57 @@ impl EffectiveConfig {
             model_override = Some(model_ovr.clone());
         }
 
-        let (
-            kind,
-            base_url,
-            default_model,
-            api_key_env,
-            auth_ref,
-            models_endpoint,
-            headers,
-            capabilities,
-        ) = if let Some(prov_cfg) = self.providers.get(&provider_name) {
-            let kind = prov_cfg
-                .kind
-                .clone()
-                .or_else(|| {
-                    if provider_name == "anthropic" {
-                        Some(ProviderKind::Anthropic)
-                    } else if provider_name == "openai" {
-                        Some(ProviderKind::Openai)
-                    } else if provider_name == "openai-compatible" {
-                        Some(ProviderKind::OpenaiCompatible)
-                    } else if gestalt_models::registry::registered().contains(&provider_name) {
-                        if provider_name == "anthropic" {
-                            Some(ProviderKind::Anthropic)
-                        } else if provider_name == "openai" {
-                            Some(ProviderKind::Openai)
-                        } else {
-                            Some(ProviderKind::Custom(provider_name.clone()))
-                        }
-                    } else {
-                        Some(ProviderKind::OpenaiCompatible)
-                    }
-                })
-                .unwrap_or(ProviderKind::OpenaiCompatible);
-            let base = prov_cfg.base_url.clone();
-            let model = prov_cfg.default_model.clone();
-            let env = prov_cfg.api_key_env.clone();
-            let auth = prov_cfg.auth_ref.clone();
-            let endpoint = prov_cfg.models_endpoint.clone();
-            let hdrs = prov_cfg.headers.clone();
-            let caps = prov_cfg.capabilities.clone();
-            (kind, base, model, env, auth, endpoint, hdrs, caps)
-        } else if let Some(builtin) = crate::provider_catalog::get_builtin_provider(&provider_name)
+        let mut merged_prov_cfg =
+            crate::provider_catalog::get_builtin_provider(&provider_name).unwrap_or_default();
+        if let Some(user_prov_cfg) = self.providers.get(&provider_name) {
+            merged_prov_cfg = merge_provider_config(merged_prov_cfg, user_prov_cfg.clone());
+        }
+
+        if merged_prov_cfg.protocol.is_none() {
+            if let Some(ref k) = merged_prov_cfg.kind {
+                if let Some(s) = k.as_str() {
+                    merged_prov_cfg.protocol = Some(s.to_string());
+                }
+            }
+        }
+
+        if crate::provider_catalog::get_builtin_provider(&provider_name).is_none()
+            && !self.providers.contains_key(&provider_name)
+            && !gestalt_models::registry::registered().contains(&provider_name)
         {
-            (
-                builtin
-                    .kind
-                    .clone()
-                    .unwrap_or(ProviderKind::OpenaiCompatible),
-                builtin.base_url,
-                builtin.default_model,
-                builtin.api_key_env,
-                builtin.auth_ref,
-                builtin.models_endpoint,
-                builtin.headers,
-                None,
-            )
-        } else if gestalt_models::registry::registered().contains(&provider_name) {
-            let kind = if provider_name == "anthropic" {
-                ProviderKind::Anthropic
-            } else if provider_name == "openai" {
-                ProviderKind::Openai
-            } else {
-                ProviderKind::Custom(provider_name.clone())
-            };
-            (kind, None, None, None, None, None, None, None)
-        } else {
             return Err(HarnessError::Provider(ProviderError::UnknownProvider(
                 provider_name.clone(),
             )));
-        };
+        }
 
-        let kind_str = match kind {
-            ProviderKind::Openai => "openai".to_string(),
-            ProviderKind::Anthropic => "anthropic".to_string(),
-            ProviderKind::OpenaiCompatible => "openai-compatible".to_string(),
-            ProviderKind::Custom(s) => s,
-        };
-
-        let model = model_override.or(default_model).unwrap_or_else(|| {
-            if kind_str == "anthropic" {
-                "claude-3-5-sonnet-20241022".to_string()
-            } else if kind_str == "openai" {
-                "gpt-4o-mini".to_string()
+        let api_format = merged_prov_cfg.api_format.unwrap_or_else(|| {
+            if provider_name.to_lowercase().contains("anthropic")
+                || merged_prov_cfg
+                    .protocol
+                    .as_ref()
+                    .map(|p| p.to_lowercase().contains("anthropic"))
+                    .unwrap_or(false)
+            {
+                ApiFormat::AnthropicMessages
             } else {
-                "openrouter/free".to_string()
+                ApiFormat::OpenAiChatCompletions
             }
         });
+        let default_model = merged_prov_cfg.default_model.clone();
+
+        let model = model_override
+            .or(default_model)
+            .unwrap_or_else(|| match api_format {
+                ApiFormat::AnthropicMessages => "claude-3-5-sonnet-20241022".to_string(),
+                ApiFormat::OpenAiResponses => "gpt-4o-mini".to_string(),
+                ApiFormat::OpenAiChatCompletions => {
+                    if provider_name == "openai" {
+                        "gpt-4o-mini".to_string()
+                    } else {
+                        "openrouter/free".to_string()
+                    }
+                }
+            });
 
         let mut active_variant = None;
         if let Some(ref p) = active_profile {
@@ -1870,29 +2170,299 @@ impl EffectiveConfig {
             resolved_options.top_p = Some(tp as f32);
         }
 
-        Ok(ResolvedProvider {
+        let mut max_context_tokens = None;
+
+        if let Some(cli_val) = self.context_window_override {
+            max_context_tokens = Some(cli_val);
+        }
+
+        if max_context_tokens.is_none() {
+            if let Some(ref p) = active_profile {
+                if let Some(prof_cfg) = self.profiles.get(p) {
+                    if let Some(prof_val) = prof_cfg.context_window_override {
+                        max_context_tokens = Some(prof_val);
+                    }
+                }
+            }
+        }
+
+        if max_context_tokens.is_none() {
+            if let Some(ws_val) = self.context.context_window_override {
+                max_context_tokens = Some(ws_val);
+            }
+        }
+
+        let mut configured_max_context = None;
+        let mut configured_max_output = None;
+        let mut configured_caps = None;
+        let mut display_name = None;
+
+        if let Some(user_prov_cfg) = self.providers.get(&provider_name) {
+            if let Some(model_def) = user_prov_cfg.models.get(&model) {
+                configured_max_context = model_def.max_context_tokens;
+                configured_max_output = model_def.max_output_tokens;
+                configured_caps.clone_from(&model_def.capabilities);
+                display_name.clone_from(&model_def.display_name);
+            }
+        }
+
+        if max_context_tokens.is_none() {
+            max_context_tokens = configured_max_context;
+        }
+
+        let catalog_models = crate::models::list_models(self, None);
+        let model_info = catalog_models
+            .iter()
+            .find(|m| {
+                m.qualified_id == model
+                    || (m.model_id == model
+                        && (m.qualified_id.starts_with(&format!("{provider_name}/"))
+                            || m.qualified_id.starts_with(&format!("{provider_name}:"))))
+            })
+            .cloned();
+
+        if max_context_tokens.is_none() {
+            if let Some(ref info) = model_info {
+                max_context_tokens = Some(info.max_context_tokens);
+            }
+        }
+
+        let mut warnings = Vec::new();
+        let max_context_tokens = if let Some(tokens) = max_context_tokens {
+            tokens
+        } else {
+            warnings.push(ConfigWarning {
+                code: ConfigWarningCode::ConservativeModelFallback,
+                field: format!("providers.{}.models.{}", provider_name, model),
+                message: format!(
+                    "model limits for '{}' are missing; using conservative 32,000 fallback",
+                    model
+                ),
+            });
+            32000
+        };
+
+        let max_output_tokens = configured_max_output
+            .or_else(|| model_info.as_ref().map(|info| info.max_output_tokens))
+            .unwrap_or(4096);
+
+        let mut streaming = true;
+        let mut tools = true;
+        let mut vision = false;
+        let mut json_mode = false;
+        let mut reasoning = false;
+        let mut prompt_cache = PromptCacheMode::ProviderDependent;
+
+        if let Some(ref info) = model_info {
+            tools = info.supports_tools;
+            vision = info.supports_vision;
+            json_mode = info.supports_json_schema;
+            reasoning = info.supports_thinking;
+            prompt_cache = if info.supports_prompt_caching {
+                PromptCacheMode::Automatic
+            } else {
+                PromptCacheMode::None
+            };
+        }
+
+        if let Some(ref caps) = configured_caps {
+            if let Some(val) = caps.streaming {
+                streaming = val;
+            }
+            if let Some(val) = caps.tools {
+                tools = val;
+            }
+            if let Some(val) = caps.vision {
+                vision = val;
+            }
+            if let Some(val) = caps.json_mode {
+                json_mode = val;
+            }
+            if let Some(val) = caps.reasoning {
+                reasoning = val;
+            }
+            if let Some(ref val) = caps.prompt_cache {
+                prompt_cache = *val;
+            }
+        }
+
+        let capabilities = ModelCapabilities {
+            streaming,
+            tools,
+            vision,
+            json_mode,
+            reasoning,
+            prompt_cache,
+        };
+
+        let resolved_model = ResolvedModelSnapshot {
+            selection: ModelSelection {
+                provider_id: provider_name.clone(),
+                model_id: model.clone(),
+                variant: active_variant,
+            },
+            api_format,
+            display_name: display_name
+                .or_else(|| model_info.as_ref().map(|info| info.display_name.clone())),
+            max_context_tokens,
+            max_output_tokens,
+            capabilities,
+        };
+
+        if let Some(ref api_key) = merged_prov_cfg.api_key {
+            if !api_key.0.starts_with('$') {
+                warnings.push(ConfigWarning {
+                    code: ConfigWarningCode::InlineCredential,
+                    field: format!("providers.{}.api_key", provider_name),
+                    message: format!(
+                        "providers.{}.api_key contains an inline credential; restrict gestalt.json permissions and avoid committing it",
+                        provider_name
+                    ),
+                });
+            }
+        }
+
+        if let Some(ref auth_ref) = merged_prov_cfg.auth_ref {
+            if auth_ref.starts_with("secret:") {
+                warnings.push(ConfigWarning {
+                    code: ConfigWarningCode::InlineCredential,
+                    field: format!("providers.{}.auth_ref", provider_name),
+                    message: format!(
+                        "providers.{}.auth_ref uses legacy secret: syntax; rewrite it as keychain:",
+                        provider_name
+                    ),
+                });
+            }
+        }
+
+        let default_env = match provider_name.as_str() {
+            "openai" => "OPENAI_API_KEY",
+            "anthropic" => "ANTHROPIC_API_KEY",
+            "openrouter" => "OPENROUTER_API_KEY",
+            "groq" => "GROQ_API_KEY",
+            "together" => "TOGETHER_API_KEY",
+            _ => "DUMMY_KEY",
+        };
+
+        let config_val = serde_json::to_value(&merged_prov_cfg).unwrap_or_default();
+        let auth =
+            gestalt_models::auth::provider_auth_config(&config_val, &provider_name, default_env)?;
+
+        let base_url = merged_prov_cfg.base_url.clone().unwrap_or_default();
+        let request_path = merged_prov_cfg.request_path.clone();
+        let models_endpoint = merged_prov_cfg.models_endpoint.clone();
+        let headers = merged_prov_cfg
+            .headers
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+        let request = merged_prov_cfg.request.clone().unwrap_or_default();
+
+        let resolved = ResolvedProvider {
             profile_name,
-            provider_name,
-            kind: kind_str,
-            model,
-            auth_ref,
+            resolved_model,
             base_url,
-            api_key_env,
+            request_path,
+            auth,
+            protocol: merged_prov_cfg.protocol.clone(),
             models_endpoint,
             headers,
+            request,
             resolved_options,
-            capabilities,
-        })
+            warnings,
+        };
+
+        self.validate_resolved_provider(&resolved)?;
+
+        Ok(resolved)
+    }
+
+    fn validate_resolved_provider(&self, resolved: &ResolvedProvider) -> Result<(), HarnessError> {
+        let is_builtin =
+            crate::provider_catalog::get_builtin_provider(resolved.provider_name()).is_some();
+        let is_registered = gestalt_models::registry::registered()
+            .contains(&resolved.provider_name().to_string())
+            || resolved
+                .protocol
+                .as_ref()
+                .map(|p| gestalt_models::registry::registered().contains(p))
+                .unwrap_or(false);
+
+        if !is_builtin && !is_registered && resolved.base_url.is_empty() {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: "base_url".to_string(),
+                reason: format!(
+                    "Custom provider '{}' must specify a base_url",
+                    resolved.provider_name()
+                ),
+            }));
+        }
+
+        if let Some(ref path) = resolved.request_path {
+            if !path.starts_with('/') {
+                return Err(HarnessError::Config(ConfigError::InvalidValue {
+                    field: "request_path".to_string(),
+                    reason: "request_path must begin with a leading slash".to_string(),
+                }));
+            }
+        }
+
+        if resolved.resolved_model.capabilities.tools {
+            if let Some(user_prov_cfg) = self.providers.get(resolved.provider_name()) {
+                if let Some(ref caps) = user_prov_cfg.capabilities {
+                    if caps.supports_tools == Some(false) {
+                        return Err(HarnessError::Config(ConfigError::InvalidValue {
+                            field: "capabilities.tools".to_string(),
+                            reason: "model requires tools but provider disables them".to_string(),
+                        }));
+                    }
+                }
+            }
+        }
+
+        Self::validate_model_options(
+            resolved.api_format(),
+            &resolved.resolved_model.capabilities,
+            &resolved.resolved_options,
+        )?;
+
+        Ok(())
+    }
+
+    fn validate_model_options(
+        api_format: ApiFormat,
+        _capabilities: &ModelCapabilities,
+        options: &ModelOptionsConfig,
+    ) -> Result<(), HarnessError> {
+        if (api_format == ApiFormat::AnthropicMessages
+            || api_format == ApiFormat::OpenAiChatCompletions)
+            && options.text_verbosity.is_some()
+        {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: "text_verbosity".to_string(),
+                reason: format!("text_verbosity option is not supported by {:?}", api_format),
+            }));
+        }
+
+        if api_format == ApiFormat::OpenAiResponses && options.thinking.is_some() {
+            return Err(HarnessError::Config(ConfigError::InvalidValue {
+                field: "thinking".to_string(),
+                reason: "thinking option is not supported by openai_responses format".to_string(),
+            }));
+        }
+
+        Ok(())
     }
 
     pub fn selected_provider(&self) -> Result<String, HarnessError> {
         let resolved = self.resolve_provider()?;
-        Ok(resolved.provider_name)
+        Ok(resolved.provider_name().to_string())
     }
 
     pub fn selected_model(&self) -> Option<String> {
         if let Ok(resolved) = self.resolve_provider() {
-            Some(resolved.model)
+            Some(resolved.model().to_string())
         } else {
             self.defaults.model.clone()
         }
@@ -1952,8 +2522,11 @@ impl EffectiveConfig {
         if let Some(auth_ref) = configured.auth_ref {
             base.auth_ref = Some(auth_ref);
         }
-        if let Some(kind) = configured.kind {
-            base.kind = Some(kind);
+        if let Some(api_format) = configured.api_format {
+            base.api_format = Some(api_format);
+        }
+        if let Some(request_path) = configured.request_path {
+            base.request_path = Some(request_path);
         }
         if let Some(models_endpoint) = configured.models_endpoint {
             base.models_endpoint = Some(models_endpoint);
@@ -1962,15 +2535,28 @@ impl EffectiveConfig {
             base.headers = Some(headers);
         }
 
+        let redacted_api_key = configured
+            .api_key
+            .as_ref()
+            .or(base.api_key.as_ref())
+            .map(|k| {
+                if k.0.starts_with('$') {
+                    k.0.clone()
+                } else {
+                    "[REDACTED]".to_string()
+                }
+            });
+
         json!({
             "id": base.id.unwrap_or_else(|| provider.to_string()),
             "display_name": base.display_name,
             "protocol": base.protocol,
+            "api_format": base.api_format,
             "base_url": base.base_url,
             "default_model": base.default_model.or_else(|| self.selected_model()),
+            "api_key": redacted_api_key,
             "api_key_env": base.api_key_env,
             "auth_ref": base.auth_ref,
-            "kind": base.kind,
             "models_endpoint": base.models_endpoint,
             "headers": base.headers,
         })
@@ -2204,7 +2790,7 @@ pub fn explain_config(
         None::<&str>,
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
-        8000
+        4096
     );
 
     resolve!(

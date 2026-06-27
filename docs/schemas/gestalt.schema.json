@@ -207,6 +207,14 @@
         }
       ]
     },
+    "ApiFormat": {
+      "type": "string",
+      "enum": [
+        "anthropic_messages",
+        "openai_chat_completions",
+        "openai_responses"
+      ]
+    },
     "ContextConfig": {
       "type": "object",
       "properties": {
@@ -928,14 +936,86 @@
         "proposal"
       ]
     },
+    "ModelCapabilitiesConfig": {
+      "type": "object",
+      "properties": {
+        "json_mode": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "prompt_cache": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PromptCacheMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasoning": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "streaming": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "tools": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "vision": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "ModelDefinitionConfig": {
       "type": "object",
       "properties": {
+        "capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelCapabilitiesConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "display_name": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "max_context_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "max_output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
         },
         "options": {
           "anyOf": [
@@ -1256,6 +1336,14 @@
     "ProfileConfig": {
       "type": "object",
       "properties": {
+        "context_window_override": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
         "max_output_tokens": {
           "type": [
             "integer",
@@ -1324,6 +1412,15 @@
         "snapshot"
       ]
     },
+    "PromptCacheMode": {
+      "type": "string",
+      "enum": [
+        "none",
+        "automatic",
+        "explicit",
+        "provider_dependent"
+      ]
+    },
     "PromptConfig": {
       "type": "object",
       "properties": {
@@ -1352,9 +1449,95 @@
       },
       "additionalProperties": false
     },
+    "ProviderCapabilitiesConfig": {
+      "type": "object",
+      "properties": {
+        "supports_documents": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_json_schema_tools": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_parallel_tools": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_prompt_caching": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_streaming": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_strict_schema": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_thinking": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_tools": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_usage_reporting": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "supports_vision": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "ProviderConfig": {
       "type": "object",
       "properties": {
+        "api_format": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApiFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SecretString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "api_key_env": {
           "type": [
             "string",
@@ -1373,7 +1556,16 @@
             "null"
           ]
         },
-        "capabilities": true,
+        "capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderCapabilitiesConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "default_model": {
           "type": [
             "string",
@@ -1399,16 +1591,6 @@
           "type": [
             "string",
             "null"
-          ]
-        },
-        "kind": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ProviderKind"
-            },
-            {
-              "type": "null"
-            }
           ]
         },
         "models": {
@@ -1439,12 +1621,15 @@
               "type": "null"
             }
           ]
+        },
+        "request_path": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false
-    },
-    "ProviderKind": {
-      "type": "string"
     },
     "ProviderRequestConfig": {
       "type": "object",
@@ -1484,6 +1669,9 @@
         "none",
         "docker"
       ]
+    },
+    "SecretString": {
+      "type": "string"
     },
     "SkillsConfig": {
       "type": "object",
