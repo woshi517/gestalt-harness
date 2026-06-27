@@ -61,18 +61,16 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
             ))
         })?;
 
-    let mut req_builder = if resolved.api_format() == gestalt_core::ApiFormat::AnthropicMessages {
+    let (url, is_anthropic) = if let Some(ref ep) = resolved.models_endpoint {
+        (ep.clone(), resolved.api_format() == gestalt_core::ApiFormat::AnthropicMessages)
+    } else if resolved.api_format() == gestalt_core::ApiFormat::AnthropicMessages {
         let base_url = if resolved.base_url.is_empty() {
             "https://api.anthropic.com"
         } else {
             &resolved.base_url
         };
         let base_url = base_url.trim_end_matches('/');
-        let url = format!("{base_url}/v1/models");
-        client
-            .get(&url)
-            .header("x-api-key", &api_key)
-            .header("anthropic-version", "2023-06-01")
+        (format!("{base_url}/v1/models"), true)
     } else {
         let base_url = if resolved.base_url.is_empty() {
             "https://api.openai.com/v1"
@@ -80,7 +78,15 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
             &resolved.base_url
         };
         let base_url = base_url.trim_end_matches('/');
-        let url = format!("{base_url}/models");
+        (format!("{base_url}/models"), false)
+    };
+
+    let mut req_builder = if is_anthropic {
+        client
+            .get(&url)
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+    } else {
         client.get(&url).bearer_auth(&api_key)
     };
 
