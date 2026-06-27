@@ -53,7 +53,7 @@ pub async fn explain_context(
             reserved_output: config
                 .context
                 .reserved_output_tokens
-                .or(max_output_tokens)
+                .or(max_output_tokens.map(|v| v.min(8192)))
                 .or(config.tools.max_output_tokens)
                 .unwrap_or(4096),
             used_system: 0,
