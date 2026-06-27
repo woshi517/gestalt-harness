@@ -49,7 +49,7 @@ Each `ContextPatch` carries a `ContextStability` tag. The `RuntimeContextPipelin
 
 1. **Creation:** On turn 0, `RuntimeContextPipeline` builds the full `ContextPacket`, then computes a `PromptSnapshot` from the stable prefix messages. The snapshot (message list + SHA-256 content hash) is persisted alongside the run manifest.
 
-2. **Reuse:** On session resume, the CLI loads the previous run's snapshot from disk, emits `PromptSnapshotLoaded`, and passes the snapshot hash into `AgentRuntime::run_session()` → `RuntimeContextHookAdapter`. The hook adapter seeds the pipeline's snapshot hash, and on the first turn's `before_context_build`, the pipeline emits `PromptSnapshotReused` and injects the snapshot messages as the stable prefix.
+2. **Reuse:** On session resume/continuation, the CLI loads the previous run's snapshot from disk. It constructs and compares `ProviderCacheKey`s (based on provider ID, API format, model ID, prompt prefix hash, and tool schema hash) between the parent run and the current run. If the keys match, it emits `PromptSnapshotLoaded` and passes the snapshot hash into `AgentRuntime::run_session()`. If they do not match (e.g. during a provider/model switch or tool schema change), the snapshot is discarded and not reused.
 
 3. **Cache invalidation:** If a stable patch's content changes (e.g. a tool schema update), `rebuild_packet()` recomputes the snapshot hash. The provider sees a new prefix hash and issues a cache miss on the next request — this is expected and correct behavior.
 
@@ -88,7 +88,7 @@ Values: `"dynamic"` (default in core), `"snapshot"` (default in CLI pipeline).
 
 ### Neutral
 
-- **New types in core.** `PromptAssemblyStrategy`, `ContextStability`, `PromptSegment`, `PromptSnapshot`, and `PromptCachePlan` are all serializable and live in `gestalt-core` because the trace format references them. This is consistent with the existing pattern (`ContextPacket`, `TokenBudget`, etc.).
+- **New types in core.** `PromptAssemblyStrategy`, `ContextStability`, `PromptSegment`, `PromptSnapshot`, `PromptCachePlan`, and `ProviderCacheKey` are all serializable and live in `gestalt-core` because the trace format or cache validation references them. This is consistent with the existing pattern (`ContextPacket`, `TokenBudget`, etc.).
 - **Schema desync risk.** The JSON schema (`docs/schemas/gestalt.schema.json`) must be regenerated when config types change. The current schema is missing `assembly_strategy` on `PromptConfig`.
 
 ### Negative
