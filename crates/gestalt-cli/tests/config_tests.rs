@@ -135,7 +135,8 @@ max_context_window = 60000
     assert_eq!(config.context.max_context_window, Some(60000));
 
     // Check that default values are used for unspecified fields
-    assert_eq!(config.context.reserved_output_tokens, Some(8000));
+    assert_eq!(config.context.reserved_output_tokens, None);
+    assert_eq!(config.context.safety_margin_tokens, Some(2048));
 
     // 2. Explain config
     let explanation = explain_config(&overrides).expect("explain config");
@@ -154,7 +155,7 @@ max_context_window = 60000
     assert_eq!(max_context.source, "Workspace Config File");
 
     let reserved_tokens = explanation.get("context.reserved_output_tokens").unwrap();
-    assert_eq!(reserved_tokens.value, serde_json::json!(8000));
+    assert_eq!(reserved_tokens.value, serde_json::json!(4096));
     assert_eq!(reserved_tokens.source, "Default");
 
     let _ = fs::remove_dir_all(&temp_dir);
@@ -172,9 +173,12 @@ fn test_profile_resolution() {
 
     let resolved = config.resolve_provider().expect("resolve provider");
     assert_eq!(resolved.profile_name.as_deref(), Some("default"));
-    assert_eq!(resolved.provider_name, "openrouter");
-    assert_eq!(resolved.kind, "openai-compatible");
-    assert_eq!(resolved.model, "openrouter/free");
+    assert_eq!(resolved.provider_name(), "openrouter");
+    assert_eq!(
+        resolved.api_format(),
+        gestalt_core::ApiFormat::OpenAiChatCompletions
+    );
+    assert_eq!(resolved.model(), "openrouter/free");
 }
 
 #[test]
@@ -190,9 +194,12 @@ fn test_profile_cli_override() {
 
     let resolved = config.resolve_provider().expect("resolve provider");
     assert_eq!(resolved.profile_name.as_deref(), Some("anthropic"));
-    assert_eq!(resolved.provider_name, "anthropic");
-    assert_eq!(resolved.kind, "anthropic");
-    assert_eq!(resolved.model, "claude-3-5-sonnet-20241022");
+    assert_eq!(resolved.provider_name(), "anthropic");
+    assert_eq!(
+        resolved.api_format(),
+        gestalt_core::ApiFormat::AnthropicMessages
+    );
+    assert_eq!(resolved.model(), "claude-3-5-sonnet-20241022");
 }
 
 #[test]
@@ -209,9 +216,12 @@ fn test_provider_model_cli_overrides_beat_profile() {
 
     let resolved = config.resolve_provider().expect("resolve provider");
     assert_eq!(resolved.profile_name.as_deref(), Some("default"));
-    assert_eq!(resolved.provider_name, "openai");
-    assert_eq!(resolved.kind, "openai");
-    assert_eq!(resolved.model, "gpt-4o-custom");
+    assert_eq!(resolved.provider_name(), "openai");
+    assert_eq!(
+        resolved.api_format(),
+        gestalt_core::ApiFormat::OpenAiResponses
+    );
+    assert_eq!(resolved.model(), "gpt-4o-custom");
 }
 
 #[test]
@@ -501,4 +511,32 @@ required = true
     );
 
     let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_config_show_redaction() {
+    use gestalt_cli::config::{EffectiveConfig, SecretString};
+    use gestalt_cli::output::{CliReport, ConfigShowReport};
+
+    let mut config = EffectiveConfig::default();
+    let mut prov = gestalt_cli::config::ProviderConfig::default();
+    prov.api_key = Some(SecretString("sk-ant-test-secret".to_string()));
+    config.providers.insert("openai".to_string(), prov);
+
+    let report = ConfigShowReport {
+        config,
+        source: false,
+        explain_map: None,
+    };
+
+    // Test text mode
+    let text = report.render_text();
+    assert!(!text.contains("sk-ant-test-secret"));
+    assert!(text.contains("[REDACTED]"));
+
+    // Test JSON mode
+    let json_val = serde_json::to_value(&report).unwrap();
+    let json_str = json_val.to_string();
+    assert!(!json_str.contains("sk-ant-test-secret"));
+    assert!(json_str.contains("[REDACTED]"));
 }

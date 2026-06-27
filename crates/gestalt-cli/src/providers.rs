@@ -42,12 +42,7 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
     temp_cfg.defaults.provider = Some(provider.to_string());
     temp_cfg.defaults.profile = None;
     let resolved = temp_cfg.resolve_provider()?;
-    let provider_config = resolved.provider_json();
-    let auth_config = gestalt_models::auth::provider_auth_config(
-        &provider_config,
-        &resolved.provider_name,
-        "DUMMY_KEY",
-    )?;
+    let auth_config = resolved.auth.clone();
 
     let cred_resolver = crate::auth::build_credential_resolver(None, false);
     let credential = cred_resolver.resolve(&auth_config).map_err(|_| {
@@ -66,31 +61,31 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
             ))
         })?;
 
-    let mut req_builder = if resolved.kind == "anthropic" {
-        let base_url = resolved
-            .base_url
-            .as_deref()
-            .unwrap_or("https://api.anthropic.com")
-            .trim_end_matches('/');
+    let mut req_builder = if resolved.api_format() == gestalt_core::ApiFormat::AnthropicMessages {
+        let base_url = if resolved.base_url.is_empty() {
+            "https://api.anthropic.com"
+        } else {
+            &resolved.base_url
+        };
+        let base_url = base_url.trim_end_matches('/');
         let url = format!("{base_url}/v1/models");
         client
             .get(&url)
             .header("x-api-key", &api_key)
             .header("anthropic-version", "2023-06-01")
     } else {
-        let base_url = resolved
-            .base_url
-            .as_deref()
-            .unwrap_or("https://api.openai.com/v1")
-            .trim_end_matches('/');
+        let base_url = if resolved.base_url.is_empty() {
+            "https://api.openai.com/v1"
+        } else {
+            &resolved.base_url
+        };
+        let base_url = base_url.trim_end_matches('/');
         let url = format!("{base_url}/models");
         client.get(&url).bearer_auth(&api_key)
     };
 
-    if let Some(ref hdrs) = resolved.headers {
-        for (k, v) in hdrs {
-            req_builder = req_builder.header(k, v);
-        }
+    for (k, v) in &resolved.headers {
+        req_builder = req_builder.header(k, v);
     }
 
     let resp = req_builder.send().await.map_err(|e| {

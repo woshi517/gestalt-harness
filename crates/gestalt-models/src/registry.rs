@@ -73,6 +73,56 @@ pub fn get_with_resolver(
     }
 }
 
+pub fn get_by_api_format_with_resolver(
+    provider_id: &str,
+    api_format: gestalt_core::ApiFormat,
+    config: serde_json::Value,
+    auth: crate::auth::ProviderAuthConfig,
+    resolver: Arc<dyn crate::auth::CredentialResolver>,
+) -> Result<Arc<dyn Provider>, HarnessError> {
+    let is_custom = {
+        let registry = REGISTRY.get_or_init(init_defaults).read().map_err(|_| {
+            HarnessError::Provider(gestalt_core::ProviderError::UnexpectedResponse {
+                details: "provider registry poisoned".to_string(),
+            })
+        })?;
+        registry.contains_key(provider_id)
+            && provider_id != "openai"
+            && provider_id != "openai-compatible"
+            && provider_id != "anthropic"
+    };
+
+    if is_custom {
+        let registry = REGISTRY.get_or_init(init_defaults).read().map_err(|_| {
+            HarnessError::Provider(gestalt_core::ProviderError::UnexpectedResponse {
+                details: "provider registry poisoned".to_string(),
+            })
+        })?;
+        let factory = registry.get(provider_id).unwrap();
+        let provider = factory(config);
+        drop(registry);
+        return provider;
+    }
+
+    match api_format {
+        gestalt_core::ApiFormat::AnthropicMessages => {
+            Ok(Arc::new(AnthropicProvider::new_with_auth_and_resolver(
+                &config, auth, resolver,
+            )?))
+        }
+        gestalt_core::ApiFormat::OpenAiChatCompletions => {
+            Ok(Arc::new(crate::openai::chat_completions::OpenAiChatCompletionsProvider::new_with_auth_and_resolver(
+                &config, auth, resolver,
+            )?))
+        }
+        gestalt_core::ApiFormat::OpenAiResponses => {
+            Ok(Arc::new(crate::openai::responses::OpenAiResponsesProvider::new_with_auth_and_resolver(
+                &config, auth, resolver,
+            )?))
+        }
+    }
+}
+
 pub fn get(name: &str, config: ProviderConfig) -> Result<Arc<dyn Provider>, HarnessError> {
     get_with_resolver(
         name,

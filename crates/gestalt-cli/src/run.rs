@@ -60,6 +60,7 @@ pub async fn run_prompt(
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: runtime.config.resolved_model.clone(),
         compatibility_fingerprint: gestalt_trace::run_manifest::CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
             tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
@@ -470,6 +471,7 @@ mod tests {
             extensions: Default::default(),
             skills: Default::default(),
             mcp: None,
+            context_window_override: None,
         };
 
         // Scenario 1: No prompt override => default prompt source
@@ -698,6 +700,7 @@ mod fingerprint_tests {
             extensions: ExtensionsConfig::default(),
             skills: SkillsConfig::default(),
             mcp: None,
+            context_window_override: None,
         }
     }
 

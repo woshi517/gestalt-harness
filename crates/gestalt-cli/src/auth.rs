@@ -1,7 +1,7 @@
 use gestalt_core::{ConfigError, HarnessError, ProviderError};
 use gestalt_models::auth::{
-    provider_auth_config, ChainCredentialResolver, CredentialResolver, CredentialSource,
-    EnvironmentCredentialResolver, ProviderAuthConfig, ResolvedCredential,
+    ChainCredentialResolver, CredentialResolver, CredentialSource, EnvironmentCredentialResolver,
+    ProviderAuthConfig, ResolvedCredential,
 };
 use std::collections::HashMap;
 use std::io::{stdin, IsTerminal};
@@ -189,16 +189,14 @@ pub struct KeychainCredentialResolver;
 
 impl CredentialResolver for KeychainCredentialResolver {
     fn resolve(&self, auth: &ProviderAuthConfig) -> Result<ResolvedCredential, HarnessError> {
-        if let Some(ref auth_ref) = auth.auth_ref {
-            if let Some(account) = auth_ref.strip_prefix("secret:") {
-                if let Ok(password) = get_keychain_secret(account) {
-                    return Ok(ResolvedCredential::new(
-                        password,
-                        CredentialSource::Keychain {
-                            account: account.to_string(),
-                        },
-                    ));
-                }
+        if let gestalt_models::auth::ConfiguredCredential::Keychain(ref account) = auth.credential {
+            if let Ok(password) = get_keychain_secret(account) {
+                return Ok(ResolvedCredential::new(
+                    password,
+                    CredentialSource::Keychain {
+                        account: account.clone(),
+                    },
+                ));
             }
         }
         Err(HarnessError::Provider(ProviderError::AuthFailed {
@@ -235,6 +233,7 @@ pub fn build_credential_resolver(
     if let Some(key) = api_key_override {
         resolvers.push(Arc::new(SessionCredentialResolver { api_key: Some(key) }));
     }
+    resolvers.push(Arc::new(gestalt_models::auth::InlineCredentialResolver));
     resolvers.push(Arc::new(EnvironmentCredentialResolver));
     resolvers.push(Arc::new(KeychainCredentialResolver));
     if allow_interaction {
@@ -252,7 +251,7 @@ pub fn resolve_auth(
 
     // Create a temporary config with the targeted provider
     let resolved = if let Ok(c) = config.resolve_provider() {
-        if c.provider_name == provider {
+        if c.provider_name() == provider {
             c
         } else {
             // resolve with provider override
@@ -268,25 +267,27 @@ pub fn resolve_auth(
         }));
     };
 
-    let provider_config = resolved.provider_json();
-    let auth_config = provider_auth_config(&provider_config, &resolved.provider_name, "DUMMY_KEY")?;
-
+    let auth_config = resolved.auth.clone();
     let cred_resolver = build_credential_resolver(None, false);
 
-    let (source, status, variable) = match cred_resolver.resolve(&auth_config) {
-        Ok(cred) => {
-            let src = match cred.source() {
-                CredentialSource::Session => "session".to_string(),
-                CredentialSource::Environment { variable } => format!("env ({variable})"),
-                CredentialSource::Keychain { account } => format!("keychain ({account})"),
-            };
-            (src, "present".to_string(), auth_config.api_key_env.clone())
-        }
-        Err(_) => (
-            "missing".to_string(),
-            "missing".to_string(),
-            auth_config.api_key_env.clone(),
-        ),
+    let (source, status, variable) = if let Ok(cred) = cred_resolver.resolve(&auth_config) {
+        let src = match cred.source() {
+            CredentialSource::Session => "session".to_string(),
+            CredentialSource::Environment { variable } => format!("env ({variable})"),
+            CredentialSource::Keychain { account } => format!("keychain ({account})"),
+            CredentialSource::Inline => "inline".to_string(),
+        };
+        let var = match &auth_config.credential {
+            gestalt_models::auth::ConfiguredCredential::Environment(v) => v.clone(),
+            _ => String::new(),
+        };
+        (src, "present".to_string(), var)
+    } else {
+        let var = match &auth_config.credential {
+            gestalt_models::auth::ConfiguredCredential::Environment(v) => v.clone(),
+            _ => String::new(),
+        };
+        ("missing".to_string(), "missing".to_string(), var)
     };
 
     Ok(AuthResolveReport {
@@ -305,7 +306,7 @@ pub fn auth_doctor(config: &EffectiveConfig) -> Result<AuthDoctorReport, Harness
     for provider in providers {
         if let Ok(auth_report) = resolve_auth(config, &provider) {
             let var_name = auth_report.variable;
-            if checked_vars.insert(var_name.clone()) {
+            if var_name.is_empty() || checked_vars.insert(var_name.clone()) {
                 let status = auth_report.status.clone();
                 let source = auth_report.source.clone();
                 let value = if status == "present" {
@@ -313,8 +314,13 @@ pub fn auth_doctor(config: &EffectiveConfig) -> Result<AuthDoctorReport, Harness
                 } else {
                     "[NOT SET]".to_string()
                 };
+                let display_var = if var_name.is_empty() {
+                    format!("({})", auth_report.provider)
+                } else {
+                    var_name
+                };
                 entries.push(AuthDoctorEntry {
-                    variable: var_name,
+                    variable: display_var,
                     status,
                     value,
                 });

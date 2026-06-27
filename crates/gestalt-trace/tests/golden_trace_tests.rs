@@ -369,6 +369,7 @@ fn make_programmatic_session(max_turns: usize) -> Session {
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            resolved_model: None,
         },
         gestalt_core::context::TokenBudget {
             model_limit: 1000,
@@ -795,6 +796,7 @@ async fn test_persisted_steering_replay_and_resume() {
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fp,
     };
     manifest.save_to(&paths.root.join("run.json")).unwrap();
@@ -915,6 +917,7 @@ async fn test_persisted_steering_resume_flow() {
         interrupted_phase: Some("provider_stream".to_string()),
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fp,
     };
     manifest.save_to(&paths.root.join("run.json")).unwrap();

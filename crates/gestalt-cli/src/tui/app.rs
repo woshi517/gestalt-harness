@@ -81,7 +81,7 @@ fn find_latest_run_id(config: &EffectiveConfig, session_id: &str) -> Option<Stri
 
 fn check_onboarding_needed(config: &EffectiveConfig) -> bool {
     if let Ok(resolved) = config.resolve_provider() {
-        let provider_name = resolved.provider_name;
+        let provider_name = resolved.provider_name().to_string();
         if provider_name == "ollama" {
             return false;
         }

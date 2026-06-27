@@ -108,6 +108,7 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
 #[tokio::test]
 async fn test_cli_smoke_prompt_source() {
     let _guard = ENV_MUTEX.lock().await;
+    let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
@@ -262,6 +263,7 @@ default = "confirm"
 #[tokio::test]
 async fn test_cli_smoke_custom_provider_via_profile() {
     let _guard = ENV_MUTEX.lock().await;
+    let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
@@ -316,9 +318,9 @@ default = "confirm"
 
     // Verify it resolves kind to custom-mock-provider
     let resolved = config.resolve_provider().unwrap();
-    assert_eq!(resolved.provider_name, "custom-mock");
-    assert_eq!(resolved.kind, "custom-mock-provider");
-    assert_eq!(resolved.model, "mock-model");
+    assert_eq!(resolved.provider_name(), "custom-mock");
+    assert_eq!(resolved.protocol.as_deref(), Some("custom-mock-provider"));
+    assert_eq!(resolved.model(), "mock-model");
 
     // Execute run_prompt to verify the loop runs
     let log_dir = gestalt_cli::run::run_prompt(

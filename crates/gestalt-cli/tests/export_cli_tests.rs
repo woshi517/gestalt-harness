@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 fn create_temp_workspace() -> PathBuf {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let temp = std::env::temp_dir().join(format!("gestalt-test-export-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp).unwrap();
     temp

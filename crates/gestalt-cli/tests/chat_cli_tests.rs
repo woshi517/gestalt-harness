@@ -8,6 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 
 fn create_temp_workspace() -> PathBuf {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let temp = std::env::temp_dir().join(format!("gestalt-test-chat-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp).unwrap();
     temp
@@ -93,6 +94,7 @@ async fn test_chat_rejects_resume_unsafe_unfinalized() {
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fingerprint,
     };
     manifest.save_to(&run_dir.join("run.json")).unwrap();
@@ -124,6 +126,7 @@ fn test_interactive_chat_lineage_and_session_id() {
         .arg(&temp_root)
         .arg("chat")
         .arg("--yes")
+        .env("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir")
         .env("ANTHROPIC_API_KEY", "dummy-key")
         .env("OPENAI_COMPATIBLE_API_KEY", "dummy-key")
         .stdin(std::process::Stdio::piped())
@@ -176,6 +179,7 @@ fn test_cli_run_resume() {
         .arg("run")
         .arg("first prompt")
         .arg("--yes")
+        .env("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir")
         .env("ANTHROPIC_API_KEY", "dummy-key")
         .env("OPENAI_COMPATIBLE_API_KEY", "dummy-key")
         .output()
@@ -204,6 +208,7 @@ fn test_cli_run_resume() {
         .arg("--resume")
         .arg(&parent_run_id)
         .arg("--yes")
+        .env("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir")
         .env("ANTHROPIC_API_KEY", "dummy-key")
         .env("OPENAI_COMPATIBLE_API_KEY", "dummy-key")
         .output()

@@ -588,6 +588,8 @@ pub async fn run_session_action(
         _ => {} // Branch can fork from checkpoints
     }
 
+    let resolved_provider = config.resolve_provider()?;
+
     // 3. Reconstruct history up to chosen checkpoint
     let (history, context_state, token_budget, last_checkpoint_seq) =
         if let Some(target_seq) = branch_checkpoint {
@@ -648,6 +650,35 @@ pub async fn run_session_action(
             )
         };
 
+    let model_changed = match &analysis.resolved_model {
+        Some(parent_model) => {
+            parent_model.selection != resolved_provider.resolved_model.selection
+                || parent_model.api_format != resolved_provider.resolved_model.api_format
+        }
+        None => true,
+    };
+
+    let context_state = if model_changed {
+        gestalt_core::ContextProjectionState::default()
+    } else {
+        context_state
+    };
+
+    let mut token_budget = token_budget;
+    if model_changed {
+        token_budget.model_limit = config
+            .context
+            .max_context_window
+            .or(Some(resolved_provider.resolved_model.max_context_tokens))
+            .unwrap_or(120_000);
+        token_budget.reserved_output = config
+            .context
+            .reserved_output_tokens
+            .or(config.tools.max_output_tokens)
+            .or(Some(resolved_provider.resolved_model.max_output_tokens))
+            .unwrap_or(4096);
+    }
+
     let session_id = analysis.session_id.clone();
     let parent_run_id = analysis.run_id.clone();
 
@@ -673,7 +704,6 @@ pub async fn run_session_action(
 
     let mode = config.selected_mode()?;
     let max_turns = config.max_turns();
-    let resolved_provider = config.resolve_provider()?;
     let mut meta_map = serde_json::Map::new();
     if let Some(ref thinking) = resolved_provider.resolved_options.thinking {
         meta_map.insert(
@@ -716,11 +746,12 @@ pub async fn run_session_action(
     let mut session = Session::new(
         session_id.clone(),
         SessionConfig {
-            model: resolved_provider.model.clone(),
-            provider: resolved_provider.provider_name.clone(),
+            model: resolved_provider.model().to_string(),
+            provider: resolved_provider.provider_name().to_string(),
             max_tokens: resolved_provider
                 .resolved_options
                 .max_output_tokens
+                .or_else(|| u32::try_from(resolved_provider.resolved_model.max_output_tokens).ok())
                 .unwrap_or(4096),
             temperature: resolved_provider.resolved_options.temperature,
             max_turns,
@@ -734,6 +765,7 @@ pub async fn run_session_action(
                 .text_verbosity
                 .map(to_core_text_verbosity),
             metadata,
+            resolved_model: Some(resolved_provider.resolved_model.clone()),
         },
         token_budget,
         ToolContext {
@@ -790,6 +822,7 @@ pub async fn run_session_action(
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: Some(resolved_provider.resolved_model.clone()),
         compatibility_fingerprint: expected_fingerprint.clone(),
     };
     initial_manifest

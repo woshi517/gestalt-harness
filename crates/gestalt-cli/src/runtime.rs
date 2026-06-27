@@ -14,10 +14,21 @@ pub async fn build_cli_runtime(
     trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
 ) -> Result<AgentRuntime, HarnessError> {
     let resolved_provider = config.resolve_provider()?;
+    for warning in &resolved_provider.warnings {
+        if !crate::config::is_json_output() {
+            eprintln!("Warning: {}", warning.message);
+        }
+    }
     let resolver = crate::auth::build_credential_resolver(api_key, event_tx.is_none());
-    let provider = gestalt_models::registry::get_with_resolver(
-        &resolved_provider.kind,
+    let lookup_id = resolved_provider
+        .protocol
+        .as_deref()
+        .unwrap_or_else(|| resolved_provider.provider_name());
+    let provider = gestalt_models::get_by_api_format_with_resolver(
+        lookup_id,
+        resolved_provider.api_format(),
         resolved_provider.provider_json(),
+        resolved_provider.auth.clone(),
         resolver,
     )?;
     let provider_default_model = provider.default_model().to_string();
@@ -39,10 +50,10 @@ pub async fn build_cli_runtime(
     let policy = Arc::new(crate::run::build_policy(config));
     let approval = approval_override.unwrap_or_else(|| crate::run::approval_provider(mode));
 
-    let model = if resolved_provider.model.is_empty() {
+    let model = if resolved_provider.model().is_empty() {
         provider_default_model
     } else {
-        resolved_provider.model
+        resolved_provider.model().to_string()
     };
 
     let enabled_cli_features = vec![
@@ -198,14 +209,19 @@ pub async fn build_cli_runtime(
         execution_mode: mode,
         max_turns,
         model,
-        provider: resolved_provider.provider_name.clone(),
+        provider: resolved_provider.provider_name().to_string(),
         max_tokens: resolved_provider
             .resolved_options
             .max_output_tokens
+            .or_else(|| u32::try_from(resolved_provider.resolved_model.max_output_tokens).ok())
             .unwrap_or(4096),
         temperature: resolved_provider.resolved_options.temperature,
-        max_context_window: config.context.max_context_window,
+        max_context_window: config
+            .context
+            .max_context_window
+            .or(Some(resolved_provider.resolved_model.max_context_tokens)),
         reserved_output_tokens: config.context.reserved_output_tokens,
+        resolved_model: Some(resolved_provider.resolved_model.clone()),
         context_management_policy: Some(context_management_policy),
         bash_timeout_secs: config.tools.bash_timeout_secs,
         max_output_tokens: config.tools.max_output_tokens,

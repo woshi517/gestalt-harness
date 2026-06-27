@@ -86,4 +86,3 @@ pub struct ResolvedModelSnapshot {
     pub max_output_tokens: usize,
     pub capabilities: ModelCapabilities,
 }
-

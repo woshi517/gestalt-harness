@@ -7,6 +7,7 @@ use gestalt_cli::{
 };
 
 fn config() -> gestalt_cli::config::EffectiveConfig {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     load_effective_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/minimal")),
         ..CliOverrides::default()

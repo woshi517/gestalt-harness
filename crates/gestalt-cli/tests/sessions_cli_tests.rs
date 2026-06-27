@@ -30,6 +30,7 @@ impl Drop for EnvVarGuard {
 }
 
 fn create_temp_workspace() -> PathBuf {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let temp = std::env::temp_dir().join(format!("gestalt-test-sessions-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp).unwrap();
     temp
@@ -72,6 +73,7 @@ async fn test_sessions_list_inspect_history() {
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     manifest1.save_to(&run1_dir.join("run.json")).unwrap();
@@ -101,6 +103,7 @@ async fn test_sessions_list_inspect_history() {
         interrupted_phase: Some("agent_loop".to_string()),
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
     manifest2.save_to(&run2_dir.join("run.json")).unwrap();
@@ -319,6 +322,7 @@ model = "mock-model"
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
+        resolved_model: None,
         compatibility_fingerprint: fingerprint.clone(),
     };
 
