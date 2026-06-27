@@ -32,6 +32,9 @@ ADRs 001–022 are documented in the [architecture document](../gestalt-harness-
 | [ADR-025](./ADR-025-unified-gestalt-json-config.md) | Unified `gestalt.json` Configuration | Accepted |
 | [ADR-026](./ADR-026-cache-aware-prompt-assembly.md) | Cache-Aware Prompt Assembly | Accepted |
 | [ADR-027](./ADR-027-mcp-client-integration.md) | Model Context Protocol (MCP) Client Integration | Accepted |
+| [ADR-028](./ADR-028-extension-package-components.md) | Extension Package Components | Accepted |
+| [ADR-029](./ADR-029-runtime-snapshot-reload.md) | Runtime Snapshot Reload | Accepted |
+| [ADR-030](./ADR-030-lifecycle-protocol-v2.md) | Lifecycle Protocol V2 | Accepted |
 
 ADR-023: Introduces the gestalt-runtime crate as the primary orchestration and composition shell above the pure kernel (gestalt-core).
 
@@ -42,4 +45,10 @@ ADR-025: Consolidates workspace-scoped and global harness configuration into a s
 ADR-026: Introduces `PromptAssemblyStrategy` (Snapshot/Dynamic), `ContextStability` classification, and cache-aware context compilation that preserves provider prompt-cache hit rates by separating stable session context from turn-specific context.
 
 ADR-027: Integrates Model Context Protocol (MCP) clients with standard stdio transport, lazy client lifecycle pooling via OnceCell, canonical collision-safe tool naming, secure host-side risk annotations, and event-bus notifications.
+
+ADR-028: Separates runtime modules, packages, components, configured instances, process instances, runtime generations, and client/product descriptors. Client/product descriptors are inventory for embedding hosts and are not executed by the runtime.
+
+ADR-029: Focuses on extension activation pipeline, generation snapshots, lease management, candidate validation, and transactional hot reload draining.
+
+ADR-030: Replaces generic external hooks with typed capabilities: context providers, policy guards, turn routers, external verifiers, and event observers in Lifecycle Protocol V2.
 

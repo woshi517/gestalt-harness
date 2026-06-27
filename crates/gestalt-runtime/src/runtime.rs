@@ -28,7 +28,7 @@ use crate::composition_hooks::{
 use crate::context::{ContextContributor, RuntimeContextPipeline};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::policy::RuntimePolicyEngine;
-use crate::registry::RuntimeRegistry;
+use crate::registry::{RuntimeRegistry, RuntimeRegistrySnapshot};
 use std::sync::Mutex;
 
 pub struct UserInput {
@@ -48,6 +48,9 @@ pub struct AgentRuntime {
     pub trace_sink: Option<Arc<dyn TraceSink>>,
     pub config: RuntimeConfig,
     pub registry: RuntimeRegistry,
+    pub registry_snapshot: RuntimeRegistrySnapshot,
+    pub extension_snapshot: Arc<crate::extension::RuntimeExtensionSnapshot>,
+    pub extension_manager: Arc<crate::extension::ExtensionManager>,
     pub hooks: gestalt_core::HookRegistry,
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
     pub event_bus: RuntimeEventBus,
@@ -73,12 +76,52 @@ impl AgentRuntime {
         config: RuntimeConfig,
         hooks: gestalt_core::HookRegistry,
         registry: RuntimeRegistry,
+        registry_snapshot: RuntimeRegistrySnapshot,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
         event_bus: RuntimeEventBus,
         mcp_registry: Arc<gestalt_mcp::McpRegistry>,
         mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
         extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     ) -> Self {
+        let mut extension_snapshot =
+            crate::extension::RuntimeExtensionSnapshot::from_registry_snapshot(
+                crate::extension::RuntimeGeneration(0),
+                registry_snapshot.clone(),
+                tools.clone(),
+                mcp_registry.clone(),
+            );
+        if composition_hooks.is_some() {
+            let context_plan =
+                crate::extension::RuntimeExtensionSnapshot::context_plan_from_registry(
+                    &registry_snapshot,
+                    true,
+                );
+            let policy_plan = crate::lifecycle::PolicyGuardPlan::new(vec![
+                crate::lifecycle::PolicyGuardRegistration {
+                    descriptor: crate::lifecycle::TypedCapabilityDescriptor {
+                        component_id: "native:composition_hooks:before_tool_policy".to_string(),
+                        priority: 0,
+                        timeout: std::time::Duration::from_secs(5),
+                        failure_mode: crate::lifecycle::CapabilityFailureMode::FailClosed,
+                        data_scope: crate::lifecycle::CapabilityDataScope::ToolRequest,
+                    },
+                    source: "native-composition-hooks".to_string(),
+                },
+            ]);
+            extension_snapshot = extension_snapshot
+                .with_context_plan(context_plan)
+                .with_policy_plan(policy_plan);
+        }
+        let extension_snapshot = Arc::new(extension_snapshot);
+        let host_context =
+            crate::activation::HostLaunchContext::from_runtime_config(&config, event_bus.clone());
+        let extension_manager = Arc::new(crate::extension::ExtensionManager::new(
+            extension_snapshot.clone(),
+            event_bus.clone(),
+            Arc::new(crate::extension::NoopExtensionLauncher),
+            host_context,
+        ));
+
         Self {
             provider,
             tools,
@@ -88,6 +131,9 @@ impl AgentRuntime {
             trace_sink,
             config,
             registry,
+            registry_snapshot,
+            extension_snapshot,
+            extension_manager,
             hooks,
             composition_hooks,
             event_bus,
@@ -229,6 +275,26 @@ impl AgentRuntime {
             .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)
             .await;
 
+        let snapshot_lease = self.extension_manager.acquire_lease();
+        let active_extension_snapshot = snapshot_lease.snapshot.clone();
+        let pinned_tools = active_extension_snapshot.tool_catalog();
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
+            Arc::new(crate::composition_hooks::ComposedCompositionHooks {
+                user_hooks: self.composition_hooks.clone(),
+                extensions: self.extensions.clone(),
+            });
+        let lifecycle_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
+            Arc::new(crate::composition_hooks::LifecycleCompositionHooks::new(
+                composed_hooks,
+                active_extension_snapshot.clone(),
+            ));
+        self.event_bus
+            .publish(RuntimeEvent::RuntimeGenerationAdopted {
+                session_id: session.id.clone(),
+                generation: active_extension_snapshot.generation.0,
+                fingerprint: active_extension_snapshot.fingerprint.to_string(),
+            });
+
         let mut core_hooks = self.hooks.clone();
         let mut middleware = self.middleware.clone();
         let mut policy = self.policy.clone();
@@ -237,14 +303,17 @@ impl AgentRuntime {
         let mut maybe_trace_worker = None;
         let mut maybe_trace_tx = None;
 
-        if let Some(ref comp_hooks) = self.composition_hooks {
+        if self.composition_hooks.is_some()
+            || !self.extensions.is_empty()
+            || !active_extension_snapshot.lifecycle_clients.is_empty()
+        {
             let block_reason = Arc::new(Mutex::new(None));
             maybe_block_reason = Some(block_reason.clone());
 
             let (trace_tx, mut trace_rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
             maybe_trace_tx = Some(trace_tx.clone());
 
-            let comp_hooks_clone = comp_hooks.clone();
+            let comp_hooks_clone = lifecycle_hooks.clone();
             let session_id_clone = session.id.clone();
             let event_bus_clone = self.event_bus.clone();
             let trace_worker = tokio::spawn(async move {
@@ -290,21 +359,21 @@ impl AgentRuntime {
 
             policy = Arc::new(RuntimePolicyEngine {
                 base: policy.clone(),
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 session_id: session.id.clone(),
                 event_bus: self.event_bus.clone(),
                 skill_state: self.skill_state.clone(),
             });
 
-            let contributors: Vec<Arc<dyn ContextContributor>> = self
-                .registry
+            let contributors: Vec<Arc<dyn ContextContributor>> = active_extension_snapshot
+                .registry_snapshot
                 .context_contributors
                 .values()
                 .map(|c| c.contributor.clone())
                 .collect();
 
             core_hooks.register_context_hook(Arc::new(RuntimeContextHookAdapter {
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 patch_store,
                 contributors,
                 workspace_root: self.config.workspace_root.clone(),
@@ -315,12 +384,12 @@ impl AgentRuntime {
             }));
 
             core_hooks.register_tool_hook(Arc::new(RuntimeToolHookAdapter {
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 event_bus: self.event_bus.clone(),
             }));
 
             core_hooks.register_next_turn_hook(Arc::new(RuntimeNextTurnHookAdapter {
-                hooks: comp_hooks.clone(),
+                hooks: lifecycle_hooks.clone(),
                 event_bus: self.event_bus.clone(),
             }));
 
@@ -330,7 +399,7 @@ impl AgentRuntime {
         let loop_result = {
             let loop_ = AgentLoop::new(
                 self.provider.clone(),
-                self.tools.clone(),
+                pinned_tools,
                 middleware,
                 policy,
                 self.approval.clone(),
@@ -403,7 +472,9 @@ impl AgentRuntime {
     }
 
     pub fn inspect(&self) -> RuntimeInspect {
-        let schemas = self.tools.schemas();
+        let active_extension_snapshot = self.extension_manager.active_snapshot();
+        let pinned_tool_catalog = active_extension_snapshot.tool_catalog();
+        let schemas = pinned_tool_catalog.schemas();
         let tools: Vec<ToolInspectInfo> = schemas
             .iter()
             .map(|s| {
@@ -413,7 +484,7 @@ impl AgentRuntime {
                     .unwrap_or("")
                     .to_string();
                 let schema_hash = crate::registry::compute_schema_hash(s);
-                let backend = self.tools.get(&name).and_then(|t| {
+                let backend = pinned_tool_catalog.get(&name).and_then(|t| {
                     t.descriptor()
                         .annotations
                         .get("backend")
@@ -428,7 +499,12 @@ impl AgentRuntime {
             .collect();
         let tool_schema_hash = crate::registry::compute_tool_schema_hash(&schemas);
 
-        let mut hook_names = self.registry.hooks.clone();
+        let mut hook_names = active_extension_snapshot
+            .registry_snapshot
+            .hooks
+            .iter()
+            .map(|hook| hook.name.clone())
+            .collect::<Vec<_>>();
         if self.composition_hooks.is_some() {
             hook_names.push("RuntimeContextHookAdapter".to_string());
             hook_names.push("RuntimeToolHookAdapter".to_string());
@@ -536,7 +612,11 @@ impl AgentRuntime {
         let discovery_threshold = self.config.mcp_discovery_threshold.unwrap_or(5);
         let mcp_servers = self.mcp_registry.get_all_states(discovery_threshold);
 
+        let active_extension_snapshot = self.extension_manager.active_snapshot();
+
         RuntimeInspect {
+            runtime_generation: active_extension_snapshot.generation.0,
+            runtime_fingerprint: Some(active_extension_snapshot.fingerprint.to_string()),
             provider_name: self.config.provider.clone(),
             provider_model: self.config.model.clone(),
             execution_mode: format!("{:?}", self.config.execution_mode),
@@ -548,9 +628,22 @@ impl AgentRuntime {
             policy_source_path,
             hooks: hook_names,
             hook_contract_hash,
-            verifiers: self.registry.verifiers.clone(),
-            extensions: self.registry.extensions.clone(),
-            context_injectors: self.registry.context_contributors.keys().cloned().collect(),
+            verifiers: active_extension_snapshot
+                .registry_snapshot
+                .verifiers
+                .iter()
+                .map(|verifier| verifier.name.clone())
+                .collect(),
+            extensions: active_extension_snapshot
+                .registry_snapshot
+                .extensions
+                .clone(),
+            context_injectors: active_extension_snapshot
+                .registry_snapshot
+                .context_contributors
+                .keys()
+                .cloned()
+                .collect(),
             trace_sink_kind,
             trace_run_dir: None,
             workspace_root: self.config.workspace_root.to_string_lossy().to_string(),

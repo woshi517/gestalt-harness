@@ -2,6 +2,7 @@ use crate::config::{mutate_workspace_config_file, workspace_config_path, Effecti
 use gestalt_core::error::HarnessError;
 use gestalt_core::tool::ToolCatalog;
 use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
@@ -240,6 +241,7 @@ pub async fn build_cli_runtime(
             max_pending_requests: config.extensions.limits.max_pending_requests,
             max_protocol_errors: config.extensions.limits.max_protocol_errors,
         },
+        extension_instances: convert_extension_instances(&config.extensions.instances),
         effective_config_fingerprint: Some(config.compute_fingerprint()),
     };
 
@@ -269,9 +271,6 @@ pub async fn build_cli_runtime(
         );
         core_hooks.register_session_hook(evaluator_hook);
     }
-
-    let extension_timeouts = runtime_config.extension_timeouts.clone();
-    let extension_limits = runtime_config.extension_limits.clone();
 
     let mut builder = AgentRuntimeBuilder::new()
         .provider(provider)
@@ -352,22 +351,26 @@ pub async fn build_cli_runtime(
             });
     }
 
-    if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
+    if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
         for ext in discovered {
-            if config.extensions.disabled.contains(&ext.manifest.id) {
+            if config
+                .extensions
+                .disabled
+                .contains(&ext.package.descriptor.id)
+            {
                 continue;
             }
 
             let mut is_trusted_by_config = false;
             for trusted_entry in &config.extensions.trusted {
-                if trusted_entry == &ext.manifest.id {
+                if trusted_entry == &ext.package.descriptor.id {
                     eprintln!(
                         "Warning: Extension '{}' is trusted using a legacy ID-only entry. Please migrate to integrity-aware trust by specifying '{}:{}'",
-                        ext.manifest.id, ext.manifest.id, ext.manifest_hash
+                        ext.package.descriptor.id, ext.package.descriptor.id, ext.manifest_hash
                     );
                     is_trusted_by_config = true;
                     break;
-                } else if trusted_entry.starts_with(&format!("{}:", ext.manifest.id)) {
+                } else if trusted_entry.starts_with(&format!("{}:", ext.package.descriptor.id)) {
                     let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
                     if parts.len() == 2 {
                         let expected_hash = parts[1];
@@ -376,7 +379,7 @@ pub async fn build_cli_runtime(
                         } else {
                             eprintln!(
                                 "Warning: Extension '{}' trust invalid: manifest integrity hash has changed (expected '{}', found '{}')",
-                                ext.manifest.id, expected_hash, ext.manifest_hash
+                                ext.package.descriptor.id, expected_hash, ext.manifest_hash
                             );
                         }
                     }
@@ -386,38 +389,13 @@ pub async fn build_cli_runtime(
 
             if !is_trusted_by_config && !config.extensions.allow_untrusted {
                 builder.event_bus.publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
-                    extension_id: ext.manifest.id.clone(),
+                    extension_id: ext.package.descriptor.id.clone(),
                     reason: "Untrusted extension ignored. Enable it by adding its ID/hash to 'extensions.trusted' in gestalt.json or setting 'extensions.allow_untrusted' to true.".to_string(),
                 });
                 continue;
             }
 
-            let broker_res = gestalt_runtime::ProcessExtensionBroker::spawn(
-                ext.manifest.clone(),
-                builder.event_bus.clone(),
-                extension_timeouts.clone(),
-                extension_limits.clone(),
-                is_trusted_by_config,
-            )
-            .await;
-
-            match broker_res {
-                Ok(broker) => {
-                    let wrapped_ext = Arc::new(gestalt_runtime::ProcessExtension::new(
-                        ext.manifest,
-                        Arc::new(broker),
-                    ));
-                    builder = builder.extension(wrapped_ext);
-                }
-                Err(e) => {
-                    builder
-                        .event_bus
-                        .publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
-                            extension_id: ext.manifest.id.clone(),
-                            reason: format!("Startup failure: {}", e),
-                        });
-                }
-            }
+            builder = builder.extension_package(ext.package.clone());
         }
     }
 
@@ -460,13 +438,39 @@ pub async fn build_cli_runtime(
         builder = builder.trace_sink(sink);
     }
 
-    builder.build().map_err(|e| match e {
+    builder.build_async().await.map_err(|e| match e {
         gestalt_runtime::RuntimeError::Harness(he) => he,
         other => HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
             field: "runtime".to_string(),
             reason: other.to_string(),
         }),
     })
+}
+
+fn convert_extension_instances(
+    instances: &BTreeMap<String, crate::config::ExtensionInstanceConfig>,
+) -> BTreeMap<String, gestalt_runtime::extension::ExtensionInstanceConfig> {
+    instances
+        .iter()
+        .map(|(id, instance)| {
+            (
+                id.clone(),
+                gestalt_runtime::extension::ExtensionInstanceConfig {
+                    package: instance.package.clone(),
+                    enabled: instance.enabled,
+                    components: instance.components.clone(),
+                    config: instance.config.clone(),
+                    grants: gestalt_runtime::extension::ExtensionGrantConfig {
+                        workspace_read: instance.grants.workspace_read,
+                        workspace_write: instance.grants.workspace_write,
+                        shell: instance.grants.shell,
+                        network: instance.grants.network.clone(),
+                        allowed_paths: instance.grants.allowed_paths.clone(),
+                    },
+                },
+            )
+        })
+        .collect()
 }
 
 #[allow(clippy::missing_errors_doc)]

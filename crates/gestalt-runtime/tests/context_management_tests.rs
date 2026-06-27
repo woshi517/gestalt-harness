@@ -26,7 +26,6 @@ fn compute_checkpoint_artifact_hash(checkpoint: &gestalt_trace::CompactionCheckp
     format!("{:x}", hasher.finalize())
 }
 
-
 fn budget(model_limit: usize, reserved_output: usize, minimum_turn_budget: usize) -> TokenBudget {
     TokenBudget {
         model_limit,
@@ -648,14 +647,20 @@ async fn active_checkpoint_survives_noop_preparation() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 3".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 3".to_string(),
+            }],
             metadata: None,
         },
     ]);
@@ -685,7 +690,12 @@ async fn active_checkpoint_survives_noop_preparation() {
     };
 
     let artifacts = temp_artifact_dir("noop_survive");
-    gestalt_trace::persist_checkpoint(&checkpoint, &artifacts, gestalt_core::DurabilityMode::Required).unwrap();
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
 
     let mut state = gestalt_core::ContextProjectionState::default();
     state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
@@ -718,7 +728,10 @@ async fn active_checkpoint_survives_noop_preparation() {
         .await
         .unwrap();
 
-    assert_eq!(prepared.state_delta.active_checkpoint, gestalt_core::context::StateUpdate::Unchanged);
+    assert_eq!(
+        prepared.state_delta.active_checkpoint,
+        gestalt_core::context::StateUpdate::Unchanged
+    );
     assert!(prepared.packet.messages.iter().any(|message| {
         matches!(message, Message::System { content } if content.contains("Session Checkpoint Summary"))
     }));
@@ -729,11 +742,15 @@ async fn resume_resolves_checkpoint_from_parent_run() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
         },
     ]);
     let checkpoint = CompactionCheckpoint {
@@ -767,7 +784,12 @@ async fn resume_resolves_checkpoint_from_parent_run() {
     std::fs::create_dir_all(&parent_artifacts).unwrap();
     std::fs::create_dir_all(&child_artifacts).unwrap();
 
-    gestalt_trace::persist_checkpoint(&checkpoint, &parent_artifacts, gestalt_core::DurabilityMode::Required).unwrap();
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &parent_artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
 
     let mut state = gestalt_core::ContextProjectionState::default();
     state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
@@ -800,7 +822,10 @@ async fn resume_resolves_checkpoint_from_parent_run() {
         .await
         .unwrap();
 
-    assert_eq!(prepared.state_delta.active_checkpoint, gestalt_core::context::StateUpdate::Unchanged);
+    assert_eq!(
+        prepared.state_delta.active_checkpoint,
+        gestalt_core::context::StateUpdate::Unchanged
+    );
     assert!(prepared.packet.messages.iter().any(|message| {
         matches!(message, Message::System { content } if content.contains("Session Checkpoint Summary"))
     }));
@@ -811,14 +836,20 @@ async fn continue_after_compaction_reuses_checkpoint() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 3".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 3".to_string(),
+            }],
             metadata: None,
         },
     ]);
@@ -848,7 +879,12 @@ async fn continue_after_compaction_reuses_checkpoint() {
     };
 
     let artifacts = temp_artifact_dir("continue_reuse");
-    gestalt_trace::persist_checkpoint(&checkpoint, &artifacts, gestalt_core::DurabilityMode::Required).unwrap();
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
 
     let mut state = gestalt_core::ContextProjectionState::default();
     state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
@@ -881,7 +917,10 @@ async fn continue_after_compaction_reuses_checkpoint() {
         .await
         .unwrap();
 
-    assert_eq!(prepared.state_delta.active_checkpoint, gestalt_core::context::StateUpdate::Unchanged);
+    assert_eq!(
+        prepared.state_delta.active_checkpoint,
+        gestalt_core::context::StateUpdate::Unchanged
+    );
     assert!(prepared.packet.messages.iter().any(|message| {
         matches!(message, Message::System { content } if content.contains("Session Checkpoint Summary"))
     }));
@@ -892,11 +931,15 @@ async fn missing_referenced_checkpoint_artifact() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
         },
     ]);
 
@@ -940,11 +983,15 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
         },
     ]);
 
@@ -1031,11 +1078,15 @@ async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
         },
     ]);
 
@@ -1104,10 +1155,7 @@ async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
 
     assert!(res.is_err());
     let err = res.unwrap_err().to_string();
-    assert!(
-        err.contains("escapes artifact directory")
-            || err.contains("must be relative")
-    );
+    assert!(err.contains("escapes artifact directory") || err.contains("must be relative"));
 }
 
 #[tokio::test]
@@ -1115,11 +1163,15 @@ async fn missing_checkpoint_run_directory_is_an_error() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
         },
     ]);
 
@@ -1196,24 +1248,34 @@ async fn missing_checkpoint_run_directory_is_an_error() {
 #[tokio::test]
 async fn second_compaction_maps_projected_range_to_canonical_range() {
     let pipeline = RuntimeContextPipeline {
-        base: Arc::new(ContextMessageAssembler::new("pipeline-v1")
-            .with_prompt_override("prompt long system instruction override. ".repeat(2))),
+        base: Arc::new(
+            ContextMessageAssembler::new("pipeline-v1")
+                .with_prompt_override("prompt long system instruction override. ".repeat(2)),
+        ),
         patch_store: Arc::new(Mutex::new(Vec::new())),
     };
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1 long payload. ".repeat(20) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1 long payload. ".repeat(20),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2 long response. ".repeat(20) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2 long response. ".repeat(20),
+            }],
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 3 long query. ".repeat(30) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 3 long query. ".repeat(30),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 4 long tail. ".repeat(15) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 4 long tail. ".repeat(15),
+            }],
         },
     ]);
     let checkpoint = CompactionCheckpoint {
@@ -1242,7 +1304,12 @@ async fn second_compaction_maps_projected_range_to_canonical_range() {
     };
 
     let artifacts = temp_artifact_dir("second_compaction");
-    gestalt_trace::persist_checkpoint(&checkpoint, &artifacts, gestalt_core::DurabilityMode::Required).unwrap();
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
 
     let mut state = gestalt_core::ContextProjectionState::default();
     state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
@@ -1301,24 +1368,34 @@ async fn second_compaction_maps_projected_range_to_canonical_range() {
 #[tokio::test]
 async fn second_checkpoint_hash_matches_actual_canonical_source() {
     let pipeline = RuntimeContextPipeline {
-        base: Arc::new(ContextMessageAssembler::new("pipeline-v1")
-            .with_prompt_override("prompt long system instruction override. ".repeat(2))),
+        base: Arc::new(
+            ContextMessageAssembler::new("pipeline-v1")
+                .with_prompt_override("prompt long system instruction override. ".repeat(2)),
+        ),
         patch_store: Arc::new(Mutex::new(Vec::new())),
     };
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1 long payload. ".repeat(20) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1 long payload. ".repeat(20),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2 long response. ".repeat(20) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2 long response. ".repeat(20),
+            }],
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 3 long query. ".repeat(30) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 3 long query. ".repeat(30),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 4 long tail. ".repeat(15) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 4 long tail. ".repeat(15),
+            }],
         },
     ]);
     let checkpoint = CompactionCheckpoint {
@@ -1347,7 +1424,12 @@ async fn second_checkpoint_hash_matches_actual_canonical_source() {
     };
 
     let artifacts = temp_artifact_dir("second_checkpoint_hash");
-    gestalt_trace::persist_checkpoint(&checkpoint, &artifacts, gestalt_core::DurabilityMode::Required).unwrap();
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
 
     let mut state = gestalt_core::ContextProjectionState::default();
     state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
@@ -1407,7 +1489,9 @@ async fn persisted_cleared_result_remains_tombstoned_next_turn() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "please inspect src/lib.rs".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "please inspect src/lib.rs".to_string(),
+            }],
             metadata: None,
         },
         Message::Assistant {
@@ -1427,7 +1511,9 @@ async fn persisted_cleared_result_remains_tombstoned_next_turn() {
             artifact_refs: None,
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "next turn".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "next turn".to_string(),
+            }],
             metadata: None,
         },
     ]);
@@ -1464,7 +1550,12 @@ async fn persisted_cleared_result_remains_tombstoned_next_turn() {
         .await
         .unwrap();
 
-    let msg = prepared.packet.messages.iter().find(|m| matches!(m, Message::ToolResult { .. })).expect("expected tool result message");
+    let msg = prepared
+        .packet
+        .messages
+        .iter()
+        .find(|m| matches!(m, Message::ToolResult { .. }))
+        .expect("expected tool result message");
     if let Message::ToolResult { content, .. } = msg {
         assert!(content.contains("<tombstone"));
     } else {
@@ -1480,7 +1571,9 @@ async fn cleared_result_reference_is_removed_when_source_disappears() {
             content: "### Session Checkpoint Summary".to_string(),
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 3".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 3".to_string(),
+            }],
             metadata: None,
         },
     ]);
@@ -1504,7 +1597,12 @@ async fn cleared_result_reference_is_removed_when_source_disappears() {
     };
 
     let artifacts = temp_artifact_dir("disappearing_reference");
-    gestalt_trace::persist_checkpoint(&checkpoint, &artifacts, gestalt_core::DurabilityMode::Required).unwrap();
+    gestalt_trace::persist_checkpoint(
+        &checkpoint,
+        &artifacts,
+        gestalt_core::DurabilityMode::Required,
+    )
+    .unwrap();
 
     let mut state = gestalt_core::ContextProjectionState::default();
     state.active_checkpoint = Some(gestalt_core::context::CompactionCheckpointRef {
@@ -1550,7 +1648,10 @@ async fn cleared_result_reference_is_removed_when_source_disappears() {
         .await
         .unwrap();
 
-    assert_eq!(prepared.state_delta.cleared_tool_results_remove, vec!["tool-1".to_string()]);
+    assert_eq!(
+        prepared.state_delta.cleared_tool_results_remove,
+        vec!["tool-1".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -1558,11 +1659,15 @@ async fn assembler_never_drops_planned_messages() {
     let pipeline = ContextMessageAssembler::new("pipeline-v1");
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".to_string(),
+            }],
             metadata: None,
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
             metadata: None,
         },
     ]);
@@ -1590,11 +1695,15 @@ async fn manifest_id_changes_when_omissions_change() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".repeat(100) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".repeat(100),
+            }],
             metadata: None,
         },
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 2".to_string() }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".to_string(),
+            }],
             metadata: None,
         },
     ]);
@@ -1641,18 +1750,21 @@ async fn manifest_id_changes_when_omissions_change() {
         .await
         .unwrap();
 
-    assert_ne!(prepared1.manifest.manifest_id, prepared2.manifest.manifest_id);
+    assert_ne!(
+        prepared1.manifest.manifest_id,
+        prepared2.manifest.manifest_id
+    );
 }
 
 #[tokio::test]
 async fn manifest_id_changes_when_retention_fingerprint_changes() {
     let pipeline = runtime_pipeline();
-    let history = canonical_history(vec![
-        Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".to_string() }],
-            metadata: None,
-        },
-    ]);
+    let history = canonical_history(vec![Message::User {
+        content: vec![ContentBlock::Text {
+            text: "msg 1".to_string(),
+        }],
+        metadata: None,
+    }]);
     let artifacts = temp_artifact_dir("manifest_fingerprint");
 
     let ret1 = retention_snapshot();
@@ -1697,7 +1809,10 @@ async fn manifest_id_changes_when_retention_fingerprint_changes() {
         .await
         .unwrap();
 
-    assert_ne!(prepared1.manifest.manifest_id, prepared2.manifest.manifest_id);
+    assert_ne!(
+        prepared1.manifest.manifest_id,
+        prepared2.manifest.manifest_id
+    );
 }
 
 #[tokio::test]
@@ -1705,11 +1820,15 @@ async fn failed_final_size_validation_publishes_no_active_artifacts() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
-            content: vec![ContentBlock::Text { text: "msg 1".repeat(50) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 1".repeat(50),
+            }],
             metadata: None,
         },
         Message::Assistant {
-            content: vec![ContentBlock::Text { text: "msg 2".repeat(50) }],
+            content: vec![ContentBlock::Text {
+                text: "msg 2".repeat(50),
+            }],
         },
     ]);
     let artifacts = temp_artifact_dir("failed_validation");
@@ -1738,5 +1857,9 @@ async fn failed_final_size_validation_publishes_no_active_artifacts() {
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
-    assert!(entries.is_empty(), "Expected no files to be written, found: {:?}", entries);
+    assert!(
+        entries.is_empty(),
+        "Expected no files to be written, found: {:?}",
+        entries
+    );
 }

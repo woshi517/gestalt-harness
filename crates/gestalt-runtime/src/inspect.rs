@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RuntimeInspect {
+    #[serde(default)]
+    pub runtime_generation: u64,
+    #[serde(default)]
+    pub runtime_fingerprint: Option<String>,
     pub provider_name: String,
     pub provider_model: String,
     pub execution_mode: String,

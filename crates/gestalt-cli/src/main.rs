@@ -1,3 +1,5 @@
+#![allow(clippy::large_futures)]
+
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};

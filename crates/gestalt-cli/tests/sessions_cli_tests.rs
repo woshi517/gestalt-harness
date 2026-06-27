@@ -1,8 +1,33 @@
+#![allow(clippy::large_futures)]
+
 use gestalt_cli::config::{load_effective_config, CliOverrides};
 use gestalt_cli::sessions::{history_session, inspect_session, list_sessions, run_session_action};
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;
 use std::path::PathBuf;
+
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(ref val) = self.original {
+            std::env::set_var(self.key, val);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
 
 fn create_temp_workspace() -> PathBuf {
     let temp = std::env::temp_dir().join(format!("gestalt-test-sessions-{}", uuid::Uuid::new_v4()));
@@ -210,7 +235,7 @@ async fn test_sessions_successful_resume_and_branch() {
     );
 
     let temp_root = create_temp_workspace();
-    std::env::set_var("GESTALT_NO_GLOBAL_SKILLS", "1");
+    let _skills_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
     let runs_dir = temp_root.join(".gestalt/runs");
     fs::create_dir_all(&runs_dir).unwrap();
 

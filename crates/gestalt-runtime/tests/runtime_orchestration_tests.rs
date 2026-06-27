@@ -10,8 +10,9 @@ use gestalt_core::{
     tool::{Tool, ToolCatalog, ToolSchema},
 };
 use gestalt_runtime::{
-    AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, InMemoryArtifactStore,
-    OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig, RuntimeEvent,
+    AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, HostControl,
+    InMemoryArtifactStore, OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig,
+    RuntimeEvent,
 };
 use std::sync::Arc;
 
@@ -102,7 +103,9 @@ impl ContextPipeline for MockContextPipeline {
     }
 
     fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
-        Some(Arc::new(gestalt_context::ContextMessageAssembler::new("pipeline-v1")))
+        Some(Arc::new(gestalt_context::ContextMessageAssembler::new(
+            "pipeline-v1",
+        )))
     }
 }
 
@@ -513,7 +516,11 @@ impl gestalt_core::context::ContextAssembler for PassThroughAssembler {
         &self,
         plan: &gestalt_core::context::ContextPlan,
     ) -> Result<gestalt_core::context::ContextPacket, gestalt_core::error::ContextError> {
-        let messages = plan.history.iter().map(|entry| entry.message.clone()).collect();
+        let messages = plan
+            .history
+            .iter()
+            .map(|entry| entry.message.clone())
+            .collect();
         Ok(gestalt_core::context::ContextPacket {
             messages,
             packet_hash: "pass-through".to_string(),

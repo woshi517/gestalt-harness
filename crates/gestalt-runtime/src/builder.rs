@@ -12,6 +12,14 @@ use crate::runtime::AgentRuntime;
 use crate::composition_hooks::CompositionHooks;
 use crate::event_bus::RuntimeEventBus;
 use crate::extension::GestaltExtension;
+use crate::manifest::ExtensionManifest;
+
+#[derive(Clone)]
+pub struct PendingProcessExtension {
+    pub manifest: ExtensionManifest,
+    pub manifest_hash: String,
+    pub is_trusted: bool,
+}
 
 #[derive(Clone)]
 pub struct AgentRuntimeBuilder {
@@ -27,6 +35,9 @@ pub struct AgentRuntimeBuilder {
     pub registry: RuntimeRegistry,
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
     pub extensions: Vec<Arc<dyn GestaltExtension>>,
+    pub extension_packages: Vec<crate::extension::ResolvedExtensionPackage>,
+    pub pending_process_extensions: Vec<PendingProcessExtension>,
+    pub extension_manager: Option<Arc<crate::extension::ExtensionManager>>,
     pub event_bus: RuntimeEventBus,
     pub mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
     pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
@@ -53,6 +64,9 @@ impl AgentRuntimeBuilder {
             registry: RuntimeRegistry::new(),
             composition_hooks: None,
             extensions: Vec::new(),
+            extension_packages: Vec::new(),
+            pending_process_extensions: Vec::new(),
+            extension_manager: None,
             event_bus: RuntimeEventBus::new(),
             mcp_registry: None,
             workspace_context_snapshot: None,
@@ -82,6 +96,29 @@ impl AgentRuntimeBuilder {
         self
     }
 
+    pub fn extension_package(
+        mut self,
+        package: crate::extension::ResolvedExtensionPackage,
+    ) -> Self {
+        self.extension_packages.push(package);
+        self
+    }
+
+    pub fn process_extension(
+        mut self,
+        manifest: ExtensionManifest,
+        manifest_hash: String,
+        is_trusted: bool,
+    ) -> Self {
+        self.pending_process_extensions
+            .push(PendingProcessExtension {
+                manifest,
+                manifest_hash,
+                is_trusted,
+            });
+        self
+    }
+
     pub fn provider(mut self, provider: Arc<dyn Provider>) -> Self {
         self.provider = Some(provider);
         self
@@ -92,13 +129,19 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    #[deprecated(since = "0.1.0", note = "Use assembler(Arc<dyn ContextAssembler>) instead")]
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use assembler(Arc<dyn ContextAssembler>) instead"
+    )]
     pub fn middleware(mut self, middleware: Arc<dyn ContextPipeline>) -> Self {
         self.middleware = Some(middleware);
         self
     }
 
-    pub fn assembler(mut self, assembler: Arc<dyn gestalt_core::context::ContextAssembler>) -> Self {
+    pub fn assembler(
+        mut self,
+        assembler: Arc<dyn gestalt_core::context::ContextAssembler>,
+    ) -> Self {
         self.assembler = Some(assembler);
         self
     }
@@ -133,7 +176,35 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    pub fn build(mut self) -> Result<AgentRuntime> {
+    pub fn build(self) -> Result<AgentRuntime> {
+        if !self.pending_process_extensions.is_empty() {
+            return Err(RuntimeError::Builder(
+                "external process extensions require AgentRuntimeBuilder::build_async()"
+                    .to_string(),
+            ));
+        }
+        self.build_inner()
+    }
+
+    pub async fn build_async(mut self) -> Result<AgentRuntime> {
+        let pending = std::mem::take(&mut self.pending_process_extensions);
+        for pending_ext in pending {
+            self.event_bus
+                .publish(crate::event_bus::RuntimeEvent::ExtensionDiscovered {
+                    extension_id: pending_ext.manifest.id.clone(),
+                    manifest_path: String::new(),
+                    manifest_hash: pending_ext.manifest_hash.clone(),
+                });
+            let mut package =
+                crate::extension::ResolvedExtensionPackage::from_v1_manifest(pending_ext.manifest)?;
+            package.manifest_hash = Some(pending_ext.manifest_hash);
+            package.apply_trust_decision(pending_ext.is_trusted);
+            self.extension_packages.push(package);
+        }
+        self.build_inner()
+    }
+
+    fn build_inner(mut self) -> Result<AgentRuntime> {
         if self.config.max_turns == 0 {
             return Err(RuntimeError::Builder(
                 "max_turns must be positive".to_string(),
@@ -157,7 +228,16 @@ impl AgentRuntimeBuilder {
             ));
         }
 
-        // Apply extensions before constructing AgentRuntime
+        let resolved_extension_packages = crate::extension::resolve_configured_instances(
+            &self.extension_packages,
+            &self.config.extension_instances,
+        )?;
+        let mut resolved_extension_packages = resolved_extension_packages;
+        crate::extension::apply_trust_decisions(
+            &mut resolved_extension_packages,
+            &self.config.trusted_extension_ids,
+        );
+
         for ext in &self.extensions {
             let name = ext.name().to_string();
             if self.registry.extensions.contains(&name) {
@@ -204,6 +284,64 @@ impl AgentRuntimeBuilder {
                 self.config.workspace_root.clone(),
                 self.config.mcp_servers.clone(),
             ))
+        });
+
+        let mut package_permissions = std::collections::HashMap::new();
+        for package in &resolved_extension_packages {
+            for component in &package.components {
+                if component.kind == crate::extension::ComponentKind::McpServer {
+                    let server_name = crate::extension::package_mcp_server_name(
+                        &component.id.package_id,
+                        &component.id.instance_id,
+                        &component.id.component_id,
+                    );
+                    package_permissions.insert(
+                        server_name,
+                        (component.permissions.clone(), component.grants.clone()),
+                    );
+                }
+            }
+        }
+
+        let event_bus = self.event_bus.clone();
+        let allow_network = self.config.allow_network;
+        mcp_registry.set_permission_validator(move |name, config| {
+            match &config.transport {
+                gestalt_mcp::McpTransportConfig::Stdio { .. } => {
+                    if let Some((permissions, grants)) = package_permissions.get(name) {
+                        crate::permissions::check_shell_permission_effective(
+                            permissions,
+                            Some(grants),
+                            &event_bus,
+                            name,
+                        )
+                        .map_err(|e| e.clone())?;
+                    }
+                }
+                gestalt_mcp::McpTransportConfig::Http { url, .. } => {
+                    let host = if let Ok(parsed_url) = url::Url::parse(url) {
+                        parsed_url.host_str().unwrap_or("").to_string()
+                    } else {
+                        url.clone()
+                    };
+                    if let Some((permissions, grants)) = package_permissions.get(name) {
+                        crate::permissions::check_network_permission_effective(
+                            permissions,
+                            Some(grants),
+                            allow_network,
+                            &host,
+                            &event_bus,
+                            name,
+                        )
+                        .map_err(|e| e.clone())?;
+                    } else if !allow_network {
+                        return Err(format!(
+                            "Network access to host '{host}' is not allowed by host policy"
+                        ));
+                    }
+                }
+            }
+            Ok(())
         });
 
         // Publish configuration events
@@ -380,7 +518,9 @@ impl AgentRuntimeBuilder {
             Arc::new(crate::context::RuntimeContextPipeline::new(assembler))
         } else {
             self.middleware.ok_or_else(|| {
-                RuntimeError::Builder("Missing middleware/context pipeline or assembler".to_string())
+                RuntimeError::Builder(
+                    "Missing middleware/context pipeline or assembler".to_string(),
+                )
             })?
         };
         let policy = self
@@ -397,6 +537,8 @@ impl AgentRuntimeBuilder {
                 extensions: self.extensions.clone(),
             });
 
+        let registry_snapshot = self.registry.snapshot();
+
         let mut runtime = AgentRuntime::new(
             provider,
             composed_tools,
@@ -407,12 +549,78 @@ impl AgentRuntimeBuilder {
             self.config,
             self.hooks,
             self.registry,
+            registry_snapshot,
             Some(composed_hooks),
             self.event_bus,
             mcp_registry,
             mcp_discovery_state,
             self.extensions.clone(),
         );
+
+        if let Some(extension_manager) = self.extension_manager {
+            runtime.extension_snapshot = extension_manager.active_snapshot();
+            runtime.extension_manager = extension_manager;
+        } else {
+            let host_context = crate::activation::HostLaunchContext::from_runtime_config(
+                &runtime.config,
+                runtime.event_bus.clone(),
+            );
+            let extension_manager = Arc::new(crate::extension::ExtensionManager::new(
+                runtime.extension_snapshot.clone(),
+                runtime.event_bus.clone(),
+                Arc::new(crate::extension::LocalProcessLauncher),
+                host_context.clone(),
+            ));
+            if !resolved_extension_packages.is_empty() {
+                let pipeline = crate::activation::ExtensionActivationPipeline {
+                    discovery: Arc::new(crate::activation::StaticExtensionSource::new(
+                        resolved_extension_packages.clone(),
+                    )),
+                    launcher: Arc::new(crate::extension::LocalProcessLauncher),
+                    base_composition: Arc::new(crate::activation::BaseRuntimeComposition {
+                        tool_catalog: runtime.tools.clone(),
+                        mcp_registry: runtime.mcp_registry.clone(),
+                        base_registry: runtime.registry_snapshot.clone(),
+                    }),
+                    host_context,
+                };
+                let request = crate::activation::ActivationRequest {
+                    current: Some(runtime.extension_snapshot.clone()),
+                    target_instance: None,
+                    force: false,
+                    mode: crate::activation::ActivationMode::Commit,
+                };
+                let mut candidate = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let manager = extension_manager.clone();
+                    std::thread::spawn(move || {
+                        let _ = handle;
+                        let tokio_runtime = tokio::runtime::Runtime::new().map_err(|err| {
+                            RuntimeError::Builder(format!(
+                                "failed to create tokio runtime for extension activation: {err}"
+                            ))
+                        })?;
+                        tokio_runtime.block_on(pipeline.run(request, &manager))
+                    })
+                    .join()
+                    .map_err(|_| {
+                        RuntimeError::Builder("extension activation thread panicked".to_string())
+                    })?
+                } else {
+                    let tokio_runtime = tokio::runtime::Runtime::new().map_err(|err| {
+                        RuntimeError::Builder(format!(
+                            "failed to create tokio runtime for extension activation: {err}"
+                        ))
+                    })?;
+                    tokio_runtime.block_on(pipeline.run(request, &extension_manager))
+                }?;
+                extension_manager.publish_snapshot(candidate.snapshot.clone())?;
+                runtime.extension_snapshot = candidate.snapshot.clone();
+                runtime.tools = candidate.snapshot.tool_catalog();
+                runtime.registry_snapshot = candidate.snapshot.registry_snapshot.clone();
+                candidate.commit();
+            }
+            runtime.extension_manager = extension_manager;
+        }
         runtime.workspace_context_snapshot = self.workspace_context_snapshot;
         Ok(match skill_state_handle {
             Some(state) => runtime.with_skill_state(state),

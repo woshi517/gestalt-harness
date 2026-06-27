@@ -1123,11 +1123,27 @@ Skills remain capability-narrowing instruction packages. They cannot grant autho
 {  
   "extensions": {  
     "explicit_loads": [],  
-    "enabled": [],  
     "disabled": [],  
     "trusted": [],  
-    "required": [],  
     "allow_untrusted": false,  
+    "instances": {
+      "review-primary": {
+        "package": "com.example.review",
+        "enabled": true,
+        "components": {
+          "lifecycle": true,
+          "client-metadata": true
+        },
+        "config": {
+          "policySet": "default"
+        },
+        "grants": {
+          "workspaceRead": true,
+          "workspaceWrite": false,
+          "network": []
+        }
+      }
+    },
     "timeouts": {  
       "initialize_ms": 10000,  
       "hook_ms": 5000,  
@@ -1147,15 +1163,24 @@ Skills remain capability-narrowing instruction packages. They cannot grant autho
 ### Semantics
 
 - `explicit_loads`: additional discovery paths;
-- `enabled`: explicitly enable discovered IDs;
 - `disabled`: explicitly disable IDs; deny wins if listed in both;
 - `trusted`: IDs approved by the user, ideally bound to manifest/content hash;
-- `required`: startup fails if these extensions cannot be loaded;
 - `allow_untrusted`: unsafe development escape hatch, false by default;
+- `instances`: configured extension package instances keyed by stable instance ID;
 - timeouts may override runtime defaults;
 - limits protect the broker from unbounded messages and protocol abuse.
 
 An explicitly loaded extension is **discoverable**, not automatically trusted.
+
+`instances.<id>.package` selects a discovered package. `instances.<id>.components`
+enables or disables package components by component ID. `instances.<id>.config`
+is the canonical location for extension-specific configuration. `instances.<id>.grants`
+records host-owned grants and cannot expand authority beyond package-requested
+permissions or runtime policy.
+
+Profiles do not contain inline extension configuration. A future profile field may
+select existing instance IDs, but it must remain additive and must not reshape
+`extensions.instances`.
 
 ---
 

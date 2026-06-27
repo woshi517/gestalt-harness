@@ -591,62 +591,62 @@ pub async fn run_session_action(
     // 3. Reconstruct history up to chosen checkpoint
     let (history, context_state, token_budget, last_checkpoint_seq) =
         if let Some(target_seq) = branch_checkpoint {
-        let trace_path = parent_run_path.join("trace.jsonl");
-        if !trace_path.exists() {
-            return Err(gestalt_core::HarnessError::Trace(
-                gestalt_core::TraceError::ReadFailed {
-                    reason: "trace.jsonl missing".to_string(),
-                },
-            ));
-        }
-        let envelopes = gestalt_trace::read_trace(&trace_path)
-            .map_err(|e| gestalt_core::HarnessError::Trace(e))?;
-        let mut target_checkpoint = None;
-        for env in &envelopes {
-            if matches!(env.event, gestalt_core::AgentEvent::Checkpoint { .. })
-                && env.seq == target_seq
-            {
-                target_checkpoint = Some(env);
-                break;
+            let trace_path = parent_run_path.join("trace.jsonl");
+            if !trace_path.exists() {
+                return Err(gestalt_core::HarnessError::Trace(
+                    gestalt_core::TraceError::ReadFailed {
+                        reason: "trace.jsonl missing".to_string(),
+                    },
+                ));
             }
-        }
-        match target_checkpoint {
-            Some(env) => match &env.event {
-                gestalt_core::AgentEvent::Checkpoint {
-                    history,
-                    context_state,
-                    token_budget,
-                    ..
-                } => (
-                    history.clone(),
-                    gestalt_core::ContextProjectionState::clone(context_state),
-                    token_budget.clone(),
-                    Some(target_seq),
-                ),
-                _ => {
+            let envelopes = gestalt_trace::read_trace(&trace_path)
+                .map_err(|e| gestalt_core::HarnessError::Trace(e))?;
+            let mut target_checkpoint = None;
+            for env in &envelopes {
+                if matches!(env.event, gestalt_core::AgentEvent::Checkpoint { .. })
+                    && env.seq == target_seq
+                {
+                    target_checkpoint = Some(env);
+                    break;
+                }
+            }
+            match target_checkpoint {
+                Some(env) => match &env.event {
+                    gestalt_core::AgentEvent::Checkpoint {
+                        history,
+                        context_state,
+                        token_budget,
+                        ..
+                    } => (
+                        history.clone(),
+                        gestalt_core::ContextProjectionState::clone(context_state),
+                        token_budget.clone(),
+                        Some(target_seq),
+                    ),
+                    _ => {
+                        return Err(gestalt_core::HarnessError::Trace(
+                            gestalt_core::TraceError::ReadFailed {
+                                reason: format!("Event seq {} is not a Checkpoint", target_seq),
+                            },
+                        ))
+                    }
+                },
+                None => {
                     return Err(gestalt_core::HarnessError::Trace(
                         gestalt_core::TraceError::ReadFailed {
-                            reason: format!("Event seq {} is not a Checkpoint", target_seq),
+                            reason: format!("Checkpoint with sequence {} not found", target_seq),
                         },
                     ))
                 }
-            },
-            None => {
-                return Err(gestalt_core::HarnessError::Trace(
-                    gestalt_core::TraceError::ReadFailed {
-                        reason: format!("Checkpoint with sequence {} not found", target_seq),
-                    },
-                ))
             }
-        }
-    } else {
-        (
-            analysis.history.clone(),
-            analysis.context_state.clone(),
-            analysis.token_budget.clone(),
-            analysis.last_checkpoint_seq,
-        )
-    };
+        } else {
+            (
+                analysis.history.clone(),
+                analysis.context_state.clone(),
+                analysis.token_budget.clone(),
+                analysis.last_checkpoint_seq,
+            )
+        };
 
     let session_id = analysis.session_id.clone();
     let parent_run_id = analysis.run_id.clone();

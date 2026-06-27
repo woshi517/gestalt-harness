@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use gestalt_core::ContextStability;
 use gestalt_runtime::{
     Capabilities, Entrypoint, ExtensionManifest, GestaltExtension, Permissions, ProcessExtension,
@@ -6,12 +8,55 @@ use gestalt_runtime::{
 use std::path::PathBuf;
 use std::sync::Arc;
 
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(ref value) = self.original {
+            std::env::set_var(self.key, value);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
+
+fn mock_extension_manifest() -> ExtensionManifest {
+    load_fixture_manifest("mock-ext/gestalt.extension.toml", "mock-ext/mock_ext.sh")
+}
+
+fn mock_switch_model_manifest() -> ExtensionManifest {
+    load_fixture_manifest(
+        "mock-switch-model-ext/gestalt.extension.toml",
+        "mock-switch-model-ext/mock_ext.sh",
+    )
+}
+
+fn load_fixture_manifest(manifest_relative: &str, command_relative: &str) -> ExtensionManifest {
+    let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/extensions");
+    let manifest_path = fixture_root.join(manifest_relative);
+    let content = std::fs::read_to_string(&manifest_path).unwrap();
+    let mut manifest = ExtensionManifest::parse(&content).unwrap();
+    manifest.entrypoint.command = fixture_root
+        .join(command_relative)
+        .to_string_lossy()
+        .into_owned();
+    manifest
+}
+
 #[tokio::test]
 async fn test_process_extension_lifecycle_and_execution() {
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let manifest = ExtensionManifest::parse(&content).unwrap();
+    let manifest = mock_extension_manifest();
 
     let event_bus = RuntimeEventBus::new();
     let mut sub = event_bus.subscribe();
@@ -76,7 +121,7 @@ async fn test_process_extension_lifecycle_and_execution() {
         current_tool_call_id: None,
         ignore_patterns: Vec::new(),
     };
-    std::env::set_var("TEST_SECRET", "super_secret");
+    let _test_secret_guard = EnvVarGuard::set("TEST_SECRET", "super_secret");
     let output = tool.execute(serde_json::json!({}), &ctx).await.unwrap();
     if let gestalt_core::tool::ToolOutput::Text { content } = output {
         assert!(
@@ -126,10 +171,7 @@ async fn test_process_extension_lifecycle_and_execution() {
 
 #[tokio::test]
 async fn test_process_extension_host_filesystem_permissions() {
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let manifest = ExtensionManifest::parse(&content).unwrap();
+    let manifest = mock_extension_manifest();
 
     let event_bus = RuntimeEventBus::new();
     let broker = Arc::new(
@@ -186,10 +228,7 @@ async fn test_process_extension_host_filesystem_permissions() {
 
 #[tokio::test]
 async fn test_process_extension_host_network_permissions() {
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let manifest = ExtensionManifest::parse(&content).unwrap();
+    let manifest = mock_extension_manifest();
 
     let event_bus = RuntimeEventBus::new();
     let broker = Arc::new(
@@ -294,10 +333,7 @@ async fn test_process_extension_rejects_shell_bypass_in_args() {
 #[tokio::test]
 async fn test_process_extension_hooks_dispatch() {
     use gestalt_runtime::{BeforeContextBuildCtx, CompositionHooks, HookOutcome};
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let mut manifest = ExtensionManifest::parse(&content).unwrap();
+    let mut manifest = mock_extension_manifest();
 
     // Enable hooks capability and register a hook
     manifest.capabilities.hooks = true;
@@ -347,10 +383,7 @@ async fn test_process_extension_hooks_dispatch() {
 #[tokio::test]
 async fn test_process_extension_prepare_next_turn_dispatch() {
     use gestalt_runtime::{CompositionHooks, HookOutcome, PrepareNextTurnCtx};
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let mut manifest = ExtensionManifest::parse(&content).unwrap();
+    let mut manifest = mock_extension_manifest();
 
     manifest.capabilities.hooks = true;
     manifest.hooks = vec![gestalt_runtime::manifest::HookDeclaration {
@@ -401,10 +434,7 @@ async fn test_process_extension_prepare_next_turn_dispatch() {
 #[tokio::test]
 async fn test_process_extension_prepare_next_turn_switch_model_dispatch() {
     use gestalt_runtime::{CompositionHooks, HookOutcome, PrepareNextTurnCtx};
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-switch-model-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let mut manifest = ExtensionManifest::parse(&content).unwrap();
+    let mut manifest = mock_switch_model_manifest();
 
     manifest.capabilities.hooks = true;
     manifest.hooks = vec![gestalt_runtime::manifest::HookDeclaration {
@@ -457,10 +487,7 @@ async fn test_process_extension_prepare_next_turn_switch_model_dispatch() {
 
 #[tokio::test]
 async fn test_process_extension_limits_max_message_bytes() {
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let manifest = ExtensionManifest::parse(&content).unwrap();
+    let manifest = mock_extension_manifest();
 
     let event_bus = RuntimeEventBus::new();
     let mut sub = event_bus.subscribe();
@@ -530,10 +557,7 @@ async fn test_process_extension_limits_max_message_bytes() {
 
 #[tokio::test]
 async fn test_process_extension_limits_max_pending_requests() {
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(&manifest_path).unwrap();
-    let manifest = ExtensionManifest::parse(&content).unwrap();
+    let manifest = mock_extension_manifest();
 
     let event_bus = RuntimeEventBus::new();
 
@@ -907,7 +931,7 @@ done"#.to_string(),
     if let HookOutcome::Annotate { metadata } = result {
         assert_eq!(
             metadata,
-            serde_json::json!({ "annotation-ext": { "foo": "bar" } })
+            serde_json::json!({ "annotation-ext@annotation-ext": { "foo": "bar" } })
         );
     } else {
         panic!("Expected HookOutcome::Annotate, got {:?}", result);
@@ -1313,6 +1337,8 @@ done"#
     );
     let ext = Arc::new(ProcessExtension::new(manifest1, broker.clone()));
 
+    let registry = RuntimeRegistry::default();
+    let registry_snapshot = registry.snapshot();
     let runtime = AgentRuntime::new(
         Arc::new(FPProvider),
         Arc::new(FPToolCatalog),
@@ -1322,7 +1348,8 @@ done"#
         None,
         RuntimeConfig::default(),
         gestalt_core::HookRegistry::default(),
-        RuntimeRegistry::default(),
+        registry,
+        registry_snapshot,
         None,
         event_bus.clone(),
         Arc::new(gestalt_mcp::McpRegistry::new(

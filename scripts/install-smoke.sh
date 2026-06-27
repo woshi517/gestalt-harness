@@ -7,18 +7,23 @@ tmp_root=$(mktemp -d)
 trap 'rm -rf "$tmp_root"' EXIT
 
 install_root="$tmp_root/install-root"
-cargo_home="$tmp_root/cargo-home"
 home_root="$tmp_root/home"
+host_home="${HOME:-$tmp_root/home}"
+# Reuse the runner cargo cache, but keep HOME isolated so the install is hermetic.
+cargo_home="${CARGO_HOME:-$host_home/.cargo}"
 
-mkdir -p "$install_root" "$cargo_home" "$home_root/.config"
+mkdir -p "$install_root" "$home_root/.config"
 
 export CARGO_HOME="$cargo_home"
 export HOME="$home_root"
 export XDG_CONFIG_HOME="$home_root/.config"
+# CI runners may not have a rustup default toolchain configured, so pin stable here.
+export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 
 cargo install \
   --locked \
   --force \
+  --offline \
   --path "$repo_root/crates/gestalt-cli" \
   --root "$install_root"
 

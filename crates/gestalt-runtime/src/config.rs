@@ -1,6 +1,6 @@
 use gestalt_core::session::ExecutionMode;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +49,8 @@ pub struct RuntimeConfig {
     pub extension_timeouts: ExtensionTimeoutsConfig,
     #[serde(default)]
     pub extension_limits: ExtensionLimitsConfig,
+    #[serde(default)]
+    pub extension_instances: BTreeMap<String, crate::extension::ExtensionInstanceConfig>,
     #[serde(default)]
     pub effective_config_fingerprint: Option<String>,
 }
@@ -122,6 +124,7 @@ impl Default for RuntimeConfig {
             metadata: serde_json::Value::Null,
             extension_timeouts: ExtensionTimeoutsConfig::default(),
             extension_limits: ExtensionLimitsConfig::default(),
+            extension_instances: BTreeMap::new(),
             effective_config_fingerprint: None,
         }
     }

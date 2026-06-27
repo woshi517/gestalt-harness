@@ -7,6 +7,32 @@ use gestalt_core::{
     HarnessError,
 };
 use std::sync::Arc;
+use tokio::sync::Mutex;
+
+static ENV_MUTEX: Mutex<()> = Mutex::const_new(());
+
+struct EnvVarGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(ref value) = self.original {
+            std::env::set_var(self.key, value);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
 
 struct MockProvider {
     capabilities: ProviderCapabilities,
@@ -81,8 +107,10 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
 
 #[tokio::test]
 async fn test_cli_smoke_prompt_source() {
-    std::env::set_var("OPENAI_API_KEY", "mock-key");
-    std::env::set_var("OPENAI_COMPATIBLE_API_KEY", "mock-key");
+    let _guard = ENV_MUTEX.lock().await;
+    let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
+    let _openai_compatible_api_key_guard =
+        EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
     let _ = gestalt_models::registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
@@ -233,8 +261,10 @@ default = "confirm"
 
 #[tokio::test]
 async fn test_cli_smoke_custom_provider_via_profile() {
-    std::env::set_var("OPENAI_API_KEY", "mock-key");
-    std::env::set_var("OPENAI_COMPATIBLE_API_KEY", "mock-key");
+    let _guard = ENV_MUTEX.lock().await;
+    let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
+    let _openai_compatible_api_key_guard =
+        EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
     let _ = gestalt_models::registry::register(
         "custom-mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),

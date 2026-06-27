@@ -1,3 +1,5 @@
+#![allow(clippy::large_futures)]
+
 use std::sync::Arc;
 use std::time::Duration;
 

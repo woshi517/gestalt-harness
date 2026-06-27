@@ -8,8 +8,7 @@ pub fn is_tool_eligible_for_clearing(
     tool_name: Option<&str>,
     retention: &ToolRetentionRegistrySnapshot,
 ) -> bool {
-    resolve_tool_retention(tool_name, retention)
-        .is_some_and(|policy| policy.clearable)
+    resolve_tool_retention(tool_name, retention).is_some_and(|policy| policy.clearable)
 }
 
 pub fn render_tombstone(tool_use_id: &str, tool_name: &str, output_hash: &str) -> String {
@@ -165,14 +164,13 @@ pub fn clear_eligible_tool_results(
                         tool_name: t_name.to_string(),
                         original_tokens,
                         output_hash: hash.to_string(),
-                        artifact: artifact_refs
-                            .as_ref()
-                            .and_then(|refs| refs.first())
-                            .map(|artifact| gestalt_core::ArtifactRef {
+                        artifact: artifact_refs.as_ref().and_then(|refs| refs.first()).map(
+                            |artifact| gestalt_core::ArtifactRef {
                                 run_id: run_id.to_string(),
                                 relative_path: artifact.clone(),
                                 content_hash: hash.to_string(),
-                            }),
+                            },
+                        ),
                     });
                     reduction_needed = reduction_needed.saturating_sub(saved);
                 }
