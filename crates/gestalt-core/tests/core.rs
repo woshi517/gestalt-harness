@@ -280,3 +280,43 @@ fn test_tool_trait_object_descriptor() {
     let desc = tool.descriptor();
     assert_eq!(desc.id.name, "dummy_tool");
 }
+
+use gestalt_core::{ApiFormat, ResolvedModelSnapshot, ModelSelection, ModelCapabilities, PromptCacheMode};
+
+#[test]
+fn api_format_uses_snake_case_wire_names() {
+    assert_eq!(
+        serde_json::to_value(ApiFormat::OpenAiResponses).unwrap(),
+        serde_json::json!("openai_responses")
+    );
+}
+
+#[test]
+fn resolved_model_snapshot_round_trips() {
+    let snapshot = ResolvedModelSnapshot {
+        selection: ModelSelection {
+            provider_id: "openai".into(),
+            model_id: "gpt-5.1".into(),
+            variant: Some("high".into()),
+        },
+        api_format: ApiFormat::OpenAiResponses,
+        display_name: Some("GPT-5.1".into()),
+        max_context_tokens: 400_000,
+        max_output_tokens: 32_768,
+        capabilities: ModelCapabilities {
+            streaming: true,
+            tools: true,
+            vision: true,
+            json_mode: true,
+            reasoning: true,
+            prompt_cache: PromptCacheMode::Automatic,
+        },
+    };
+
+    let value = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(
+        serde_json::from_value::<ResolvedModelSnapshot>(value).unwrap(),
+        snapshot
+    );
+}
+

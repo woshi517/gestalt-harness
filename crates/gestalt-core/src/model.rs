@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::provider::{ApiFormat, PromptCacheMode};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelInfo {
     /// Fully qualified model reference, e.g. "anthropic/claude-sonnet-4-6".
@@ -56,3 +58,32 @@ pub enum ModelInfoSource {
     WorkspaceOverride,
     CliSelected,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelSelection {
+    pub provider_id: String,
+    pub model_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelCapabilities {
+    pub streaming: bool,
+    pub tools: bool,
+    pub vision: bool,
+    pub json_mode: bool,
+    pub reasoning: bool,
+    pub prompt_cache: PromptCacheMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedModelSnapshot {
+    pub selection: ModelSelection,
+    pub api_format: ApiFormat,
+    pub display_name: Option<String>,
+    pub max_context_tokens: usize,
+    pub max_output_tokens: usize,
+    pub capabilities: ModelCapabilities,
+}
+

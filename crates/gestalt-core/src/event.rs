@@ -4,10 +4,14 @@ use serde_json::Value;
 use crate::approval::SessionGrant;
 use crate::session::ExecutionMode;
 use crate::tool::RiskLevel;
+use crate::model::ResolvedModelSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
+    RunStarted {
+        resolved_model: ResolvedModelSnapshot,
+    },
     UserMessage {
         content: String,
     },

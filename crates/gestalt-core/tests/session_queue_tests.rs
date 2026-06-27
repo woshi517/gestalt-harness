@@ -39,6 +39,7 @@ fn test_session_appends_messages_with_stable_ids_and_default_projection_state() 
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            resolved_model: None,
         },
         TokenBudget::default(),
         ToolContext {
@@ -102,6 +103,7 @@ fn test_context_state_delta_distinguishes_unchanged_set_and_clear() {
             reasoning_effort: None,
             text_verbosity: None,
             metadata: serde_json::Value::Null,
+            resolved_model: None,
         },
         TokenBudget::default(),
         ToolContext {

@@ -213,3 +213,45 @@ impl Default for ProviderRequest {
         }
     }
 }
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiFormat {
+    #[serde(rename = "anthropic_messages")]
+    AnthropicMessages,
+    #[serde(rename = "openai_chat_completions")]
+    OpenAiChatCompletions,
+    #[serde(rename = "openai_responses")]
+    OpenAiResponses,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptCacheMode {
+    None,
+    Automatic,
+    Explicit,
+    #[default]
+    ProviderDependent,
+}
+
