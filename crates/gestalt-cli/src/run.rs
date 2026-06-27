@@ -11,6 +11,12 @@ use gestalt_trace::{
 
 use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::render_event};
 
+/// Run a single user prompt in a new session.
+///
+/// NOTE: If `session_id_override` is specified (e.g. via `gestalt run --session <id>`),
+/// this merely labels and groups the new run under the existing session ID. It does
+/// NOT restore or reconstruct prior history or context. To continue/resume with context,
+/// use `run_session_action` (via the CLI `continue` or `resume` subcommands).
 pub async fn run_prompt(
     config: &EffectiveConfig,
     prompt: &str,

@@ -534,6 +534,10 @@ pub fn calculate_continuation_state(
 }
 
 /// Main entry point for executing subcommands continue, resume, branch.
+///
+/// Unlike `run_prompt` (which creates a fresh session), `run_session_action` preserves
+/// context by reconstructing history from prior run checkpoints, recalculating the token
+/// budget, and pre-seeding the new session with prior history before running it.
 pub async fn run_session_action(
     config: &EffectiveConfig,
     action: &str, // "continue", "resume", "branch"
