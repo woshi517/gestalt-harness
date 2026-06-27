@@ -62,7 +62,10 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
         })?;
 
     let (url, is_anthropic) = if let Some(ref ep) = resolved.models_endpoint {
-        (ep.clone(), resolved.api_format() == gestalt_core::ApiFormat::AnthropicMessages)
+        (
+            ep.clone(),
+            resolved.api_format() == gestalt_core::ApiFormat::AnthropicMessages,
+        )
     } else if resolved.api_format() == gestalt_core::ApiFormat::AnthropicMessages {
         let base_url = if resolved.base_url.is_empty() {
             "https://api.anthropic.com"
