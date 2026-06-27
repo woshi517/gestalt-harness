@@ -196,10 +196,25 @@ impl AgentRuntime {
                 resolved_model: self.config.resolved_model.clone(),
             },
             TokenBudget {
-                model_limit: self.config.max_context_window.unwrap_or(120_000),
+                model_limit: self
+                    .config
+                    .max_context_window
+                    .or_else(|| {
+                        self.config
+                            .resolved_model
+                            .as_ref()
+                            .map(|m| m.max_context_tokens)
+                    })
+                    .unwrap_or(120_000),
                 reserved_output: self
                     .config
                     .reserved_output_tokens
+                    .or_else(|| {
+                        self.config
+                            .resolved_model
+                            .as_ref()
+                            .map(|m| m.max_output_tokens)
+                    })
                     .or(self.config.max_output_tokens)
                     .unwrap_or(4096),
                 used_system: 0,

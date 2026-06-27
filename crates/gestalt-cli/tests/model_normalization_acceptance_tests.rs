@@ -1,9 +1,7 @@
 use gestalt_core::{
     AgentEvent, ApiFormat, ModelCapabilities, PromptCacheMode, ResolvedModelSnapshot,
 };
-use gestalt_trace::run_manifest::{
-    CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
-};
+use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 
 #[test]
 fn test_responses_sse_parsing() {
@@ -18,7 +16,7 @@ data: {"type":"response.function_call_arguments.delta","item_id":"call_123","del
         r#"event: response.function_call_arguments.delta
 data: {"type":"response.function_call_arguments.delta","item_id":"call_123","delta":"\"hello\"}"}"#,
         r#"event: response.completed
-data: {"type":"response.completed","response":{"usage":{"input_tokens":140,"output_tokens":85}}}"#
+data: {"type":"response.completed","response":{"usage":{"input_tokens":140,"output_tokens":85}}}"#,
     ];
 
     let joined = raw_events.join("\n\n");
@@ -31,7 +29,11 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":140,"outp
     for event_res in parsed {
         let event = event_res.expect("parse event");
         match event {
-            AgentEvent::ToolCallStreamed { id, name, input_delta } => {
+            AgentEvent::ToolCallStreamed {
+                id,
+                name,
+                input_delta,
+            } => {
                 assert_eq!(id, "call_123");
                 assert_eq!(name, "execute_tool");
                 if tool_stream_count == 0 {
@@ -41,7 +43,10 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":140,"outp
                 }
                 tool_stream_count += 1;
             }
-            AgentEvent::Usage { input_tokens, output_tokens } => {
+            AgentEvent::Usage {
+                input_tokens,
+                output_tokens,
+            } => {
                 assert_eq!(input_tokens, 140);
                 assert_eq!(output_tokens, 85);
                 usage_count += 1;
@@ -56,6 +61,7 @@ data: {"type":"response.completed","response":{"usage":{"input_tokens":140,"outp
 
 #[test]
 fn test_manifest_snapshot_serialization() {
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let temp_dir = std::env::temp_dir().join(format!(
         "gestalt-manifest-serialization-{}",
         uuid::Uuid::new_v4()
@@ -128,10 +134,9 @@ fn test_manifest_snapshot_serialization() {
 
 #[test]
 fn test_provider_switch_and_projection_reset() {
-    let temp_dir = std::env::temp_dir().join(format!(
-        "gestalt-provider-switch-{}",
-        uuid::Uuid::new_v4()
-    ));
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
+    let temp_dir =
+        std::env::temp_dir().join(format!("gestalt-provider-switch-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     // Parent run model (Anthropic)
@@ -176,11 +181,10 @@ fn test_provider_switch_and_projection_reset() {
         },
     };
 
-    // Verify model mismatch logic
-    let model_changed = parent_model.selection != current_model.selection
-        || parent_model.api_format != current_model.api_format;
+    use gestalt_cli::config::{load_effective_config, CliOverrides};
 
-    assert!(model_changed, "model must be detected as changed");
+    let overrides = CliOverrides::default();
+    let config = load_effective_config(&overrides).unwrap();
 
     // Reconstruct projection state reset on model change
     let mut parent_context_state = gestalt_core::ContextProjectionState::default();
@@ -190,14 +194,6 @@ fn test_provider_switch_and_projection_reset() {
         source_hash: "hash".to_string(),
         artifact: None,
     });
-
-    let context_state = if model_changed {
-        gestalt_core::ContextProjectionState::default()
-    } else {
-        parent_context_state.clone()
-    };
-
-    assert!(context_state.active_checkpoint.is_none());
 
     // Token budget rebudgeting on model change
     let parent_budget = gestalt_core::TokenBudget {
@@ -211,12 +207,17 @@ fn test_provider_switch_and_projection_reset() {
         minimum_turn_budget: 16,
     };
 
-    let mut token_budget = parent_budget;
-    if model_changed {
-        token_budget.model_limit = current_model.max_context_tokens;
-        token_budget.reserved_output = current_model.max_output_tokens;
-    }
+    let (context_state, token_budget, model_changed) =
+        gestalt_cli::sessions::calculate_continuation_state(
+            Some(&parent_model),
+            &current_model,
+            parent_context_state,
+            parent_budget,
+            &config,
+        );
 
+    assert!(model_changed, "model must be detected as changed");
+    assert!(context_state.active_checkpoint.is_none());
     assert_eq!(token_budget.model_limit, 128_000);
     assert_eq!(token_budget.reserved_output, 16_384);
 

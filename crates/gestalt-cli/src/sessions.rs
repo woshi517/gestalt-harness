@@ -493,6 +493,46 @@ fn resolve_session_head(
     Ok(matching_runs.last().unwrap().1.clone())
 }
 
+pub fn calculate_continuation_state(
+    parent_model: Option<&gestalt_core::ResolvedModelSnapshot>,
+    current_model: &gestalt_core::ResolvedModelSnapshot,
+    parent_context_state: gestalt_core::ContextProjectionState,
+    parent_budget: gestalt_core::TokenBudget,
+    config: &crate::config::EffectiveConfig,
+) -> (
+    gestalt_core::ContextProjectionState,
+    gestalt_core::TokenBudget,
+    bool,
+) {
+    let model_changed = match parent_model {
+        Some(pm) => {
+            pm.selection != current_model.selection || pm.api_format != current_model.api_format
+        }
+        None => true,
+    };
+
+    let context_state = if model_changed {
+        gestalt_core::ContextProjectionState::default()
+    } else {
+        parent_context_state
+    };
+
+    let mut token_budget = parent_budget;
+    token_budget.model_limit = config
+        .context
+        .max_context_window
+        .or(Some(current_model.max_context_tokens))
+        .unwrap_or(120_000);
+    token_budget.reserved_output = config
+        .context
+        .reserved_output_tokens
+        .or(Some(current_model.max_output_tokens))
+        .or(config.tools.max_output_tokens)
+        .unwrap_or(4096);
+
+    (context_state, token_budget, model_changed)
+}
+
 /// Main entry point for executing subcommands continue, resume, branch.
 pub async fn run_session_action(
     config: &EffectiveConfig,
@@ -650,34 +690,13 @@ pub async fn run_session_action(
             )
         };
 
-    let model_changed = match &analysis.resolved_model {
-        Some(parent_model) => {
-            parent_model.selection != resolved_provider.resolved_model.selection
-                || parent_model.api_format != resolved_provider.resolved_model.api_format
-        }
-        None => true,
-    };
-
-    let context_state = if model_changed {
-        gestalt_core::ContextProjectionState::default()
-    } else {
-        context_state
-    };
-
-    let mut token_budget = token_budget;
-    if model_changed {
-        token_budget.model_limit = config
-            .context
-            .max_context_window
-            .or(Some(resolved_provider.resolved_model.max_context_tokens))
-            .unwrap_or(120_000);
-        token_budget.reserved_output = config
-            .context
-            .reserved_output_tokens
-            .or(config.tools.max_output_tokens)
-            .or(Some(resolved_provider.resolved_model.max_output_tokens))
-            .unwrap_or(4096);
-    }
+    let (context_state, token_budget, _model_changed) = calculate_continuation_state(
+        analysis.resolved_model.as_ref(),
+        &resolved_provider.resolved_model,
+        context_state,
+        token_budget,
+        config,
+    );
 
     let session_id = analysis.session_id.clone();
     let parent_run_id = analysis.run_id.clone();
@@ -787,18 +806,65 @@ pub async fn run_session_action(
     session.history = history;
     session.context_state = context_state;
 
-    if let Some(prompt_snapshot) = analysis.prompt_snapshot.as_ref() {
-        let loaded_event = AgentEvent::PromptSnapshotLoaded {
-            snapshot_hash: prompt_snapshot.snapshot_hash.clone(),
-            source: gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
-        };
-        sink.emit(loaded_event.clone())?;
-        if let Some(ref tx) = event_tx {
-            let _ = tx.send(loaded_event);
-        } else if let Some(line) = render_event(&loaded_event) {
-            println!("{line}");
+    let parent_cache_key = match (
+        &analysis.resolved_model,
+        &analysis.prompt_snapshot,
+        &analysis.tool_schema_hash,
+    ) {
+        (Some(model), Some(snapshot), Some(tool_hash)) => {
+            Some(gestalt_core::context::ProviderCacheKey {
+                provider_id: model.selection.provider_id.clone(),
+                api_format: model.api_format,
+                model_id: model.selection.model_id.clone(),
+                prompt_prefix_hash: snapshot.prefix_hash.clone(),
+                tool_schema_hash: tool_hash.clone(),
+            })
         }
-    }
+        _ => None,
+    };
+
+    let current_tool_hash = gestalt_trace::run_manifest::compute_tool_schema_hash(&tools.schemas());
+    let current_cache_key =
+        analysis
+            .prompt_snapshot
+            .as_ref()
+            .map(|snapshot| gestalt_core::context::ProviderCacheKey {
+                provider_id: resolved_provider
+                    .resolved_model
+                    .selection
+                    .provider_id
+                    .clone(),
+                api_format: resolved_provider.resolved_model.api_format,
+                model_id: resolved_provider.resolved_model.selection.model_id.clone(),
+                prompt_prefix_hash: snapshot.prefix_hash.clone(),
+                tool_schema_hash: current_tool_hash,
+            });
+
+    let cache_matches = match (&parent_cache_key, &current_cache_key) {
+        (Some(p_key), Some(c_key)) => p_key == c_key,
+        _ => false,
+    };
+
+    let initial_prompt_snapshot_hash = if cache_matches {
+        if let Some(prompt_snapshot) = analysis.prompt_snapshot.as_ref() {
+            let loaded_event = AgentEvent::PromptSnapshotLoaded {
+                snapshot_hash: prompt_snapshot.snapshot_hash.clone(),
+                source: gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+            };
+            sink.emit(loaded_event.clone())?;
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(loaded_event);
+            } else if let Some(line) = render_event(&loaded_event) {
+                println!("{line}");
+            }
+        }
+        analysis
+            .prompt_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.snapshot_hash.clone())
+    } else {
+        None
+    };
 
     // 5. Setup RunManifest
     let run_kind = match action {
@@ -869,10 +935,7 @@ pub async fn run_session_action(
             &mut session,
             &cancel_token,
             Some(tx),
-            analysis
-                .prompt_snapshot
-                .as_ref()
-                .map(|snapshot| snapshot.snapshot_hash.clone()),
+            initial_prompt_snapshot_hash,
         )
         .await;
 

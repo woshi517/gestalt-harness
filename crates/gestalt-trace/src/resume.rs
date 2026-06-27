@@ -41,6 +41,7 @@ pub struct ResumeAnalysis {
     pub snapshot_hash: Option<String>,
     pub prompt_snapshot: Option<PromptSnapshot>,
     pub resolved_model: Option<gestalt_core::ResolvedModelSnapshot>,
+    pub tool_schema_hash: Option<String>,
 }
 
 impl ResumeAnalysis {
@@ -83,6 +84,7 @@ impl ResumeAnalyzer {
                 snapshot_hash: None,
                 prompt_snapshot: None,
                 resolved_model: None,
+                tool_schema_hash: None,
             };
         }
 
@@ -100,6 +102,7 @@ impl ResumeAnalyzer {
                     snapshot_hash: None,
                     prompt_snapshot: None,
                     resolved_model: None,
+                    tool_schema_hash: None,
                 };
             }
         };
@@ -117,6 +120,9 @@ impl ResumeAnalyzer {
                     snapshot_hash: None,
                     prompt_snapshot: None,
                     resolved_model: manifest.resolved_model.clone(),
+                    tool_schema_hash: Some(
+                        manifest.compatibility_fingerprint.tool_schema_hash.clone(),
+                    ),
                 };
             }
         }
@@ -133,6 +139,7 @@ impl ResumeAnalyzer {
                 snapshot_hash: None,
                 prompt_snapshot: None,
                 resolved_model: manifest.resolved_model.clone(),
+                tool_schema_hash: Some(manifest.compatibility_fingerprint.tool_schema_hash.clone()),
             };
         }
 
@@ -150,6 +157,9 @@ impl ResumeAnalyzer {
                     snapshot_hash: None,
                     prompt_snapshot: None,
                     resolved_model: manifest.resolved_model.clone(),
+                    tool_schema_hash: Some(
+                        manifest.compatibility_fingerprint.tool_schema_hash.clone(),
+                    ),
                 };
             }
         };
@@ -178,6 +188,7 @@ impl ResumeAnalyzer {
                 snapshot_hash: None,
                 prompt_snapshot: None,
                 resolved_model: manifest.resolved_model.clone(),
+                tool_schema_hash: Some(manifest.compatibility_fingerprint.tool_schema_hash.clone()),
             };
         }
 
@@ -201,6 +212,9 @@ impl ResumeAnalyzer {
                             snapshot_hash: None,
                             prompt_snapshot: None,
                             resolved_model: manifest.resolved_model.clone(),
+                            tool_schema_hash: Some(
+                                manifest.compatibility_fingerprint.tool_schema_hash.clone(),
+                            ),
                         };
                     }
                 };
@@ -217,6 +231,9 @@ impl ResumeAnalyzer {
                         snapshot_hash: None,
                         prompt_snapshot: None,
                         resolved_model: manifest.resolved_model.clone(),
+                        tool_schema_hash: Some(
+                            manifest.compatibility_fingerprint.tool_schema_hash.clone(),
+                        ),
                     };
                 }
 
@@ -235,6 +252,9 @@ impl ResumeAnalyzer {
                     snapshot_hash: None,
                     prompt_snapshot: None,
                     resolved_model: manifest.resolved_model.clone(),
+                    tool_schema_hash: Some(
+                        manifest.compatibility_fingerprint.tool_schema_hash.clone(),
+                    ),
                 };
             }
         };
@@ -285,6 +305,7 @@ impl ResumeAnalyzer {
                 snapshot_hash: None,
                 prompt_snapshot: prompt_snapshot.clone(),
                 resolved_model: manifest.resolved_model.clone(),
+                tool_schema_hash: Some(manifest.compatibility_fingerprint.tool_schema_hash.clone()),
             };
         }
 
@@ -323,6 +344,7 @@ impl ResumeAnalyzer {
                 snapshot_hash: recorded_snapshot_hash,
                 prompt_snapshot: prompt_snapshot.clone(),
                 resolved_model: manifest.resolved_model.clone(),
+                tool_schema_hash: Some(manifest.compatibility_fingerprint.tool_schema_hash.clone()),
             };
         }
 
@@ -420,6 +442,7 @@ impl ResumeAnalyzer {
             snapshot_hash: recorded_snapshot_hash,
             prompt_snapshot,
             resolved_model: manifest.resolved_model,
+            tool_schema_hash: Some(manifest.compatibility_fingerprint.tool_schema_hash),
         }
     }
 }

@@ -25,18 +25,36 @@ pub async fn explain_context(
             .collect();
 
         let pipeline = crate::run::build_pipeline(&config, mode, max_turns, &tool_names)?;
+        let resolved_provider = config.resolve_provider().ok();
+        let max_context_window = config
+            .context
+            .max_context_window
+            .or_else(|| {
+                resolved_provider
+                    .as_ref()
+                    .map(|p| p.resolved_model.max_context_tokens)
+            })
+            .unwrap_or(120_000);
+
         let max_output_tokens = config
             .resolve_provider()
             .map(|r| r.resolved_options.max_output_tokens)
             .ok()
             .flatten()
-            .map(|v| v as usize);
+            .map(|v| v as usize)
+            .or_else(|| {
+                resolved_provider
+                    .as_ref()
+                    .map(|p| p.resolved_model.max_output_tokens)
+            });
+
         let budget = TokenBudget {
-            model_limit: config.context.max_context_window.unwrap_or(120_000),
+            model_limit: max_context_window,
             reserved_output: config
                 .context
                 .reserved_output_tokens
                 .or(max_output_tokens)
+                .or(config.tools.max_output_tokens)
                 .unwrap_or(4096),
             used_system: 0,
             used_history: 0,

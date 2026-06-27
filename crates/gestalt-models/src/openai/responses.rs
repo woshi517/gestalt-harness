@@ -25,7 +25,7 @@ pub struct OpenAiResponsesProvider {
     display_name: String,
     default_model: String,
     request_path: Option<String>,
-    timeout_ms: Option<u64>,
+    _timeout_ms: Option<u64>,
     stream_chunk_timeout_ms: Option<u64>,
     transport: CompletionsTransport,
     capabilities: ProviderCapabilities,
@@ -33,7 +33,6 @@ pub struct OpenAiResponsesProvider {
 
 #[derive(Debug, Clone, Default)]
 struct ToolCallState {
-    id: String,
     name: String,
 }
 
@@ -56,7 +55,7 @@ impl Default for OpenAiResponsesProvider {
             display_name: "OpenAI".to_string(),
             default_model: "gpt-4o-mini".to_string(),
             request_path: None,
-            timeout_ms: None,
+            _timeout_ms: None,
             stream_chunk_timeout_ms: None,
             transport,
             capabilities: ProviderCapabilities {
@@ -129,12 +128,13 @@ impl OpenAiResponsesProvider {
             .and_then(Value::as_str)
             .map(String::from);
 
-        let mut timeout_ms = None;
-        let mut stream_chunk_timeout_ms = None;
-        if let Some(req) = config.get("request") {
-            timeout_ms = req.get("timeout_ms").and_then(Value::as_u64);
-            stream_chunk_timeout_ms = req.get("stream_chunk_timeout_ms").and_then(Value::as_u64);
-        }
+        let request_config = config.get("request");
+        let timeout_ms = request_config
+            .and_then(|req| req.get("timeout_ms"))
+            .and_then(Value::as_u64);
+        let stream_chunk_timeout_ms = request_config
+            .and_then(|req| req.get("stream_chunk_timeout_ms"))
+            .and_then(Value::as_u64);
 
         let headers = config
             .get("headers")
@@ -174,7 +174,7 @@ impl OpenAiResponsesProvider {
             display_name,
             default_model,
             request_path,
-            timeout_ms,
+            _timeout_ms: timeout_ms,
             stream_chunk_timeout_ms,
             transport,
             capabilities,
@@ -347,9 +347,9 @@ impl Provider for OpenAiResponsesProvider {
             .map(|result| result.map_err(std::io::Error::other))
             .eventsource();
 
+        let state_cloned = state.clone();
         let stream: gestalt_core::EventStream =
             if let Some(dur) = chunk_timeout {
-                let state_cloned = state.clone();
                 let mapped = tokio_stream::StreamExt::timeout(sse_stream, dur)
                     .map(move |item_res| match item_res {
                         Ok(Ok(event)) => {
@@ -382,7 +382,6 @@ impl Provider for OpenAiResponsesProvider {
                     .flatten();
                 Box::pin(mapped)
             } else {
-                let state_cloned = state.clone();
                 let mapped = sse_stream
                     .map(move |event| match event {
                         Ok(event) if event.data == "[DONE]" => Ok(Vec::new()),
@@ -446,7 +445,7 @@ fn normalize_payload(
                         .unwrap_or("")
                         .to_string();
                     let mut map = state.lock().map_err(|_| poisoned())?;
-                    map.insert(id.clone(), ToolCallState { id, name });
+                    map.insert(id, ToolCallState { name });
                 }
             }
         }
