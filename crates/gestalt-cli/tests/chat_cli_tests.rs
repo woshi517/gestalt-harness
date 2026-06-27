@@ -44,7 +44,7 @@ base_url = "http://127.0.0.1:9999/v1"
 }
 
 #[tokio::test]
-async fn test_chat_exits_on_cancelled_token() {
+async fn test_chat_exits_on_cancelled_token() -> Result<(), HarnessError> {
     let temp_root = create_temp_workspace();
     copy_minimal_workspace(&temp_root);
     let overrides = CliOverrides {
@@ -54,8 +54,8 @@ async fn test_chat_exits_on_cancelled_token() {
     let cancel_token = gestalt_core::cancel::CancelToken::new();
     cancel_token.cancel(); // cancel it before starting
 
-    let res = run_chat(&overrides, None, None, cancel_token).await;
-    res.unwrap();
+    run_chat(&overrides, None, None, cancel_token).await?;
+    Ok(())
 }
 
 #[tokio::test]

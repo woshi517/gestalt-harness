@@ -784,7 +784,18 @@ pub fn write_workspace_config_file(
             reason: err.to_string(),
         })
     })?;
-    fs::write(path, serialized).map_err(|err| {
+
+    // Write atomically to avoid race conditions where another thread/process
+    // reads an empty/partially-written file.
+    let temp_path = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
+    fs::write(&temp_path, serialized).map_err(|err| {
+        HarnessError::Config(ConfigError::InvalidValue {
+            field: temp_path.display().to_string(),
+            reason: err.to_string(),
+        })
+    })?;
+    fs::rename(&temp_path, path).map_err(|err| {
+        let _ = fs::remove_file(&temp_path);
         HarnessError::Config(ConfigError::InvalidValue {
             field: path.display().to_string(),
             reason: err.to_string(),
