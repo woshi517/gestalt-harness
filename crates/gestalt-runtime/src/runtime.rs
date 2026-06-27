@@ -215,7 +215,7 @@ impl AgentRuntime {
                             .as_ref()
                             .map(|m| m.max_output_tokens.min(8192))
                     })
-                    .or(self.config.max_output_tokens.map(|v| v.min(8192)))
+                    .or_else(|| self.config.max_output_tokens.map(|v| v.min(8192)))
                     .unwrap_or(4096),
                 used_system: 0,
                 used_history: 0,
