@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{
     config::EffectiveConfig,
-    output::{AuthDoctorEntry, AuthDoctorReport, AuthResolveReport},
+    reports::{AuthDoctorEntry, AuthDoctorReport, AuthResolveReport},
 };
 
 static KEYCHAIN_FAKE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();

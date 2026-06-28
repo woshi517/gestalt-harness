@@ -1,4 +1,4 @@
-use gestalt_cli::config::WorkspaceConfig;
+use gestalt_app::config::WorkspaceConfig;
 use schemars::schema_for;
 use std::fs;
 use std::path::Path;

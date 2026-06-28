@@ -1,7 +1,7 @@
 use gestalt_core::HarnessError;
 use gestalt_models::registry;
 
-use crate::{auth::resolve_auth, config::EffectiveConfig, output::ProviderDoctorResult};
+use crate::{auth::resolve_auth, config::EffectiveConfig, reports::ProviderDoctorResult};
 
 pub fn list_providers(config: &EffectiveConfig) -> Vec<String> {
     let mut providers = registry::registered();

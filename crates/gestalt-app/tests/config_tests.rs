@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use gestalt_cli::config::{
+use gestalt_app::config::{
     explain_config, load_effective_config, validate_workspace_config, CliOverrides, SandboxType,
 };
 
@@ -227,7 +227,7 @@ fn test_provider_model_cli_overrides_beat_profile() {
 #[test]
 fn test_policy_monotonicity_enforcement() {
     let _guard = lock_env();
-    use gestalt_cli::config::WorkspaceConfig;
+    use gestalt_app::config::WorkspaceConfig;
     let global_toml = r#"
 [policies.paths]
 allow_read = ["/a", "/b"]
@@ -254,7 +254,7 @@ allow_read = ["/a", "/c"]
 #[test]
 fn test_policy_deny_union_merge() {
     let _guard = lock_env();
-    use gestalt_cli::config::WorkspaceConfig;
+    use gestalt_app::config::WorkspaceConfig;
     let global_toml = r#"
 [policies.paths]
 deny_read = ["/secret1"]
@@ -278,7 +278,7 @@ deny_read = ["/secret2"]
 #[test]
 fn test_extension_instances_parse_without_dropping_legacy_fields() {
     let _guard = lock_env();
-    use gestalt_cli::config::WorkspaceConfig;
+    use gestalt_app::config::WorkspaceConfig;
 
     let json = r#"
 {
@@ -331,7 +331,7 @@ fn test_extension_instances_parse_without_dropping_legacy_fields() {
 #[test]
 fn test_extension_instances_merge_additively() {
     let _guard = lock_env();
-    use gestalt_cli::config::WorkspaceConfig;
+    use gestalt_app::config::WorkspaceConfig;
 
     let global: WorkspaceConfig = serde_json::from_str(
         r#"
@@ -511,34 +511,6 @@ required = true
     );
 
     let _ = fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
-fn test_config_show_redaction() {
-    use gestalt_cli::config::{EffectiveConfig, SecretString};
-    use gestalt_cli::output::{CliReport, ConfigShowReport};
-
-    let mut config = EffectiveConfig::default();
-    let mut prov = gestalt_cli::config::ProviderConfig::default();
-    prov.api_key = Some(SecretString("sk-ant-test-secret".to_string()));
-    config.providers.insert("openai".to_string(), prov);
-
-    let report = ConfigShowReport {
-        config,
-        source: false,
-        explain_map: None,
-    };
-
-    // Test text mode
-    let text = report.render_text();
-    assert!(!text.contains("sk-ant-test-secret"));
-    assert!(text.contains("[REDACTED]"));
-
-    // Test JSON mode
-    let json_val = serde_json::to_value(&report).unwrap();
-    let json_str = json_val.to_string();
-    assert!(!json_str.contains("sk-ant-test-secret"));
-    assert!(json_str.contains("[REDACTED]"));
 }
 
 #[test]

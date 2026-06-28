@@ -1,5 +1,5 @@
-use gestalt_cli::config::CliOverrides;
-use gestalt_cli::context::explain_context;
+use gestalt_app::config::CliOverrides;
+use gestalt_app::context::explain_context;
 use std::fs;
 use std::path::PathBuf;
 

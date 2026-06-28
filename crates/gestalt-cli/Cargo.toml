@@ -24,33 +24,20 @@ gestalt-core = { path = "../gestalt-core" }
 gestalt-app = { path = "../gestalt-app" }
 gestalt-models = { path = "../gestalt-models" }
 gestalt-tools = { path = "../gestalt-tools" }
-gestalt-context = { path = "../gestalt-context" }
 gestalt-policy = { path = "../gestalt-policy" }
 gestalt-trace = { path = "../gestalt-trace" }
 gestalt-verify = { path = "../gestalt-verify" }
 gestalt-runtime = { path = "../gestalt-runtime" }
-gestalt-skills = { path = "../gestalt-skills" }
 clap = { workspace = true }
 toml = { workspace = true }
-dirs = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-schemars = { workspace = true }
-sha2 = { workspace = true }
 chrono = { workspace = true }
-reqwest = { workspace = true }
-keyring = "2"
-rpassword = "7"
 uuid = { workspace = true }
-toml_edit = { workspace = true }
-
-
-
 
 [features]
 default = []
@@ -64,9 +51,6 @@ optional = true
 [dependencies.crossterm]
 workspace = true
 optional = true
-
-[dependencies.gestalt-mcp]
-path = "../gestalt-mcp"
 
 [dev-dependencies]
 uuid = { workspace = true }

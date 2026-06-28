@@ -1,4 +1,4 @@
-use crate::config::{
+use gestalt_app::config::{
     global_config_path, legacy_global_config_path, legacy_workspace_policies_path,
     load_effective_config, workspace_config_path, CliOverrides,
 };
@@ -146,7 +146,7 @@ pub async fn test_policy(
     let input: Value = serde_json::from_str(input_str)?;
     validate_tool_input(tool_name, &input)?;
     let mode = if let Some(m) = override_mode {
-        crate::config::mode_from_str(m)?
+        gestalt_app::config::mode_from_str(m)?
     } else {
         config.selected_mode()?
     };

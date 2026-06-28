@@ -2064,8 +2064,8 @@ impl EffectiveConfig {
             model_override = Some(model_ovr.clone());
         }
 
-        let mut merged_prov_cfg =
-            crate::provider_catalog::get_builtin_provider(&provider_name).unwrap_or_default();
+                let mut merged_prov_cfg =
+            crate::catalog::get_builtin_provider(&provider_name).unwrap_or_default();
         if let Some(user_prov_cfg) = self.providers.get(&provider_name) {
             merged_prov_cfg = merge_provider_config(merged_prov_cfg, user_prov_cfg.clone());
         }
@@ -2078,7 +2078,7 @@ impl EffectiveConfig {
             }
         }
 
-        if crate::provider_catalog::get_builtin_provider(&provider_name).is_none()
+        if crate::catalog::get_builtin_provider(&provider_name).is_none()
             && !self.providers.contains_key(&provider_name)
             && !gestalt_models::registry::registered().contains(&provider_name)
         {
@@ -2468,7 +2468,7 @@ impl EffectiveConfig {
 
     fn validate_resolved_provider(&self, resolved: &ResolvedProvider) -> Result<(), HarnessError> {
         let is_builtin =
-            crate::provider_catalog::get_builtin_provider(resolved.provider_name()).is_some();
+            crate::catalog::get_builtin_provider(resolved.provider_name()).is_some();
         let is_registered = gestalt_models::registry::registered()
             .contains(&resolved.provider_name().to_string())
             || resolved
@@ -2604,7 +2604,7 @@ impl EffectiveConfig {
 
     pub fn provider_json(&self, provider: &str) -> Value {
         let configured = self.providers.get(provider).cloned().unwrap_or_default();
-        let mut base = crate::provider_catalog::get_builtin_provider(provider).unwrap_or_default();
+        let mut base = crate::catalog::get_builtin_provider(provider).unwrap_or_default();
 
         if let Some(id) = configured.id {
             base.id = Some(id);

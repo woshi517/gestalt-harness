@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use gestalt_cli::config::CliOverrides;
-use gestalt_cli::runtime::inspect_runtime;
+use gestalt_app::config::CliOverrides;
+use gestalt_app::runtime_factory::inspect_runtime;
 use gestalt_core::{
     event::AgentEvent,
     message::Message,
@@ -275,9 +275,9 @@ args = []
         skills: Vec::new(),
         context_window_override: None,
     };
-    let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
+    let config = gestalt_app::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None)
+    let runtime = gestalt_app::runtime_factory::build_cli_runtime(&config, None, None, None, None)
         .await
         .unwrap();
 

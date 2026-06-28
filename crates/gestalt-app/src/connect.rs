@@ -3,7 +3,7 @@ use crate::config::{
     global_config_path, legacy_global_config_path, mutate_workspace_config_file,
     write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig,
 };
-use crate::output::{ConnectReport, DisconnectReport};
+use crate::reports::{ConnectReport, DisconnectReport};
 use gestalt_core::{ApiFormat, ConfigError, HarnessError};
 use std::collections::HashMap;
 use std::io::IsTerminal;
@@ -64,7 +64,7 @@ pub fn connect_provider(
     let (conn_name, api_format, base_url, default_model, api_key_env, headers, models_endpoint) =
         match provider {
             "openrouter" => {
-                let builtin = crate::provider_catalog::get_builtin_provider("openrouter").unwrap();
+                let builtin = crate::catalog::get_builtin_provider("openrouter").unwrap();
                 (
                     "openrouter".to_string(),
                     ApiFormat::OpenAiChatCompletions,
@@ -117,7 +117,7 @@ pub fn connect_provider(
                 )
             }
             _ => {
-                if let Some(builtin) = crate::provider_catalog::get_builtin_provider(provider) {
+                if let Some(builtin) = crate::catalog::get_builtin_provider(provider) {
                     (
                         provider.to_string(),
                         builtin

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use gestalt_cli::config::{validate_workspace_config, CliOverrides};
+use gestalt_app::config::{validate_workspace_config, CliOverrides};
 use gestalt_core::{
     event::AgentEvent,
     message::Message,
@@ -164,7 +164,7 @@ override = "Smoke test override prompt"
     })
     .unwrap();
 
-    let log_dir = gestalt_cli::run::run_prompt(
+    let log_dir = gestalt_app::run::run_prompt(
         &config,
         "run smoke",
         None,
@@ -223,7 +223,7 @@ default = "confirm"
     })
     .unwrap();
 
-    let log_dir2 = gestalt_cli::run::run_prompt(
+    let log_dir2 = gestalt_app::run::run_prompt(
         &config2,
         "run smoke",
         None,
@@ -323,7 +323,7 @@ default = "confirm"
     assert_eq!(resolved.model(), "mock-model");
 
     // Execute run_prompt to verify the loop runs
-    let log_dir = gestalt_cli::run::run_prompt(
+    let log_dir = gestalt_app::run::run_prompt(
         &config,
         "run smoke",
         None,

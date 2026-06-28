@@ -3,7 +3,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use gestalt_cli::config::{validate_workspace_config, CliOverrides, EffectiveConfig};
+    use gestalt_app::config::{validate_workspace_config, CliOverrides, EffectiveConfig};
     use gestalt_cli::tui::services::load_session_transcript;
     use gestalt_cli::tui::state::{push_event, TranscriptEntry, TuiAppState, TuiFocus, TuiModal};
     use gestalt_cli::tui::update::{handle_key_event, TuiUiAction};
@@ -627,7 +627,7 @@ mod tests {
         // 1. Verify Mode change handler logic
         let mut state = TuiAppState::new(config.clone(), "session-123".to_string(), None);
         let mode = "yolo".to_string();
-        if let Ok(parsed_mode) = gestalt_cli::config::mode_from_str(&mode) {
+        if let Ok(parsed_mode) = gestalt_app::config::mode_from_str(&mode) {
             state.config.defaults.mode = Some(parsed_mode);
             state.details.config = Some(state.config.clone());
         }
@@ -642,7 +642,7 @@ mod tests {
             ..CliOverrides::default()
         };
         let explain_res =
-            gestalt_cli::context::explain_context(&overrides, None, Some("run-1")).await;
+            gestalt_app::context::explain_context(&overrides, None, Some("run-1")).await;
         assert!(
             explain_res.is_ok(),
             "explain_context failed: {:?}",
@@ -662,7 +662,7 @@ mod tests {
         );
 
         // 4. Verify Verify Run handler logic
-        let verify_res = gestalt_cli::verify::verify_run(&config, "run-1").await;
+        let verify_res = gestalt_app::verify::verify_run(&config, "run-1").await;
         assert!(
             verify_res.is_ok(),
             "verify_run failed: {:?}",

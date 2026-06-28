@@ -8,8 +8,7 @@ use gestalt_policy::MinimalPolicyEngine;
 use gestalt_trace::{
     aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink,
 };
-
-use crate::{approval::CliApprovalProvider, config::EffectiveConfig, output::render_event};
+use crate::{config::EffectiveConfig, reports::render_event};
 
 /// Run a single user prompt in a new session.
 ///
@@ -41,7 +40,7 @@ pub async fn run_prompt(
     )?;
     let sink = Arc::new(sink_inner);
 
-    let runtime = crate::runtime::build_cli_runtime(
+    let runtime = crate::runtime_factory::build_cli_runtime(
         config,
         api_key,
         event_tx.clone(),
@@ -282,11 +281,29 @@ pub(crate) fn build_policy(config: &EffectiveConfig) -> MinimalPolicyEngine {
     MinimalPolicyEngine::new(policy)
 }
 
-pub(crate) fn approval_provider(mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {
-    match mode {
-        ExecutionMode::Yolo => Arc::new(CliApprovalProvider),
-        _ => Arc::new(CliApprovalProvider),
+#[derive(Debug, Default)]
+pub struct FallbackApprovalProvider;
+
+#[async_trait::async_trait]
+impl gestalt_core::ApprovalProvider for FallbackApprovalProvider {
+    async fn approve(
+        &self,
+        _request: gestalt_core::ApprovalRequest,
+    ) -> Result<gestalt_core::ApprovalDecision, gestalt_core::HarnessError> {
+        Ok(gestalt_core::ApprovalDecision::Deny)
     }
+
+    async fn approve_cancellable(
+        &self,
+        _request: gestalt_core::ApprovalRequest,
+        _cancel_token: &gestalt_core::cancel::CancelToken,
+    ) -> Result<gestalt_core::ApprovalDecision, gestalt_core::HarnessError> {
+        Ok(gestalt_core::ApprovalDecision::Deny)
+    }
+}
+
+pub(crate) fn approval_provider(_mode: ExecutionMode) -> Arc<dyn gestalt_core::ApprovalProvider> {
+    Arc::new(FallbackApprovalProvider)
 }
 
 #[allow(dead_code)]

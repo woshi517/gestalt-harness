@@ -1,5 +1,5 @@
-use gestalt_cli::config::CliOverrides;
-use gestalt_cli::doctor::diagnose_workspace;
+use gestalt_app::config::CliOverrides;
+use gestalt_app::doctor::diagnose_workspace;
 use gestalt_cli::output::CliReport;
 use std::fs;
 use std::path::PathBuf;

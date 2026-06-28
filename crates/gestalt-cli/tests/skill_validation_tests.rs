@@ -1,11 +1,11 @@
 //! Tests for skill activation surfaces: validation, slash commands, and
 //! runtime error paths.
 
-use gestalt_cli::config::{
+use gestalt_app::config::{
     CliOverrides, ContextConfig, DefaultsConfig, EffectiveConfig, ExtensionsConfig, ObserveConfig,
     PoliciesConfig, PromptConfig, SkillsConfig, ToolsConfig, TuiConfig,
 };
-use gestalt_cli::runtime::{
+use gestalt_app::runtime_factory::{
     activate_skill, deactivate_skill, validate_skill_activation, SkillValidation,
 };
 use std::collections::HashMap;
@@ -48,7 +48,7 @@ fn write_gestalt_json(workspace: &Path, skills: SkillsConfig) {
 fn load_config_for(workspace: &Path, skills: SkillsConfig) -> EffectiveConfig {
     write_gestalt_json(workspace, skills);
     let overrides = overrides_with_workspace(workspace);
-    gestalt_cli::config::load_effective_config(&overrides).expect("config loads")
+    gestalt_app::config::load_effective_config(&overrides).expect("config loads")
 }
 
 fn make_skill_dir(workspace: &Path, name: &str) -> PathBuf {
@@ -209,6 +209,6 @@ fn deactivation_override_removes_persisted_active_skill() {
     let mut overrides = overrides_with_workspace(&workspace);
     overrides.skills.push("!pdf".to_string());
 
-    let effective = gestalt_cli::config::load_effective_config(&overrides).expect("config loads");
+    let effective = gestalt_app::config::load_effective_config(&overrides).expect("config loads");
     assert!(!effective.skills.active.iter().any(|name| name == "pdf"));
 }

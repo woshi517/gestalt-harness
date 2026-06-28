@@ -1,6 +1,6 @@
-use gestalt_cli::config::CliOverrides;
+use gestalt_app::config::CliOverrides;
 use gestalt_cli::policy::validate_policy;
-use gestalt_cli::workspace::{
+use gestalt_app::workspace::{
     doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
 };
 use std::fs;
@@ -280,7 +280,7 @@ async fn test_enhanced_cli_operations() {
         ..CliOverrides::default()
     };
 
-    let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
+    let config = gestalt_app::config::load_effective_config(&overrides).unwrap();
 
     // U5.4.1 tools list
     let list_report = gestalt_cli::tools::list_tools(&overrides).unwrap();
@@ -305,14 +305,14 @@ async fn test_enhanced_cli_operations() {
     );
 
     // U6.1 auth doctor
-    let auth_report = gestalt_cli::auth::auth_doctor(&config).unwrap();
+    let auth_report = gestalt_app::auth::auth_doctor(&config).unwrap();
     assert!(auth_report
         .entries
         .iter()
         .any(|e| e.variable == "ANTHROPIC_API_KEY"));
 
     // U6.4 Global Doctor (diagnose_workspace)
-    let diag = gestalt_cli::doctor::diagnose_workspace(&overrides, false)
+    let diag = gestalt_app::doctor::diagnose_workspace(&overrides, false)
         .await
         .unwrap();
     assert!(diag.workspace_doctor.config_valid);

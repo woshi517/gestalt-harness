@@ -14,9 +14,9 @@ use gestalt_tools::default_registry;
 use gestalt_trace::resume::ResumeAnalyzer;
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, RunManifest};
 
-use crate::config::{load_effective_config, CliOverrides, EffectiveConfig};
-use crate::run::run_prompt;
-use crate::sessions::run_session_action;
+use gestalt_app::config::{load_effective_config, CliOverrides, EffectiveConfig};
+use gestalt_app::run::run_prompt;
+use gestalt_app::sessions::run_session_action;
 use crate::slash::{handle_slash_command, SlashOutcome};
 
 /// Entry point for running the interactive chat REPL.
@@ -59,7 +59,7 @@ pub async fn run_chat(
             .iter()
             .map(std::path::PathBuf::from)
             .collect();
-        let skill_discovery = crate::runtime::build_skill_discovery(&config);
+        let skill_discovery = gestalt_app::runtime_factory::build_skill_discovery(&config);
         let discovered_skills = skill_discovery
             .discover_all(&skill_explicit)
             .unwrap_or_default();
@@ -96,7 +96,7 @@ pub async fn run_chat(
                 gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
             },
             execution_mode: format!("{:?}", config.selected_mode()?),
-            skill_fingerprint: crate::run::compute_skill_fingerprint(
+            skill_fingerprint: gestalt_app::run::compute_skill_fingerprint(
                 &config,
                 &discovered_skills,
                 None,

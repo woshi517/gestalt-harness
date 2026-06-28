@@ -703,7 +703,7 @@ pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_skills::SkillD
 #[allow(clippy::missing_errors_doc)]
 pub fn list_skills(
     overrides: &crate::config::CliOverrides,
-) -> Result<Vec<crate::output::SkillListEntry>, Box<dyn std::error::Error>> {
+) -> Result<Vec<crate::reports::SkillListEntry>, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
     let explicit: Vec<std::path::PathBuf> = config
         .skills
@@ -715,7 +715,7 @@ pub fn list_skills(
     let discovered = discovery.discover_all(&explicit)?;
     let mut entries = Vec::new();
     for skill in discovered {
-        entries.push(crate::output::SkillListEntry {
+        entries.push(crate::reports::SkillListEntry {
             name: skill.name,
             description: skill.description,
             trust_level: format!("{:?}", skill.trust_level),

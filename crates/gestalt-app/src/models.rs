@@ -7,7 +7,7 @@ use gestalt_models::ModelCatalog;
 use serde::Deserialize;
 
 use crate::config::EffectiveConfig;
-use crate::output::ModelsRefreshReport;
+use crate::reports::ModelsRefreshReport;
 
 pub fn get_user_defined_models(config: &EffectiveConfig) -> Vec<ModelInfo> {
     let catalog = ModelCatalog::default(); // built-in layer only

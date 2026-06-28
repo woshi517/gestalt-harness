@@ -181,7 +181,7 @@ fn test_provider_switch_and_projection_reset() {
         },
     };
 
-    use gestalt_cli::config::{load_effective_config, CliOverrides};
+    use gestalt_app::config::{load_effective_config, CliOverrides};
 
     let overrides = CliOverrides::default();
     let config = load_effective_config(&overrides).unwrap();
@@ -208,7 +208,7 @@ fn test_provider_switch_and_projection_reset() {
     };
 
     let (context_state, token_budget, model_changed) =
-        gestalt_cli::sessions::calculate_continuation_state(
+        gestalt_app::sessions::calculate_continuation_state(
             Some(&parent_model),
             &current_model,
             parent_context_state,

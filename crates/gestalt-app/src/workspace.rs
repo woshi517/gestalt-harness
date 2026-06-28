@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::auth::resolve_auth;
 use crate::config::{load_effective_config, CliOverrides};
-use crate::output::{
+use crate::reports::{
     WorkspaceDoctorReport, WorkspaceInfoReport, WorkspaceInitReport, WorkspaceSnapshotReport,
     WorkspaceStatusReport,
 };

@@ -1,6 +1,6 @@
 #[cfg(feature = "tui")]
 mod tests {
-    use gestalt_cli::config::EffectiveConfig;
+    use gestalt_app::config::EffectiveConfig;
     use gestalt_cli::tui::screens::chat::draw_chat_screen;
     use gestalt_cli::tui::services::{LineageNode, LineageTreeModel};
     use gestalt_cli::tui::state::{TuiAppState, TuiFocus, TuiModal};

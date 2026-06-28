@@ -2,7 +2,7 @@ use gestalt_core::{error::HarnessError, ToolCatalog};
 use gestalt_tools::default_registry;
 use serde_json::Value;
 
-use crate::config::CliOverrides;
+use gestalt_app::config::CliOverrides;
 use crate::output::{ToolInfoEntry, ToolsClassifyReport, ToolsInspectReport, ToolsListReport};
 
 pub fn list_tools(

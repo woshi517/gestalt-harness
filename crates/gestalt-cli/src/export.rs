@@ -1,8 +1,8 @@
 use std::fs;
 
-use crate::config::EffectiveConfig;
+use gestalt_app::config::EffectiveConfig;
 use crate::output::{ExportFormat, ExportReport};
-use crate::runs;
+use gestalt_app::runs;
 use crate::trace::resolve_trace_target;
 
 /// Exports a run trace into the specified format (Markdown, JSONL).

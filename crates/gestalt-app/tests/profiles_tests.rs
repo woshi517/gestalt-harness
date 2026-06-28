@@ -1,5 +1,5 @@
-use gestalt_cli::config::{load_effective_config, CliOverrides};
-use gestalt_cli::profiles::{inspect_profile, list_profiles, use_profile};
+use gestalt_app::config::{load_effective_config, CliOverrides};
+use gestalt_app::profiles::{inspect_profile, list_profiles, use_profile};
 use std::fs;
 use std::sync::Mutex;
 

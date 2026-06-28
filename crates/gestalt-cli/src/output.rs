@@ -1,227 +1,13 @@
 use gestalt_core::{model::ModelInfo, AgentEvent};
 use gestalt_trace::CostReport;
 pub use gestalt_app::reports::*;
+use gestalt_app::config::{ConfigSourceInfo, EffectiveConfig, SecretString};
 use serde::Serialize;
 use serde_json::Value;
 use std::path::PathBuf;
+use std::collections::HashMap;
 
-#[allow(clippy::format_push_string)]
-pub fn render_event(event: &AgentEvent) -> Option<String> {
-    match event {
-        AgentEvent::UserMessage { content } => Some(format!("user> {content}")),
-        AgentEvent::ContextBuilt {
-            token_estimate,
-            packet_hash,
-            ..
-        } => {
-            let mut extra = String::new();
-            if let Some(h) = packet_hash {
-                extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
-            }
-            Some(format!("context> {token_estimate} tokens{extra}"))
-        }
-        AgentEvent::PromptSnapshotCreated {
-            snapshot_hash,
-            prefix_hash,
-            created_turn,
-        } => Some(format!(
-            "snapshot-created> {} prefix={} turn={created_turn}",
-            &snapshot_hash[..8.min(snapshot_hash.len())],
-            &prefix_hash[..8.min(prefix_hash.len())]
-        )),
-        AgentEvent::PromptSnapshotLoaded {
-            snapshot_hash,
-            source,
-        } => Some(format!(
-            "snapshot-loaded> {} source={source}",
-            &snapshot_hash[..8.min(snapshot_hash.len())]
-        )),
-        AgentEvent::PromptSnapshotReused {
-            snapshot_hash,
-            prefix_hash,
-        } => Some(format!(
-            "snapshot-reused> {} prefix={}",
-            &snapshot_hash[..8.min(snapshot_hash.len())],
-            &prefix_hash[..8.min(prefix_hash.len())]
-        )),
-        AgentEvent::PromptCachePlanGenerated {
-            snapshot_hash,
-            prefix_hash,
-            prefix_message_count,
-        } => Some(format!(
-            "cache-plan> {} prefix={} messages={prefix_message_count}",
-            &snapshot_hash[..8.min(snapshot_hash.len())],
-            &prefix_hash[..8.min(prefix_hash.len())]
-        )),
-        AgentEvent::EphemeralContextInjected {
-            source,
-            token_estimate,
-        } => Some(format!("ephemeral> {source} ({token_estimate} tokens)")),
-        AgentEvent::ModelRequest {
-            provider,
-            model,
-            packet_hash,
-            temperature,
-            max_tokens,
-            provider_request_hash,
-            ..
-        } => {
-            let mut extra = String::new();
-            if let Some(h) = packet_hash {
-                extra.push_str(&format!(" packet_hash={}", &h[..8.min(h.len())]));
-            }
-            if let Some(t) = temperature {
-                extra.push_str(&format!(" temp={t}"));
-            }
-            if let Some(m) = max_tokens {
-                extra.push_str(&format!(" max_tokens={m}"));
-            }
-            if let Some(h) = provider_request_hash {
-                extra.push_str(&format!(" request_hash={}", &h[..8.min(h.len())]));
-            }
-            Some(format!("model> {provider}/{model}{extra}"))
-        }
-        AgentEvent::Text { delta } => Some(format!("assistant> {delta}")),
-        AgentEvent::Thinking { delta } => Some(format!("thinking> {delta}")),
-        AgentEvent::ToolCallStreamed { .. } => None,
-        AgentEvent::ToolCallProposed { id, name, input } => {
-            Some(format!("tool> {name}#{id} {input}"))
-        }
-        AgentEvent::PolicyDecision {
-            tool_call_id,
-            tool_name,
-            input_hash,
-            risk,
-            mode,
-            matched_rule,
-            decision,
-            reason,
-            policy_source,
-        } => {
-            let mut extra = String::new();
-            if let Some(name) = tool_name {
-                extra.push_str(&format!(" tool={name}"));
-            }
-            if let Some(level) = risk {
-                extra.push_str(&format!(" risk={level:?}"));
-            }
-            if let Some(m) = mode {
-                extra.push_str(&format!(" mode={m:?}"));
-            }
-            if let Some(rule) = matched_rule {
-                extra.push_str(&format!(" rule={rule}"));
-            }
-            if let Some(hash) = input_hash {
-                extra.push_str(&format!(" input={}", &hash[..8.min(hash.len())]));
-            }
-            Some(format!(
-                "policy> {tool_call_id} {decision:?} source={policy_source}{extra} {}",
-                reason.clone().unwrap_or_default()
-            ))
-        }
-        AgentEvent::ApprovalDecision {
-            tool_call_id,
-            decision,
-            original_input_hash,
-            edited_input_hash,
-            grant_terms,
-        } => {
-            let short = |s: &str| s.chars().take(8).collect::<String>();
-            let grant = grant_terms
-                .as_ref()
-                .map(|g| format!(" grant={}#{}", g.tool_name, short(&g.input_hash)))
-                .unwrap_or_default();
-            let edited = edited_input_hash
-                .as_ref()
-                .map(|h| format!(" edited={}", short(h)))
-                .unwrap_or_default();
-            Some(format!(
-                "approval> {tool_call_id} {decision:?} orig={}{}{}",
-                short(original_input_hash),
-                edited,
-                grant
-            ))
-        }
-        AgentEvent::ToolResult {
-            id,
-            output,
-            is_error,
-            truncated,
-            tool_name,
-            working_dir,
-            duration_ms,
-            output_hash,
-            artifact_refs,
-            policy_source,
-            failure,
-        } => {
-            let mut extra = String::new();
-            if let Some(name) = tool_name {
-                extra.push_str(&format!(" name={name}"));
-            }
-            if let Some(dir) = working_dir {
-                extra.push_str(&format!(" dir={dir}"));
-            }
-            if let Some(ms) = duration_ms {
-                extra.push_str(&format!(" duration={ms}ms"));
-            }
-            if let Some(h) = output_hash {
-                extra.push_str(&format!(" hash={}", &h[..8.min(h.len())]));
-            }
-            if let Some(refs) = artifact_refs {
-                if !refs.is_empty() {
-                    extra.push_str(&format!(" artifacts={}", refs.join(",")));
-                }
-            }
-            if let Some(src) = policy_source {
-                extra.push_str(&format!(" policy_source={src}"));
-            }
-            if let Some(failure) = failure {
-                extra.push_str(&format!(" failure={}", failure.kind));
-                if let Some(guidance) = &failure.repair_guidance {
-                    extra.push_str(&format!(
-                        " repair={}",
-                        guidance.chars().take(60).collect::<String>()
-                    ));
-                }
-            }
-            Some(format!(
-                "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
-            ))
-        }
-        AgentEvent::ArtifactCreated {
-            path,
-            size_bytes,
-            mime_type,
-            hash,
-        } => Some(format!(
-            "artifact-created> {path} size={size_bytes} mime={mime_type} hash={}",
-            &hash[..8.min(hash.len())]
-        )),
-        AgentEvent::PolicyViolation {
-            tool_call_id,
-            tool_name,
-            reason,
-        } => Some(format!(
-            "policy-violation> {tool_call_id} tool={tool_name} reason={reason}"
-        )),
-        AgentEvent::MemoryProposal { diff } => Some(format!("memory> {diff}")),
-        AgentEvent::VerificationResult { report, .. } => report.clone(),
-        AgentEvent::Usage {
-            input_tokens,
-            output_tokens,
-        } => Some(format!("usage> in={input_tokens} out={output_tokens}")),
-        AgentEvent::Stop { reason } => Some(format!("stop> {reason:?}")),
-        AgentEvent::Error {
-            message,
-            recoverable,
-        } => Some(format!("error> recoverable={recoverable} {message}")),
-        AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
-            Some(format!("snapshot> id={snapshot_id} dirty={dirty}"))
-        }
-        _ => None,
-    }
-}
+pub use gestalt_app::reports::render_event;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -302,15 +88,6 @@ impl CliReport for ConfigValidateReport {
         format!("valid workspace={}", self.workspace_root.display())
     }
 }
-
-#[derive(Serialize)]
-pub struct AuthResolveReport {
-    pub provider: String,
-    pub source: String,
-    pub variable: String,
-    pub status: String,
-}
-
 impl CliReport for AuthResolveReport {
     fn kind(&self) -> &'static str {
         "auth.resolve"
@@ -321,18 +98,6 @@ impl CliReport for AuthResolveReport {
             self.provider, self.source, self.variable, self.status
         )
     }
-}
-
-#[derive(Serialize)]
-pub struct AuthDoctorEntry {
-    pub variable: String,
-    pub status: String,
-    pub value: String,
-}
-
-#[derive(Serialize)]
-pub struct AuthDoctorReport {
-    pub entries: Vec<AuthDoctorEntry>,
 }
 
 impl CliReport for AuthDoctorReport {
@@ -387,18 +152,7 @@ impl CliReport for ProvidersInspectReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct ProviderDoctorResult {
-    pub provider: String,
-    pub auth_variable: String,
-    pub auth_status: String,
-    pub auth_source: String,
-}
 
-#[derive(Serialize)]
-pub struct ProvidersDoctorReport {
-    pub results: Vec<ProviderDoctorResult>,
-}
 
 impl CliReport for ProvidersDoctorReport {
     fn kind(&self) -> &'static str {
@@ -475,11 +229,7 @@ impl CliReport for ModelsInspectReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct ModelsRefreshReport {
-    pub count: usize,
-    pub status: String,
-}
+
 
 impl CliReport for ModelsRefreshReport {
     fn kind(&self) -> &'static str {
@@ -514,11 +264,7 @@ impl CliReport for ModelsSelectReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct WorkspaceInitReport {
-    pub workspace_root: PathBuf,
-    pub created_files: Vec<String>,
-}
+
 
 impl CliReport for WorkspaceInitReport {
     fn kind(&self) -> &'static str {
@@ -537,17 +283,7 @@ impl CliReport for WorkspaceInitReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct WorkspaceStatusReport {
-    pub workspace_root: PathBuf,
-    pub config_valid: bool,
-    pub active_provider: Option<String>,
-    pub active_model: Option<String>,
-    pub active_mode: Option<String>,
-    pub recent_runs_count: usize,
-    pub auth_summary: std::collections::HashMap<String, String>,
-    pub warnings: Vec<String>,
-}
+
 
 impl CliReport for WorkspaceStatusReport {
     fn kind(&self) -> &'static str {
@@ -585,14 +321,6 @@ impl CliReport for WorkspaceStatusReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct WorkspaceInfoReport {
-    pub workspace_root: PathBuf,
-    pub config_path: PathBuf,
-    pub workspace_md_path: PathBuf,
-    pub memory_md_path: PathBuf,
-}
-
 impl CliReport for WorkspaceInfoReport {
     fn kind(&self) -> &'static str {
         "workspace.info"
@@ -608,10 +336,6 @@ impl CliReport for WorkspaceInfoReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct WorkspaceSnapshotReport {
-    pub snapshot: gestalt_core::snapshot::WorkspaceSnapshot,
-}
 
 impl CliReport for WorkspaceSnapshotReport {
     fn kind(&self) -> &'static str {
@@ -630,29 +354,7 @@ impl CliReport for WorkspaceSnapshotReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct WorkspaceDoctorReport {
-    pub workspace_root: PathBuf,
-    pub config_valid: bool,
-    pub config_error: Option<String>,
-    pub policies_valid: bool,
-    pub policies_error: Option<String>,
-    pub missing_files: Vec<String>,
-    pub auth_summary: std::collections::HashMap<String, String>,
-    pub run_dir_exists: bool,
-    pub run_dir_writable: Option<bool>,
-    pub selected_model: Option<String>,
-    pub model_valid: bool,
-    pub model_error: Option<String>,
-    pub memory_writable: Option<bool>,
-    pub memory_write_error: Option<String>,
-}
 
-#[derive(Serialize)]
-pub struct GlobalDoctorReport {
-    pub workspace_doctor: WorkspaceDoctorReport,
-    pub live: bool,
-}
 
 impl CliReport for GlobalDoctorReport {
     fn kind(&self) -> &'static str {
@@ -871,47 +573,7 @@ impl CliReport for RunsListReport {
     }
 }
 
-/// Detailed run inspection report.
-#[derive(Serialize)]
-pub struct RunsInspectReport {
-    /// Unique run identifier.
-    pub run_id: String,
-    /// Absolute filesystem path to the run directory.
-    pub path: PathBuf,
-    /// Run start timestamp.
-    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
-    /// Associated session identifier.
-    pub session_id: String,
-    pub parent_run_id: Option<String>,
-    pub run_kind: Option<String>,
-    pub lifecycle_state: Option<String>,
-    /// LLM provider (e.g. "openai").
-    pub provider: Option<String>,
-    /// LLM model name.
-    pub model: Option<String>,
-    /// Whether the trace.jsonl file exists.
-    pub trace_exists: bool,
-    /// Whether the summary.md file exists.
-    pub summary_exists: bool,
-    /// Whether the cost.json file exists.
-    pub cost_exists: bool,
-    /// Current apparent status of the run.
-    pub apparent_status: String,
-    /// Total turns executed.
-    pub turns: Option<usize>,
-    /// Stop reason description.
-    pub stop_reason: Option<String>,
-    /// Total input tokens consumed.
-    pub total_input_tokens: Option<usize>,
-    /// Total output tokens consumed.
-    pub total_output_tokens: Option<usize>,
-    /// Estimated total cost of the run in USD.
-    pub estimated_cost_usd: Option<f64>,
-    /// Workspace snapshot identifier.
-    pub workspace_snapshot_id: Option<String>,
-    /// List of generated workspace artifacts.
-    pub artifacts: Vec<String>,
-}
+
 
 impl CliReport for RunsInspectReport {
     fn kind(&self) -> &'static str {
@@ -978,16 +640,7 @@ impl CliReport for RunsInspectReport {
     }
 }
 
-/// Report containing metrics of pruned runs.
-#[derive(Serialize)]
-pub struct RunsPruneReport {
-    /// List of pruned run identifiers.
-    pub pruned_runs: Vec<String>,
-    /// Reclaimed disk space in bytes.
-    pub reclaimed_bytes: u64,
-    /// Whether this was a dry run.
-    pub dry_run: bool,
-}
+
 
 impl CliReport for RunsPruneReport {
     fn kind(&self) -> &'static str {
@@ -1014,14 +667,7 @@ impl CliReport for RunsPruneReport {
     }
 }
 
-/// Report containing metrics of a deleted run.
-#[derive(Serialize)]
-pub struct RunsDeleteReport {
-    /// Deleted run identifier.
-    pub deleted_run: String,
-    /// Reclaimed disk space in bytes.
-    pub reclaimed_bytes: u64,
-}
+
 
 impl CliReport for RunsDeleteReport {
     fn kind(&self) -> &'static str {
@@ -1271,31 +917,7 @@ impl CliReport for ExportReport {
     }
 }
 
-/// Post-run verification execution result entry.
-#[derive(Debug, Clone, Serialize)]
-pub struct VerifierResultEntry {
-    pub name: String,
-    pub status: gestalt_core::event::VerificationStatus,
-    pub findings: Vec<gestalt_core::event::VerificationFinding>,
-    pub report: Option<String>,
-}
 
-/// Artifact verification summary.
-#[derive(Debug, Clone, Serialize)]
-pub struct ArtifactVerificationResult {
-    pub artifact_path: String,
-    pub verifiers: Vec<VerifierResultEntry>,
-}
-
-/// Aggregated verify run report.
-#[derive(Debug, Clone, Serialize)]
-pub struct VerifyRunReport {
-    pub run_id: String,
-    pub status: gestalt_core::event::VerificationStatus,
-    pub total_checks: usize,
-    pub total_failed: usize,
-    pub artifacts: Vec<ArtifactVerificationResult>,
-}
 
 impl CliReport for VerifyRunReport {
     fn kind(&self) -> &'static str {
@@ -1335,8 +957,8 @@ impl CliReport for VerifyRunReport {
 }
 
 fn redact_effective_config(
-    mut config: crate::config::EffectiveConfig,
-) -> crate::config::EffectiveConfig {
+    mut config: EffectiveConfig,
+) -> EffectiveConfig {
     for prov in config.providers.values_mut() {
         if let Some(ref mut headers) = prov.headers {
             for (k, v) in headers.iter_mut() {
@@ -1347,24 +969,24 @@ fn redact_effective_config(
                     || lower_k.contains("secret")
                     || lower_k.contains("credential")
                     || lower_k.contains("sig")
-                {
-                    *v = "[REDACTED]".to_string();
-                }
+                    {
+                        *v = "[REDACTED]".to_string();
+                    }
             }
         }
         if prov.auth_ref.is_some() {
             prov.auth_ref = Some("[REDACTED]".to_string());
         }
         if prov.api_key.is_some() {
-            prov.api_key = Some(crate::config::SecretString("[REDACTED]".to_string()));
+            prov.api_key = Some(SecretString("[REDACTED]".to_string()));
         }
     }
     config
 }
 
 fn redact_explain_map(
-    mut map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>,
-) -> std::collections::HashMap<String, crate::config::ConfigSourceInfo> {
+    mut map: std::collections::HashMap<String, ConfigSourceInfo>,
+) -> std::collections::HashMap<String, ConfigSourceInfo> {
     for (k, info) in &mut map {
         let lower_k = k.to_lowercase();
         if (lower_k.contains("auth_ref")
@@ -1386,9 +1008,9 @@ fn redact_explain_map(
 }
 
 pub struct ConfigShowReport {
-    pub config: crate::config::EffectiveConfig,
+    pub config: EffectiveConfig,
     pub source: bool,
-    pub explain_map: Option<std::collections::HashMap<String, crate::config::ConfigSourceInfo>>,
+    pub explain_map: Option<std::collections::HashMap<String, ConfigSourceInfo>>,
 }
 
 impl Serialize for ConfigShowReport {
@@ -1398,9 +1020,9 @@ impl Serialize for ConfigShowReport {
     {
         #[derive(Serialize)]
         struct RedactedConfigShowReport {
-            config: crate::config::EffectiveConfig,
+            config: EffectiveConfig,
             source: bool,
-            explain_map: Option<std::collections::HashMap<String, crate::config::ConfigSourceInfo>>,
+            explain_map: Option<std::collections::HashMap<String, ConfigSourceInfo>>,
         }
 
         let redacted = RedactedConfigShowReport {
@@ -1455,7 +1077,7 @@ impl CliReport for ConfigShowReport {
 }
 
 pub struct ConfigExplainReport {
-    pub explain_map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>,
+    pub explain_map: std::collections::HashMap<String, ConfigSourceInfo>,
 }
 
 impl Serialize for ConfigExplainReport {
@@ -1465,7 +1087,7 @@ impl Serialize for ConfigExplainReport {
     {
         #[derive(Serialize)]
         struct RedactedConfigExplainReport {
-            explain_map: std::collections::HashMap<String, crate::config::ConfigSourceInfo>,
+            explain_map: std::collections::HashMap<String, ConfigSourceInfo>,
         }
 
         let redacted = RedactedConfigExplainReport {
@@ -1657,18 +1279,7 @@ impl CliReport for PolicyTestReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct ContextExplainReport {
-    pub prompt: Option<String>,
-    pub run_id: Option<String>,
-    pub token_estimate: usize,
-    pub packet_hash: String,
-    pub pipeline_version: String,
-    pub prompt_source: Option<String>,
-    pub system_prompt: Option<String>,
-    pub sources: Vec<gestalt_core::context::ContextSourceRef>,
-    pub omissions: Vec<gestalt_core::context::ContextOmission>,
-}
+
 
 impl CliReport for ContextExplainReport {
     fn kind(&self) -> &'static str {
@@ -1837,20 +1448,6 @@ impl CliReport for ConnectReport {
         )
     }
 }
-
-#[derive(Serialize)]
-pub struct ProfileInfoEntry {
-    pub name: String,
-    pub provider: String,
-    pub model: String,
-    pub active: bool,
-}
-
-#[derive(Serialize)]
-pub struct ProfilesListReport {
-    pub profiles: Vec<ProfileInfoEntry>,
-}
-
 impl CliReport for ProfilesListReport {
     fn kind(&self) -> &'static str {
         "profiles.list"
@@ -1872,18 +1469,6 @@ impl CliReport for ProfilesListReport {
         }
         lines.join("\n")
     }
-}
-
-#[derive(Serialize)]
-pub struct ProfilesInspectReport {
-    pub name: String,
-    pub provider: String,
-    pub model: String,
-    pub active: bool,
-    pub resolved_provider_kind: String,
-    pub resolved_base_url: Option<String>,
-    pub resolved_auth_ref: Option<String>,
-    pub resolved_api_key_env: Option<String>,
 }
 
 impl CliReport for ProfilesInspectReport {
@@ -1912,13 +1497,6 @@ impl CliReport for ProfilesInspectReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct ProfilesUseReport {
-    pub name: String,
-    pub active: bool,
-    pub file_updated: PathBuf,
-}
-
 impl CliReport for ProfilesUseReport {
     fn kind(&self) -> &'static str {
         "profiles.use"
@@ -1930,13 +1508,6 @@ impl CliReport for ProfilesUseReport {
             self.file_updated.display()
         )
     }
-}
-
-#[derive(Serialize)]
-pub struct DisconnectReport {
-    pub provider: String,
-    pub profile_removed: Option<String>,
-    pub keychain_cleared: bool,
 }
 
 impl CliReport for DisconnectReport {
@@ -2250,19 +1821,7 @@ impl CliReport for RuntimeDoctorReport {
     }
 }
 
-#[derive(Serialize)]
-pub struct SkillsListReport {
-    pub skills: Vec<SkillListEntry>,
-}
 
-#[derive(Serialize)]
-pub struct SkillListEntry {
-    pub name: String,
-    pub description: String,
-    pub trust_level: String,
-    pub source: String,
-    pub manifest_path: String,
-}
 
 impl CliReport for SkillsListReport {
     fn kind(&self) -> &'static str {
@@ -2350,5 +1909,131 @@ impl CliReport for SkillActionReport {
 
     fn render_text(&self) -> String {
         self.message.clone()
+    }
+}
+
+impl CliReport for SessionsListReport {
+    fn kind(&self) -> &'static str {
+        "sessions.list"
+    }
+
+    fn render_text(&self) -> String {
+        if self.sessions.is_empty() {
+            return "No sessions found.".to_string();
+        }
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "{:<45} | {:<20} | {:<10} | {:<45} | {:<12} | {:<6} | {:<10}",
+            "SESSION ID",
+            "CREATED AT",
+            "RUNS COUNT",
+            "LATEST RUN ID",
+            "STATUS",
+            "TURNS",
+            "EST. COST"
+        ));
+        lines.push("-".repeat(161));
+        for s in &self.sessions {
+            let created_at_str = s
+                .created_at
+                .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            lines.push(format!(
+                "{:<45} | {:<20} | {:<10} | {:<45} | {:<12} | {:<6} | ${:<9.6}",
+                s.session_id,
+                created_at_str,
+                s.runs_count,
+                s.latest_run_id,
+                s.latest_run_status,
+                s.total_turns,
+                s.estimated_cost_usd
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+impl CliReport for SessionInspectReport {
+    fn kind(&self) -> &'static str {
+        "sessions.inspect"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![format!("Session ID: {}", self.session_id)];
+        if self.runs.is_empty() {
+            lines.push("No runs found in this session.".to_string());
+            return lines.join("\n");
+        }
+        lines.push("\nRuns Lineage Graph:".to_string());
+
+        // Simple tree layout: build adj list
+        let mut root_runs = Vec::new();
+        let mut children: HashMap<String, Vec<&RunManifestSummary>> = HashMap::new();
+        for r in &self.runs {
+            if let Some(ref parent) = r.parent_run_id {
+                children.entry(parent.clone()).or_default().push(r);
+            } else {
+                root_runs.push(r);
+            }
+        }
+
+        root_runs.sort_by_key(|r| r.created_at);
+
+        fn print_tree(
+            run: &RunManifestSummary,
+            children: &HashMap<String, Vec<&RunManifestSummary>>,
+            depth: usize,
+            lines: &mut Vec<String>,
+        ) {
+            let indent = "  ".repeat(depth);
+            let prefix = if depth == 0 { "● " } else { "└─ " };
+            lines.push(format!(
+                "{}{}{} [{}] (State: {}, Turns: {}) - {}",
+                indent,
+                prefix,
+                run.run_id,
+                run.run_kind,
+                run.lifecycle_state,
+                run.turns,
+                run.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+            ));
+            if let Some(child_list) = children.get(&run.run_id) {
+                let mut sorted_children = child_list.clone();
+                sorted_children.sort_by_key(|c| c.created_at);
+                for child in sorted_children {
+                    print_tree(child, children, depth + 1, lines);
+                }
+            }
+        }
+
+        for root in root_runs {
+            print_tree(root, &children, 0, &mut lines);
+        }
+
+        lines.join("\n")
+    }
+}
+
+impl CliReport for SessionHistoryReport {
+    fn kind(&self) -> &'static str {
+        "sessions.history"
+    }
+
+    fn render_text(&self) -> String {
+        let mut lines = vec![format!("History Timeline for Session: {}", self.session_id)];
+        if self.timeline.is_empty() {
+            lines.push("No history events found.".to_string());
+            return lines.join("\n");
+        }
+        lines.push("-".repeat(80));
+        for item in &self.timeline {
+            lines.push(format!(
+                "[{}] Run {}: {}",
+                item.timestamp.format("%Y-%m-%d %H:%M:%S UTC"),
+                item.run_id,
+                item.event_summary
+            ));
+        }
+        lines.join("\n")
     }
 }

@@ -2,7 +2,7 @@
 //! untrusted skill names are rejected, and that known names produce the
 //! expected `SlashOutcome` for the chat loop to consume.
 
-use gestalt_cli::config::{CliOverrides, EffectiveConfig, SkillsConfig};
+use gestalt_app::config::{CliOverrides, EffectiveConfig, SkillsConfig};
 use gestalt_cli::slash::{handle_slash_command, SlashOutcome};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -78,7 +78,7 @@ fn make_skill_dir(workspace: &Path, name: &str) -> PathBuf {
 fn load_config(workspace: &Path) -> EffectiveConfig {
     write_gestalt_json(workspace, SkillsConfig::default());
     let overrides = overrides_with_workspace(workspace);
-    gestalt_cli::config::load_effective_config(&overrides).expect("config loads")
+    gestalt_app::config::load_effective_config(&overrides).expect("config loads")
 }
 
 #[tokio::test]

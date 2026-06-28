@@ -1,7 +1,7 @@
 #![allow(clippy::large_futures)]
 
 use gestalt_cli::chat::run_chat;
-use gestalt_cli::config::CliOverrides;
+use gestalt_app::config::CliOverrides;
 use gestalt_core::HarnessError;
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;

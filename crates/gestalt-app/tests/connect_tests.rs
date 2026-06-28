@@ -1,6 +1,6 @@
-use gestalt_cli::auth::set_use_fake_keychain;
-use gestalt_cli::config::{load_effective_config, CliOverrides};
-use gestalt_cli::connect::{connect_provider, disconnect_provider};
+use gestalt_app::auth::set_use_fake_keychain;
+use gestalt_app::config::{load_effective_config, CliOverrides};
+use gestalt_app::connect::{connect_provider, disconnect_provider};
 use std::fs;
 use std::sync::Mutex;
 

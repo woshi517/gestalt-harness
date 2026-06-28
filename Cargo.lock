@@ -967,26 +967,10 @@ dependencies = [
 name = "gestalt-app"
 version = "0.1.0"
 dependencies = [
- "chrono",
- "gestalt-core",
- "gestalt-runtime",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "gestalt-cli"
-version = "0.1.0"
-dependencies = [
  "async-trait",
  "chrono",
- "clap",
- "crossterm",
  "dirs",
  "futures",
- "gestalt-app",
  "gestalt-context",
  "gestalt-core",
  "gestalt-mcp",
@@ -997,19 +981,44 @@ dependencies = [
  "gestalt-tools",
  "gestalt-trace",
  "gestalt-verify",
- "insta",
  "keyring",
- "ratatui",
  "reqwest",
  "rpassword",
  "schemars",
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "toml",
  "toml_edit 0.22.27",
+ "uuid",
+]
+
+[[package]]
+name = "gestalt-cli"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "clap",
+ "crossterm",
+ "futures",
+ "gestalt-app",
+ "gestalt-core",
+ "gestalt-models",
+ "gestalt-policy",
+ "gestalt-runtime",
+ "gestalt-tools",
+ "gestalt-trace",
+ "gestalt-verify",
+ "insta",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "uuid",

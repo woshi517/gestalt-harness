@@ -104,7 +104,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tui_terminal_restore_on_early_error() {
-        use gestalt_cli::config::{validate_workspace_config, CliOverrides};
+        use gestalt_app::config::{validate_workspace_config, CliOverrides};
         use gestalt_cli::tui::run_tui;
 
         let temp_dir =

@@ -20,184 +20,12 @@ use gestalt_trace::{
 
 use crate::{
     config::EffectiveConfig,
-    output::{render_event, CliReport},
+    reports::{
+        render_event, RunManifestSummary, SessionHistoryReport, SessionInspectReport, SessionSummary,
+        SessionsListReport, TimelineItem,
+    },
     runs::{resolve_run_path, summarize_run_dir, RunSummary},
 };
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SessionSummary {
-    pub session_id: String,
-    pub title: String,
-    pub created_at: Option<DateTime<Utc>>,
-    pub runs_count: usize,
-    pub latest_run_id: String,
-    pub latest_run_status: String,
-    pub provider: Option<String>,
-    pub model: Option<String>,
-    pub total_turns: usize,
-    pub estimated_cost_usd: f64,
-}
-
-#[derive(Serialize)]
-pub struct SessionsListReport {
-    pub sessions: Vec<SessionSummary>,
-}
-
-impl CliReport for SessionsListReport {
-    fn kind(&self) -> &'static str {
-        "sessions.list"
-    }
-
-    fn render_text(&self) -> String {
-        if self.sessions.is_empty() {
-            return "No sessions found.".to_string();
-        }
-        let mut lines = Vec::new();
-        lines.push(format!(
-            "{:<45} | {:<20} | {:<10} | {:<45} | {:<12} | {:<6} | {:<10}",
-            "SESSION ID",
-            "CREATED AT",
-            "RUNS COUNT",
-            "LATEST RUN ID",
-            "STATUS",
-            "TURNS",
-            "EST. COST"
-        ));
-        lines.push("-".repeat(161));
-        for s in &self.sessions {
-            let created_at_str = s
-                .created_at
-                .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            lines.push(format!(
-                "{:<45} | {:<20} | {:<10} | {:<45} | {:<12} | {:<6} | ${:<9.6}",
-                s.session_id,
-                created_at_str,
-                s.runs_count,
-                s.latest_run_id,
-                s.latest_run_status,
-                s.total_turns,
-                s.estimated_cost_usd
-            ));
-        }
-        lines.join("\n")
-    }
-}
-
-#[derive(Serialize)]
-pub struct SessionInspectReport {
-    pub session_id: String,
-    pub runs: Vec<RunManifestSummary>,
-}
-
-#[derive(Serialize)]
-pub struct RunManifestSummary {
-    pub run_id: String,
-    pub dir_name: String,
-    pub parent_run_id: Option<String>,
-    pub run_kind: String,
-    pub created_at: DateTime<Utc>,
-    pub lifecycle_state: String,
-    pub turns: usize,
-}
-
-impl CliReport for SessionInspectReport {
-    fn kind(&self) -> &'static str {
-        "sessions.inspect"
-    }
-
-    fn render_text(&self) -> String {
-        let mut lines = vec![format!("Session ID: {}", self.session_id)];
-        if self.runs.is_empty() {
-            lines.push("No runs found in this session.".to_string());
-            return lines.join("\n");
-        }
-        lines.push("\nRuns Lineage Graph:".to_string());
-
-        // Simple tree layout: build adj list
-        let mut root_runs = Vec::new();
-        let mut children: HashMap<String, Vec<&RunManifestSummary>> = HashMap::new();
-        for r in &self.runs {
-            if let Some(ref parent) = r.parent_run_id {
-                children.entry(parent.clone()).or_default().push(r);
-            } else {
-                root_runs.push(r);
-            }
-        }
-
-        root_runs.sort_by_key(|r| r.created_at);
-
-        fn print_tree(
-            run: &RunManifestSummary,
-            children: &HashMap<String, Vec<&RunManifestSummary>>,
-            depth: usize,
-            lines: &mut Vec<String>,
-        ) {
-            let indent = "  ".repeat(depth);
-            let prefix = if depth == 0 { "● " } else { "└─ " };
-            lines.push(format!(
-                "{}{}{} [{}] (State: {}, Turns: {}) - {}",
-                indent,
-                prefix,
-                run.run_id,
-                run.run_kind,
-                run.lifecycle_state,
-                run.turns,
-                run.created_at.format("%Y-%m-%d %H:%M:%S UTC")
-            ));
-            if let Some(child_list) = children.get(&run.run_id) {
-                let mut sorted_children = child_list.clone();
-                sorted_children.sort_by_key(|c| c.created_at);
-                for child in sorted_children {
-                    print_tree(child, children, depth + 1, lines);
-                }
-            }
-        }
-
-        for root in root_runs {
-            print_tree(root, &children, 0, &mut lines);
-        }
-
-        lines.join("\n")
-    }
-}
-
-#[derive(Serialize)]
-pub struct SessionHistoryReport {
-    pub session_id: String,
-    pub timeline: Vec<TimelineItem>,
-}
-
-#[derive(Serialize)]
-pub struct TimelineItem {
-    pub run_id: String,
-    pub timestamp: DateTime<Utc>,
-    pub event_summary: String,
-}
-
-impl CliReport for SessionHistoryReport {
-    fn kind(&self) -> &'static str {
-        "sessions.history"
-    }
-
-    fn render_text(&self) -> String {
-        let mut lines = vec![format!("History Timeline for Session: {}", self.session_id)];
-        if self.timeline.is_empty() {
-            lines.push("No history events found.".to_string());
-            return lines.join("\n");
-        }
-        lines.push("-".repeat(80));
-        for item in &self.timeline {
-            lines.push(format!(
-                "[{}] Run {}: {}",
-                item.timestamp.format("%Y-%m-%d %H:%M:%S UTC"),
-                item.run_id,
-                item.event_summary
-            ));
-        }
-        lines.join("\n")
-    }
-}
 
 /// Lists all sessions by scanning all run.json manifests.
 pub fn list_sessions(
@@ -566,7 +394,7 @@ pub async fn run_session_action(
         .iter()
         .map(std::path::PathBuf::from)
         .collect();
-    let skill_discovery = crate::runtime::build_skill_discovery(config);
+    let skill_discovery = crate::runtime_factory::build_skill_discovery(config);
     let discovered_skills = skill_discovery
         .discover_all(&skill_explicit)
         .unwrap_or_default();
@@ -716,7 +544,7 @@ pub async fn run_session_action(
     )?;
     let sink = Arc::new(sink_inner);
 
-    let runtime = crate::runtime::build_cli_runtime(
+    let runtime = crate::runtime_factory::build_cli_runtime(
         config,
         api_key,
         event_tx.clone(),

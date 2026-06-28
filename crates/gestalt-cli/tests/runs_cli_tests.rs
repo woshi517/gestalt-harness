@@ -1,5 +1,5 @@
-use gestalt_cli::config::{load_effective_config, CliOverrides};
-use gestalt_cli::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
+use gestalt_app::config::{load_effective_config, CliOverrides};
+use gestalt_app::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
 use std::fs;
 use std::path::PathBuf;
 
@@ -116,36 +116,36 @@ fn test_runs_prune_and_delete() {
 #[test]
 fn test_runs_edge_cases() {
     // 1. parse_duration edge cases
-    assert!(gestalt_cli::runs::parse_duration("").is_err());
-    assert!(gestalt_cli::runs::parse_duration("10").is_err());
-    assert!(gestalt_cli::runs::parse_duration("10x").is_err());
+    assert!(gestalt_app::runs::parse_duration("").is_err());
+    assert!(gestalt_app::runs::parse_duration("10").is_err());
+    assert!(gestalt_app::runs::parse_duration("10x").is_err());
     assert_eq!(
-        gestalt_cli::runs::parse_duration("10d").unwrap(),
+        gestalt_app::runs::parse_duration("10d").unwrap(),
         chrono::Duration::days(10)
     );
     assert_eq!(
-        gestalt_cli::runs::parse_duration("5h").unwrap(),
+        gestalt_app::runs::parse_duration("5h").unwrap(),
         chrono::Duration::hours(5)
     );
     assert_eq!(
-        gestalt_cli::runs::parse_duration("30m").unwrap(),
+        gestalt_app::runs::parse_duration("30m").unwrap(),
         chrono::Duration::minutes(30)
     );
     assert_eq!(
-        gestalt_cli::runs::parse_duration("60s").unwrap(),
+        gestalt_app::runs::parse_duration("60s").unwrap(),
         chrono::Duration::seconds(60)
     );
-    assert!(gestalt_cli::runs::parse_duration("10秒").is_err());
+    assert!(gestalt_app::runs::parse_duration("10秒").is_err());
 
     // 2. parse_run_timestamp edge cases
-    assert!(gestalt_cli::runs::parse_run_timestamp("").is_none());
-    assert!(gestalt_cli::runs::parse_run_timestamp("20260602T100000Z").is_none());
-    assert!(gestalt_cli::runs::parse_run_timestamp("20260602T100000Z-session-1").is_some());
-    assert!(gestalt_cli::runs::parse_run_timestamp("20260602T100000Z-日本語").is_none());
+    assert!(gestalt_app::runs::parse_run_timestamp("").is_none());
+    assert!(gestalt_app::runs::parse_run_timestamp("20260602T100000Z").is_none());
+    assert!(gestalt_app::runs::parse_run_timestamp("20260602T100000Z-session-1").is_some());
+    assert!(gestalt_app::runs::parse_run_timestamp("20260602T100000Z-日本語").is_none());
 
     // 3. scan_trace_file edge cases
     let missing_path = std::path::Path::new("nonexistent-trace-file.jsonl");
-    assert!(gestalt_cli::runs::scan_trace_file(missing_path).is_err());
+    assert!(gestalt_app::runs::scan_trace_file(missing_path).is_err());
 
     // 4. resolve_run_path ambiguity
     let temp_root =
@@ -273,8 +273,8 @@ fn test_runs_new_features() {
 #[test]
 fn test_runs_additional_patch_requirements() {
     // 1. negative/zero duration rejection
-    assert!(gestalt_cli::runs::parse_duration("-1d").is_err());
-    assert!(gestalt_cli::runs::parse_duration("0s").is_err());
+    assert!(gestalt_app::runs::parse_duration("-1d").is_err());
+    assert!(gestalt_app::runs::parse_duration("0s").is_err());
 
     let temp_root = create_temp_workspace();
     let runs_dir = temp_root.join(".gestalt/runs");
@@ -294,7 +294,7 @@ fn test_runs_additional_patch_requirements() {
     };
     let config = load_effective_config(&overrides).unwrap();
 
-    let scan = gestalt_cli::runs::scan_trace_file(&run_dir.join("trace.jsonl")).unwrap();
+    let scan = gestalt_app::runs::scan_trace_file(&run_dir.join("trace.jsonl")).unwrap();
     assert_eq!(scan.apparent_status, "interrupted");
 
     // 3. recoverable error followed by success stays non-failed
@@ -303,7 +303,7 @@ fn test_runs_additional_patch_requirements() {
 {"v":1,"session_id":"session-4","turn_id":1,"seq":3,"ts":"2026-06-02T16:02:00Z","event":{"type":"stop","reason":"end_turn"},"redacted":false}"#;
     fs::write(run_dir.join("trace.jsonl"), trace_recoverable).unwrap();
 
-    let scan2 = gestalt_cli::runs::scan_trace_file(&run_dir.join("trace.jsonl")).unwrap();
+    let scan2 = gestalt_app::runs::scan_trace_file(&run_dir.join("trace.jsonl")).unwrap();
     assert_eq!(scan2.apparent_status, "completed");
 
     // 4. runs inspect includes summary/artifacts/snapshot metadata

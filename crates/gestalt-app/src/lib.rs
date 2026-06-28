@@ -1,1 +1,17 @@
+pub mod auth;
+pub mod catalog;
+pub mod config;
+pub mod connect;
+pub mod doctor;
+pub mod model_cache;
+pub mod models;
+pub mod profiles;
+pub mod providers;
 pub mod reports;
+pub mod run;
+pub mod runtime_factory;
+pub mod sessions;
+pub mod verify;
+pub mod workspace;
+pub mod runs;
+pub mod context;

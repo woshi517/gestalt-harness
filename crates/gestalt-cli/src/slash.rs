@@ -1,6 +1,6 @@
 #![allow(clippy::pedantic, clippy::missing_errors_doc, clippy::too_many_lines)]
 
-use crate::config::EffectiveConfig;
+use gestalt_app::config::EffectiveConfig;
 use crate::output::CliReport;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -16,7 +16,7 @@ pub async fn handle_slash_command(
     command_str: &str,
     session_id: &str,
     parent_run_id: Option<&str>,
-    overrides: &mut crate::config::CliOverrides,
+    overrides: &mut gestalt_app::config::CliOverrides,
     config: &EffectiveConfig,
 ) -> Result<SlashOutcome, Box<dyn std::error::Error>> {
     let parts: Vec<&str> = command_str.split_whitespace().collect();
@@ -70,7 +70,7 @@ pub async fn handle_slash_command(
         }
         "/context" => {
             if let Some(parent) = parent_run_id {
-                match crate::context::explain_context(overrides, None, Some(parent)).await {
+                match gestalt_app::context::explain_context(overrides, None, Some(parent)).await {
                     Ok(report) => println!("{}", report.render_text()),
                     Err(e) => println!("Error explaining context: {e}"),
                 }
@@ -80,7 +80,7 @@ pub async fn handle_slash_command(
             Ok(SlashOutcome::None)
         }
         "/runs" => {
-            match crate::sessions::inspect_session(config, session_id) {
+            match gestalt_app::sessions::inspect_session(config, session_id) {
                 Ok(report) => println!("{}", report.render_text()),
                 Err(e) => println!("Error inspecting session: {e}"),
             }
@@ -113,7 +113,7 @@ pub async fn handle_slash_command(
         }
         "/verify" => {
             if let Some(parent) = parent_run_id {
-                match crate::verify::verify_run(config, parent).await {
+                match gestalt_app::verify::verify_run(config, parent).await {
                     Ok(report) => println!("{}", report.render_text()),
                     Err(e) => println!("Error verifying run: {e}"),
                 }
@@ -133,8 +133,8 @@ pub async fn handle_slash_command(
                     return Ok(SlashOutcome::None);
                 }
                 let name = parts[2];
-                match crate::runtime::validate_skill_activation(config, name) {
-                    crate::runtime::SkillValidation::Unknown { .. } => {
+                match gestalt_app::runtime_factory::validate_skill_activation(config, name) {
+                    gestalt_app::runtime_factory::SkillValidation::Unknown { .. } => {
                         println!(
                             "Cannot deactivate unknown skill '{name}'. Use `gestalt skill list` to see available skills."
                         );
@@ -147,8 +147,8 @@ pub async fn handle_slash_command(
                 }
             }
             let name = parts[1];
-            match crate::runtime::validate_skill_activation(config, name) {
-                crate::runtime::SkillValidation::Ok { .. } => {
+            match gestalt_app::runtime_factory::validate_skill_activation(config, name) {
+                gestalt_app::runtime_factory::SkillValidation::Ok { .. } => {
                     println!("Activating skill '{name}'...");
                     Ok(SlashOutcome::SkillActivated(name.to_string()))
                 }
@@ -175,7 +175,7 @@ pub fn calculate_session_cost(config: &EffectiveConfig, session_id: &str) -> f64
         if let Ok(entries) = std::fs::read_dir(run_log_dir) {
             for entry in entries.flatten() {
                 if entry.path().is_dir() {
-                    if let Ok(summary) = crate::runs::summarize_run_dir(&entry.path()) {
+                    if let Ok(summary) = gestalt_app::runs::summarize_run_dir(&entry.path()) {
                         if summary.session_id == session_id {
                             total += summary.estimated_cost_usd.unwrap_or(0.0);
                         }

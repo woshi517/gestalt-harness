@@ -1,4 +1,4 @@
-use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_cli::trace::{inspect_trace, replay_trace, validate_trace};
 use std::fs;
 use std::path::PathBuf;

@@ -5,7 +5,7 @@ use gestalt_core::event::{FindingSeverity, VerificationStatus};
 use gestalt_verify::{ArtifactRef, VerifyContext};
 
 use crate::config::EffectiveConfig;
-use crate::output::{ArtifactVerificationResult, VerifierResultEntry, VerifyRunReport};
+use crate::reports::{ArtifactVerificationResult, VerifierResultEntry, VerifyRunReport};
 use crate::runs;
 
 fn has_extension_ignore_ascii_case(path: &str, candidates: &[&str]) -> bool {

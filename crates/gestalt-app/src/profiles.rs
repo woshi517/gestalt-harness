@@ -1,7 +1,7 @@
 use crate::config::{
     global_config_path, mutate_workspace_config_file, workspace_config_path, EffectiveConfig,
 };
-use crate::output::{ProfilesInspectReport, ProfilesListReport, ProfilesUseReport};
+use crate::reports::{ProfileInfoEntry, ProfilesInspectReport, ProfilesListReport, ProfilesUseReport};
 use gestalt_core::{ApiFormat, ConfigError, HarnessError};
 
 pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, HarnessError> {
@@ -50,7 +50,7 @@ pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, Har
         let model = prof_cfg.model.clone().unwrap_or_else(|| {
             if let Some(prov_cfg) = config.providers.get(&provider) {
                 prov_cfg.default_model.clone().unwrap_or_default()
-            } else if let Some(builtin) = crate::provider_catalog::get_builtin_provider(&provider) {
+            } else if let Some(builtin) = crate::catalog::get_builtin_provider(&provider) {
                 builtin.default_model.clone().unwrap_or_default()
             } else {
                 "unknown".to_string()
@@ -62,7 +62,7 @@ pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, Har
     let mut entries = Vec::new();
     for (name, (provider, model)) in profiles {
         let active = Some(name.clone()) == active_profile;
-        entries.push(crate::output::ProfileInfoEntry {
+        entries.push(ProfileInfoEntry {
             name,
             provider,
             model,

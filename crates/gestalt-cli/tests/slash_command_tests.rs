@@ -1,4 +1,4 @@
-use gestalt_cli::config::{load_effective_config, CliOverrides};
+use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_cli::slash::{calculate_session_cost, handle_slash_command, SlashOutcome};
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;

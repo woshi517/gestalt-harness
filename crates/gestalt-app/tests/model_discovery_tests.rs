@@ -1,9 +1,9 @@
 use chrono::{Duration, Utc};
-use gestalt_cli::config::{load_effective_config, CliOverrides};
-use gestalt_cli::model_cache::{
+use gestalt_app::config::{load_effective_config, CliOverrides};
+use gestalt_app::model_cache::{
     get_cache_path, load_cached_models, save_cached_models, CachedModels,
 };
-use gestalt_cli::models::{list_models, search_models};
+use gestalt_app::models::{list_models, search_models};
 use gestalt_core::model::{ModelInfo, ModelInfoSource};
 use std::fs;
 use std::sync::Mutex;
@@ -33,7 +33,7 @@ impl Drop for EnvVarGuard {
     }
 }
 
-fn test_config(temp_dir: &std::path::Path) -> gestalt_cli::config::EffectiveConfig {
+fn test_config(temp_dir: &std::path::Path) -> gestalt_app::config::EffectiveConfig {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     load_effective_config(&CliOverrides {
         workspace: Some(temp_dir.to_path_buf()),

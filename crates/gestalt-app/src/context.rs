@@ -1,5 +1,5 @@
 use crate::config::{load_effective_config, CliOverrides};
-use crate::output::ContextExplainReport;
+use crate::reports::ContextExplainReport;
 use gestalt_core::ToolCatalog;
 use gestalt_core::{context::ContextPipeline, Message, TokenBudget};
 use gestalt_runtime::context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
