@@ -47,17 +47,14 @@ pub mod connect {
     pub use gestalt_app::connect::connect_provider;
 }
 
-#[path = "../../gestalt-cli/src/cost.rs"]
 pub mod cost;
 
 pub mod context {
     pub use gestalt_app::context::explain_context;
 }
 
-#[path = "../../gestalt-cli/src/export.rs"]
 pub mod export;
 
-#[path = "../../gestalt-cli/src/output.rs"]
 pub mod output;
 
 pub mod run {
@@ -73,20 +70,16 @@ pub mod sessions {
     pub use gestalt_app::sessions::*;
 }
 
-#[path = "../../gestalt-cli/src/replay.rs"]
 pub mod replay;
 
-#[path = "../../gestalt-cli/src/slash.rs"]
 pub mod slash;
 
-#[path = "../../gestalt-cli/src/trace.rs"]
 pub mod trace;
 
 pub mod verify {
     pub use gestalt_app::verify::verify_run;
 }
 
-#[path = "../../gestalt-cli/src/tui/mod.rs"]
 pub mod tui;
 
 pub use tui::run_tui;
