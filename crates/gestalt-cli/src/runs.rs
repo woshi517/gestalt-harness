@@ -1,5 +1,5 @@
 use gestalt_app::config::EffectiveConfig;
-pub use gestalt_app::runs::{resolve_run_path, list_runs, inspect_run, prune_runs, delete_run};
+pub use gestalt_app::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
 use gestalt_core::HarnessError;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};

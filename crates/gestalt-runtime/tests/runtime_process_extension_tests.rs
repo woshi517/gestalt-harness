@@ -1,6 +1,7 @@
 #![allow(deprecated)]
 
 use gestalt_core::ContextStability;
+use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::{
     Capabilities, Entrypoint, ExtensionManifest, GestaltExtension, Permissions, ProcessExtension,
     ProcessExtensionBroker, RuntimeEvent, RuntimeEventBus, RuntimeRegistry,

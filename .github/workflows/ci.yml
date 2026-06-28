@@ -48,6 +48,9 @@ jobs:
       - name: Build minimal CLI
         run: cargo check -p gestalt-cli --no-default-features
 
+      - name: Build standalone TUI
+        run: cargo check -p gestalt-tui
+
       - name: Test workspace
         run: cargo test --workspace
 

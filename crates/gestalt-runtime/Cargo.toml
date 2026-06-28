@@ -12,9 +12,6 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
-gestalt-context = { path = "../gestalt-context" }
-gestalt-trace = { path = "../gestalt-trace" }
-gestalt-skills = { path = "../gestalt-skills" }
 tokio = { workspace = true }
 serde = { workspace = true }
 schemars = { workspace = true }
@@ -27,8 +24,27 @@ futures = { workspace = true }
 sha2 = { workspace = true }
 toml = { workspace = true }
 url = { workspace = true }
-gestalt-mcp = { path = "../gestalt-mcp" }
-
+reqwest = { workspace = true }
+tokio-stream = { workspace = true }
+eventsource-stream = { workspace = true }
+encoding_rs = { workspace = true }
+glob = { workspace = true }
+similar = { workspace = true }
+tracing = { workspace = true }
+pulldown-cmark = { workspace = true }
+tiktoken-rs = { workspace = true }
+serde_yaml = { workspace = true }
+libc = { workspace = true }
+tokio-util = { workspace = true }
+walkdir = "2"
+regex = "1"
 
 [dev-dependencies]
-# We might add some test mocks later
+tempfile = "3"
+
+[features]
+default = ["mcp", "skills", "verify"]
+mcp = []
+skills = []
+verify = []
+otel = []

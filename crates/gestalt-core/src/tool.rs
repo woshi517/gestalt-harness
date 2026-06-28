@@ -117,8 +117,8 @@ impl ToolOutput {
         self,
         is_error: bool,
         max_bytes: usize,
-        ctx: &ToolContext,
-        tool_call_id: &str,
+        _ctx: &ToolContext,
+        _tool_call_id: &str,
     ) -> Result<ToolExecutionResult, ToolError> {
         let full_content = match &self {
             Self::Text { content } => content.clone(),
@@ -126,7 +126,7 @@ impl ToolOutput {
             Self::Artifact { path, .. } => format!("artifact saved: {}", path.display()),
         };
 
-        let mut artifact = match &self {
+        let artifact = match &self {
             Self::Artifact {
                 path,
                 mime_type,
@@ -139,72 +139,35 @@ impl ToolOutput {
             _ => None,
         };
 
-        let artifact_path = ctx
-            .artifact_dir
-            .as_ref()
-            .map(|artifact_dir| artifact_path(artifact_dir, tool_call_id, ".txt"));
-
         let exec_report_truncated = extract_exec_truncated_flag(&full_content);
         let original_len = full_content.len();
         let truncated = exec_report_truncated.unwrap_or(original_len > max_bytes);
-        let mut original_bytes = if truncated { Some(original_len) } else { None };
+        let original_bytes = if truncated { Some(original_len) } else { None };
         let mut output_hash = None;
 
         let content = if truncated {
             let truncated_content = full_content.chars().take(max_bytes).collect::<String>();
-            if let Some(path) = artifact_path {
-                if path.exists() {
-                    let bytes = std::fs::read(&path).map_err(ToolError::ExecutionFailed)?;
-                    artifact = Some(ToolArtifact {
-                        path,
-                        mime_type: "text/plain".to_string(),
-                        size_bytes: bytes.len(),
-                    });
-                    let mut hasher = Sha256::new();
-                    hasher.update(&bytes);
-                    output_hash = Some(format!("{:x}", hasher.finalize()));
-                    original_bytes = Some(bytes.len());
-                } else {
-                    if let Some(parent) = path.parent() {
-                        std::fs::create_dir_all(parent).map_err(ToolError::ExecutionFailed)?;
-                    }
-                    std::fs::write(&path, &full_content).map_err(ToolError::ExecutionFailed)?;
-                    artifact = Some(ToolArtifact {
-                        path,
-                        mime_type: "text/plain".to_string(),
-                        size_bytes: original_len,
-                    });
-                    let mut hasher = Sha256::new();
-                    hasher.update(full_content.as_bytes());
-                    output_hash = Some(format!("{:x}", hasher.finalize()));
-                }
-            } else {
-                let mut hasher = Sha256::new();
-                hasher.update(full_content.as_bytes());
-                output_hash = Some(format!("{:x}", hasher.finalize()));
-            }
+            let mut hasher = Sha256::new();
+            hasher.update(full_content.as_bytes());
+            output_hash = Some(format!("{:x}", hasher.finalize()));
 
             truncated_content
         } else {
-            if let Some(path) = artifact_path {
-                if path.exists() {
-                    let metadata = std::fs::metadata(&path).map_err(ToolError::ExecutionFailed)?;
-                    artifact = Some(ToolArtifact {
-                        path,
-                        mime_type: "text/plain".to_string(),
-                        size_bytes: usize::try_from(metadata.len()).unwrap_or(usize::MAX),
-                    });
-                }
-            }
             full_content
         };
 
-        // Fallback hashing for any other ToolOutput::Artifact variant
+        if output_hash.is_none() && !content.is_empty() {
+            let mut hasher = Sha256::new();
+            hasher.update(content.as_bytes());
+            output_hash = Some(format!("{:x}", hasher.finalize()));
+        }
+
         if let Some(ref art) = artifact {
             if output_hash.is_none() {
-                let bytes = std::fs::read(&art.path).map_err(ToolError::ExecutionFailed)?;
                 let mut hasher = Sha256::new();
-                hasher.update(&bytes);
+                hasher.update(art.path.as_os_str().as_encoded_bytes());
+                hasher.update(art.mime_type.as_bytes());
+                hasher.update(art.size_bytes.to_le_bytes());
                 output_hash = Some(format!("{:x}", hasher.finalize()));
             }
         }

@@ -11,7 +11,7 @@ use gestalt_core::{
     policy::PolicyEngine,
     provider::Provider,
     session::{RunResult, Session, SessionConfig},
-    snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter},
+    snapshot::WorkspaceSnapshotter,
     tool::{ToolCatalog, ToolContext},
     trace::TraceSink,
     AgentLoop,
@@ -20,6 +20,7 @@ use gestalt_core::{
 use crate::config::RuntimeConfig;
 use crate::error::{Result, RuntimeError};
 use crate::inspect::{RuntimeInspect, ToolInspectInfo};
+use crate::workspace_snapshot::GitWorkspaceSnapshotter;
 
 use crate::composition_hooks::{
     CompositionHooks, OnEventCtx, RuntimeContextHookAdapter, RuntimeNextTurnHookAdapter,

@@ -8,6 +8,8 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     ContextAssembler, ContextPipeline, MessageId, SessionMessage,
 };
+use gestalt_runtime as gestalt_context;
+use gestalt_runtime as gestalt_trace;
 use gestalt_runtime::RuntimeContextPipeline;
 use gestalt_trace::CompactionCheckpoint;
 

@@ -1,3 +1,4 @@
+pub use crate::legacy_context::compaction::plan_compaction_range;
 use chrono::Utc;
 use gestalt_core::{
     context::HistoryRange,

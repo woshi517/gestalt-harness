@@ -12,6 +12,7 @@ use gestalt_core::{
     session::{ExecutionMode, Session, SessionConfig},
     tool::{Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
+use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{
     extension::RuntimeGeneration,
     lifecycle::{

@@ -6,13 +6,13 @@ use gestalt_core::event::PolicyStatus;
 use gestalt_core::AgentEvent;
 use gestalt_trace::{aggregate_costs, analyze_tool_metrics, read_trace};
 
-use gestalt_app::config::EffectiveConfig;
 use crate::output::{
     PolicyOutcomesSummary, ReplayReport, TraceAnalyzeReport, TraceInspectReport,
     TraceValidateReport,
 };
 use crate::replay::replay_display;
 use crate::runs;
+use gestalt_app::config::EffectiveConfig;
 
 /// Replays the trace events in a human-readable transcript.
 pub fn replay_trace(

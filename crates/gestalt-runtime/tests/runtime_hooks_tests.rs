@@ -14,6 +14,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
+use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{
     AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, BeforeContextBuildCtx,
     BeforeToolPolicyCtx, CompositionHooks, HookOutcome, OnEventCtx, RuntimeConfig, UserInput,
@@ -938,3 +939,5 @@ async fn test_after_context_build_context_addition() {
         "Second request must contain the accumulated after_context addition"
     );
 }
+#[allow(unused_imports)]
+use gestalt_runtime as gestalt_trace;

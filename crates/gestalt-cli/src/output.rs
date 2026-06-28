@@ -1,13 +1,230 @@
-use gestalt_core::{model::ModelInfo, AgentEvent};
-use gestalt_trace::CostReport;
-pub use gestalt_app::reports::*;
 use gestalt_app::config::{ConfigSourceInfo, EffectiveConfig, SecretString};
+pub use gestalt_app::reports::*;
+use gestalt_core::model::ModelInfo;
+use gestalt_trace::CostReport;
 use serde::Serialize;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::path::PathBuf;
 
-pub use gestalt_app::reports::render_event;
+pub fn render_event(event: &gestalt_core::AgentEvent) -> Option<String> {
+    match event {
+        gestalt_core::AgentEvent::UserMessage { content } => Some(format!("user> {content}")),
+        gestalt_core::AgentEvent::ContextBuilt {
+            token_estimate,
+            packet_hash,
+            ..
+        } => {
+            let mut extra = String::new();
+            if let Some(h) = packet_hash {
+                let _ = write!(extra, " packet_hash={}", &h[..8.min(h.len())]);
+            }
+            Some(format!("context> {token_estimate} tokens{extra}"))
+        }
+        gestalt_core::AgentEvent::PromptSnapshotCreated {
+            snapshot_hash,
+            prefix_hash,
+            created_turn,
+        } => Some(format!(
+            "snapshot-created> {} prefix={} turn={created_turn}",
+            &snapshot_hash[..8.min(snapshot_hash.len())],
+            &prefix_hash[..8.min(prefix_hash.len())]
+        )),
+        gestalt_core::AgentEvent::PromptSnapshotLoaded {
+            snapshot_hash,
+            source,
+        } => Some(format!(
+            "snapshot-loaded> {} source={source}",
+            &snapshot_hash[..8.min(snapshot_hash.len())]
+        )),
+        gestalt_core::AgentEvent::PromptSnapshotReused {
+            snapshot_hash,
+            prefix_hash,
+        } => Some(format!(
+            "snapshot-reused> {} prefix={}",
+            &snapshot_hash[..8.min(snapshot_hash.len())],
+            &prefix_hash[..8.min(prefix_hash.len())]
+        )),
+        gestalt_core::AgentEvent::PromptCachePlanGenerated {
+            snapshot_hash,
+            prefix_hash,
+            prefix_message_count,
+        } => Some(format!(
+            "cache-plan> {} prefix={} messages={prefix_message_count}",
+            &snapshot_hash[..8.min(snapshot_hash.len())],
+            &prefix_hash[..8.min(prefix_hash.len())]
+        )),
+        gestalt_core::AgentEvent::EphemeralContextInjected {
+            source,
+            token_estimate,
+        } => Some(format!("ephemeral> {source} ({token_estimate} tokens)")),
+        gestalt_core::AgentEvent::ModelRequest {
+            provider,
+            model,
+            packet_hash,
+            temperature,
+            max_tokens,
+            provider_request_hash,
+            ..
+        } => {
+            let mut extra = String::new();
+            if let Some(h) = packet_hash {
+                let _ = write!(extra, " packet_hash={}", &h[..8.min(h.len())]);
+            }
+            if let Some(t) = temperature {
+                let _ = write!(extra, " temp={t}");
+            }
+            if let Some(m) = max_tokens {
+                let _ = write!(extra, " max_tokens={m}");
+            }
+            if let Some(h) = provider_request_hash {
+                let _ = write!(extra, " request_hash={}", &h[..8.min(h.len())]);
+            }
+            Some(format!("model> {provider}/{model}{extra}"))
+        }
+        gestalt_core::AgentEvent::Text { delta } => Some(format!("assistant> {delta}")),
+        gestalt_core::AgentEvent::Thinking { delta } => Some(format!("thinking> {delta}")),
+        gestalt_core::AgentEvent::ToolCallStreamed { .. } => None,
+        gestalt_core::AgentEvent::ToolCallProposed { id, name, input } => {
+            Some(format!("tool> {name}#{id} {input}"))
+        }
+        gestalt_core::AgentEvent::PolicyDecision {
+            tool_call_id,
+            tool_name,
+            input_hash,
+            risk,
+            mode,
+            matched_rule,
+            decision,
+            reason,
+            policy_source,
+        } => {
+            let mut extra = String::new();
+            if let Some(name) = tool_name {
+                let _ = write!(extra, " tool={name}");
+            }
+            if let Some(level) = risk {
+                let _ = write!(extra, " risk={level:?}");
+            }
+            if let Some(m) = mode {
+                let _ = write!(extra, " mode={m:?}");
+            }
+            if let Some(rule) = matched_rule {
+                let _ = write!(extra, " rule={rule}");
+            }
+            if let Some(hash) = input_hash {
+                let _ = write!(extra, " input={}", &hash[..8.min(hash.len())]);
+            }
+            Some(format!(
+                "policy> {tool_call_id} {decision:?} source={policy_source}{extra} {}",
+                reason.clone().unwrap_or_default()
+            ))
+        }
+        gestalt_core::AgentEvent::ApprovalDecision {
+            tool_call_id,
+            decision,
+            original_input_hash,
+            edited_input_hash,
+            grant_terms,
+        } => {
+            let short = |s: &str| s.chars().take(8).collect::<String>();
+            let grant = grant_terms
+                .as_ref()
+                .map(|g| format!(" grant={}#{}", g.tool_name, short(&g.input_hash)))
+                .unwrap_or_default();
+            let edited = edited_input_hash
+                .as_ref()
+                .map(|h| format!(" edited={}", short(h)))
+                .unwrap_or_default();
+            Some(format!(
+                "approval> {tool_call_id} {decision:?} orig={}{}{}",
+                short(original_input_hash),
+                edited,
+                grant
+            ))
+        }
+        gestalt_core::AgentEvent::ToolResult {
+            id,
+            output,
+            is_error,
+            truncated,
+            tool_name,
+            working_dir,
+            duration_ms,
+            output_hash,
+            artifact_refs,
+            policy_source,
+            failure,
+        } => {
+            let mut extra = String::new();
+            if let Some(name) = tool_name {
+                let _ = write!(extra, " name={name}");
+            }
+            if let Some(dir) = working_dir {
+                let _ = write!(extra, " dir={dir}");
+            }
+            if let Some(ms) = duration_ms {
+                let _ = write!(extra, " duration={ms}ms");
+            }
+            if let Some(h) = output_hash {
+                let _ = write!(extra, " hash={}", &h[..8.min(h.len())]);
+            }
+            if let Some(refs) = artifact_refs {
+                if !refs.is_empty() {
+                    let _ = write!(extra, " artifacts={}", refs.join(","));
+                }
+            }
+            if let Some(src) = policy_source {
+                let _ = write!(extra, " policy_source={src}");
+            }
+            if let Some(failure) = failure {
+                let _ = write!(extra, " failure={}", failure.kind);
+                if let Some(guidance) = &failure.repair_guidance {
+                    let _ = write!(
+                        extra,
+                        " repair={}",
+                        guidance.chars().take(60).collect::<String>()
+                    );
+                }
+            }
+            Some(format!(
+                "tool-result> {id} error={is_error} truncated={truncated}{extra} {output}"
+            ))
+        }
+        gestalt_core::AgentEvent::ArtifactCreated {
+            path,
+            size_bytes,
+            mime_type,
+            hash,
+        } => Some(format!(
+            "artifact-created> {path} size={size_bytes} mime={mime_type} hash={}",
+            &hash[..8.min(hash.len())]
+        )),
+        gestalt_core::AgentEvent::PolicyViolation {
+            tool_call_id,
+            tool_name,
+            reason,
+        } => Some(format!(
+            "policy-violation> {tool_call_id} tool={tool_name} reason={reason}"
+        )),
+        gestalt_core::AgentEvent::MemoryProposal { diff } => Some(format!("memory> {diff}")),
+        gestalt_core::AgentEvent::VerificationResult { report, .. } => report.clone(),
+        gestalt_core::AgentEvent::Usage {
+            input_tokens,
+            output_tokens,
+        } => Some(format!("usage> in={input_tokens} out={output_tokens}")),
+        gestalt_core::AgentEvent::Stop { reason } => Some(format!("stop> {reason:?}")),
+        gestalt_core::AgentEvent::Error {
+            message,
+            recoverable,
+        } => Some(format!("error> recoverable={recoverable} {message}")),
+        gestalt_core::AgentEvent::WorkspaceSnapshotCaptured { snapshot_id, dirty } => {
+            Some(format!("snapshot> id={snapshot_id} dirty={dirty}"))
+        }
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -152,8 +369,6 @@ impl CliReport for ProvidersInspectReport {
     }
 }
 
-
-
 impl CliReport for ProvidersDoctorReport {
     fn kind(&self) -> &'static str {
         "providers.doctor"
@@ -229,8 +444,6 @@ impl CliReport for ModelsInspectReport {
     }
 }
 
-
-
 impl CliReport for ModelsRefreshReport {
     fn kind(&self) -> &'static str {
         "models.refresh"
@@ -264,8 +477,6 @@ impl CliReport for ModelsSelectReport {
     }
 }
 
-
-
 impl CliReport for WorkspaceInitReport {
     fn kind(&self) -> &'static str {
         "workspace.init"
@@ -282,8 +493,6 @@ impl CliReport for WorkspaceInitReport {
         )
     }
 }
-
-
 
 impl CliReport for WorkspaceStatusReport {
     fn kind(&self) -> &'static str {
@@ -336,7 +545,6 @@ impl CliReport for WorkspaceInfoReport {
     }
 }
 
-
 impl CliReport for WorkspaceSnapshotReport {
     fn kind(&self) -> &'static str {
         "workspace.snapshot"
@@ -353,8 +561,6 @@ impl CliReport for WorkspaceSnapshotReport {
         )
     }
 }
-
-
 
 impl CliReport for GlobalDoctorReport {
     fn kind(&self) -> &'static str {
@@ -529,8 +735,6 @@ impl CliReport for WorkspaceDoctorReport {
     }
 }
 
-
-
 impl CliReport for RunsListReport {
     fn kind(&self) -> &'static str {
         "runs.list"
@@ -572,8 +776,6 @@ impl CliReport for RunsListReport {
         lines.join("\n")
     }
 }
-
-
 
 impl CliReport for RunsInspectReport {
     fn kind(&self) -> &'static str {
@@ -640,8 +842,6 @@ impl CliReport for RunsInspectReport {
     }
 }
 
-
-
 impl CliReport for RunsPruneReport {
     fn kind(&self) -> &'static str {
         "runs.prune"
@@ -666,8 +866,6 @@ impl CliReport for RunsPruneReport {
         lines.join("\n")
     }
 }
-
-
 
 impl CliReport for RunsDeleteReport {
     fn kind(&self) -> &'static str {
@@ -917,8 +1115,6 @@ impl CliReport for ExportReport {
     }
 }
 
-
-
 impl CliReport for VerifyRunReport {
     fn kind(&self) -> &'static str {
         "verify.run"
@@ -956,9 +1152,7 @@ impl CliReport for VerifyRunReport {
     }
 }
 
-fn redact_effective_config(
-    mut config: EffectiveConfig,
-) -> EffectiveConfig {
+fn redact_effective_config(mut config: EffectiveConfig) -> EffectiveConfig {
     for prov in config.providers.values_mut() {
         if let Some(ref mut headers) = prov.headers {
             for (k, v) in headers.iter_mut() {
@@ -969,9 +1163,9 @@ fn redact_effective_config(
                     || lower_k.contains("secret")
                     || lower_k.contains("credential")
                     || lower_k.contains("sig")
-                    {
-                        *v = "[REDACTED]".to_string();
-                    }
+                {
+                    *v = "[REDACTED]".to_string();
+                }
             }
         }
         if prov.auth_ref.is_some() {
@@ -1279,8 +1473,6 @@ impl CliReport for PolicyTestReport {
     }
 }
 
-
-
 impl CliReport for ContextExplainReport {
     fn kind(&self) -> &'static str {
         "context.explain"
@@ -1431,8 +1623,6 @@ impl CliReport for ToolsClassifyReport {
         lines.join("\n")
     }
 }
-
-
 
 impl CliReport for ConnectReport {
     fn kind(&self) -> &'static str {
@@ -1820,8 +2010,6 @@ impl CliReport for RuntimeDoctorReport {
         lines.join("\n")
     }
 }
-
-
 
 impl CliReport for SkillsListReport {
     fn kind(&self) -> &'static str {

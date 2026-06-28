@@ -1,10 +1,9 @@
 use gestalt_core::HarnessError;
-use gestalt_models::registry;
 
 use crate::{auth::resolve_auth, config::EffectiveConfig, reports::ProviderDoctorResult};
 
 pub fn list_providers(config: &EffectiveConfig) -> Vec<String> {
-    let mut providers = registry::registered();
+    let mut providers = gestalt_models::registered();
     let builtins = vec![
         "openrouter".to_string(),
         "ollama".to_string(),
@@ -44,7 +43,7 @@ pub async fn probe_provider(config: &EffectiveConfig, provider: &str) -> Result<
     let resolved = temp_cfg.resolve_provider()?;
     let auth_config = resolved.auth.clone();
 
-    let cred_resolver = crate::auth::build_credential_resolver(None, false);
+    let cred_resolver = crate::auth::build_credential_resolver(None, None);
     let credential = cred_resolver.resolve(&auth_config).map_err(|_| {
         HarnessError::Provider(gestalt_core::ProviderError::AuthFailed {
             provider: provider.to_string(),

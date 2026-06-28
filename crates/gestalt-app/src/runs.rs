@@ -1,9 +1,11 @@
 use crate::config::EffectiveConfig;
-use crate::reports::{RunIndexEntry, RunsDeleteReport, RunsInspectReport, RunsListReport, RunsPruneReport};
+use crate::reports::{
+    RunIndexEntry, RunsDeleteReport, RunsInspectReport, RunsListReport, RunsPruneReport,
+};
 use chrono::Utc;
 use gestalt_core::HarnessError;
 use std::fs;
-use std::io::{BufRead, BufReader, IsTerminal, Read};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 /// Detailed cost and token usage report for runs.
@@ -603,6 +605,7 @@ pub fn prune_runs(
     dry_run: bool,
     skip_confirm: bool,
     cascade: bool,
+    interaction: Option<&dyn crate::InteractionProvider>,
 ) -> Result<RunsPruneReport, HarnessError> {
     let duration_str = older_than.unwrap_or_else(|| "7d".to_string());
     let duration = parse_duration(&duration_str).map_err(|reason| {
@@ -694,35 +697,19 @@ pub fn prune_runs(
     }
 
     if !dry_run && !skip_confirm {
-        if std::io::stdin().is_terminal() {
+        let confirmed = if let Some(i) = interaction {
             let size_mb = runs_to_prune.iter().map(|(_, _, s)| s).sum::<u64>() as f64 / 1_048_576.0;
-            println!(
-                "Are you sure you want to prune {} runs (reclaiming {:.2} MB)? [y/N]",
+            i.confirm(&format!(
+                "Are you sure you want to prune {} runs (reclaiming {:.2} MB)?",
                 runs_to_prune.len(),
                 size_mb
-            );
-            let mut input = String::new();
-            if std::io::stdin().read_line(&mut input).is_ok() {
-                let trimmed = input.trim().to_lowercase();
-                if trimmed != "y" && trimmed != "yes" {
-                    println!("Prune cancelled.");
-                    return Ok(RunsPruneReport {
-                        pruned_runs: Vec::new(),
-                        reclaimed_bytes: 0,
-                        dry_run,
-                    });
-                }
-            } else {
-                return Err(HarnessError::Approval(gestalt_core::ApprovalError::Io(
-                    std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "failed to read confirmation",
-                    ),
-                )));
-            }
+            ))
         } else {
+            false
+        };
+        if !confirmed {
             return Err(HarnessError::Approval(gestalt_core::ApprovalError::Rejected(
-                "non-interactive execution requires interactive terminal or explicit confirmation bypass flag (--yes)".to_string()
+                "cancelled by user or non-interactive execution requires explicit confirmation bypass flag (--yes)".to_string()
             )));
         }
     }
@@ -762,6 +749,7 @@ pub fn delete_run(
     run_id_or_path: &str,
     skip_confirm: bool,
     cascade: bool,
+    interaction: Option<&dyn crate::InteractionProvider>,
 ) -> Result<RunsDeleteReport, HarnessError> {
     let resolved_path = resolve_run_path(config, run_id_or_path)?;
     let run_log_dir = config.run_log_dir();
@@ -823,36 +811,23 @@ pub fn delete_run(
     let total_size: u64 = runs_to_delete.iter().map(|(_, _, s)| s).sum();
 
     if !skip_confirm {
-        if std::io::stdin().is_terminal() {
+        let confirmed = if let Some(i) = interaction {
             let size_mb = total_size as f64 / 1_048_576.0;
-            if runs_to_delete.len() > 1 {
-                println!("Are you sure you want to delete run {} and its {} descendants (reclaiming {:.2} MB)? [y/N]", actual_run_id, runs_to_delete.len() - 1, size_mb);
+            let prompt = if runs_to_delete.len() > 1 {
+                format!("Are you sure you want to delete run {} and its {} descendants (reclaiming {:.2} MB)?", actual_run_id, runs_to_delete.len() - 1, size_mb)
             } else {
-                println!(
-                    "Are you sure you want to delete run {} (reclaiming {:.2} MB)? [y/N]",
+                format!(
+                    "Are you sure you want to delete run {} (reclaiming {:.2} MB)?",
                     actual_run_id, size_mb
-                );
-            }
-            let mut input = String::new();
-            if std::io::stdin().read_line(&mut input).is_ok() {
-                let trimmed = input.trim().to_lowercase();
-                if trimmed != "y" && trimmed != "yes" {
-                    println!("Delete cancelled.");
-                    return Err(HarnessError::Approval(
-                        gestalt_core::ApprovalError::Rejected("cancelled by user".to_string()),
-                    ));
-                }
-            } else {
-                return Err(HarnessError::Approval(gestalt_core::ApprovalError::Io(
-                    std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "failed to read confirmation",
-                    ),
-                )));
-            }
+                )
+            };
+            i.confirm(&prompt)
         } else {
+            false
+        };
+        if !confirmed {
             return Err(HarnessError::Approval(gestalt_core::ApprovalError::Rejected(
-                "non-interactive execution requires interactive terminal or explicit confirmation bypass flag (--yes)".to_string()
+                "cancelled by user or non-interactive execution requires explicit confirmation bypass flag (--yes)".to_string()
             )));
         }
     }

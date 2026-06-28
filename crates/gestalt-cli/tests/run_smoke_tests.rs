@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use gestalt_app::config::{validate_workspace_config, CliOverrides};
+use gestalt_cli::gestalt_models;
 use gestalt_core::{
     event::AgentEvent,
     message::Message,
@@ -172,6 +173,7 @@ override = "Smoke test override prompt"
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -228,6 +230,7 @@ default = "confirm"
         "run smoke",
         None,
         gestalt_core::CancelToken::new(),
+        None,
         None,
         None,
         None,
@@ -328,6 +331,7 @@ default = "confirm"
         "run smoke",
         None,
         gestalt_core::CancelToken::new(),
+        None,
         None,
         None,
         None,

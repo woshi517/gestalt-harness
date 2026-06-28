@@ -1,8 +1,8 @@
+use crate::output::{PolicyExplainReport, PolicyTestReport, PolicyValidateReport};
 use gestalt_app::config::{
     global_config_path, legacy_global_config_path, legacy_workspace_policies_path,
     load_effective_config, workspace_config_path, CliOverrides,
 };
-use crate::output::{PolicyExplainReport, PolicyTestReport, PolicyValidateReport};
 use gestalt_core::policy::{PolicyEngine, PolicyRequest};
 use gestalt_core::ToolCatalog;
 use gestalt_core::{tool::RiskLevel, HarnessError};

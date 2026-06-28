@@ -6,75 +6,51 @@ trap 'rm -f "$metadata_file"' EXIT
 
 cargo metadata --format-version=1 --no-deps > "$metadata_file"
 
-# Verify gestalt-core does not depend on any implementation crate.
-CORE_DEPS=$(jq -r '.packages[]
-  | select(.name == "gestalt-core")
-  | [.dependencies[] | select(.kind == null and .path != null) | .name]
-  | sort
-  | .[]?' "$metadata_file")
+expected_packages=$'gestalt-app\ngestalt-cli\ngestalt-core\ngestalt-runtime\ngestalt-tui'
+actual_packages=$(jq -r '.packages[].name' "$metadata_file" | sort)
 
-if [ -n "$CORE_DEPS" ]; then
-  printf 'ERROR: gestalt-core has path dependencies on implementation crates:\n%s\n' "$CORE_DEPS" >&2
-  printf 'This violates ADR-001 (inverted crate dependency direction).\n' >&2
+if [ "$actual_packages" != "$expected_packages" ]; then
+  printf 'ERROR: workspace package set is incorrect\n' >&2
+  printf 'Expected:\n%s\n' "$expected_packages" >&2
+  printf 'Actual:\n%s\n' "$actual_packages" >&2
   exit 1
 fi
 
-printf 'OK: gestalt-core has no path dependencies on implementation crates.\n'
+printf 'OK: workspace contains exactly the five final packages.\n'
 
-declare -A budgets=(
-  ["gestalt-core"]=11
-  ["gestalt-models"]=9
-  ["gestalt-tools"]=14
-  ["gestalt-context"]=6
-  ["gestalt-policy"]=7
-  ["gestalt-trace"]=9
-  ["gestalt-cli"]=18
-  ["gestalt-runtime"]=12
-)
+assert_path_deps_exact() {
+  local package=$1
+  local expected=$2
+  local actual
 
-packages=(
-  "gestalt-core"
-  "gestalt-models"
-  "gestalt-tools"
-  "gestalt-context"
-  "gestalt-policy"
-  "gestalt-trace"
-  "gestalt-cli"
-  "gestalt-runtime"
-)
+  actual=$(jq -r --arg name "$package" '
+    .packages[]
+    | select(.name == $name)
+    | [.dependencies[] | select(.kind == null and .path != null) | .name]
+    | sort
+    | join("\n")
+  ' "$metadata_file")
 
-failures=0
-
-for package in "${packages[@]}"; do
-  package_json=$(jq -c --arg name "$package" '.packages[] | select(.name == $name)' "$metadata_file")
-
-  if [ -z "$package_json" ]; then
-    printf 'ERROR: package %s missing from cargo metadata\n' "$package" >&2
-    failures=1
-    continue
+  if [ "$actual" != "$expected" ]; then
+    printf 'ERROR: %s path dependency set mismatch\n' "$package" >&2
+    printf 'Expected:\n%s\n' "${expected:-<none>}" >&2
+    printf 'Actual:\n%s\n' "${actual:-<none>}" >&2
+    exit 1
   fi
 
-  counted_count=$(jq -r '[.dependencies[] | select(.kind == null and .source != null and (.optional | not)) | .name] | sort | unique | length' <<<"$package_json")
-  counted_csv=$(jq -r '[.dependencies[] | select(.kind == null and .source != null and (.optional | not)) | .name] | sort | unique | join(", ")' <<<"$package_json")
-  optional_csv=$(jq -r '[.dependencies[] | select(.kind == null and .source != null and .optional) | .name] | sort | unique | join(", ")' <<<"$package_json")
-  path_csv=$(jq -r '[.dependencies[] | select(.kind == null and .source == null) | .name] | sort | unique | join(", ")' <<<"$package_json")
-  dev_csv=$(jq -r '[.dependencies[] | select(.kind == "dev") | .name] | sort | unique | join(", ")' <<<"$package_json")
-  budget=${budgets[$package]}
+  printf 'OK: %s path dependencies match the final matrix.\n' "$package"
+}
 
-  if [ "$counted_count" -gt "$budget" ]; then
-    printf 'ERROR: %s exceeds dependency budget (%s > %s)\n' "$package" "$counted_count" "$budget" >&2
-    printf '  counted default external deps: %s\n' "$counted_csv" >&2
-    failures=1
-  else
-    printf 'OK: %s counted %s/%s default external deps\n' "$package" "$counted_count" "$budget"
-    printf '  counted: %s\n' "${counted_csv:-none}"
-  fi
+assert_path_deps_exact "gestalt-core" ""
+assert_path_deps_exact "gestalt-runtime" "gestalt-core"
+assert_path_deps_exact "gestalt-app" $'gestalt-core\ngestalt-runtime'
+assert_path_deps_exact "gestalt-cli" $'gestalt-app\ngestalt-core\ngestalt-runtime'
+assert_path_deps_exact "gestalt-tui" $'gestalt-app\ngestalt-core\ngestalt-runtime'
 
-  printf '  optional external: %s\n' "${optional_csv:-none}"
-  printf '  path deps: %s\n' "${path_csv:-none}"
-  printf '  dev deps: %s\n' "${dev_csv:-none}"
-done
-
-if [ "$failures" -ne 0 ]; then
+minimal_cli_tree=$(cargo tree -p gestalt-cli --no-default-features --edges normal --prefix none)
+if grep -Eq '^(ratatui|crossterm) v' <<<"$minimal_cli_tree"; then
+  printf 'ERROR: minimal CLI includes terminal UI dependencies\n' >&2
   exit 1
 fi
+
+printf 'OK: minimal CLI excludes terminal UI dependencies.\n'

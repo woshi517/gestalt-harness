@@ -7,6 +7,8 @@ use gestalt_core::{
     tool::ToolCatalog,
 };
 use gestalt_mcp::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime as gestalt_context;
+use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent};
 use std::sync::Arc;
 
@@ -106,7 +108,7 @@ fn build_runtime_config(servers: Vec<(&str, McpLifecycleMode)>) -> RuntimeConfig
                     args: vec![
                         "run",
                         "--package",
-                        "gestalt-mcp",
+                        "gestalt-runtime",
                         "--bin",
                         "mock_mcp_server",
                     ]
@@ -478,7 +480,7 @@ async fn test_findings_risk_reduction_requires_annotations() {
                 args: vec![
                     "run",
                     "--package",
-                    "gestalt-mcp",
+                    "gestalt-runtime",
                     "--bin",
                     "mock_mcp_server",
                 ]
@@ -514,7 +516,7 @@ async fn test_findings_risk_reduction_requires_annotations() {
                 args: vec![
                     "run",
                     "--package",
-                    "gestalt-mcp",
+                    "gestalt-runtime",
                     "--bin",
                     "mock_mcp_server",
                 ]

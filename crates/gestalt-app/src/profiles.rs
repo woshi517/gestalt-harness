@@ -1,7 +1,9 @@
 use crate::config::{
     global_config_path, mutate_workspace_config_file, workspace_config_path, EffectiveConfig,
 };
-use crate::reports::{ProfileInfoEntry, ProfilesInspectReport, ProfilesListReport, ProfilesUseReport};
+use crate::reports::{
+    ProfileInfoEntry, ProfilesInspectReport, ProfilesListReport, ProfilesUseReport,
+};
 use gestalt_core::{ApiFormat, ConfigError, HarnessError};
 
 pub fn list_profiles(config: &EffectiveConfig) -> Result<ProfilesListReport, HarnessError> {

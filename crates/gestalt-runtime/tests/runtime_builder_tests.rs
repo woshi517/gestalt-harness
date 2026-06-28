@@ -9,6 +9,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
+use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{AgentRuntimeBuilder, ExtensionManifest, RuntimeConfig};
 use std::sync::Arc;
 

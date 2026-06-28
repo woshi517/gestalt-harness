@@ -22,11 +22,6 @@ workspace = true
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
 gestalt-app = { path = "../gestalt-app" }
-gestalt-models = { path = "../gestalt-models" }
-gestalt-tools = { path = "../gestalt-tools" }
-gestalt-policy = { path = "../gestalt-policy" }
-gestalt-trace = { path = "../gestalt-trace" }
-gestalt-verify = { path = "../gestalt-verify" }
 gestalt-runtime = { path = "../gestalt-runtime" }
 clap = { workspace = true }
 toml = { workspace = true }
@@ -38,23 +33,17 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+rpassword = "7"
 
 [features]
-default = []
-tui = ["dep:ratatui", "dep:crossterm"]
-otel = ["gestalt-trace/otel"]
-
-[dependencies.ratatui]
-workspace = true
-optional = true
-
-[dependencies.crossterm]
-workspace = true
-optional = true
+default = ["mcp", "skills", "verify"]
+mcp = ["gestalt-app/mcp", "gestalt-runtime/mcp"]
+skills = ["gestalt-app/skills", "gestalt-runtime/skills"]
+verify = ["gestalt-app/verify", "gestalt-runtime/verify"]
+otel = ["gestalt-app/otel", "gestalt-runtime/otel"]
 
 [dev-dependencies]
 uuid = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
 insta = { version = "1", features = ["filters"] }
-

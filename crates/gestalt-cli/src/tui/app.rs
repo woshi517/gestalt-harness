@@ -202,6 +202,7 @@ pub async fn run_tui(
                                 cancel_token,
                                 Some(approval_provider),
                                 Some(event_tx),
+                                None,
                             )
                             .await
                         } else {
@@ -224,6 +225,7 @@ pub async fn run_tui(
                                     cancel_token,
                                     Some(approval_provider),
                                     Some(event_tx),
+                                    None,
                                 )
                                 .await
                             } else {
@@ -235,6 +237,7 @@ pub async fn run_tui(
                                     Some(approval_provider),
                                     Some(event_tx),
                                     Some(current_session),
+                                    None,
                                 )
                                 .await
                             }
@@ -255,6 +258,7 @@ pub async fn run_tui(
                                 cancel_token,
                                 Some(approval_provider),
                                 Some(event_tx),
+                                None,
                             )
                             .await
                         } else {
@@ -323,7 +327,9 @@ pub async fn run_tui(
     if (prompt.is_some() || resume.is_some()) && state.chrome.active_modal != TuiModal::Onboarding {
         state.is_running = true;
         state.status = "Running".to_string();
-        let init_action = if resume.is_some() {
+        let init_action = if resume.is_some() && prompt.is_some() {
+            "branch"
+        } else if resume.is_some() {
             "resume"
         } else {
             "continue"
@@ -517,6 +523,7 @@ pub async fn run_tui(
                                             false, // no_keychain
                                             true,  // set_default
                                             None, None, None, None,
+                                            None,
                                         );
                                         let _ = tx.send(res);
                                     });

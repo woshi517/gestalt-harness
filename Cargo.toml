@@ -3,17 +3,9 @@ resolver = "2"
 members = [
     "crates/gestalt-core",
     "crates/gestalt-cli",
+    "crates/gestalt-tui",
     "crates/gestalt-app",
-    "crates/gestalt-models",
-    "crates/gestalt-tools",
-    "crates/gestalt-exec",
-    "crates/gestalt-policy",
-    "crates/gestalt-context",
-    "crates/gestalt-trace",
-    "crates/gestalt-mcp",
-    "crates/gestalt-verify",
     "crates/gestalt-runtime",
-    "crates/gestalt-skills",
 ]
 
 [workspace.package]

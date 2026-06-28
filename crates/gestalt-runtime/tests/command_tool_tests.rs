@@ -8,6 +8,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
+use gestalt_runtime as gestalt_context;
 use gestalt_runtime::extension::{CommandTool, ExtensionManifestV2, ResolvedExtensionPackage};
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
 

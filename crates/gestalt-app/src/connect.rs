@@ -6,7 +6,6 @@ use crate::config::{
 use crate::reports::{ConnectReport, DisconnectReport};
 use gestalt_core::{ApiFormat, ConfigError, HarnessError};
 use std::collections::HashMap;
-use std::io::IsTerminal;
 
 pub fn connect_provider(
     _config: &EffectiveConfig,
@@ -18,6 +17,7 @@ pub fn connect_provider(
     base_url_opt: Option<String>,
     default_model_opt: Option<String>,
     api_key_env_opt: Option<String>,
+    interaction: Option<&dyn crate::InteractionProvider>,
 ) -> Result<ConnectReport, HarnessError> {
     let key_val = if let Some(key) = api_key {
         let trimmed = key.trim().to_string();
@@ -26,30 +26,11 @@ pub fn connect_provider(
         } else {
             Some(trimmed)
         }
-    } else if !no_keychain && std::io::stdin().is_terminal() && provider == "openrouter" {
-        println!("Enter OpenRouter API key:");
-        if let Ok(key) = rpassword::read_password() {
-            let trimmed = key.trim().to_string();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        } else {
-            None
-        }
-    } else if !no_keychain && std::io::stdin().is_terminal() && provider == "openai-compatible" {
-        println!("Enter API key (optional, press Enter to skip):");
-        if let Ok(key) = rpassword::read_password() {
-            let trimmed = key.trim().to_string();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        } else {
-            None
-        }
+    } else if !no_keychain && provider == "openrouter" {
+        interaction.and_then(|i| i.prompt_password("Enter OpenRouter API key:"))
+    } else if !no_keychain && provider == "openai-compatible" {
+        interaction
+            .and_then(|i| i.prompt_password("Enter API key (optional, press Enter to skip):"))
     } else {
         None
     };

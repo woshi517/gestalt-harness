@@ -1,5 +1,6 @@
-use gestalt_core::snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshotter};
+use gestalt_core::snapshot::WorkspaceSnapshotter;
 use gestalt_core::{ConfigError, HarnessError};
+use gestalt_runtime::GitWorkspaceSnapshotter;
 use std::fs;
 use std::path::{Path, PathBuf};
 

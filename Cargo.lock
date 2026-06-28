@@ -971,16 +971,8 @@ dependencies = [
  "chrono",
  "dirs",
  "futures",
- "gestalt-context",
  "gestalt-core",
- "gestalt-mcp",
- "gestalt-models",
- "gestalt-policy",
  "gestalt-runtime",
- "gestalt-skills",
- "gestalt-tools",
- "gestalt-trace",
- "gestalt-verify",
  "keyring",
  "reqwest",
  "rpassword",
@@ -1003,18 +995,12 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
- "crossterm",
  "futures",
  "gestalt-app",
  "gestalt-core",
- "gestalt-models",
- "gestalt-policy",
  "gestalt-runtime",
- "gestalt-tools",
- "gestalt-trace",
- "gestalt-verify",
  "insta",
- "ratatui",
+ "rpassword",
  "serde",
  "serde_json",
  "tokio",
@@ -1025,27 +1011,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "gestalt-context"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "gestalt-core",
- "gestalt-trace",
- "pulldown-cmark",
- "serde",
- "serde_json",
- "sha2",
- "tiktoken-rs",
-]
-
-[[package]]
 name = "gestalt-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "gestalt-verify",
  "schemars",
  "serde",
  "serde_json",
@@ -1057,150 +1028,59 @@ dependencies = [
 ]
 
 [[package]]
-name = "gestalt-exec"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "gestalt-core",
- "libc",
- "tokio",
-]
-
-[[package]]
-name = "gestalt-mcp"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "gestalt-core",
- "schemars",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
-]
-
-[[package]]
-name = "gestalt-models"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "eventsource-stream",
- "futures",
- "gestalt-core",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tokio-stream",
-]
-
-[[package]]
-name = "gestalt-policy"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "gestalt-core",
- "glob",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "url",
-]
-
-[[package]]
 name = "gestalt-runtime"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "futures",
- "gestalt-context",
- "gestalt-core",
- "gestalt-mcp",
- "gestalt-skills",
- "gestalt-trace",
- "schemars",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "gestalt-skills"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gestalt-tools"
-version = "0.1.0"
-dependencies = [
- "async-trait",
  "encoding_rs",
+ "eventsource-stream",
+ "futures",
  "gestalt-core",
- "gestalt-exec",
- "gestalt-policy",
  "glob",
+ "libc",
+ "pulldown-cmark",
  "regex",
  "reqwest",
  "schemars",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "similar",
  "tempfile",
  "thiserror 2.0.18",
+ "tiktoken-rs",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "toml",
+ "tracing",
  "url",
+ "uuid",
  "walkdir",
 ]
 
 [[package]]
-name = "gestalt-trace"
+name = "gestalt-tui"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "clap",
+ "crossterm",
  "futures",
+ "gestalt-app",
  "gestalt-core",
- "gestalt-models",
- "gestalt-policy",
+ "gestalt-runtime",
+ "insta",
+ "ratatui",
  "serde",
  "serde_json",
- "sha2",
  "tokio",
+ "toml",
  "tracing",
- "uuid",
-]
-
-[[package]]
-name = "gestalt-verify"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "gestalt-core",
- "gestalt-tools",
- "pulldown-cmark",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "tokio",
- "url",
+ "tracing-subscriber",
  "uuid",
 ]
 

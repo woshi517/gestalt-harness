@@ -15,6 +15,7 @@ use gestalt_core::policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 use gestalt_core::session::Session;
 use gestalt_core::tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema};
 use gestalt_core::tool_descriptor::ToolNamespace;
+use gestalt_runtime as gestalt_skills;
 use gestalt_runtime::composition_hooks::{
     CompositionHooks, HookOutcome, RuntimeContextHookAdapter,
 };

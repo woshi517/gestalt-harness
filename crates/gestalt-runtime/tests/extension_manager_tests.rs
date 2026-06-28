@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
+use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::extension::{
     ComponentFingerprint, ComponentInstanceId, ComponentKind, ExtensionInventory,
     ExtensionLauncher, ExtensionManager, ExtensionProcessInstance, ExtensionProcessState,

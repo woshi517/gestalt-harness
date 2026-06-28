@@ -1,9 +1,9 @@
 use std::fs;
 
-use gestalt_app::config::EffectiveConfig;
 use crate::output::{ExportFormat, ExportReport};
-use gestalt_app::runs;
 use crate::trace::resolve_trace_target;
+use gestalt_app::config::EffectiveConfig;
+use gestalt_app::runs;
 
 /// Exports a run trace into the specified format (Markdown, JSONL).
 pub fn export_run(

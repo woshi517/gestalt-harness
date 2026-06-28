@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
+use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::extension::{
     ComponentInstanceId, ComponentKind, ExtensionManager, ExtensionRuntimeComponent,
     LocalProcessLauncher, RuntimeExtensionSnapshot, RuntimeGeneration,

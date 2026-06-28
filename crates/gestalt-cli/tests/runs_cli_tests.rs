@@ -1,5 +1,6 @@
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
+use gestalt_cli::gestalt_trace;
 use std::fs;
 use std::path::PathBuf;
 
@@ -89,13 +90,13 @@ fn test_runs_prune_and_delete() {
     };
     let config = load_effective_config(&overrides).unwrap();
 
-    let prune_dry = prune_runs(&config, Some("1s".to_string()), true, true, false).unwrap();
+    let prune_dry = prune_runs(&config, Some("1s".to_string()), true, true, false, None).unwrap();
     assert!(prune_dry.dry_run);
     assert_eq!(prune_dry.pruned_runs.len(), 2);
     assert!(run1.exists());
     assert!(run2.exists());
 
-    let prune_real = prune_runs(&config, Some("1s".to_string()), false, true, false).unwrap();
+    let prune_real = prune_runs(&config, Some("1s".to_string()), false, true, false, None).unwrap();
     assert!(!prune_real.dry_run);
     assert_eq!(prune_real.pruned_runs.len(), 2);
     assert!(!run1.exists());
@@ -106,7 +107,7 @@ fn test_runs_prune_and_delete() {
     fs::write(run3.join("trace.jsonl"), "{}").unwrap();
     assert!(run3.exists());
 
-    let delete_rep = delete_run(&config, "20260602T150000Z-session-3", true, false).unwrap();
+    let delete_rep = delete_run(&config, "20260602T150000Z-session-3", true, false, None).unwrap();
     assert_eq!(delete_rep.deleted_run, "20260602T150000Z-session-3");
     assert!(!run3.exists());
 
@@ -240,7 +241,7 @@ fn test_runs_new_features() {
     fs::create_dir_all(&outside_run).unwrap();
     fs::write(outside_run.join("trace.jsonl"), "{}").unwrap();
 
-    let delete_outside = delete_run(&config, outside_run.to_str().unwrap(), true, false);
+    let delete_outside = delete_run(&config, outside_run.to_str().unwrap(), true, false, None);
     assert!(delete_outside.is_err());
     let err_msg = match delete_outside {
         Err(e) => format!("{}", e),
@@ -250,7 +251,8 @@ fn test_runs_new_features() {
 
     // 4. Test non-interactive prune / delete rejecting execution (only if stdin is indeed non-interactive in this test environment)
     if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        let delete_noninteractive = delete_run(&config, "20260602T100000Z-session-1", false, false);
+        let delete_noninteractive =
+            delete_run(&config, "20260602T100000Z-session-1", false, false, None);
         assert!(delete_noninteractive.is_err());
         let err_msg_noninteractive = match delete_noninteractive {
             Err(e) => format!("{}", e),
@@ -258,7 +260,8 @@ fn test_runs_new_features() {
         };
         assert!(err_msg_noninteractive.contains("non-interactive execution requires"));
 
-        let prune_noninteractive = prune_runs(&config, Some("1s".to_string()), false, false, false);
+        let prune_noninteractive =
+            prune_runs(&config, Some("1s".to_string()), false, false, false, None);
         assert!(prune_noninteractive.is_err());
         let err_msg_prune = match prune_noninteractive {
             Err(e) => format!("{}", e),
@@ -398,19 +401,19 @@ fn test_runs_descendant_aware_prune_and_delete() {
     child_manifest.save_to(&child_dir.join("run.json")).unwrap();
 
     // 1. Delete parent without cascade should fail because child is a descendant
-    let delete_err = delete_run(&config, &parent_id, true, false);
+    let delete_err = delete_run(&config, &parent_id, true, false, None);
     assert!(delete_err.is_err());
     let err_msg = format!("{:?}", delete_err.err().unwrap());
     assert!(err_msg.contains("has descendant runs") || err_msg.contains("cascade"));
 
     // 2. Prune parent without cascade should fail
-    let prune_err = prune_runs(&config, Some("1h".to_string()), false, true, false);
+    let prune_err = prune_runs(&config, Some("1h".to_string()), false, true, false, None);
     assert!(prune_err.is_err());
     let prune_err_msg = format!("{:?}", prune_err.err().unwrap());
     assert!(prune_err_msg.contains("has descendant runs") || prune_err_msg.contains("cascade"));
 
     // 3. Delete parent WITH cascade should succeed and delete both parent and child
-    let delete_ok = delete_run(&config, &parent_id, true, true).unwrap();
+    let delete_ok = delete_run(&config, &parent_id, true, true, None).unwrap();
     assert_eq!(delete_ok.deleted_run, parent_id);
     assert!(!parent_dir.exists());
     assert!(!child_dir.exists());

@@ -14,10 +14,10 @@ use gestalt_tools::default_registry;
 use gestalt_trace::resume::ResumeAnalyzer;
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, RunManifest};
 
+use crate::slash::{handle_slash_command, SlashOutcome};
 use gestalt_app::config::{load_effective_config, CliOverrides, EffectiveConfig};
 use gestalt_app::run::run_prompt;
 use gestalt_app::sessions::run_session_action;
-use crate::slash::{handle_slash_command, SlashOutcome};
 
 /// Entry point for running the interactive chat REPL.
 pub async fn run_chat(
@@ -50,7 +50,7 @@ pub async fn run_chat(
             })
         })?;
 
-        let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
+        let snapshotter = gestalt_runtime::GitWorkspaceSnapshotter;
         let current_snapshot = snapshotter.capture(&config.workspace_root).await?;
         let tools = Arc::new(default_registry()?);
         let skill_explicit: Vec<std::path::PathBuf> = config
@@ -210,6 +210,23 @@ pub async fn run_chat(
             }
         });
 
+        let (event_tx, printer_handle) = {
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<gestalt_core::AgentEvent>();
+            let handle = tokio::spawn(async move {
+                while let Some(event) = rx.recv().await {
+                    if let Some(line) = crate::output::render_event(&event) {
+                        println!("{line}");
+                    }
+                }
+            });
+            (tx, handle)
+        };
+
+        let approval = Some(Arc::new(crate::approval::CliApprovalProvider)
+            as Arc<dyn gestalt_core::ApprovalProvider>);
+        let interaction = Some(Arc::new(crate::approval::CliInteractionProvider)
+            as Arc<dyn gestalt_app::InteractionProvider>);
+
         let res = if let Some(ref parent) = parent_run_id {
             run_session_action(
                 &config,
@@ -219,8 +236,9 @@ pub async fn run_chat(
                 None,
                 api_key.clone(),
                 turn_cancel,
-                None,
-                None,
+                approval,
+                Some(event_tx),
+                interaction,
             )
             .await
         } else {
@@ -229,14 +247,16 @@ pub async fn run_chat(
                 trimmed,
                 api_key.clone(),
                 turn_cancel,
-                None,
-                None,
+                approval,
+                Some(event_tx),
                 Some(session_id.clone()),
+                interaction,
             )
             .await
         };
 
         cancel_watcher.abort();
+        let _ = printer_handle.await;
 
         match res {
             Ok(run_dir) => {

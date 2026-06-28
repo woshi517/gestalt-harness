@@ -1,8 +1,8 @@
 use gestalt_app::config::CliOverrides;
-use gestalt_cli::policy::validate_policy;
 use gestalt_app::workspace::{
     doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
 };
+use gestalt_cli::policy::validate_policy;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;

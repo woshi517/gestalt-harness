@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use gestalt_app::config::CliOverrides;
 use gestalt_app::runtime_factory::inspect_runtime;
+use gestalt_cli::gestalt_models;
 use gestalt_core::{
     event::AgentEvent,
     message::Message,

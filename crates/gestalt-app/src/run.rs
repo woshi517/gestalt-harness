@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
+use crate::config::EffectiveConfig;
 use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter,
@@ -8,7 +9,6 @@ use gestalt_policy::MinimalPolicyEngine;
 use gestalt_trace::{
     aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink,
 };
-use crate::{config::EffectiveConfig, reports::render_event};
 
 /// Run a single user prompt in a new session.
 ///
@@ -24,12 +24,13 @@ pub async fn run_prompt(
     approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<gestalt_core::AgentEvent>>,
     session_id_override: Option<String>,
+    interaction: Option<Arc<dyn crate::InteractionProvider>>,
 ) -> Result<PathBuf, gestalt_core::HarnessError> {
     let session_id =
         session_id_override.unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
     let run_id = format!("run-{}", uuid::Uuid::new_v4());
 
-    let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
+    let snapshotter = gestalt_runtime::GitWorkspaceSnapshotter;
     let snapshot = snapshotter.capture(&config.workspace_root).await?;
 
     let (sink_inner, run_paths) = JsonlTraceSink::create_run(
@@ -43,7 +44,7 @@ pub async fn run_prompt(
     let runtime = crate::runtime_factory::build_cli_runtime(
         config,
         api_key,
-        event_tx.clone(),
+        interaction,
         approval_override,
         Some(sink.clone() as Arc<dyn gestalt_core::trace::TraceSink>),
     )
@@ -102,9 +103,7 @@ pub async fn run_prompt(
     let render_task = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
             if let Some(ref user_tx) = event_tx_clone {
-                let _ = user_tx.send(event.clone());
-            } else if let Some(line) = render_event(&event) {
-                println!("{line}");
+                let _ = user_tx.send(event);
             }
         }
     });
@@ -340,11 +339,7 @@ pub(crate) fn flush_trace_sink_with_warning(
             }
         }
 
-        if let Some(line) = render_event(&event) {
-            eprintln!("{line}");
-        } else {
-            eprintln!("trace flush failed: {err}");
-        }
+        eprintln!("trace flush failed: {err}");
     }
 }
 
@@ -623,7 +618,7 @@ pub fn compute_skill_fingerprint(
     let active_descriptors: Vec<&gestalt_skills::SkillDescriptor> = if let Some(task) = current_task
     {
         let index = gestalt_skills::SkillIndex::new(discovered.to_vec());
-        let state = gestalt_skills::activation::ActivationState::new(config.skills.active.clone());
+        let state = gestalt_skills::ActivationState::new(config.skills.active.clone());
         let resolved = gestalt_skills::ActivationEngine::resolve(&index, &state, Some(task));
         resolved
             .iter()

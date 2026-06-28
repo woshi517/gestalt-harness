@@ -170,7 +170,7 @@ pub async fn refresh_models(
         }
     };
 
-    let cred_resolver = crate::auth::build_credential_resolver(None, false);
+    let cred_resolver = crate::auth::build_credential_resolver(None, None);
     let api_key = match cred_resolver.resolve(&resolved.auth) {
         Ok(cred) => Some(cred.secret().to_string()),
         Err(_) => None,

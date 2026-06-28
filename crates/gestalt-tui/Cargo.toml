@@ -1,0 +1,31 @@
+[package]
+name = "gestalt-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+gestalt-core = { path = "../gestalt-core" }
+gestalt-app = { path = "../gestalt-app" }
+gestalt-runtime = { path = "../gestalt-runtime" }
+clap = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+insta = { version = "1", features = ["filters"] }

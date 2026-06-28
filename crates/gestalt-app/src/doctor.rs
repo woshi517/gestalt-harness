@@ -3,8 +3,8 @@ use std::{fs, path::PathBuf};
 
 use crate::auth::resolve_auth;
 use crate::config::{load_effective_config, CliOverrides};
-use crate::reports::{GlobalDoctorReport, WorkspaceDoctorReport};
 use crate::providers::probe_provider;
+use crate::reports::{GlobalDoctorReport, WorkspaceDoctorReport};
 
 pub async fn diagnose_workspace(
     overrides: &CliOverrides,

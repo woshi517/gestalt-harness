@@ -4,7 +4,6 @@ use gestalt_models::auth::{
     ProviderAuthConfig, ResolvedCredential,
 };
 use std::collections::HashMap;
-use std::io::{stdin, IsTerminal};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{
@@ -205,19 +204,22 @@ impl CredentialResolver for KeychainCredentialResolver {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct PromptCredentialResolver;
+#[derive(Clone)]
+pub struct PromptCredentialResolver {
+    pub interaction: Arc<dyn crate::InteractionProvider>,
+}
+
+impl std::fmt::Debug for PromptCredentialResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PromptCredentialResolver").finish()
+    }
+}
 
 impl CredentialResolver for PromptCredentialResolver {
     fn resolve(&self, auth: &ProviderAuthConfig) -> Result<ResolvedCredential, HarnessError> {
-        if stdin().is_terminal() {
-            println!("Enter API key for provider '{}':", auth.provider_id);
-            if let Ok(key) = rpassword::read_password() {
-                let trimmed = key.trim().to_string();
-                if !trimmed.is_empty() {
-                    return Ok(ResolvedCredential::new(trimmed, CredentialSource::Session));
-                }
-            }
+        let prompt = format!("Enter API key for provider '{}':", auth.provider_id);
+        if let Some(key) = self.interaction.prompt_password(&prompt) {
+            return Ok(ResolvedCredential::new(key, CredentialSource::Session));
         }
         Err(HarnessError::Provider(ProviderError::AuthFailed {
             provider: auth.provider_id.clone(),
@@ -227,7 +229,7 @@ impl CredentialResolver for PromptCredentialResolver {
 
 pub fn build_credential_resolver(
     api_key_override: Option<String>,
-    allow_interaction: bool,
+    interaction: Option<Arc<dyn crate::InteractionProvider>>,
 ) -> Arc<dyn CredentialResolver> {
     let mut resolvers: Vec<Arc<dyn CredentialResolver>> = Vec::new();
     if let Some(key) = api_key_override {
@@ -236,8 +238,8 @@ pub fn build_credential_resolver(
     resolvers.push(Arc::new(gestalt_models::auth::InlineCredentialResolver));
     resolvers.push(Arc::new(EnvironmentCredentialResolver));
     resolvers.push(Arc::new(KeychainCredentialResolver));
-    if allow_interaction {
-        resolvers.push(Arc::new(PromptCredentialResolver));
+    if let Some(inter) = interaction {
+        resolvers.push(Arc::new(PromptCredentialResolver { interaction: inter }));
     }
     Arc::new(ChainCredentialResolver::new(resolvers))
 }
@@ -268,7 +270,7 @@ pub fn resolve_auth(
     };
 
     let auth_config = resolved.auth.clone();
-    let cred_resolver = build_credential_resolver(None, false);
+    let cred_resolver = build_credential_resolver(None, None);
 
     let (source, status, variable) = if let Ok(cred) = cred_resolver.resolve(&auth_config) {
         let src = match cred.source() {

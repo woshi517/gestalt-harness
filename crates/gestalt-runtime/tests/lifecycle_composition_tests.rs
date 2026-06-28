@@ -9,6 +9,7 @@ use gestalt_core::{
     tool::{ToolCatalog, ToolSchema},
     ContextStability,
 };
+use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{
     AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, BeforeContextBuildCtx,
     BeforeToolPolicyCtx, CompositionHooks, ContextContributor, HookOutcome, OnEventCtx,
@@ -192,3 +193,5 @@ fn runtime_snapshot_contains_typed_context_and_policy_plans() {
         "native:composition_hooks:before_tool_policy"
     );
 }
+#[allow(unused_imports)]
+use gestalt_runtime as gestalt_trace;

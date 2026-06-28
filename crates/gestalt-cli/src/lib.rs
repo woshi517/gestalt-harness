@@ -27,6 +27,12 @@
     clippy::large_futures
 )]
 
+pub extern crate gestalt_runtime as gestalt_models;
+pub extern crate gestalt_runtime as gestalt_policy;
+pub extern crate gestalt_runtime as gestalt_tools;
+pub extern crate gestalt_runtime as gestalt_trace;
+pub extern crate gestalt_runtime as gestalt_verify;
+
 pub mod approval;
 pub mod chat;
 pub mod cost;
@@ -34,7 +40,7 @@ pub mod export;
 pub mod output;
 pub mod policy;
 pub mod replay;
+pub mod runs;
 pub mod slash;
 pub mod tools;
 pub mod trace;
-pub mod runs;

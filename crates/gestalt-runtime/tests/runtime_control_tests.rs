@@ -9,6 +9,8 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
+use gestalt_runtime as gestalt_context;
+use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::{
     activation::HostLaunchContext, AgentRuntimeBuilder, HostControl, ReloadExtensionsRequest,
     RuntimeConfig, RuntimeControl, RuntimeHost,

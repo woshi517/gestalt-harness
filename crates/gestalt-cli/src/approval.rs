@@ -103,3 +103,27 @@ fn print_session_grant_notice(request: &ApprovalRequest) {
         hash_input_short(&request.input)
     );
 }
+
+pub struct CliInteractionProvider;
+
+impl gestalt_app::InteractionProvider for CliInteractionProvider {
+    fn prompt_password(&self, prompt: &str) -> Option<String> {
+        println!("{}", prompt);
+        rpassword::read_password()
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    fn confirm(&self, prompt: &str) -> bool {
+        print!("{} [y/N]: ", prompt);
+        let _ = io::stdout().flush();
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_ok() {
+            let trimmed = input.trim().to_lowercase();
+            trimmed == "y" || trimmed == "yes"
+        } else {
+            false
+        }
+    }
+}

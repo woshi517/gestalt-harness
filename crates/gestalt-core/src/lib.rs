@@ -81,7 +81,7 @@ pub use session::{ExecutionMode, RunResult, Session, SessionConfig};
 pub use session_queue::{
     MessageSource, QueueAck, QueueLifecycle, QueuedSessionMessage, SteeringQueue,
 };
-pub use snapshot::{GitWorkspaceSnapshotter, WorkspaceSnapshot, WorkspaceSnapshotter};
+pub use snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter};
 pub use tool::{
     artifact_path, is_audited_local_command, sanitize_artifact_stem, RiskLevel, Tool, ToolArtifact,
     ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolSchema,

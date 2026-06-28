@@ -1,8 +1,20 @@
 #![allow(clippy::large_futures)]
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use clap::{Args, Parser, Subcommand};
+use gestalt_app::{
+    auth::{auth_doctor, resolve_auth},
+    config::{explain_config, load_effective_config, validate_workspace_config, CliOverrides},
+    context, doctor,
+    models::{inspect_model, list_models, refresh_models, search_models},
+    providers::{doctor_provider, inspect_provider, list_providers},
+    run::run_prompt,
+    sessions,
+    workspace::{
+        doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
+    },
+};
 use gestalt_cli::{
     chat,
     cost::calculate_cost,
@@ -21,18 +33,6 @@ use gestalt_cli::{
     policy,
     replay::replay_display,
     runs, tools, trace,
-};
-use gestalt_app::{
-    auth::{auth_doctor, resolve_auth},
-    config::{explain_config, load_effective_config, validate_workspace_config, CliOverrides},
-    context, doctor,
-    models::{inspect_model, list_models, refresh_models, search_models},
-    providers::{doctor_provider, inspect_provider, list_providers},
-    run::run_prompt,
-    sessions,
-    workspace::{
-        doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,
-    },
 };
 
 #[derive(Parser)]
@@ -63,7 +63,7 @@ struct Cli {
     #[arg(long, global = true)]
     no_color: bool,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -601,10 +601,124 @@ fn handle_result<T: CliReport>(
     }
 }
 
+struct TuiLaunchRequest {
+    workspace: Option<PathBuf>,
+    model: Option<String>,
+    mode: Option<String>,
+    max_turns: Option<usize>,
+    provider: Option<String>,
+    profile: Option<String>,
+    api_key: Option<String>,
+    context_window: Option<usize>,
+    verbose: bool,
+    quiet: bool,
+    no_color: bool,
+    run: Option<String>,
+    prompt: Option<String>,
+}
+
+impl TuiLaunchRequest {
+    fn launch(self) -> Result<(), Box<dyn std::error::Error>> {
+        let tui_bin =
+            std::env::var("GESTALT_TUI_BIN").unwrap_or_else(|_| "gestalt-tui".to_string());
+
+        if tui_bin == "true" {
+            return Ok(());
+        }
+        if tui_bin == "false" {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "gestalt-tui is not installed; run `cargo install gestalt-tui`",
+            )));
+        }
+
+        let mut cmd = std::process::Command::new(&tui_bin);
+        if let Some(ws) = self.workspace {
+            cmd.arg("--workspace").arg(ws);
+        }
+        if let Some(m) = self.model {
+            cmd.arg("--model").arg(m);
+        }
+        if let Some(m) = self.mode {
+            cmd.arg("--mode").arg(m);
+        }
+        if let Some(t) = self.max_turns {
+            cmd.arg("--max-turns").arg(t.to_string());
+        }
+        if let Some(p) = self.provider {
+            cmd.arg("--provider").arg(p);
+        }
+        if let Some(p) = self.profile {
+            cmd.arg("--profile").arg(p);
+        }
+        if let Some(k) = self.api_key {
+            cmd.arg("--api-key").arg(k);
+        }
+        if let Some(c) = self.context_window {
+            cmd.arg("--context-window").arg(c.to_string());
+        }
+        if self.verbose {
+            cmd.arg("--verbose");
+        }
+        if self.quiet {
+            cmd.arg("--quiet");
+        }
+        if self.no_color {
+            cmd.arg("--no-color");
+        }
+
+        if let Some(r) = self.run {
+            cmd.arg("--run").arg(r);
+        }
+        if let Some(p) = self.prompt {
+            cmd.arg("--prompt").arg(p);
+        }
+
+        let status = cmd.status().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "gestalt-tui is not installed; run `cargo install gestalt-tui`",
+                )
+            } else {
+                e
+            }
+        })?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+    }
+}
+
+fn make_tui_launch_request(
+    cli: &Cli,
+    run: Option<String>,
+    prompt: Option<String>,
+) -> TuiLaunchRequest {
+    TuiLaunchRequest {
+        workspace: cli.workspace.clone(),
+        model: cli.model.clone(),
+        mode: cli.mode.clone(),
+        max_turns: cli.max_turns,
+        provider: cli.provider.clone(),
+        profile: cli.profile.clone(),
+        api_key: cli.api_key.clone(),
+        context_window: cli.context_window,
+        verbose: cli.verbose,
+        quiet: cli.quiet,
+        no_color: cli.no_color,
+        run,
+        prompt,
+    }
+}
+
 #[allow(clippy::large_stack_frames)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     let mut overrides = CliOverrides {
         provider: cli.provider.clone(),
         model: cli.model.clone(),
@@ -619,7 +733,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let format = cli.format;
     let quiet = cli.quiet;
 
-    match cli.command {
+    let cmd = cli.command.take().unwrap_or(Command::Tui {
+        run: None,
+        prompt: None,
+    });
+
+    match cmd {
         Command::Run {
             prompt,
             resume,
@@ -632,27 +751,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 overrides.mode = Some("yolo".to_string());
             }
             if tui {
-                #[cfg(feature = "tui")]
-                {
-                    let cancel_token = gestalt_core::CancelToken::new();
-                    let config = load_effective_config(&overrides)?;
-                    gestalt_cli::tui::run_tui(
-                        &config,
-                        resume,
-                        Some(prompt),
-                        cli.api_key.clone(),
-                        cancel_token,
-                    )
-                    .await
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-                }
-                #[cfg(not(feature = "tui"))]
-                {
-                    return Err(Box::new(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-                        field: "tui".to_string(),
-                        reason: "TUI support is not enabled in this build. Please compile with --features tui.".to_string(),
-                    })) as Box<dyn std::error::Error>);
-                }
+                let request = make_tui_launch_request(&cli, resume, Some(prompt));
+                request.launch()?;
+                return Ok(());
             } else {
                 let cancel_token = gestalt_core::CancelToken::new();
                 let cancel_token_clone = cancel_token.clone();
@@ -680,6 +781,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     });
                 }
 
+                let (event_tx, printer_handle) = {
+                    let (tx, mut rx) =
+                        tokio::sync::mpsc::unbounded_channel::<gestalt_core::AgentEvent>();
+                    let handle = tokio::spawn(async move {
+                        while let Some(event) = rx.recv().await {
+                            if let Some(line) = gestalt_cli::output::render_event(&event) {
+                                println!("{line}");
+                            }
+                        }
+                    });
+                    (tx, handle)
+                };
+
+                let approval = Some(Arc::new(gestalt_cli::approval::CliApprovalProvider)
+                    as Arc<dyn gestalt_core::ApprovalProvider>);
+                let interaction = Some(Arc::new(gestalt_cli::approval::CliInteractionProvider)
+                    as Arc<dyn gestalt_app::InteractionProvider>);
+
                 let res: Result<RunReport, gestalt_core::HarnessError> = async {
                     let config = load_effective_config(&overrides)?;
                     let run_dir = if let Some(ref target) = resume {
@@ -691,8 +810,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             None,
                             cli.api_key.clone(),
                             cancel_token,
-                            None,
-                            None,
+                            approval,
+                            Some(event_tx),
+                            interaction,
                         )
                         .await?
                     } else {
@@ -701,15 +821,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &prompt,
                             cli.api_key.clone(),
                             cancel_token,
+                            approval,
+                            Some(event_tx),
                             None,
-                            None,
-                            None,
+                            interaction,
                         )
                         .await?
                     };
                     Ok(RunReport { run_dir })
                 }
                 .await;
+                let _ = printer_handle.await;
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -722,27 +844,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 overrides.mode = Some("yolo".to_string());
             }
             if tui {
-                #[cfg(feature = "tui")]
-                {
-                    let cancel_token = gestalt_core::CancelToken::new();
-                    let config = load_effective_config(&overrides)?;
-                    gestalt_cli::tui::run_tui(
-                        &config,
-                        resume,
-                        None,
-                        cli.api_key.clone(),
-                        cancel_token,
-                    )
-                    .await
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-                }
-                #[cfg(not(feature = "tui"))]
-                {
-                    return Err(Box::new(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-                        field: "tui".to_string(),
-                        reason: "TUI support is not enabled in this build. Please compile with --features tui.".to_string(),
-                    })) as Box<dyn std::error::Error>);
-                }
+                let request = make_tui_launch_request(&cli, resume, None);
+                request.launch()?;
+                return Ok(());
             } else {
                 let cancel_token = gestalt_core::CancelToken::new();
                 #[cfg(unix)]
@@ -766,23 +870,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Command::Tui { run, prompt } => {
-            #[cfg(feature = "tui")]
-            {
-                let cancel_token = gestalt_core::CancelToken::new();
-                let config = load_effective_config(&overrides)?;
-                gestalt_cli::tui::run_tui(&config, run, prompt, cli.api_key.clone(), cancel_token)
-                    .await
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-            }
-            #[cfg(not(feature = "tui"))]
-            {
-                let _ = run;
-                let _ = prompt;
-                return Err(Box::new(gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidValue {
-                    field: "tui".to_string(),
-                    reason: "TUI support is not enabled in this build. Please compile with --features tui.".to_string(),
-                })) as Box<dyn std::error::Error>);
-            }
+            let request = make_tui_launch_request(&cli, run, prompt);
+            request.launch()?;
+            return Ok(());
         }
         Command::Replay { path } => {
             let res: Result<ReplayReport, Box<dyn std::error::Error>> = (|| {
@@ -1175,7 +1265,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } => {
                 let config = load_effective_config(&overrides)?;
                 let fmt = if json { OutputFormat::Json } else { format };
-                let res = runs::prune_runs(&config, older_than, dry_run, yes, cascade);
+                let res = runs::prune_runs(
+                    &config,
+                    older_than,
+                    dry_run,
+                    yes,
+                    cascade,
+                    Some(&gestalt_cli::approval::CliInteractionProvider),
+                );
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     fmt,
@@ -1190,7 +1287,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } => {
                 let config = load_effective_config(&overrides)?;
                 let fmt = if json { OutputFormat::Json } else { format };
-                let res = runs::delete_run(&config, &run_id_or_path, yes, cascade);
+                let res = runs::delete_run(
+                    &config,
+                    &run_id_or_path,
+                    yes,
+                    cascade,
+                    Some(&gestalt_cli::approval::CliInteractionProvider),
+                );
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     fmt,
@@ -1291,6 +1394,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     cancel_token,
                     None,
                     None,
+                    None,
                 )
                 .await;
                 handle_result(
@@ -1333,6 +1437,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     None,
                     cli.api_key.clone(),
                     cancel_token,
+                    None,
                     None,
                     None,
                 )
@@ -1381,6 +1486,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Some(at),
                     cli.api_key.clone(),
                     cancel_token,
+                    None,
                     None,
                     None,
                 )
@@ -1454,15 +1560,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Command::Runtime(command) => match command.command {
             RuntimeSubcommand::Inspect => {
-                let res = gestalt_app::runtime_factory::inspect_runtime(&overrides, cli.api_key.clone())
-                    .await
-                    .map(|inspect| RuntimeInspectReport { inspect });
+                let res =
+                    gestalt_app::runtime_factory::inspect_runtime(&overrides, cli.api_key.clone())
+                        .await
+                        .map(|inspect| RuntimeInspectReport { inspect });
                 handle_result(res, format, quiet)?;
             }
             RuntimeSubcommand::Events => {
-                let res = gestalt_app::runtime_factory::get_runtime_events(&overrides, cli.api_key.clone())
-                    .await
-                    .map(|events| RuntimeEventsReport { events });
+                let res = gestalt_app::runtime_factory::get_runtime_events(
+                    &overrides,
+                    cli.api_key.clone(),
+                )
+                .await
+                .map(|events| RuntimeEventsReport { events });
                 handle_result(res, format, quiet)?;
             }
             RuntimeSubcommand::Doctor => {
@@ -1471,62 +1581,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle_result(res, format, quiet)?;
             }
         },
-        Command::Extension(command) => match command.command {
-            ExtensionSubcommand::List => {
-                let res = gestalt_app::runtime_factory::list_extensions(&overrides)
-                    .map(|extensions| ExtensionsListReport { extensions });
-                handle_result(res, format, quiet)?;
+        Command::Extension(command) => {
+            match command.command {
+                ExtensionSubcommand::List => {
+                    let res = gestalt_app::runtime_factory::list_extensions(&overrides)
+                        .map(|extensions| ExtensionsListReport { extensions });
+                    handle_result(res, format, quiet)?;
+                }
+                ExtensionSubcommand::Enable { id } => {
+                    let res =
+                        gestalt_app::runtime_factory::enable_extension(&overrides, &id).map(|_| {
+                            ExtensionActionReport {
+                                action: "enable".to_string(),
+                                extension_id: id.clone(),
+                                success: true,
+                                message: format!("Extension '{}' enabled.", id),
+                            }
+                        });
+                    handle_result(res, format, quiet)?;
+                }
+                ExtensionSubcommand::Disable { id } => {
+                    let res = gestalt_app::runtime_factory::disable_extension(&overrides, &id).map(
+                        |_| ExtensionActionReport {
+                            action: "disable".to_string(),
+                            extension_id: id.clone(),
+                            success: true,
+                            message: format!("Extension '{}' disabled.", id),
+                        },
+                    );
+                    handle_result(res, format, quiet)?;
+                }
+                ExtensionSubcommand::Inspect { id } => {
+                    let res = gestalt_app::runtime_factory::inspect_extension(&overrides, &id)
+                        .and_then(|opt| {
+                            opt.ok_or_else(|| format!("Extension '{}' not found", id).into())
+                        })
+                        .map(|manifest| ExtensionInspectReport { manifest });
+                    handle_result(res, format, quiet)?;
+                }
+                ExtensionSubcommand::Reload => {
+                    let res = gestalt_app::runtime_factory::list_extensions(&overrides).map(
+                        |extensions| ExtensionActionReport {
+                            action: "reload".to_string(),
+                            extension_id: "all".to_string(),
+                            success: true,
+                            message: format!(
+                                "Reloaded extensions. Active count: {}",
+                                extensions.iter().filter(|e| e.enabled).count()
+                            ),
+                        },
+                    );
+                    handle_result(res, format, quiet)?;
+                }
+                ExtensionSubcommand::Validate { path } => {
+                    let res = gestalt_app::runtime_factory::validate_extension(&path)
+                        .map(|manifest| ExtensionInspectReport { manifest });
+                    handle_result(res, format, quiet)?;
+                }
             }
-            ExtensionSubcommand::Enable { id } => {
-                let res = gestalt_app::runtime_factory::enable_extension(&overrides, &id).map(|_| {
-                    ExtensionActionReport {
-                        action: "enable".to_string(),
-                        extension_id: id.clone(),
-                        success: true,
-                        message: format!("Extension '{}' enabled.", id),
-                    }
-                });
-                handle_result(res, format, quiet)?;
-            }
-            ExtensionSubcommand::Disable { id } => {
-                let res = gestalt_app::runtime_factory::disable_extension(&overrides, &id).map(|_| {
-                    ExtensionActionReport {
-                        action: "disable".to_string(),
-                        extension_id: id.clone(),
-                        success: true,
-                        message: format!("Extension '{}' disabled.", id),
-                    }
-                });
-                handle_result(res, format, quiet)?;
-            }
-            ExtensionSubcommand::Inspect { id } => {
-                let res = gestalt_app::runtime_factory::inspect_extension(&overrides, &id)
-                    .and_then(|opt| {
-                        opt.ok_or_else(|| format!("Extension '{}' not found", id).into())
-                    })
-                    .map(|manifest| ExtensionInspectReport { manifest });
-                handle_result(res, format, quiet)?;
-            }
-            ExtensionSubcommand::Reload => {
-                let res = gestalt_app::runtime_factory::list_extensions(&overrides).map(|extensions| {
-                    ExtensionActionReport {
-                        action: "reload".to_string(),
-                        extension_id: "all".to_string(),
-                        success: true,
-                        message: format!(
-                            "Reloaded extensions. Active count: {}",
-                            extensions.iter().filter(|e| e.enabled).count()
-                        ),
-                    }
-                });
-                handle_result(res, format, quiet)?;
-            }
-            ExtensionSubcommand::Validate { path } => {
-                let res = gestalt_app::runtime_factory::validate_extension(&path)
-                    .map(|manifest| ExtensionInspectReport { manifest });
-                handle_result(res, format, quiet)?;
-            }
-        },
+        }
         Command::Skill(command) => match command.command {
             SkillSubcommand::List => {
                 let res = gestalt_app::runtime_factory::list_skills(&overrides)
@@ -1551,25 +1664,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle_result(res, format, quiet)?;
             }
             SkillSubcommand::Activate { name } => {
-                let res = gestalt_app::runtime_factory::activate_skill(&overrides, &name).map(|_| {
-                    SkillActionReport {
-                        action: "activate".to_string(),
-                        skill_name: name.clone(),
-                        success: true,
-                        message: format!("Skill '{}' activated.", name),
-                    }
-                });
+                let res =
+                    gestalt_app::runtime_factory::activate_skill(&overrides, &name).map(|_| {
+                        SkillActionReport {
+                            action: "activate".to_string(),
+                            skill_name: name.clone(),
+                            success: true,
+                            message: format!("Skill '{}' activated.", name),
+                        }
+                    });
                 handle_result(res, format, quiet)?;
             }
             SkillSubcommand::Deactivate { name } => {
-                let res = gestalt_app::runtime_factory::deactivate_skill(&overrides, &name).map(|_| {
-                    SkillActionReport {
-                        action: "deactivate".to_string(),
-                        skill_name: name.clone(),
-                        success: true,
-                        message: format!("Skill '{}' deactivated.", name),
-                    }
-                });
+                let res =
+                    gestalt_app::runtime_factory::deactivate_skill(&overrides, &name).map(|_| {
+                        SkillActionReport {
+                            action: "deactivate".to_string(),
+                            skill_name: name.clone(),
+                            success: true,
+                            message: format!("Skill '{}' deactivated.", name),
+                        }
+                    });
                 handle_result(res, format, quiet)?;
             }
             SkillSubcommand::Validate { path } => {
@@ -1612,6 +1727,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     base_url,
                     default_model,
                     api_key_env,
+                    Some(&gestalt_cli::approval::CliInteractionProvider),
                 )
             }
             .await;

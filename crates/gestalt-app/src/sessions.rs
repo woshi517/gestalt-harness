@@ -1,5 +1,4 @@
-use chrono::{DateTime, Utc};
-use serde::Serialize;
+use chrono::Utc;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -21,7 +20,7 @@ use gestalt_trace::{
 use crate::{
     config::EffectiveConfig,
     reports::{
-        render_event, RunManifestSummary, SessionHistoryReport, SessionInspectReport, SessionSummary,
+        RunManifestSummary, SessionHistoryReport, SessionInspectReport, SessionSummary,
         SessionsListReport, TimelineItem,
     },
     runs::{resolve_run_path, summarize_run_dir, RunSummary},
@@ -233,10 +232,10 @@ pub fn history_session(
                                     .join(" "),
                                 _ => String::new(),
                             };
-                            if !text.is_empty() {
-                                format!("Assistant: {}", text)
-                            } else {
+                            if text.is_empty() {
                                 "Assistant: [actions]".to_string()
+                            } else {
+                                format!("Assistant: {}", text)
                             }
                         }
                         AgentEvent::ToolExecutionStarted { ref tool_name, .. } => {
@@ -354,8 +353,8 @@ pub fn calculate_continuation_state(
     token_budget.reserved_output = config
         .context
         .reserved_output_tokens
-        .or(Some(current_model.max_output_tokens.min(8192)))
-        .or(config.tools.max_output_tokens.map(|v| v.min(8192)))
+        .or_else(|| Some(current_model.max_output_tokens.min(8192)))
+        .or_else(|| config.tools.max_output_tokens.map(|v| v.min(8192)))
         .unwrap_or(4096);
 
     (context_state, token_budget, model_changed)
@@ -376,6 +375,7 @@ pub async fn run_session_action(
     cancel_token: gestalt_core::cancel::CancelToken,
     approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<gestalt_core::AgentEvent>>,
+    interaction: Option<Arc<dyn crate::InteractionProvider>>,
 ) -> Result<PathBuf, gestalt_core::HarnessError> {
     // 1. Resolve parent run path
     let parent_run_path = match action {
@@ -384,7 +384,7 @@ pub async fn run_session_action(
     };
 
     // 2. Perform preflight analysis
-    let snapshotter = gestalt_core::snapshot::GitWorkspaceSnapshotter;
+    let snapshotter = gestalt_runtime::GitWorkspaceSnapshotter;
     let current_snapshot = snapshotter.capture(&config.workspace_root).await?;
 
     let tools = Arc::new(default_registry()?);
@@ -474,7 +474,7 @@ pub async fn run_session_action(
                 ));
             }
             let envelopes = gestalt_trace::read_trace(&trace_path)
-                .map_err(|e| gestalt_core::HarnessError::Trace(e))?;
+                .map_err(gestalt_core::HarnessError::Trace)?;
             let mut target_checkpoint = None;
             for env in &envelopes {
                 if matches!(env.event, gestalt_core::AgentEvent::Checkpoint { .. })
@@ -547,7 +547,7 @@ pub async fn run_session_action(
     let runtime = crate::runtime_factory::build_cli_runtime(
         config,
         api_key,
-        event_tx.clone(),
+        interaction,
         approval_override,
         Some(sink.clone() as Arc<dyn gestalt_core::trace::TraceSink>),
     )
@@ -686,8 +686,6 @@ pub async fn run_session_action(
             sink.emit(loaded_event.clone())?;
             if let Some(ref tx) = event_tx {
                 let _ = tx.send(loaded_event);
-            } else if let Some(line) = render_event(&loaded_event) {
-                println!("{line}");
             }
         }
         analysis
@@ -755,9 +753,7 @@ pub async fn run_session_action(
     let render_task = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
             if let Some(ref user_tx) = event_tx_clone {
-                let _ = user_tx.send(event.clone());
-            } else if let Some(line) = render_event(&event) {
-                println!("{line}");
+                let _ = user_tx.send(event);
             }
         }
     });

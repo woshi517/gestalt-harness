@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub async fn build_cli_runtime(
     config: &EffectiveConfig,
     api_key: Option<String>,
-    event_tx: Option<tokio::sync::mpsc::UnboundedSender<gestalt_core::AgentEvent>>,
+    interaction: Option<Arc<dyn crate::InteractionProvider>>,
     approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
     trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
 ) -> Result<AgentRuntime, HarnessError> {
@@ -19,7 +19,7 @@ pub async fn build_cli_runtime(
             eprintln!("Warning: {}", warning.message);
         }
     }
-    let resolver = crate::auth::build_credential_resolver(api_key, event_tx.is_none());
+    let resolver = crate::auth::build_credential_resolver(api_key, interaction);
     let lookup_id = resolved_provider
         .protocol
         .as_deref()
@@ -751,14 +751,14 @@ pub fn inspect_skill(
 #[allow(clippy::missing_errors_doc)]
 pub fn validate_skill(
     path: &std::path::Path,
-) -> Result<gestalt_skills::manifest::SkillManifest, Box<dyn std::error::Error>> {
+) -> Result<gestalt_skills::skill_manifest::SkillManifest, Box<dyn std::error::Error>> {
     let manifest_path = if path.is_dir() {
         path.join("SKILL.md")
     } else {
         path.to_path_buf()
     };
     let raw = std::fs::read_to_string(&manifest_path)?;
-    let file = gestalt_skills::manifest::SkillManifest::parse(&raw)?;
+    let file = gestalt_skills::skill_manifest::SkillManifest::parse(&raw)?;
     let dir_name = manifest_path
         .parent()
         .and_then(|p| p.file_name())

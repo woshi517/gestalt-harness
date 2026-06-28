@@ -9,6 +9,8 @@ use gestalt_core::{
     tool_descriptor::ToolNamespace,
 };
 use gestalt_mcp::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime as gestalt_context;
+use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -125,7 +127,7 @@ async fn test_runtime_mcp_policy_check_and_execution() {
                 args: vec![
                     "run",
                     "--package",
-                    "gestalt-mcp",
+                    "gestalt-runtime",
                     "--bin",
                     "mock_mcp_server",
                 ]

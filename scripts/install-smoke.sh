@@ -27,7 +27,15 @@ cargo install \
   --path "$repo_root/crates/gestalt-cli" \
   --root "$install_root"
 
+cargo install \
+  --locked \
+  --force \
+  --offline \
+  --path "$repo_root/crates/gestalt-tui" \
+  --root "$install_root"
+
 binary="$install_root/bin/gestalt"
+tui_binary="$install_root/bin/gestalt-tui"
 fixture_workspace="$repo_root/tests/fixtures/workspaces/minimal"
 
 if [ ! -x "$binary" ]; then
@@ -35,7 +43,14 @@ if [ ! -x "$binary" ]; then
   exit 1
 fi
 
+if [ ! -x "$tui_binary" ]; then
+  printf 'ERROR: installed binary missing or not executable: %s\n' "$tui_binary" >&2
+  exit 1
+fi
+
 "$binary" --help >/dev/null
 "$binary" --workspace "$fixture_workspace" config validate >/dev/null
+"$tui_binary" --help >/dev/null
+GESTALT_TUI_BIN=true "$binary" >/dev/null
 
-printf 'OK: isolated install produced %s and validated %s\n' "$binary" "$fixture_workspace"
+printf 'OK: isolated install produced %s and %s and validated %s\n' "$binary" "$tui_binary" "$fixture_workspace"

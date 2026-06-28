@@ -19,6 +19,8 @@ use gestalt_core::{
     session::{Session, SessionConfig},
     tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
+use gestalt_runtime as gestalt_context;
+use gestalt_runtime as gestalt_trace;
 use gestalt_runtime::{
     AfterContextBuildCtx, AgentRuntimeBuilder, CompositionHooks, ContextPatch, HookOutcome,
     RuntimeConfig, RuntimeContextHookAdapter, RuntimeContextPipeline, RuntimeEventBus, UserInput,

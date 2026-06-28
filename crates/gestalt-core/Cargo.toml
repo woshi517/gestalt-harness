@@ -32,4 +32,3 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
-gestalt-verify = { path = "../gestalt-verify" }

@@ -1,3 +1,4 @@
+use gestalt_app::{gestalt_models, gestalt_trace};
 use gestalt_core::{
     AgentEvent, ApiFormat, ModelCapabilities, PromptCacheMode, ResolvedModelSnapshot,
 };

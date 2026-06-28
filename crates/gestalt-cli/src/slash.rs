@@ -1,7 +1,7 @@
 #![allow(clippy::pedantic, clippy::missing_errors_doc, clippy::too_many_lines)]
 
-use gestalt_app::config::EffectiveConfig;
 use crate::output::CliReport;
+use gestalt_app::config::EffectiveConfig;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SlashOutcome {
