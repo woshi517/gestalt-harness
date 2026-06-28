@@ -28,6 +28,7 @@ pub fn register(name: &'static str, factory: ProviderFactory) -> Result<(), Harn
     Ok(())
 }
 
+#[deprecated(since = "0.1.0", note = "use get_by_api_format_with_resolver instead")]
 pub fn get_with_resolver(
     name: &str,
     config: ProviderConfig,
@@ -123,6 +124,8 @@ pub fn get_by_api_format_with_resolver(
     }
 }
 
+#[allow(deprecated)]
+#[deprecated(since = "0.1.0", note = "use get_by_api_format_with_resolver instead")]
 pub fn get(name: &str, config: ProviderConfig) -> Result<Arc<dyn Provider>, HarnessError> {
     get_with_resolver(
         name,

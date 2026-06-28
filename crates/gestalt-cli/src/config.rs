@@ -1935,6 +1935,8 @@ pub struct ConfigWarning {
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedProvider {
     pub profile_name: Option<String>,
+    pub provider_display_name: Option<String>,
+    pub provider_capabilities: gestalt_core::provider::ProviderCapabilities,
     pub resolved_model: ResolvedModelSnapshot,
     pub base_url: String,
     pub request_path: Option<String>,
@@ -1964,7 +1966,7 @@ impl ResolvedProvider {
     pub fn provider_json(&self) -> Value {
         json!({
             "id": self.provider_name().to_string(),
-            "display_name": self.resolved_model.display_name.clone().unwrap_or_else(|| self.provider_name().to_string()),
+            "display_name": self.provider_display_name.clone().unwrap_or_else(|| self.provider_name().to_string()),
             "api_format": self.api_format(),
             "base_url": Some(self.base_url.clone()),
             "default_model": Some(self.model().to_string()),
@@ -1972,8 +1974,8 @@ impl ResolvedProvider {
             "models_endpoint": self.models_endpoint.clone(),
             "headers": self.headers,
             "request": self.request,
-            "capabilities": self.resolved_model.capabilities,
-            "auth": match self.auth.credential {
+            "capabilities": self.provider_capabilities,
+            "auth": match &self.auth.credential {
                 gestalt_models::auth::ConfiguredCredential::None => "none",
                 gestalt_models::auth::ConfiguredCredential::Environment(_) => "environment",
                 gestalt_models::auth::ConfiguredCredential::Keychain(_) => "keychain",
@@ -2384,8 +2386,69 @@ impl EffectiveConfig {
             .collect::<BTreeMap<_, _>>();
         let request = merged_prov_cfg.request.clone().unwrap_or_default();
 
+        let provider_display_name = merged_prov_cfg.display_name.clone();
+
+        let mut provider_capabilities = match api_format {
+            ApiFormat::AnthropicMessages => gestalt_core::provider::ProviderCapabilities {
+                supports_parallel_tools: false,
+                supports_prompt_caching: true,
+                supports_thinking: true,
+                supports_strict_schema: true,
+                ..gestalt_core::provider::ProviderCapabilities::default()
+            },
+            ApiFormat::OpenAiChatCompletions => gestalt_core::provider::ProviderCapabilities {
+                supports_parallel_tools: true,
+                supports_prompt_caching: false,
+                supports_thinking: false,
+                supports_strict_schema: true,
+                ..gestalt_core::provider::ProviderCapabilities::default()
+            },
+            ApiFormat::OpenAiResponses => gestalt_core::provider::ProviderCapabilities {
+                supports_parallel_tools: true,
+                supports_prompt_caching: false,
+                supports_thinking: true,
+                supports_strict_schema: true,
+                ..gestalt_core::provider::ProviderCapabilities::default()
+            },
+        };
+
+        if let Some(ref user_caps) = merged_prov_cfg.capabilities {
+            if let Some(val) = user_caps.supports_tools {
+                provider_capabilities.supports_tools = val;
+            }
+            if let Some(val) = user_caps.supports_parallel_tools {
+                provider_capabilities.supports_parallel_tools = val;
+            }
+            if let Some(val) = user_caps.supports_vision {
+                provider_capabilities.supports_vision = val;
+            }
+            if let Some(val) = user_caps.supports_documents {
+                provider_capabilities.supports_documents = val;
+            }
+            if let Some(val) = user_caps.supports_thinking {
+                provider_capabilities.supports_thinking = val;
+            }
+            if let Some(val) = user_caps.supports_json_schema_tools {
+                provider_capabilities.supports_json_schema_tools = val;
+            }
+            if let Some(val) = user_caps.supports_prompt_caching {
+                provider_capabilities.supports_prompt_caching = val;
+            }
+            if let Some(val) = user_caps.supports_usage_reporting {
+                provider_capabilities.supports_usage_reporting = val;
+            }
+            if let Some(val) = user_caps.supports_streaming {
+                provider_capabilities.supports_streaming = val;
+            }
+            if let Some(val) = user_caps.supports_strict_schema {
+                provider_capabilities.supports_strict_schema = val;
+            }
+        }
+
         let resolved = ResolvedProvider {
             profile_name,
+            provider_display_name,
+            provider_capabilities,
             resolved_model,
             base_url,
             request_path,
