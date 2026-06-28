@@ -1,7 +1,8 @@
-use gestalt_app::{gestalt_models, gestalt_trace};
 use gestalt_core::{
     AgentEvent, ApiFormat, ModelCapabilities, PromptCacheMode, ResolvedModelSnapshot,
 };
+use gestalt_runtime as gestalt_models;
+use gestalt_runtime as gestalt_trace;
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 
 #[test]

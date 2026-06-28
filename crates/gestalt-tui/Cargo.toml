@@ -11,8 +11,8 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
-gestalt-app = { path = "../gestalt-app" }
-gestalt-runtime = { path = "../gestalt-runtime" }
+gestalt-app = { path = "../gestalt-app", default-features = false, features = ["mcp", "skills", "verify"] }
+gestalt-runtime = { path = "../gestalt-runtime", default-features = false, features = ["mcp", "skills", "verify"] }
 clap = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }

@@ -27,11 +27,11 @@
     clippy::large_futures
 )]
 
-pub extern crate gestalt_runtime as gestalt_models;
-pub extern crate gestalt_runtime as gestalt_policy;
-pub extern crate gestalt_runtime as gestalt_tools;
-pub extern crate gestalt_runtime as gestalt_trace;
-pub extern crate gestalt_runtime as gestalt_verify;
+extern crate gestalt_runtime as gestalt_models;
+extern crate gestalt_runtime as gestalt_policy;
+extern crate gestalt_runtime as gestalt_tools;
+extern crate gestalt_runtime as gestalt_trace;
+extern crate gestalt_runtime as gestalt_verify;
 
 pub mod approval;
 pub mod chat;

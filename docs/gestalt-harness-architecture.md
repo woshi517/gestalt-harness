@@ -118,40 +118,24 @@ The PRD's original graph had `Core → Models/Tools/Context/Policy/Trace`, which
 
 ```mermaid
 graph TD
-    CLI[gestalt-harness package]
-    TUI[gestalt-tui]
-
     Core[gestalt-core<br/>traits · events · loop · session]
+    Runtime[gestalt-runtime<br/>providers · tools · context · policy · trace · mcp · skills · verify]
+    App[gestalt-app<br/>product services · config · reports]
+    CLI[gestalt-cli<br/>gestalt binary]
+    TUI[gestalt-tui<br/>gestalt-tui binary]
 
-    Models[gestalt-models]
-    Tools[gestalt-tools]
-    Context[gestalt-context]
-    Policy[gestalt-policy]
-    Trace[gestalt-trace]
-    MCP[gestalt-mcp]
-    Exec[gestalt-exec]
-
+    Runtime --> Core
+    App --> Runtime
+    App --> Core
+    CLI --> App
+    CLI --> Runtime
     CLI --> Core
-    CLI --> Models
-    CLI --> Tools
-    CLI --> Context
-    CLI --> Policy
-    CLI --> Trace
-    CLI --> MCP
-
+    TUI --> App
+    TUI --> Runtime
     TUI --> Core
-
-    Models --> Core
-    Tools --> Core
-    Tools --> Exec
-    Context --> Core
-    Policy --> Core
-    Trace --> Core
-    MCP --> Core
-    Exec --> Core
 ```
 
-The `gestalt-runtime` crate in `crates/gestalt-runtime` is the composition layer. It wires together concrete implementations and provides a reusable runtime boundary (`AgentRuntime`). The CLI, TUI, and tests use this runtime. Core remains pure and knows nothing of runtime components.
+The `gestalt-runtime` crate in `crates/gestalt-runtime` is the composition layer. It wires together concrete implementations and provides a reusable runtime boundary (`AgentRuntime`). `gestalt-app` builds reusable services on top of that boundary, while the CLI and TUI remain thin product shells. Core remains pure and knows nothing of runtime components.
 
 ### 4.2 What Lives in `gestalt-core`
 
@@ -172,17 +156,17 @@ gestalt-core/src/
 
 ### 4.3 Dependency Budget (Revised)
 
-|Crate|Max direct deps|Required|
-|---|---|---|
-|`gestalt-core`|7|`tokio`, `serde`, `serde_json`, `schemars`, `thiserror`, `futures`, `async-trait`|
-|`gestalt-models`|8|`async-trait`, `chrono`, `eventsource-stream`, `futures`, `reqwest`, `serde`, `serde_json`, `tokio-stream`|
-|`gestalt-tools`|9|`async-trait`, `encoding_rs`, `glob`, `reqwest`, `schemars`, `serde`, `serde_json`, `tokio`, `url`|
-|`gestalt-context`|5|`tiktoken-rs`, `pulldown-cmark`, `regex`, `sha2`|
-|`gestalt-policy`|7|`async-trait`, `glob`, `serde`, `serde_json`, `thiserror`, `toml`, `url`|
-|`gestalt-trace`|6|`chrono`, `serde`, `serde_json`, `tokio`, `tracing`, `uuid`|
-|`gestalt-harness`|9|`async-trait`, `clap`, `dirs`, `serde`, `serde_json`, `tokio`, `toml`, `tracing`, `tracing-subscriber` (`ratatui`, `crossterm` opt.)|
+The consolidated workspace now enforces crate boundaries mechanically rather than through per-subcrate dependency caps from the old nine-crate layout.
 
-`chrono` is a dependency of `gestalt-trace` (for `EventEnvelope` timestamps) and `gestalt-models` (for metadata). It is **not** a dependency of `gestalt-core`.
+|Crate|Boundary expectation|
+|---|---|
+|`gestalt-core`|Pure contracts and orchestration types only; no filesystem, process, or network I/O|
+|`gestalt-runtime`|Owns concrete runtime integrations and runtime-only I/O helpers|
+|`gestalt-app`|Owns reusable product services and report/config types on top of the runtime|
+|`gestalt-cli`|Thin CLI shell around `gestalt-app` and `gestalt-runtime`|
+|`gestalt-tui`|Thin TUI shell around `gestalt-app` and `gestalt-runtime`|
+
+The workspace-level dependency audit in [`scripts/check-deps.sh`](./../scripts/check-deps.sh) enforces the final five-package graph and checks that the minimal CLI profile excludes terminal UI dependencies.
 
 ---
 
@@ -3579,5 +3563,3 @@ This enables embedding in the Gestalt frontend for local context compilation and
 ---
 
 _gestalt-harness-architecture v1.4 — Maintained alongside gestalt-harness-prd_
-
-

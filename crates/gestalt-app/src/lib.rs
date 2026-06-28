@@ -27,14 +27,14 @@
     clippy::large_futures
 )]
 
-pub extern crate gestalt_runtime as gestalt_context;
-pub extern crate gestalt_runtime as gestalt_mcp;
-pub extern crate gestalt_runtime as gestalt_models;
-pub extern crate gestalt_runtime as gestalt_policy;
-pub extern crate gestalt_runtime as gestalt_skills;
-pub extern crate gestalt_runtime as gestalt_tools;
-pub extern crate gestalt_runtime as gestalt_trace;
-pub extern crate gestalt_runtime as gestalt_verify;
+extern crate gestalt_runtime as gestalt_context;
+extern crate gestalt_runtime as gestalt_mcp;
+extern crate gestalt_runtime as gestalt_models;
+extern crate gestalt_runtime as gestalt_policy;
+extern crate gestalt_runtime as gestalt_skills;
+extern crate gestalt_runtime as gestalt_tools;
+extern crate gestalt_runtime as gestalt_trace;
+extern crate gestalt_runtime as gestalt_verify;
 
 pub mod auth;
 pub mod catalog;

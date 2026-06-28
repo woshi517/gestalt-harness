@@ -1,6 +1,6 @@
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
-use gestalt_cli::gestalt_trace;
+use gestalt_runtime as gestalt_trace;
 use std::fs;
 use std::path::PathBuf;
 

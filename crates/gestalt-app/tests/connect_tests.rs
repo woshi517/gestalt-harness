@@ -72,7 +72,7 @@ fn test_connect_openrouter() {
     assert_eq!(resolved.model(), "openrouter/free");
     assert_eq!(
         resolved.auth.credential_ref(),
-        gestalt_app::gestalt_models::auth::CredentialRef::Keychain(
+        gestalt_runtime::auth::CredentialRef::Keychain(
             "gestalt/openrouter".to_string()
         )
     );
@@ -88,7 +88,7 @@ fn test_connect_openrouter() {
     assert_eq!(resolved3.provider_name(), "openrouter");
     assert!(matches!(
         resolved3.auth.credential_ref(),
-        gestalt_app::gestalt_models::auth::CredentialRef::Environment(_)
+        gestalt_runtime::auth::CredentialRef::Environment(_)
     ));
 
     let _ = fs::remove_dir_all(&temp_dir);

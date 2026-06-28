@@ -37,6 +37,8 @@ cargo install \
 binary="$install_root/bin/gestalt"
 tui_binary="$install_root/bin/gestalt-tui"
 fixture_workspace="$repo_root/tests/fixtures/workspaces/minimal"
+delegation_log="$tmp_root/tui-delegation.log"
+fake_tui="$tmp_root/fake-tui.sh"
 
 if [ ! -x "$binary" ]; then
   printf 'ERROR: installed binary missing or not executable: %s\n' "$binary" >&2
@@ -48,9 +50,21 @@ if [ ! -x "$tui_binary" ]; then
   exit 1
 fi
 
+cat > "$fake_tui" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "\$*" > "$delegation_log"
+EOF
+chmod +x "$fake_tui"
+
 "$binary" --help >/dev/null
 "$binary" --workspace "$fixture_workspace" config validate >/dev/null
 "$tui_binary" --help >/dev/null
-GESTALT_TUI_BIN=true "$binary" >/dev/null
+GESTALT_TUI_BIN="$fake_tui" "$binary" --workspace "$fixture_workspace" >/dev/null
+
+if ! grep -q -- "--workspace $fixture_workspace" "$delegation_log"; then
+  printf 'ERROR: default gestalt entrypoint did not delegate expected workspace args\n' >&2
+  exit 1
+fi
 
 printf 'OK: isolated install produced %s and %s and validated %s\n' "$binary" "$tui_binary" "$fixture_workspace"

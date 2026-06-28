@@ -2,8 +2,8 @@
 
 use gestalt_app::config::CliOverrides;
 use gestalt_cli::chat::run_chat;
-use gestalt_cli::gestalt_trace;
 use gestalt_core::HarnessError;
+use gestalt_runtime as gestalt_trace;
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;
 use std::path::PathBuf;

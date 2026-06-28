@@ -54,3 +54,10 @@ if grep -Eq '^(ratatui|crossterm) v' <<<"$minimal_cli_tree"; then
 fi
 
 printf 'OK: minimal CLI excludes terminal UI dependencies.\n'
+
+if rg -n 'pub extern crate gestalt_runtime as gestalt_' crates/gestalt-app/src crates/gestalt-cli/src crates/gestalt-tui/src >/dev/null; then
+  printf 'ERROR: public runtime compatibility aliases leaked across app/cli/tui boundaries\n' >&2
+  exit 1
+fi
+
+printf 'OK: app/cli/tui do not export runtime compatibility aliases.\n'

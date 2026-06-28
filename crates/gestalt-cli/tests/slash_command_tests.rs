@@ -1,6 +1,6 @@
 use gestalt_app::config::{load_effective_config, CliOverrides};
-use gestalt_cli::gestalt_trace;
 use gestalt_cli::slash::{calculate_session_cost, handle_slash_command, SlashOutcome};
+use gestalt_runtime as gestalt_trace;
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;
 use std::path::PathBuf;

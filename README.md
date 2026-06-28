@@ -50,9 +50,11 @@
 
 The system is split into a small core and concrete adapters around it.
 
-`gestalt-core` defines the agent loop, traits, events, and session contracts. The surrounding crates — `gestalt-models`, `gestalt-tools`, `gestalt-context`, `gestalt-policy`, and `gestalt-trace` — provide real implementations around that core.
+`gestalt-core` defines the agent loop, traits, events, and session contracts.
 
-`gestalt-runtime` is the reusable composition layer, and `gestalt-cli` packages the CLI binary `gestalt` around it. This layout keeps the execution loop isolated from file I/O, provider wiring, and CLI concerns while still producing a single practical binary for local use.
+`gestalt-runtime` owns the concrete runtime implementation: providers, built-in tools, MCP integration, skills, trace helpers, policy, verification, and extension composition.
+
+`gestalt-app` holds reusable product services on top of that runtime. `gestalt-cli` packages the `gestalt` command-line entrypoint, and `gestalt-tui` provides the standalone terminal UI binary that bare `gestalt` delegates to by default.
 
 ---
 
@@ -82,7 +84,9 @@ Install from a local checkout:
 
 ```bash
 cargo install --locked --path crates/gestalt-cli
+cargo install --locked --path crates/gestalt-tui
 gestalt --help
+gestalt-tui --help
 ```
 
 > When the crate is published, the package name will be `gestalt-cli` and the installed executable will remain `gestalt`.

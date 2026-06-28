@@ -622,16 +622,6 @@ impl TuiLaunchRequest {
         let tui_bin =
             std::env::var("GESTALT_TUI_BIN").unwrap_or_else(|_| "gestalt-tui".to_string());
 
-        if tui_bin == "true" {
-            return Ok(());
-        }
-        if tui_bin == "false" {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "gestalt-tui is not installed; run `cargo install gestalt-tui`",
-            )));
-        }
-
         let mut cmd = std::process::Command::new(&tui_bin);
         if let Some(ws) = self.workspace {
             cmd.arg("--workspace").arg(ws);

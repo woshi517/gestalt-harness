@@ -21,8 +21,8 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
-gestalt-app = { path = "../gestalt-app" }
-gestalt-runtime = { path = "../gestalt-runtime" }
+gestalt-app = { path = "../gestalt-app", default-features = false }
+gestalt-runtime = { path = "../gestalt-runtime", default-features = false }
 clap = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true }

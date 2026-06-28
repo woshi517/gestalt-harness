@@ -56,13 +56,18 @@ pub async fn build_cli_runtime(
         resolved_provider.model().to_string()
     };
 
-    let enabled_cli_features = vec![
-        #[cfg(feature = "tui")]
-        "tui".to_string(),
-        "mcp".to_string(),
-        #[cfg(feature = "otel")]
-        "otel".to_string(),
-    ];
+    #[allow(unused_mut)]
+    let mut enabled_cli_features = Vec::new();
+    #[cfg(feature = "mcp")]
+    enabled_cli_features.push("mcp".to_string());
+    #[cfg(feature = "skills")]
+    enabled_cli_features.push("skills".to_string());
+    #[cfg(feature = "verify")]
+    enabled_cli_features.push("verify".to_string());
+    #[cfg(feature = "tui")]
+    enabled_cli_features.push("tui".to_string());
+    #[cfg(feature = "otel")]
+    enabled_cli_features.push("otel".to_string());
 
     let explicit_loads: Vec<std::path::PathBuf> = config
         .extensions

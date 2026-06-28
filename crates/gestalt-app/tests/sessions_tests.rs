@@ -2,7 +2,9 @@
 
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::sessions::{history_session, inspect_session, list_sessions, run_session_action};
-use gestalt_app::{gestalt_models, gestalt_tools, gestalt_trace};
+use gestalt_runtime as gestalt_models;
+use gestalt_runtime as gestalt_tools;
+use gestalt_runtime as gestalt_trace;
 use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 use std::fs;
 use std::path::PathBuf;

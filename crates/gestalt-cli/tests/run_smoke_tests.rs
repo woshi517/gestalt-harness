@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use gestalt_app::config::{validate_workspace_config, CliOverrides};
-use gestalt_cli::gestalt_models;
 use gestalt_core::{
     event::AgentEvent,
     message::Message,
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     HarnessError,
 };
+use gestalt_runtime as gestalt_models;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

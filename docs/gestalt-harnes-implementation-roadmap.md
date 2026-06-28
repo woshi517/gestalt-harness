@@ -30,6 +30,8 @@ Phase completion requires all tasks and phase-level verification gates to pass.
 
 ## Current Repository State
 
+> Historical note: this roadmap still contains the pre-consolidation phase breakdown. The current workspace already uses the five-crate layout: `gestalt-core`, `gestalt-runtime`, `gestalt-app`, `gestalt-cli`, and `gestalt-tui`.
+
 As of 2026-06-01, the repository contains a working Rust workspace with Phase 0 and Phase 1 complete, and Phase 1.5 (Runtime Composition & Extensions) substantially implemented.
 
 - Workspace crates, CI, fixtures, and baseline docs are in place.
