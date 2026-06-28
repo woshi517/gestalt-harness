@@ -964,6 +964,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "gestalt-app"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "gestalt-core",
+ "gestalt-runtime",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "gestalt-cli"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "clap",
+ "crossterm",
+ "dirs",
+ "futures",
+ "gestalt-app",
+ "gestalt-context",
+ "gestalt-core",
+ "gestalt-mcp",
+ "gestalt-models",
+ "gestalt-policy",
+ "gestalt-runtime",
+ "gestalt-skills",
+ "gestalt-tools",
+ "gestalt-trace",
+ "gestalt-verify",
+ "insta",
+ "keyring",
+ "ratatui",
+ "reqwest",
+ "rpassword",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "toml_edit 0.22.27",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "gestalt-context"
 version = "0.1.0"
 dependencies = [
@@ -1003,44 +1055,6 @@ dependencies = [
  "gestalt-core",
  "libc",
  "tokio",
-]
-
-[[package]]
-name = "gestalt-harness"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "clap",
- "crossterm",
- "dirs",
- "futures",
- "gestalt-context",
- "gestalt-core",
- "gestalt-mcp",
- "gestalt-models",
- "gestalt-policy",
- "gestalt-runtime",
- "gestalt-skills",
- "gestalt-tools",
- "gestalt-trace",
- "gestalt-verify",
- "insta",
- "keyring",
- "ratatui",
- "reqwest",
- "rpassword",
- "schemars",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tokio-util",
- "toml",
- "toml_edit 0.22.27",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

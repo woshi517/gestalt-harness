@@ -21,6 +21,7 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
+gestalt-app = { path = "../gestalt-app" }
 gestalt-models = { path = "../gestalt-models" }
 gestalt-tools = { path = "../gestalt-tools" }
 gestalt-context = { path = "../gestalt-context" }
