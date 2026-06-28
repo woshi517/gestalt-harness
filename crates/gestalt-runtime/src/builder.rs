@@ -39,7 +39,7 @@ pub struct AgentRuntimeBuilder {
     pub pending_process_extensions: Vec<PendingProcessExtension>,
     pub extension_manager: Option<Arc<crate::extension::ExtensionManager>>,
     pub event_bus: RuntimeEventBus,
-    pub mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
+    pub mcp_registry: Option<Arc<crate::legacy_mcp::McpRegistry>>,
     pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
 }
 
@@ -166,7 +166,7 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    pub fn mcp_registry(mut self, registry: Arc<gestalt_mcp::McpRegistry>) -> Self {
+    pub fn mcp_registry(mut self, registry: Arc<crate::legacy_mcp::McpRegistry>) -> Self {
         self.mcp_registry = Some(registry);
         self
     }
@@ -280,7 +280,7 @@ impl AgentRuntimeBuilder {
 
         // Initialize MCP Registry
         let mcp_registry = self.mcp_registry.unwrap_or_else(|| {
-            Arc::new(gestalt_mcp::McpRegistry::new(
+            Arc::new(crate::legacy_mcp::McpRegistry::new(
                 self.config.workspace_root.clone(),
                 self.config.mcp_servers.clone(),
             ))
@@ -307,7 +307,7 @@ impl AgentRuntimeBuilder {
         let allow_network = self.config.allow_network;
         mcp_registry.set_permission_validator(move |name, config| {
             match &config.transport {
-                gestalt_mcp::McpTransportConfig::Stdio { .. } => {
+                crate::legacy_mcp::McpTransportConfig::Stdio { .. } => {
                     if let Some((permissions, grants)) = package_permissions.get(name) {
                         crate::permissions::check_shell_permission_effective(
                             permissions,
@@ -318,7 +318,7 @@ impl AgentRuntimeBuilder {
                         .map_err(|e| e.clone())?;
                     }
                 }
-                gestalt_mcp::McpTransportConfig::Http { url, .. } => {
+                crate::legacy_mcp::McpTransportConfig::Http { url, .. } => {
                     let host = if let Ok(parsed_url) = url::Url::parse(url) {
                         parsed_url.host_str().unwrap_or("").to_string()
                     } else {
@@ -356,11 +356,11 @@ impl AgentRuntimeBuilder {
         // Wire event callback to propagate MCP Registry events to Runtime Event Bus
         let event_bus = self.event_bus.clone();
         mcp_registry.set_event_callback(Arc::new(move |event| match event {
-            gestalt_mcp::McpRegistryEvent::Connecting { server_name } => {
+            crate::legacy_mcp::McpRegistryEvent::Connecting { server_name } => {
                 event_bus
                     .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
             }
-            gestalt_mcp::McpRegistryEvent::Connected {
+            crate::legacy_mcp::McpRegistryEvent::Connected {
                 server_name,
                 protocol_version,
                 tool_count,
@@ -371,7 +371,7 @@ impl AgentRuntimeBuilder {
                     tool_count,
                 });
             }
-            gestalt_mcp::McpRegistryEvent::ConnectionFailed {
+            crate::legacy_mcp::McpRegistryEvent::ConnectionFailed {
                 server_name,
                 reason,
             } => {
@@ -380,7 +380,7 @@ impl AgentRuntimeBuilder {
                     reason,
                 });
             }
-            gestalt_mcp::McpRegistryEvent::ToolCatalogRefreshed {
+            crate::legacy_mcp::McpRegistryEvent::ToolCatalogRefreshed {
                 server_name,
                 tool_count,
                 schema_hash,
@@ -391,7 +391,7 @@ impl AgentRuntimeBuilder {
                     schema_hash,
                 });
             }
-            gestalt_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
+            crate::legacy_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
                 event_bus
                     .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
             }
@@ -399,7 +399,7 @@ impl AgentRuntimeBuilder {
 
         // Spawn always_on servers
         for (name, server_cfg) in &self.config.mcp_servers {
-            if server_cfg.lifecycle == gestalt_mcp::McpLifecycleMode::AlwaysOn {
+            if server_cfg.lifecycle == crate::legacy_mcp::McpLifecycleMode::AlwaysOn {
                 let mcp_registry = mcp_registry.clone();
                 let name = name.clone();
                 tokio::spawn(async move {

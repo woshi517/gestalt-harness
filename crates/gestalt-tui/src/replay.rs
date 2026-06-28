@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use gestalt_core::TraceError;
-use gestalt_trace::{read_trace, render_display};
+use gestalt_runtime::{read_trace, render_display};
 
 /// Replays and formats a trace log for display.
 /// Accepts either the path to a run directory containing a `trace.jsonl` file or the path to a trace file directly.

@@ -23,11 +23,11 @@ pub struct RuntimeInspect {
     pub trace_sink_kind: Option<String>,
     pub trace_run_dir: Option<String>,
     pub workspace_root: String,
-    pub enabled_cli_features: Vec<String>,
+    pub enabled_host_features: Vec<String>,
     pub discovered_skills: Vec<SkillInspectInfo>,
     pub active_skills: Vec<String>,
     pub skill_fingerprint: Option<String>,
-    pub mcp_servers: Vec<gestalt_mcp::McpServerState>,
+    pub mcp_servers: Vec<crate::legacy_mcp::McpServerState>,
     pub mcp_discovery_threshold: Option<usize>,
     #[serde(default)]
     pub effective_config_fingerprint: Option<String>,

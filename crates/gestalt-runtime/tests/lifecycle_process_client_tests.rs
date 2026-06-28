@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
-use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::extension::{
     ComponentInstanceId, ComponentKind, ExtensionManager, ExtensionRuntimeComponent,
     LocalProcessLauncher, RuntimeExtensionSnapshot, RuntimeGeneration,
@@ -149,7 +148,7 @@ async fn process_lifecycle_client_reuses_processes_and_respects_draining_state()
 fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
     let registry = RuntimeRegistryBuilder::new().snapshot();
     let catalog = Arc::new(EmptyToolCatalog);
-    let mcp = Arc::new(gestalt_mcp::McpRegistry::new(
+    let mcp = Arc::new(gestalt_runtime::McpRegistry::new(
         std::env::current_dir().unwrap(),
         HashMap::new(),
     ));

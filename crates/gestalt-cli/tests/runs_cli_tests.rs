@@ -1,6 +1,5 @@
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
-use gestalt_runtime as gestalt_trace;
 use std::fs;
 use std::path::PathBuf;
 
@@ -324,7 +323,7 @@ fn test_runs_additional_patch_requirements() {
 
 #[test]
 fn test_runs_descendant_aware_prune_and_delete() {
-    use gestalt_trace::run_manifest::{
+    use gestalt_runtime::run_manifest::{
         CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
     };
 

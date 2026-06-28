@@ -23,7 +23,7 @@ pub struct ToolCatalogPlanner {
     pub skill_state: Option<Arc<Mutex<crate::skill_contributor::SkillContributorState>>>,
     pub mcp_discovery_threshold: Option<usize>,
     pub mcp_discovery_state: Option<Arc<Mutex<crate::mcp_discovery::McpDiscoveryState>>>,
-    pub mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
+    pub mcp_registry: Option<Arc<crate::legacy_mcp::McpRegistry>>,
 }
 
 impl ToolCatalogPlanner {
@@ -55,7 +55,7 @@ impl ToolCatalogPlanner {
         mut self,
         threshold: Option<usize>,
         state: Arc<Mutex<crate::mcp_discovery::McpDiscoveryState>>,
-        registry: Arc<gestalt_mcp::McpRegistry>,
+        registry: Arc<crate::legacy_mcp::McpRegistry>,
     ) -> Self {
         self.mcp_discovery_threshold = threshold;
         self.mcp_discovery_state = Some(state);
@@ -95,7 +95,7 @@ impl ToolCatalogPlanner {
         let dynamic_allowed = self.skill_state.as_ref().and_then(|state| {
             let guard = state.lock().ok()?;
             let active = guard.active_descriptors();
-            let policy = gestalt_skills::effective_tool_policy(&active);
+            let policy = crate::legacy_skills::effective_tool_policy(&active);
             if policy.restricts_tools {
                 let mut allowed = policy.allowed_tool_names.into_iter().collect::<Vec<_>>();
                 allowed.sort();

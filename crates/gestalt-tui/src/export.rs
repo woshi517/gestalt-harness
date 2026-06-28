@@ -39,7 +39,7 @@ pub fn export_run(
             })
         }
         ExportFormat::Markdown => {
-            let events = gestalt_trace::read_trace(&trace_path)?;
+            let events = gestalt_runtime::read_trace(&trace_path)?;
             let run_id = run_dir
                 .file_name()
                 .unwrap_or_default()
@@ -87,7 +87,7 @@ pub fn export_run(
                     .unwrap_or_else(|| "unknown".to_string())
             );
 
-            let transcript = gestalt_trace::render_display(&events);
+            let transcript = gestalt_runtime::render_display(&events);
             markdown.push_str(&transcript);
 
             Ok(ExportReport {

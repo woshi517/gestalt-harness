@@ -2,7 +2,7 @@ use crate::config::EffectiveConfig;
 use crate::sessions::{self, RunManifestSummary, SessionSummary};
 use crate::tui::state::{push_event, TranscriptEntry};
 use gestalt_core::error::HarnessError;
-use gestalt_trace::run_manifest::RunManifest;
+use gestalt_runtime::run_manifest::RunManifest;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -181,7 +181,7 @@ pub fn load_session_transcript(
         if let Some(run_path) = run_paths_map.get(&run_id) {
             let trace_path = run_path.join("trace.jsonl");
             if trace_path.exists() {
-                if let Ok(envelopes) = gestalt_trace::read_trace(&trace_path) {
+                if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
                     for env in envelopes {
                         push_event(&mut entries, env.event);
                     }

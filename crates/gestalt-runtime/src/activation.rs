@@ -29,7 +29,7 @@ impl ExtensionSource for StaticExtensionSource {
 
 pub struct BaseRuntimeComposition {
     pub tool_catalog: Arc<dyn gestalt_core::tool::ToolCatalog>,
-    pub mcp_registry: Arc<gestalt_mcp::McpRegistry>,
+    pub mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
     pub base_registry: crate::registry::RuntimeRegistrySnapshot,
 }
 
@@ -51,7 +51,7 @@ pub struct HostLaunchContext {
     pub package_source_root: Option<PathBuf>,
     pub extension_instances:
         std::collections::BTreeMap<String, crate::extension::ExtensionInstanceConfig>,
-    pub mcp_servers: std::collections::HashMap<String, gestalt_mcp::McpServerConfig>,
+    pub mcp_servers: std::collections::HashMap<String, crate::legacy_mcp::McpServerConfig>,
 }
 
 impl std::fmt::Debug for HostLaunchContext {
@@ -933,7 +933,7 @@ impl ExtensionActivationPipeline {
         let direct_mcp_fingerprint = {
             let sorted_direct_mcp: std::collections::BTreeMap<
                 String,
-                gestalt_mcp::McpServerConfig,
+                crate::legacy_mcp::McpServerConfig,
             > = self
                 .host_context
                 .mcp_servers
@@ -950,7 +950,7 @@ impl ExtensionActivationPipeline {
             }
         }
 
-        let mcp_registry = Arc::new(gestalt_mcp::McpRegistry::new(
+        let mcp_registry = Arc::new(crate::legacy_mcp::McpRegistry::new(
             self.host_context.workspace_root.clone(),
             mcp_servers_config,
         ));
@@ -976,7 +976,7 @@ impl ExtensionActivationPipeline {
         let allow_network = self.host_context.allow_network;
         mcp_registry.set_permission_validator(move |name, config| {
             match &config.transport {
-                gestalt_mcp::McpTransportConfig::Stdio { .. } => {
+                crate::legacy_mcp::McpTransportConfig::Stdio { .. } => {
                     if let Some((permissions, grants)) = package_permissions.get(name) {
                         crate::permissions::check_shell_permission_effective(
                             permissions,
@@ -987,7 +987,7 @@ impl ExtensionActivationPipeline {
                         .map_err(|e| e.clone())?;
                     }
                 }
-                gestalt_mcp::McpTransportConfig::Http { url, .. } => {
+                crate::legacy_mcp::McpTransportConfig::Http { url, .. } => {
                     let host = if let Ok(parsed_url) = url::Url::parse(url) {
                         parsed_url.host_str().unwrap_or("").to_string()
                     } else {
@@ -1015,11 +1015,11 @@ impl ExtensionActivationPipeline {
 
         let event_bus = self.host_context.event_bus.clone();
         mcp_registry.set_event_callback(Arc::new(move |event| match event {
-            gestalt_mcp::McpRegistryEvent::Connecting { server_name } => {
+            crate::legacy_mcp::McpRegistryEvent::Connecting { server_name } => {
                 event_bus
                     .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
             }
-            gestalt_mcp::McpRegistryEvent::Connected {
+            crate::legacy_mcp::McpRegistryEvent::Connected {
                 server_name,
                 protocol_version,
                 tool_count,
@@ -1030,7 +1030,7 @@ impl ExtensionActivationPipeline {
                     tool_count,
                 });
             }
-            gestalt_mcp::McpRegistryEvent::ConnectionFailed {
+            crate::legacy_mcp::McpRegistryEvent::ConnectionFailed {
                 server_name,
                 reason,
             } => {
@@ -1039,7 +1039,7 @@ impl ExtensionActivationPipeline {
                     reason,
                 });
             }
-            gestalt_mcp::McpRegistryEvent::ToolCatalogRefreshed {
+            crate::legacy_mcp::McpRegistryEvent::ToolCatalogRefreshed {
                 server_name,
                 tool_count,
                 schema_hash,
@@ -1050,7 +1050,7 @@ impl ExtensionActivationPipeline {
                     schema_hash,
                 });
             }
-            gestalt_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
+            crate::legacy_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
                 event_bus
                     .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
             }

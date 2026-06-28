@@ -9,7 +9,6 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{Tool, ToolCatalog, ToolSchema},
 };
-use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{
     AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, HostControl,
     InMemoryArtifactStore, OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig,
@@ -104,7 +103,7 @@ impl ContextPipeline for MockContextPipeline {
     }
 
     fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
-        Some(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        Some(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
     }

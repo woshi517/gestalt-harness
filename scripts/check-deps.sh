@@ -55,9 +55,9 @@ fi
 
 printf 'OK: minimal CLI excludes terminal UI dependencies.\n'
 
-if rg -n 'pub extern crate gestalt_runtime as gestalt_' crates/gestalt-app/src crates/gestalt-cli/src crates/gestalt-tui/src >/dev/null; then
-  printf 'ERROR: public runtime compatibility aliases leaked across app/cli/tui boundaries\n' >&2
+if rg -n 'extern crate .* as gestalt_' crates/gestalt-runtime/src crates/gestalt-runtime/tests crates/gestalt-app/src crates/gestalt-app/tests crates/gestalt-cli/src crates/gestalt-cli/tests crates/gestalt-tui/src >/dev/null; then
+  printf 'ERROR: compatibility aliases leaked across crate boundaries\n' >&2
   exit 1
 fi
 
-printf 'OK: app/cli/tui do not export runtime compatibility aliases.\n'
+printf 'OK: no crate exports compatibility aliases.\n'

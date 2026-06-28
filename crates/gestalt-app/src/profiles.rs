@@ -115,13 +115,13 @@ pub fn inspect_profile(
         },
         resolved_base_url: Some(resolved.base_url.clone()),
         resolved_auth_ref: match &resolved.auth.credential {
-            gestalt_models::auth::ConfiguredCredential::Keychain(acc) => {
+            gestalt_runtime::auth::ConfiguredCredential::Keychain(acc) => {
                 Some(format!("keychain:{}", acc))
             }
             _ => None,
         },
         resolved_api_key_env: match &resolved.auth.credential {
-            gestalt_models::auth::ConfiguredCredential::Environment(var) => Some(var.clone()),
+            gestalt_runtime::auth::ConfiguredCredential::Environment(var) => Some(var.clone()),
             _ => None,
         },
     })

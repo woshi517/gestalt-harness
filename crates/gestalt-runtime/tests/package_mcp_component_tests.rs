@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use gestalt_mcp::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
-use gestalt_runtime as gestalt_mcp;
+use gestalt_runtime::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
 use gestalt_runtime::extension::{
     merge_mcp_server_configs, package_mcp_server_name, package_mcp_servers, ExtensionManifestV2,
     ResolvedExtensionPackage,

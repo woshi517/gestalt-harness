@@ -19,7 +19,7 @@ use gestalt_core::{
     tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
     trace::TraceSink,
 };
-use gestalt_policy::MinimalPolicyEngine;
+use crate::legacy_policy::MinimalPolicyEngine;
 
 use crate::fixture::{FixtureInput, MockToolConfig};
 use crate::{read_trace, EventEnvelope, JsonlTraceSink};
@@ -316,7 +316,7 @@ impl GoldenTraceRunner {
 
         let policy: Arc<dyn PolicyEngine> = if let Some(ref policy_toml) = golden.input.policy_toml
         {
-            let cfg = gestalt_policy::PolicyConfig::parse_toml(policy_toml)
+            let cfg = crate::legacy_policy::PolicyConfig::parse_toml(policy_toml)
                 .map_err(HarnessError::Policy)?;
             Arc::new(MinimalPolicyEngine::new(cfg))
         } else {

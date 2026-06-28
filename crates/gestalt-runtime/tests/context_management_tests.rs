@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use gestalt_context::ContextMessageAssembler;
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     context::{HistoryRange, StateUpdate, TokenBudget},
     event::{AgentEvent, StopReason},
@@ -8,10 +8,8 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     ContextAssembler, ContextPipeline, MessageId, SessionMessage,
 };
-use gestalt_runtime as gestalt_context;
-use gestalt_runtime as gestalt_trace;
 use gestalt_runtime::RuntimeContextPipeline;
-use gestalt_trace::CompactionCheckpoint;
+use gestalt_runtime::CompactionCheckpoint;
 
 fn runtime_pipeline() -> RuntimeContextPipeline {
     RuntimeContextPipeline {
@@ -20,7 +18,7 @@ fn runtime_pipeline() -> RuntimeContextPipeline {
     }
 }
 
-fn compute_checkpoint_artifact_hash(checkpoint: &gestalt_trace::CompactionCheckpoint) -> String {
+fn compute_checkpoint_artifact_hash(checkpoint: &gestalt_runtime::CompactionCheckpoint) -> String {
     use sha2::Digest as _;
     let content = serde_json::to_string_pretty(checkpoint).unwrap();
     let mut hasher = sha2::Sha256::new();
@@ -274,7 +272,7 @@ impl Provider for SecondCompactionProvider {
         let total = request
             .messages
             .iter()
-            .map(gestalt_context::estimate_message_tokens)
+            .map(gestalt_runtime::estimate_message_tokens)
             .sum::<usize>();
         Ok(total)
     }
@@ -630,7 +628,7 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
             .relative_path
             .clone(),
     );
-    let checkpoint: gestalt_trace::CompactionCheckpoint = serde_json::from_str(
+    let checkpoint: gestalt_runtime::CompactionCheckpoint = serde_json::from_str(
         &std::fs::read_to_string(checkpoint_file).expect("checkpoint file should exist"),
     )
     .expect("checkpoint file should parse");
@@ -692,7 +690,7 @@ async fn active_checkpoint_survives_noop_preparation() {
     };
 
     let artifacts = temp_artifact_dir("noop_survive");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -786,7 +784,7 @@ async fn resume_resolves_checkpoint_from_parent_run() {
     std::fs::create_dir_all(&parent_artifacts).unwrap();
     std::fs::create_dir_all(&child_artifacts).unwrap();
 
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &parent_artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -881,7 +879,7 @@ async fn continue_after_compaction_reuses_checkpoint() {
     };
 
     let artifacts = temp_artifact_dir("continue_reuse");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1023,7 +1021,7 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
     };
 
     let artifacts = temp_artifact_dir("legacy_hash_migration");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1118,7 +1116,7 @@ async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
     };
 
     let artifacts = temp_artifact_dir("path_escape");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1203,7 +1201,7 @@ async fn missing_checkpoint_run_directory_is_an_error() {
     };
 
     let artifacts = temp_artifact_dir("missing_run_dir");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1306,7 +1304,7 @@ async fn second_compaction_maps_projected_range_to_canonical_range() {
     };
 
     let artifacts = temp_artifact_dir("second_compaction");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1426,7 +1424,7 @@ async fn second_checkpoint_hash_matches_actual_canonical_source() {
     };
 
     let artifacts = temp_artifact_dir("second_checkpoint_hash");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1599,7 +1597,7 @@ async fn cleared_result_reference_is_removed_when_source_disappears() {
     };
 
     let artifacts = temp_artifact_dir("disappearing_reference");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,

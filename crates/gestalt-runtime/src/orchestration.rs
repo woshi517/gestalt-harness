@@ -82,7 +82,7 @@ impl RuntimeHost {
                 )
             }),
             builder.mcp_registry.clone().unwrap_or_else(|| {
-                Arc::new(gestalt_mcp::McpRegistry::new(
+                Arc::new(crate::legacy_mcp::McpRegistry::new(
                     workspace_root.clone(),
                     std::collections::HashMap::new(),
                 ))
@@ -115,7 +115,7 @@ impl RuntimeHost {
                         )
                     }),
                     mcp_registry: builder.mcp_registry.clone().unwrap_or_else(|| {
-                        Arc::new(gestalt_mcp::McpRegistry::new(
+                        Arc::new(crate::legacy_mcp::McpRegistry::new(
                             workspace_root.clone(),
                             std::collections::HashMap::new(),
                         ))
@@ -340,7 +340,7 @@ impl crate::control::RuntimeControl for RuntimeHost {
                     )
                 }),
                 mcp_registry: self.builder.mcp_registry.clone().unwrap_or_else(|| {
-                    Arc::new(gestalt_mcp::McpRegistry::new(
+                    Arc::new(crate::legacy_mcp::McpRegistry::new(
                         self.workspace_root.clone(),
                         std::collections::HashMap::new(),
                     ))

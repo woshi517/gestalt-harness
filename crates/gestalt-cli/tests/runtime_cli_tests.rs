@@ -7,7 +7,6 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     HarnessError,
 };
-use gestalt_runtime as gestalt_models;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -103,7 +102,7 @@ where
 #[tokio::test]
 async fn test_inspect_runtime_cli() {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -207,9 +206,9 @@ fn test_runtime_inspect_cli_subcommand() {
 }
 
 #[tokio::test]
-async fn test_build_cli_runtime_loads_configured_extension_instance() {
+async fn test_build_app_runtime_loads_configured_extension_instance() {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -278,7 +277,7 @@ args = []
     };
     let config = gestalt_app::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_app::runtime_factory::build_cli_runtime(&config, None, None, None, None)
+    let runtime = gestalt_app::runtime_factory::build_app_runtime(&config, None, None, None, None)
         .await
         .unwrap();
 

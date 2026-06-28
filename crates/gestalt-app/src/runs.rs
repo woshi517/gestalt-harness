@@ -174,7 +174,7 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
                 let manifest_path = entry.path().join("run.json");
                 if manifest_path.exists() {
                     if let Ok(manifest) =
-                        gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path)
+                        gestalt_runtime::run_manifest::RunManifest::load_from(&manifest_path)
                     {
                         if manifest.run_id == input || manifest.run_id.starts_with(input) {
                             is_match = true;
@@ -229,7 +229,7 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
         let line = line.map_err(|e| gestalt_core::TraceError::ReadFailed {
             reason: e.to_string(),
         })?;
-        let envelope = match serde_json::from_str::<gestalt_trace::EventEnvelope>(&line) {
+        let envelope = match serde_json::from_str::<gestalt_runtime::EventEnvelope>(&line) {
             Ok(env) => env,
             Err(_) => continue,
         };
@@ -334,7 +334,7 @@ pub struct RunSummary {
 pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
     let run_manifest_path = path.join("run.json");
     let manifest = if run_manifest_path.exists() {
-        gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path).ok()
+        gestalt_runtime::run_manifest::RunManifest::load_from(&run_manifest_path).ok()
     } else {
         None
     };
@@ -541,7 +541,7 @@ fn has_descendants(config: &EffectiveConfig, run_id: &str) -> bool {
             let manifest_path = entry.path().join("run.json");
             if manifest_path.exists() {
                 if let Ok(manifest) =
-                    gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path)
+                    gestalt_runtime::run_manifest::RunManifest::load_from(&manifest_path)
                 {
                     if let Some(ref parent_id) = manifest.parent_run_id {
                         if parent_id == run_id {
@@ -569,7 +569,7 @@ fn gather_descendants(
             let manifest_path = entry.path().join("run.json");
             if manifest_path.exists() {
                 if let Ok(manifest) =
-                    gestalt_trace::run_manifest::RunManifest::load_from(&manifest_path)
+                    gestalt_runtime::run_manifest::RunManifest::load_from(&manifest_path)
                 {
                     if let Some(ref parent_id) = manifest.parent_run_id {
                         if parent_id == run_id {
@@ -649,7 +649,7 @@ pub fn prune_runs(
                     let mut r_id = None;
                     if run_manifest_path.exists() {
                         if let Ok(m) =
-                            gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path)
+                            gestalt_runtime::run_manifest::RunManifest::load_from(&run_manifest_path)
                         {
                             r_id = Some(m.run_id);
                         }
@@ -770,7 +770,7 @@ pub fn delete_run(
     let run_manifest_path = resolved_path.join("run.json");
     let mut target_run_id = None;
     if run_manifest_path.exists() {
-        if let Ok(m) = gestalt_trace::run_manifest::RunManifest::load_from(&run_manifest_path) {
+        if let Ok(m) = gestalt_runtime::run_manifest::RunManifest::load_from(&run_manifest_path) {
             target_run_id = Some(m.run_id);
         }
     }

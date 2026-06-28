@@ -1,12 +1,12 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use crate::config::EffectiveConfig;
-use gestalt_context::ContextMessageAssembler;
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter,
 };
-use gestalt_policy::MinimalPolicyEngine;
-use gestalt_trace::{
+use gestalt_runtime::MinimalPolicyEngine;
+use gestalt_runtime::{
     aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink,
 };
 
@@ -41,7 +41,7 @@ pub async fn run_prompt(
     )?;
     let sink = Arc::new(sink_inner);
 
-    let runtime = crate::runtime_factory::build_cli_runtime(
+    let runtime = crate::runtime_factory::build_app_runtime(
         config,
         api_key,
         interaction,
@@ -52,35 +52,35 @@ pub async fn run_prompt(
 
     // Initial manifest setup and save
     let run_manifest_path = run_paths.root.join("run.json");
-    let initial_manifest = gestalt_trace::run_manifest::RunManifest {
+    let initial_manifest = gestalt_runtime::run_manifest::RunManifest {
         v: 1,
         session_id: session_id.clone(),
         run_id: run_id.clone(),
         parent_run_id: None,
         base_checkpoint: None,
-        run_kind: gestalt_trace::run_manifest::RunKind::New,
+        run_kind: gestalt_runtime::run_manifest::RunKind::New,
         created_at: chrono::Utc::now(),
-        lifecycle_state: gestalt_trace::run_manifest::LifecycleState::Running,
+        lifecycle_state: gestalt_runtime::run_manifest::LifecycleState::Running,
         finalized_at: None,
         failure_kind: None,
         interrupted_phase: None,
         prompt_snapshot_hash: None,
         prompt_snapshot_path: None,
         resolved_model: runtime.config.resolved_model.clone(),
-        compatibility_fingerprint: gestalt_trace::run_manifest::CompatibilityFingerprint {
+        compatibility_fingerprint: gestalt_runtime::run_manifest::CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
-            tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
+            tool_schema_hash: gestalt_runtime::run_manifest::compute_tool_schema_hash(
                 &runtime.tools.schemas(),
             ),
             policy_fingerprint: serde_json::to_string(&config.policies)
-                .map(|content| gestalt_trace::run_manifest::compute_policy_fingerprint(&content))
+                .map(|content| gestalt_runtime::run_manifest::compute_policy_fingerprint(&content))
                 .unwrap_or_default(),
             hook_contract_hash: {
                 let hook_names = vec![
                     "VerificationToolHook".to_string(),
                     "EvaluatorHook".to_string(),
                 ];
-                gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
+                gestalt_runtime::run_manifest::compute_hook_contract_hash(&hook_names)
             },
             execution_mode: format!("{:?}", config.selected_mode()?),
             skill_fingerprint: compute_skill_fingerprint(
@@ -126,7 +126,7 @@ pub async fn run_prompt(
 
     let final_status = match loop_result {
         Ok(result) => {
-            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Completed;
+            manifest.lifecycle_state = gestalt_runtime::run_manifest::LifecycleState::Completed;
             let _ = write_summary(&run_paths.summary, &result);
             flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
@@ -135,7 +135,7 @@ pub async fn run_prompt(
         Err(gestalt_runtime::RuntimeError::Harness(
             gestalt_core::error::HarnessError::Cancelled,
         )) => {
-            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Interrupted;
+            manifest.lifecycle_state = gestalt_runtime::run_manifest::LifecycleState::Interrupted;
             manifest.interrupted_phase = Some("agent_loop".to_string());
             flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
 
@@ -153,7 +153,7 @@ pub async fn run_prompt(
             Err(gestalt_core::HarnessError::Cancelled)
         }
         Err(err) => {
-            manifest.lifecycle_state = gestalt_trace::run_manifest::LifecycleState::Failed;
+            manifest.lifecycle_state = gestalt_runtime::run_manifest::LifecycleState::Failed;
             manifest.failure_kind = Some(format!("{:?}", err));
             flush_trace_sink_with_warning(sink.as_ref(), event_tx.as_ref());
 
@@ -184,11 +184,11 @@ pub async fn run_prompt(
 
     let prompt_snapshot_path = run_paths
         .root
-        .join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+        .join(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
     if let Ok(snapshot) = read_prompt_snapshot(&prompt_snapshot_path) {
         manifest.prompt_snapshot_hash = Some(snapshot.snapshot_hash);
         manifest.prompt_snapshot_path =
-            Some(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
+            Some(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
     }
 
     let _ = manifest.save_to(&run_manifest_path);
@@ -200,7 +200,7 @@ fn write_cost_report_helper(
     cost_path: &std::path::Path,
 ) -> Result<(), gestalt_core::HarnessError> {
     let report = aggregate_costs(trace_path, |model| {
-        gestalt_models::ModelCatalog::new().get(model)
+        gestalt_runtime::ModelCatalog::new().get(model)
     })?;
     write_cost_report(cost_path, &report)?;
     Ok(())
@@ -609,17 +609,17 @@ mod tests {
 
 pub fn compute_skill_fingerprint(
     config: &EffectiveConfig,
-    discovered: &[gestalt_skills::SkillDescriptor],
+    discovered: &[gestalt_runtime::SkillDescriptor],
     current_task: Option<&str>,
 ) -> Option<String> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
 
-    let active_descriptors: Vec<&gestalt_skills::SkillDescriptor> = if let Some(task) = current_task
+    let active_descriptors: Vec<&gestalt_runtime::SkillDescriptor> = if let Some(task) = current_task
     {
-        let index = gestalt_skills::SkillIndex::new(discovered.to_vec());
-        let state = gestalt_skills::ActivationState::new(config.skills.active.clone());
-        let resolved = gestalt_skills::ActivationEngine::resolve(&index, &state, Some(task));
+        let index = gestalt_runtime::SkillIndex::new(discovered.to_vec());
+        let state = gestalt_runtime::ActivationState::new(config.skills.active.clone());
+        let resolved = gestalt_runtime::ActivationEngine::resolve(&index, &state, Some(task));
         resolved
             .iter()
             .filter_map(|name| discovered.iter().find(|skill| &skill.name == name))
@@ -678,7 +678,7 @@ mod fingerprint_tests {
     use crate::config::{
         ContextConfig, DefaultsConfig, EffectiveConfig, ObserveConfig, SkillsConfig, ToolsConfig,
     };
-    use gestalt_skills::{SkillDescriptor, SkillSource, SkillTrustLevel};
+    use gestalt_runtime::{SkillDescriptor, SkillSource, SkillTrustLevel};
     use std::collections::HashMap;
     use std::path::PathBuf;
 

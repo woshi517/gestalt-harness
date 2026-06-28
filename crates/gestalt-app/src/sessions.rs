@@ -9,8 +9,8 @@ use gestalt_core::{
     trace::TraceSink, AgentEvent, Message, Session, SessionConfig, TokenBudget, ToolCatalog,
     ToolContext, WorkspaceSnapshotter,
 };
-use gestalt_tools::default_registry;
-use gestalt_trace::{
+use gestalt_runtime::default_registry;
+use gestalt_runtime::{
     aggregate_costs, read_prompt_snapshot,
     resume::ResumeAnalyzer,
     run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
@@ -65,7 +65,7 @@ pub fn list_sessions(
             if let Ok(run_dir) = resolve_run_path(config, &first_run.run_id) {
                 let trace_path = run_dir.join("trace.jsonl");
                 if trace_path.exists() {
-                    if let Ok(envelopes) = gestalt_trace::read_trace(&trace_path) {
+                    if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
                         let mut first_msg = None;
                         for env in envelopes {
                             if let gestalt_core::event::AgentEvent::UserMessage { content } =
@@ -209,7 +209,7 @@ pub fn history_session(
     for (_, run_path, run_id) in runs {
         let trace_path = run_path.join("trace.jsonl");
         if trace_path.exists() {
-            if let Ok(envelopes) = gestalt_trace::read_trace(&trace_path) {
+            if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
                 for env in envelopes {
                     let event_summary = match env.event {
                         AgentEvent::UserMessage { ref content } => {
@@ -417,16 +417,16 @@ pub async fn run_session_action(
 
     let expected_fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
-        tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(&tools.schemas()),
+        tool_schema_hash: gestalt_runtime::run_manifest::compute_tool_schema_hash(&tools.schemas()),
         policy_fingerprint: serde_json::to_string(&config.policies)
-            .map(|content| gestalt_trace::run_manifest::compute_policy_fingerprint(&content))
+            .map(|content| gestalt_runtime::run_manifest::compute_policy_fingerprint(&content))
             .unwrap_or_default(),
         hook_contract_hash: {
             let hook_names = vec![
                 "VerificationToolHook".to_string(),
                 "EvaluatorHook".to_string(),
             ];
-            gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
+            gestalt_runtime::run_manifest::compute_hook_contract_hash(&hook_names)
         },
         execution_mode: format!("{:?}", config.selected_mode()?),
         skill_fingerprint: crate::run::compute_skill_fingerprint(config, &discovered_skills, None),
@@ -473,7 +473,7 @@ pub async fn run_session_action(
                     },
                 ));
             }
-            let envelopes = gestalt_trace::read_trace(&trace_path)
+            let envelopes = gestalt_runtime::read_trace(&trace_path)
                 .map_err(gestalt_core::HarnessError::Trace)?;
             let mut target_checkpoint = None;
             for env in &envelopes {
@@ -544,7 +544,7 @@ pub async fn run_session_action(
     )?;
     let sink = Arc::new(sink_inner);
 
-    let runtime = crate::runtime_factory::build_cli_runtime(
+    let runtime = crate::runtime_factory::build_app_runtime(
         config,
         api_key,
         interaction,
@@ -655,7 +655,7 @@ pub async fn run_session_action(
         _ => None,
     };
 
-    let current_tool_hash = gestalt_trace::run_manifest::compute_tool_schema_hash(&tools.schemas());
+    let current_tool_hash = gestalt_runtime::run_manifest::compute_tool_schema_hash(&tools.schemas());
     let current_cache_key =
         analysis
             .prompt_snapshot
@@ -681,7 +681,7 @@ pub async fn run_session_action(
         if let Some(prompt_snapshot) = analysis.prompt_snapshot.as_ref() {
             let loaded_event = AgentEvent::PromptSnapshotLoaded {
                 snapshot_hash: prompt_snapshot.snapshot_hash.clone(),
-                source: gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+                source: gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
             };
             sink.emit(loaded_event.clone())?;
             if let Some(ref tx) = event_tx {
@@ -831,11 +831,11 @@ pub async fn run_session_action(
 
     let prompt_snapshot_path = run_paths
         .root
-        .join(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+        .join(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
     if let Ok(snapshot) = read_prompt_snapshot(&prompt_snapshot_path) {
         manifest.prompt_snapshot_hash = Some(snapshot.snapshot_hash);
         manifest.prompt_snapshot_path =
-            Some(gestalt_trace::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
+            Some(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
     }
 
     let _ = manifest.save_to(&run_manifest_path);
@@ -847,7 +847,7 @@ fn write_cost_report_helper(
     cost_path: &std::path::Path,
 ) -> Result<(), gestalt_core::HarnessError> {
     let report = aggregate_costs(trace_path, |model| {
-        gestalt_models::ModelCatalog::new().get(model)
+        gestalt_runtime::ModelCatalog::new().get(model)
     })?;
     write_cost_report(cost_path, &report)?;
     Ok(())

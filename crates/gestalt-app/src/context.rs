@@ -4,7 +4,7 @@ use gestalt_core::ToolCatalog;
 use gestalt_core::{context::ContextPipeline, Message, TokenBudget};
 use gestalt_runtime::context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
 use gestalt_runtime::workspace_context::load_and_snapshot_workspace_context;
-use gestalt_tools::default_registry;
+use gestalt_runtime::default_registry;
 use std::sync::{Arc, Mutex};
 
 pub async fn explain_context(
@@ -166,7 +166,7 @@ pub async fn explain_context(
             )));
         }
 
-        let envelopes = gestalt_trace::read_trace(&trace_path)?;
+        let envelopes = gestalt_runtime::read_trace(&trace_path)?;
         for envelope in envelopes.iter().rev() {
             if let gestalt_core::AgentEvent::ContextBuilt {
                 packet_id,

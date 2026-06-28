@@ -7,7 +7,7 @@ use gestalt_core::{
     provider::{Provider, ProviderRequest},
     turn::TurnAccumulator,
 };
-use gestalt_trace::CompactionCheckpoint;
+use crate::legacy_trace::CompactionCheckpoint;
 use sha2::{Digest as _, Sha256};
 use std::fmt::Write as _;
 

@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::legacy_exec::NetworkPolicy as ExecNetworkPolicy;
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
-use gestalt_exec::{ExecRequest, ExecutionSandbox, NoSandbox};
+use crate::legacy_exec::{ExecRequest, ExecutionSandbox, NoSandbox};
 
 use crate::path::validate_child_dir;
 
@@ -279,7 +279,7 @@ mod tests {
                 BashTool::default().risk(&json!({"command": command})),
                 expected
             );
-            assert_eq!(gestalt_policy::classify_bash(command), expected);
+            assert_eq!(crate::legacy_policy::classify_bash(command), expected);
         }
     }
 

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
-pub async fn build_cli_runtime(
+pub async fn build_app_runtime(
     config: &EffectiveConfig,
     api_key: Option<String>,
     interaction: Option<Arc<dyn crate::InteractionProvider>>,
@@ -24,7 +24,7 @@ pub async fn build_cli_runtime(
         .protocol
         .as_deref()
         .unwrap_or_else(|| resolved_provider.provider_name());
-    let provider = gestalt_models::get_by_api_format_with_resolver(
+    let provider = gestalt_runtime::get_by_api_format_with_resolver(
         lookup_id,
         resolved_provider.api_format(),
         resolved_provider.provider_json(),
@@ -33,7 +33,7 @@ pub async fn build_cli_runtime(
     )?;
     let provider_default_model = provider.default_model().to_string();
 
-    let tools = Arc::new(gestalt_tools::default_registry()?);
+    let tools = Arc::new(gestalt_runtime::default_registry()?);
     let mode = config.selected_mode()?;
     let max_turns = config.max_turns();
     let tool_names: Vec<String> = tools
@@ -57,17 +57,17 @@ pub async fn build_cli_runtime(
     };
 
     #[allow(unused_mut)]
-    let mut enabled_cli_features = Vec::new();
+    let mut enabled_host_features = Vec::new();
     #[cfg(feature = "mcp")]
-    enabled_cli_features.push("mcp".to_string());
+    enabled_host_features.push("mcp".to_string());
     #[cfg(feature = "skills")]
-    enabled_cli_features.push("skills".to_string());
+    enabled_host_features.push("skills".to_string());
     #[cfg(feature = "verify")]
-    enabled_cli_features.push("verify".to_string());
+    enabled_host_features.push("verify".to_string());
     #[cfg(feature = "tui")]
-    enabled_cli_features.push("tui".to_string());
+    enabled_host_features.push("tui".to_string());
     #[cfg(feature = "otel")]
-    enabled_cli_features.push("otel".to_string());
+    enabled_host_features.push("otel".to_string());
 
     let explicit_loads: Vec<std::path::PathBuf> = config
         .extensions
@@ -142,7 +142,7 @@ pub async fn build_cli_runtime(
         };
         let trusted = matches!(
             desc.trust_level,
-            gestalt_skills::SkillTrustLevel::Explicit | gestalt_skills::SkillTrustLevel::Workspace
+            gestalt_runtime::SkillTrustLevel::Explicit | gestalt_runtime::SkillTrustLevel::Workspace
         ) || trusted_names.contains(name.as_str());
         if !trusted {
             return Err(HarnessError::Config(
@@ -232,7 +232,7 @@ pub async fn build_cli_runtime(
         max_output_tokens: config.tools.max_output_tokens,
         allow_network: false,
         environment: std::collections::HashMap::new(),
-        enabled_cli_features,
+        enabled_host_features,
         tool_profile: None,
         trusted_extension_ids,
         discovered_skills: discovered_skills.clone(),
@@ -266,17 +266,17 @@ pub async fn build_cli_runtime(
         effective_config_fingerprint: Some(config.compute_fingerprint()),
     };
 
-    let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
-    verifier_registry.register(Box::new(gestalt_verify::FileExistsVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::NoSecretsVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::PatchAppliesVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::MarkdownStructureVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::CommandVerifier::new(
+    let mut verifier_registry = gestalt_runtime::VerifierRegistry::new();
+    verifier_registry.register(Box::new(gestalt_runtime::FileExistsVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::NoSecretsVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::PatchAppliesVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::MarkdownStructureVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::CommandVerifier::new(
         "echo 'Command verified'",
     )));
 
-    let verification_hook = Arc::new(gestalt_verify::VerificationToolHook::new(verifier_registry));
-    let evaluator = Arc::new(gestalt_trace::evaluator::NoopTraceEvaluator);
+    let verification_hook = Arc::new(gestalt_runtime::VerificationToolHook::new(verifier_registry));
+    let evaluator = Arc::new(gestalt_runtime::evaluator::NoopTraceEvaluator);
 
     let mut core_hooks = gestalt_core::HookRegistry::new();
     core_hooks.register_tool_hook(verification_hook);
@@ -284,7 +284,7 @@ pub async fn build_cli_runtime(
     if let Some(ref sink) = trace_sink {
         let sink_clone = sink.clone();
         let evaluator_hook = Arc::new(
-            gestalt_trace::evaluator::EvaluatorHook::new(evaluator, None).with_flush_trigger(
+            gestalt_runtime::evaluator::EvaluatorHook::new(evaluator, None).with_flush_trigger(
                 Arc::new(move || {
                     let _ = sink_clone.flush();
                 }),
@@ -500,7 +500,7 @@ pub async fn inspect_runtime(
     api_key: Option<String>,
 ) -> Result<gestalt_runtime::RuntimeInspect, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
-    let runtime = build_cli_runtime(
+    let runtime = build_app_runtime(
         &config,
         api_key,
         None,
@@ -605,7 +605,7 @@ pub async fn get_runtime_events(
     api_key: Option<String>,
 ) -> Result<Vec<gestalt_runtime::RuntimeEvent>, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
-    let runtime = build_cli_runtime(
+    let runtime = build_app_runtime(
         &config,
         api_key,
         None,
@@ -691,7 +691,7 @@ pub fn runtime_doctor(
 
 // === Skill surface ===
 
-pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_skills::SkillDiscovery {
+pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_runtime::SkillDiscovery {
     let global_dir = if std::env::var_os("GESTALT_NO_GLOBAL_SKILLS").is_some() {
         None
     } else {
@@ -702,7 +702,7 @@ pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_skills::SkillD
     } else {
         dirs::home_dir()
     };
-    gestalt_skills::SkillDiscovery::new(config.workspace_root.clone(), global_dir, home_dir)
+    gestalt_runtime::SkillDiscovery::new(config.workspace_root.clone(), global_dir, home_dir)
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -735,7 +735,7 @@ pub fn list_skills(
 pub fn inspect_skill(
     overrides: &crate::config::CliOverrides,
     name: &str,
-) -> Result<Option<gestalt_skills::SkillDescriptor>, Box<dyn std::error::Error>> {
+) -> Result<Option<gestalt_runtime::SkillDescriptor>, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
     let explicit: Vec<std::path::PathBuf> = config
         .skills
@@ -756,14 +756,14 @@ pub fn inspect_skill(
 #[allow(clippy::missing_errors_doc)]
 pub fn validate_skill(
     path: &std::path::Path,
-) -> Result<gestalt_skills::skill_manifest::SkillManifest, Box<dyn std::error::Error>> {
+) -> Result<gestalt_runtime::skill_manifest::SkillManifest, Box<dyn std::error::Error>> {
     let manifest_path = if path.is_dir() {
         path.join("SKILL.md")
     } else {
         path.to_path_buf()
     };
     let raw = std::fs::read_to_string(&manifest_path)?;
-    let file = gestalt_skills::skill_manifest::SkillManifest::parse(&raw)?;
+    let file = gestalt_runtime::skill_manifest::SkillManifest::parse(&raw)?;
     let dir_name = manifest_path
         .parent()
         .and_then(|p| p.file_name())
@@ -802,8 +802,8 @@ pub fn validate_skill_activation(config: &EffectiveConfig, name: &str) -> SkillV
         Some(desc) => {
             let trusted = matches!(
                 desc.trust_level,
-                gestalt_skills::SkillTrustLevel::Explicit
-                    | gestalt_skills::SkillTrustLevel::Workspace
+                gestalt_runtime::SkillTrustLevel::Explicit
+                    | gestalt_runtime::SkillTrustLevel::Workspace
             ) || trust_list.contains(&desc.name);
             if trusted {
                 SkillValidation::Ok {
@@ -824,7 +824,7 @@ pub fn validate_skill_activation(config: &EffectiveConfig, name: &str) -> SkillV
 pub enum SkillValidation {
     /// Skill was found and trusted.
     Ok {
-        descriptor: Box<gestalt_skills::SkillDescriptor>,
+        descriptor: Box<gestalt_runtime::SkillDescriptor>,
     },
     /// Skill name was not present in the discovered set.
     Unknown { name: String },
@@ -833,7 +833,7 @@ pub enum SkillValidation {
     /// `skills.trusted`).
     Untrusted {
         name: String,
-        trust_level: gestalt_skills::SkillTrustLevel,
+        trust_level: gestalt_runtime::SkillTrustLevel,
     },
 }
 

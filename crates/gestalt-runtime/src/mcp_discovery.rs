@@ -92,12 +92,12 @@ pub fn rank_tools(
 }
 
 pub struct SearchToolsTool {
-    registry: Arc<gestalt_mcp::McpRegistry>,
+    registry: Arc<crate::legacy_mcp::McpRegistry>,
     schema: ToolSchema,
 }
 
 impl SearchToolsTool {
-    pub fn new(registry: Arc<gestalt_mcp::McpRegistry>) -> Self {
+    pub fn new(registry: Arc<crate::legacy_mcp::McpRegistry>) -> Self {
         let schema = serde_json::json!({
             "name": "search_tools",
             "description": "Search for available tools by keyword or description query.",
@@ -209,14 +209,14 @@ impl Tool for SearchToolsTool {
 }
 
 pub struct GetToolDetailsTool {
-    registry: Arc<gestalt_mcp::McpRegistry>,
+    registry: Arc<crate::legacy_mcp::McpRegistry>,
     discovery_state: Arc<Mutex<McpDiscoveryState>>,
     schema: ToolSchema,
 }
 
 impl GetToolDetailsTool {
     pub fn new(
-        registry: Arc<gestalt_mcp::McpRegistry>,
+        registry: Arc<crate::legacy_mcp::McpRegistry>,
         discovery_state: Arc<Mutex<McpDiscoveryState>>,
     ) -> Self {
         let schema = serde_json::json!({

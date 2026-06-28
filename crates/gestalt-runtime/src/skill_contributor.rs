@@ -2,7 +2,7 @@ use crate::context::ContextContributor;
 use crate::error::Result;
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use gestalt_core::{message::Message, ContextStability};
-use gestalt_skills::{
+use crate::legacy_skills::{
     render_active_skill_instructions, ActivationEngine, ActivationReason as SkActivationReason,
     ActivationState, SkillIndex,
 };
@@ -60,7 +60,7 @@ impl std::fmt::Debug for SkillContributorState {
 
 impl SkillContributorState {
     pub fn new(
-        discovered: Vec<gestalt_skills::SkillDescriptor>,
+        discovered: Vec<crate::legacy_skills::SkillDescriptor>,
         initial_active: Vec<String>,
     ) -> Self {
         let index = SkillIndex::new(discovered);
@@ -170,7 +170,7 @@ impl SkillContributorState {
                 None => continue,
             };
             match self.load_active_body(&name) {
-                Ok(body) => active_skills.push(gestalt_skills::ActiveSkill {
+                Ok(body) => active_skills.push(crate::legacy_skills::ActiveSkill {
                     descriptor: desc.clone(),
                     full_body: body,
                 }),
@@ -228,7 +228,7 @@ impl SkillContributorState {
         format!("{:x}", hasher.finalize())
     }
 
-    pub fn active_descriptors(&self) -> Vec<gestalt_skills::SkillDescriptor> {
+    pub fn active_descriptors(&self) -> Vec<crate::legacy_skills::SkillDescriptor> {
         let mut names: Vec<&String> = self.active.iter().collect();
         names.sort();
         names
@@ -249,7 +249,7 @@ impl SkillContributorState {
     /// `RuntimeEvent::SkillResourceAccessed` on this state's event bus. The
     /// returned `Arc` is cheap to clone and can be installed on any tool that
     /// touches skill-owned resources.
-    pub fn resource_recorder(&self) -> Option<gestalt_skills::ResourceAccessRecorder> {
+    pub fn resource_recorder(&self) -> Option<crate::legacy_skills::ResourceAccessRecorder> {
         let bus = self.event_bus.as_ref()?;
         let bus = bus.clone();
         Some(std::sync::Arc::new(move |name, path| {

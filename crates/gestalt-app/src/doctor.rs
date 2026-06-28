@@ -56,7 +56,7 @@ pub async fn diagnose_workspace(
     // 2. Policies syntax check
     let policies_path = gestalt_dir.join("policies.toml");
     if policies_path.exists() {
-        if let Err(err) = gestalt_policy::PolicyConfig::from_file(&policies_path) {
+        if let Err(err) = gestalt_runtime::PolicyConfig::from_file(&policies_path) {
             policies_valid = false;
             policies_error = Some(err.to_string());
         }
@@ -211,7 +211,7 @@ pub async fn diagnose_workspace(
     let mut model_valid = true;
     let mut model_error = None;
     if let Some(ref model_id) = selected_model {
-        if gestalt_models::ModelCatalog::new().get(model_id).is_none() {
+        if gestalt_runtime::ModelCatalog::new().get(model_id).is_none() {
             model_valid = false;
             model_error = Some(format!("selected model '{model_id}' is not in the catalog"));
         }

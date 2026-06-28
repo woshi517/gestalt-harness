@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
-use gestalt_runtime as gestalt_mcp;
 use gestalt_runtime::extension::{
     ComponentFingerprint, ComponentInstanceId, ComponentKind, ExtensionInventory,
     ExtensionLauncher, ExtensionManager, ExtensionProcessInstance, ExtensionProcessState,
@@ -333,7 +332,7 @@ fn manager_with_snapshot(snapshot: RuntimeExtensionSnapshot) -> ExtensionManager
 fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
     let registry = RuntimeRegistryBuilder::new().snapshot();
     let catalog = Arc::new(EmptyToolCatalog);
-    let mcp = Arc::new(gestalt_mcp::McpRegistry::new(
+    let mcp = Arc::new(gestalt_runtime::McpRegistry::new(
         std::env::current_dir().unwrap(),
         HashMap::new(),
     ));

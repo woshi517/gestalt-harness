@@ -24,7 +24,7 @@ impl PolicyEngine for RuntimePolicyEngine {
         let skill_policy = self.skill_state.as_ref().and_then(|state| {
             let guard = state.lock().ok()?;
             let active = guard.active_descriptors();
-            let policy = gestalt_skills::effective_tool_policy(&active);
+            let policy = crate::legacy_skills::effective_tool_policy(&active);
             if policy.restricts_tools {
                 Some(policy)
             } else {

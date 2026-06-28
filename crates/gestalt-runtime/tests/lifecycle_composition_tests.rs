@@ -9,7 +9,6 @@ use gestalt_core::{
     tool::{ToolCatalog, ToolSchema},
     ContextStability,
 };
-use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{
     AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, BeforeContextBuildCtx,
     BeforeToolPolicyCtx, CompositionHooks, ContextContributor, HookOutcome, OnEventCtx,
@@ -157,7 +156,7 @@ fn runtime_snapshot_contains_typed_context_and_policy_plans() {
     let mut builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -193,5 +192,3 @@ fn runtime_snapshot_contains_typed_context_and_policy_plans() {
         "native:composition_hooks:before_tool_policy"
     );
 }
-#[allow(unused_imports)]
-use gestalt_runtime as gestalt_trace;

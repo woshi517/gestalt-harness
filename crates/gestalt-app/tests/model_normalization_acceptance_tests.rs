@@ -1,13 +1,11 @@
 use gestalt_core::{
     AgentEvent, ApiFormat, ModelCapabilities, PromptCacheMode, ResolvedModelSnapshot,
 };
-use gestalt_runtime as gestalt_models;
-use gestalt_runtime as gestalt_trace;
-use gestalt_trace::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
+use gestalt_runtime::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 
 #[test]
 fn test_responses_sse_parsing() {
-    use gestalt_models::openai::responses::OpenAiResponsesProvider;
+    use gestalt_runtime::openai::responses::OpenAiResponsesProvider;
 
     // Simulate raw event streams from OpenAI Responses API
     let raw_events = vec![

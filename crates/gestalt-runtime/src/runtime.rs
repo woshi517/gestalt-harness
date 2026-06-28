@@ -58,7 +58,7 @@ pub struct AgentRuntime {
     /// Shared skill contributor state. Carried by the runtime so activation
     /// can be resolved per-turn from `before_context_build`.
     pub skill_state: Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
-    pub mcp_registry: Arc<gestalt_mcp::McpRegistry>,
+    pub mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
     pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
     steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
     pub extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
@@ -80,7 +80,7 @@ impl AgentRuntime {
         registry_snapshot: RuntimeRegistrySnapshot,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
         event_bus: RuntimeEventBus,
-        mcp_registry: Arc<gestalt_mcp::McpRegistry>,
+        mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
         mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
         extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     ) -> Self {
@@ -161,7 +161,7 @@ impl AgentRuntime {
     /// `RuntimeEvent::SkillResourceAccessed` on this runtime's event bus. Tools
     /// can install this recorder so that any read against a skill's
     /// `references/` or `scripts/` resources becomes observable in the trace.
-    pub fn skill_resource_recorder(&self) -> Option<gestalt_skills::ResourceAccessRecorder> {
+    pub fn skill_resource_recorder(&self) -> Option<crate::legacy_skills::ResourceAccessRecorder> {
         self.skill_state
             .as_ref()
             .and_then(|s| s.lock().ok())
@@ -562,7 +562,7 @@ impl AgentRuntime {
             .as_ref()
             .map(|_| "JsonlTraceSink".to_string());
 
-        let enabled_cli_features = self.config.enabled_cli_features.clone();
+        let enabled_host_features = self.config.enabled_host_features.clone();
 
         let discovered_skills: Vec<crate::inspect::SkillInspectInfo> = self
             .config
@@ -681,7 +681,7 @@ impl AgentRuntime {
             trace_sink_kind,
             trace_run_dir: None,
             workspace_root: self.config.workspace_root.to_string_lossy().to_string(),
-            enabled_cli_features,
+            enabled_host_features,
             discovered_skills,
             active_skills,
             skill_fingerprint,

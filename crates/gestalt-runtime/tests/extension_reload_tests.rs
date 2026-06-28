@@ -7,7 +7,6 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{
     AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig, RuntimeControl,
 };
@@ -139,7 +138,7 @@ fn runtime() -> gestalt_runtime::AgentRuntime {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))

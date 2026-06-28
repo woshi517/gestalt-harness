@@ -100,7 +100,7 @@ pub fn tail_run(
 }
 
 fn print_tailed_line(line: &str, format: crate::output::OutputFormat) -> Result<(), HarnessError> {
-    let envelope = serde_json::from_str::<gestalt_trace::EventEnvelope>(line).map_err(|err| {
+    let envelope = serde_json::from_str::<gestalt_runtime::EventEnvelope>(line).map_err(|err| {
         HarnessError::Trace(gestalt_core::TraceError::InvalidFormat {
             line: 0,
             reason: err.to_string(),

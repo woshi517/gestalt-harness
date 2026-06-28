@@ -2895,7 +2895,7 @@ Skill restrictions are **narrowing** — they never widen access. The effective 
 Skill state participates in the same observability model as the rest of the runtime:
 
 - **Events.** `RuntimeEvent` has `SkillDiscovered`, `SkillActivated`, `SkillDeactivated`, `SkillRejected`, `SkillPolicyApplied`, and `SkillResourceAccessed` variants. They are emitted as follows:
-  - `SkillDiscovered` — once per skill at startup, from `build_cli_runtime`.
+  - `SkillDiscovered` — once per skill at startup, from `build_app_runtime`.
   - `SkillActivated` / `SkillDeactivated` — per-turn, from `SkillContributorState::publish_diff`, which the runtime calls after `resolve_active`.
   - `SkillRejected` — when `build_active_instructions` cannot read a skill's manifest, or when an activation request targets an unknown / untrusted name.
   - `SkillPolicyApplied` — when `RuntimePolicyEngine` denies a tool call because it is outside the active skill's `allowed-tools`.
@@ -2925,7 +2925,7 @@ gestalt run --skill <name>                   # Activate for a single run (valida
 /skill off <name>                            # Deactivate in chat mode (validated against discovery)
 ```
 
-Every activation surface runs the requested name through `validate_skill_activation` and rejects unknown or untrusted names with a clear error before persisting state. The chat-mode slash command prints the validation error to the user but does not modify the session state. `build_cli_runtime` performs a final fail-fast check on the merged `config.skills.active` set so an unknown name passed through gestalt.json or `--skill` cannot silently pass through to runtime filtering. This trust gate validates that each active skill name exists in the discovered set AND has trust level `Explicit` or `Workspace`, or is listed in `skills.trusted`.
+Every activation surface runs the requested name through `validate_skill_activation` and rejects unknown or untrusted names with a clear error before persisting state. The chat-mode slash command prints the validation error to the user but does not modify the session state. `build_app_runtime` performs a final fail-fast check on the merged `config.skills.active` set so an unknown name passed through gestalt.json or `--skill` cannot silently pass through to runtime filtering. This trust gate validates that each active skill name exists in the discovered set AND has trust level `Explicit` or `Workspace`, or is listed in `skills.trusted`.
 
 **Session deactivation.** `/skill off <name>` in chat mode records the skill name with a `!` prefix in `CliOverrides::skills` (e.g., `!pdf-processing`). The `load_effective_config` function interprets entries starting with `!` as removals from the `config.skills.active` set, while plain entries are appended if not already present. The `SkillActivated` handler in chat removes both `name` and `!name` from overrides before pushing `name`; the `SkillDeactivated` handler removes both and pushes `!name`. This ensures that session-level deactivation persists across in-memory chat turns and is never written to workspace config.
 

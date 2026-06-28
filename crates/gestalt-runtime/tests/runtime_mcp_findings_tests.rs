@@ -1,14 +1,12 @@
 #![allow(deprecated)]
 
-use gestalt_context::ContextMessageAssembler;
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     tool::ToolCatalog,
 };
-use gestalt_mcp::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
-use gestalt_runtime as gestalt_context;
-use gestalt_runtime as gestalt_mcp;
+use gestalt_runtime::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent};
 use std::sync::Arc;
 

@@ -1,15 +1,5 @@
 #![allow(deprecated)]
 
-extern crate self as gestalt_context;
-extern crate self as gestalt_exec;
-extern crate self as gestalt_mcp;
-extern crate self as gestalt_models;
-extern crate self as gestalt_policy;
-extern crate self as gestalt_skills;
-extern crate self as gestalt_tools;
-extern crate self as gestalt_trace;
-extern crate self as gestalt_verify;
-
 #[path = "legacy/context/lib.rs"]
 mod legacy_context;
 #[path = "legacy/exec/lib.rs"]

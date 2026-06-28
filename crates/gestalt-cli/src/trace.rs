@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 
 use gestalt_core::event::PolicyStatus;
 use gestalt_core::AgentEvent;
-use gestalt_trace::{aggregate_costs, analyze_tool_metrics, read_trace};
+use gestalt_runtime::{aggregate_costs, analyze_tool_metrics, read_trace};
 
 use crate::output::{
     PolicyOutcomesSummary, ReplayReport, TraceAnalyzeReport, TraceInspectReport,
@@ -225,7 +225,7 @@ pub fn inspect_trace(
 
     // Cost calculation
     let resolver =
-        |model_id: &str| gestalt_models::ModelCatalog::built_in().get_qualified(model_id);
+        |model_id: &str| gestalt_runtime::ModelCatalog::built_in().get_qualified(model_id);
     let cost_rep = aggregate_costs(&trace_path, resolver).ok();
     let estimated_cost_usd = cost_rep.and_then(|c| c.estimated_cost_usd);
 
@@ -311,7 +311,7 @@ pub fn validate_trace(
             continue;
         }
 
-        let envelope = match serde_json::from_str::<gestalt_trace::EventEnvelope>(&line) {
+        let envelope = match serde_json::from_str::<gestalt_runtime::EventEnvelope>(&line) {
             Ok(env) => env,
             Err(e) => {
                 valid = false;
@@ -388,7 +388,7 @@ pub fn analyze_trace(
 ) -> Result<TraceAnalyzeReport, Box<dyn std::error::Error>> {
     let (_run_id, _run_dir, trace_path) = resolve_trace_target(config, run_id_or_path)?;
     let resolver =
-        |model_id: &str| gestalt_models::ModelCatalog::built_in().get_qualified(model_id);
+        |model_id: &str| gestalt_runtime::ModelCatalog::built_in().get_qualified(model_id);
     match kind {
         "tools" => {
             let tools_metrics = analyze_tool_metrics(&trace_path, resolver)?;

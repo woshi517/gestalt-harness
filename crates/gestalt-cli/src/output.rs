@@ -1,7 +1,7 @@
 use gestalt_app::config::{ConfigSourceInfo, EffectiveConfig, SecretString};
 pub use gestalt_app::reports::*;
 use gestalt_core::model::ModelInfo;
-use gestalt_trace::CostReport;
+use gestalt_runtime::CostReport;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -1020,7 +1020,7 @@ impl CliReport for TraceValidateReport {
 #[derive(Debug, Clone, Serialize)]
 pub struct TraceAnalyzeReport {
     pub path: PathBuf,
-    pub tools_metrics: gestalt_trace::ToolMetricsReport,
+    pub tools_metrics: gestalt_runtime::ToolMetricsReport,
 }
 
 impl CliReport for TraceAnalyzeReport {
@@ -1807,7 +1807,7 @@ impl CliReport for RuntimeInspectReport {
         lines.push(String::new());
         lines.push(format!(
             "Enabled CLI Features: {:?}",
-            self.inspect.enabled_cli_features
+            self.inspect.enabled_host_features
         ));
 
         lines.push(String::new());

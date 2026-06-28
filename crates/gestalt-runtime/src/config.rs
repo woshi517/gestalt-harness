@@ -20,7 +20,7 @@ pub struct RuntimeConfig {
     pub max_output_tokens: Option<usize>,
     pub allow_network: bool,
     pub environment: HashMap<String, String>,
-    pub enabled_cli_features: Vec<String>,
+    pub enabled_host_features: Vec<String>,
     pub tool_profile: Option<crate::tool_catalog_planner::ToolProfile>,
     /// Extension ids whose annotations are promoted to
     /// `BuiltInTrusted`. Extensions not in this list are treated as
@@ -29,13 +29,13 @@ pub struct RuntimeConfig {
     pub trusted_extension_ids: Vec<String>,
     /// Discovered skill descriptors available at runtime startup.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub discovered_skills: Vec<gestalt_skills::SkillDescriptor>,
+    pub discovered_skills: Vec<crate::legacy_skills::SkillDescriptor>,
     /// Names of skills explicitly activated for this session.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub active_skills: Vec<String>,
     /// Configured MCP servers
     #[serde(default)]
-    pub mcp_servers: HashMap<String, gestalt_mcp::McpServerConfig>,
+    pub mcp_servers: HashMap<String, crate::legacy_mcp::McpServerConfig>,
     /// Threshold to switch to progressive discovery
     #[serde(default)]
     pub mcp_discovery_threshold: Option<usize>,
@@ -112,7 +112,7 @@ impl Default for RuntimeConfig {
             max_output_tokens: None,
             allow_network: false,
             environment: HashMap::new(),
-            enabled_cli_features: Vec::new(),
+            enabled_host_features: Vec::new(),
             tool_profile: None,
             trusted_extension_ids: Vec::new(),
             discovered_skills: Vec::new(),

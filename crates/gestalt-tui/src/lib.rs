@@ -27,11 +27,6 @@
     clippy::large_futures
 )]
 
-extern crate gestalt_runtime as gestalt_models;
-extern crate gestalt_runtime as gestalt_policy;
-extern crate gestalt_runtime as gestalt_tools;
-extern crate gestalt_runtime as gestalt_trace;
-
 pub mod auth {
     pub use gestalt_app::auth::resolve_auth;
 }

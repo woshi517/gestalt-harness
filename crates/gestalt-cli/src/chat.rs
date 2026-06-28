@@ -10,9 +10,9 @@ use std::sync::Arc;
 use tokio::io::AsyncBufReadExt as _;
 
 use gestalt_core::{HarnessError, ToolCatalog, WorkspaceSnapshotter};
-use gestalt_tools::default_registry;
-use gestalt_trace::resume::ResumeAnalyzer;
-use gestalt_trace::run_manifest::{CompatibilityFingerprint, RunManifest};
+use gestalt_runtime::default_registry;
+use gestalt_runtime::resume::ResumeAnalyzer;
+use gestalt_runtime::run_manifest::{CompatibilityFingerprint, RunManifest};
 
 use crate::slash::{handle_slash_command, SlashOutcome};
 use gestalt_app::config::{load_effective_config, CliOverrides, EffectiveConfig};
@@ -82,18 +82,18 @@ pub async fn run_chat(
 
         let expected_fingerprint = CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
-            tool_schema_hash: gestalt_trace::run_manifest::compute_tool_schema_hash(
+            tool_schema_hash: gestalt_runtime::run_manifest::compute_tool_schema_hash(
                 &tools.schemas(),
             ),
             policy_fingerprint: serde_json::to_string(&config.policies)
-                .map(|content| gestalt_trace::run_manifest::compute_policy_fingerprint(&content))
+                .map(|content| gestalt_runtime::run_manifest::compute_policy_fingerprint(&content))
                 .unwrap_or_default(),
             hook_contract_hash: {
                 let hook_names = vec![
                     "VerificationToolHook".to_string(),
                     "EvaluatorHook".to_string(),
                 ];
-                gestalt_trace::run_manifest::compute_hook_contract_hash(&hook_names)
+                gestalt_runtime::run_manifest::compute_hook_contract_hash(&hook_names)
             },
             execution_mode: format!("{:?}", config.selected_mode()?),
             skill_fingerprint: gestalt_app::run::compute_skill_fingerprint(

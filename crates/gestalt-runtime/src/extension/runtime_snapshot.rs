@@ -39,7 +39,7 @@ pub struct RuntimeExtensionSnapshot {
     pub routing_plan: Arc<TurnRouterPlan>,
     pub verification_plan: Arc<ExternalVerifierPlan>,
     pub observer_plan: Arc<EventObserverPlan>,
-    pub mcp_registry: Arc<gestalt_mcp::McpRegistry>,
+    pub mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
     pub process_instances: Arc<[Arc<ExtensionProcessInstance>]>,
     pub package_health: Arc<[ExtensionInstanceHealth]>,
     pub diagnostics: Arc<[crate::activation::ActivationDiagnostic]>,
@@ -54,7 +54,7 @@ impl RuntimeExtensionSnapshot {
         generation: RuntimeGeneration,
         registry_snapshot: RuntimeRegistrySnapshot,
         tool_catalog: Arc<dyn ToolCatalog>,
-        mcp_registry: Arc<gestalt_mcp::McpRegistry>,
+        mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
     ) -> Self {
         let context_plan = Self::context_plan_from_registry(&registry_snapshot, false);
         let fingerprint = registry_snapshot.fingerprint.clone();
@@ -83,7 +83,7 @@ impl RuntimeExtensionSnapshot {
         self.tool_catalog.clone()
     }
 
-    pub fn mcp_registry(&self) -> Arc<gestalt_mcp::McpRegistry> {
+    pub fn mcp_registry(&self) -> Arc<crate::legacy_mcp::McpRegistry> {
         self.mcp_registry.clone()
     }
 

@@ -15,14 +15,13 @@ use gestalt_core::policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 use gestalt_core::session::Session;
 use gestalt_core::tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema};
 use gestalt_core::tool_descriptor::ToolNamespace;
-use gestalt_runtime as gestalt_skills;
 use gestalt_runtime::composition_hooks::{
     CompositionHooks, HookOutcome, RuntimeContextHookAdapter,
 };
 use gestalt_runtime::event_bus::{RuntimeEvent, RuntimeEventBus};
 use gestalt_runtime::skill_contributor::SkillContributorState;
 use gestalt_runtime::{ComposedToolCatalog, RuntimePolicyEngine, ToolCatalogPlanner, ToolProfile};
-use gestalt_skills::{SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel};
+use gestalt_runtime::{SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel};
 
 fn make_descriptor(name: &str, description: &str, _body: &str) -> SkillDescriptor {
     SkillDescriptor {

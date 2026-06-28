@@ -12,7 +12,6 @@ use gestalt_core::{
     session::{ExecutionMode, Session, SessionConfig},
     tool::{Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
-use gestalt_runtime as gestalt_context;
 use gestalt_runtime::{
     extension::RuntimeGeneration,
     lifecycle::{
@@ -288,7 +287,7 @@ async fn run_session_invokes_all_pinned_lifecycle_capabilities() {
         .tools(Arc::new(TestToolCatalog {
             tool: Arc::new(TestTool),
         }))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(AllowAllPolicyEngine))

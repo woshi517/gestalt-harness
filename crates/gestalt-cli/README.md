@@ -143,10 +143,10 @@ All commands support `--format text` (default) and `--format json`. JSON output 
 
 ## Runtime Construction
 
-The CLI builds the runtime pipeline in `gestalt_app::runtime_factory::build_cli_runtime()`:
+The CLI builds the runtime pipeline in `gestalt_app::runtime_factory::build_app_runtime()`:
 
 ```rust
-pub async fn build_cli_runtime(
+pub async fn build_app_runtime(
     workspace: &Path,
     effective: &EffectiveConfig,
     overrides: &CliOverrides,

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use gestalt_core::event::{FindingSeverity, VerificationStatus};
-use gestalt_verify::{ArtifactRef, VerifyContext};
+use gestalt_runtime::{ArtifactRef, VerifyContext};
 
 use crate::config::EffectiveConfig;
 use crate::reports::{ArtifactVerificationResult, VerifierResultEntry, VerifyRunReport};
@@ -44,11 +44,11 @@ pub async fn verify_run(
         .into_owned();
     let artifacts_dir = run_dir.join("artifacts");
 
-    let mut verifier_registry = gestalt_verify::VerifierRegistry::new();
-    verifier_registry.register(Box::new(gestalt_verify::FileExistsVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::NoSecretsVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::PatchAppliesVerifier));
-    verifier_registry.register(Box::new(gestalt_verify::MarkdownStructureVerifier));
+    let mut verifier_registry = gestalt_runtime::VerifierRegistry::new();
+    verifier_registry.register(Box::new(gestalt_runtime::FileExistsVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::NoSecretsVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::PatchAppliesVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::MarkdownStructureVerifier));
 
     let mut artifact_results = Vec::new();
     let mut total_checks = 0;

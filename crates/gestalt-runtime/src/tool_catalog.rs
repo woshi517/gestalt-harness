@@ -6,7 +6,7 @@ pub struct ComposedToolCatalog {
     base: Arc<dyn ToolCatalog>,
     extension_tools: BTreeMap<String, Arc<dyn Tool>>,
     planner: Option<crate::tool_catalog_planner::ToolCatalogPlanner>,
-    mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
+    mcp_registry: Option<Arc<crate::legacy_mcp::McpRegistry>>,
     event_bus: Option<crate::event_bus::RuntimeEventBus>,
 }
 
@@ -33,7 +33,7 @@ impl ComposedToolCatalog {
         self
     }
 
-    pub fn with_mcp(mut self, mcp_registry: Arc<gestalt_mcp::McpRegistry>) -> Self {
+    pub fn with_mcp(mut self, mcp_registry: Arc<crate::legacy_mcp::McpRegistry>) -> Self {
         self.mcp_registry = Some(mcp_registry);
         self
     }

@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use gestalt_context::ContextMessageAssembler;
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     agent::executor::ToolExecutor,
     approval::AutoApprovalProvider,
@@ -8,9 +8,7 @@ use gestalt_core::{
     session::Session,
     tool_descriptor::ToolNamespace,
 };
-use gestalt_mcp::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
-use gestalt_runtime as gestalt_context;
-use gestalt_runtime as gestalt_mcp;
+use gestalt_runtime::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};

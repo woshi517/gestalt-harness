@@ -342,7 +342,7 @@ pub struct SkillsConfig {
 #[serde(deny_unknown_fields)]
 pub struct McpConfig {
     #[serde(default)]
-    pub servers: HashMap<String, gestalt_mcp::McpServerConfig>,
+    pub servers: HashMap<String, gestalt_runtime::McpServerConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_threshold: Option<usize>,
 }
@@ -558,18 +558,18 @@ fn with_default<T>(value: Option<Vec<T>>, default: Vec<T>) -> Vec<T> {
 }
 
 impl PoliciesConfig {
-    pub fn to_policy_config(&self) -> gestalt_policy::PolicyConfig {
-        let default_paths = gestalt_policy::PathPolicy::default();
-        let default_bash = gestalt_policy::BashPolicy::default();
-        let default_network = gestalt_policy::NetworkPolicy::default();
+    pub fn to_policy_config(&self) -> gestalt_runtime::PolicyConfig {
+        let default_paths = gestalt_runtime::PathPolicy::default();
+        let default_bash = gestalt_runtime::BashPolicy::default();
+        let default_network = gestalt_runtime::NetworkPolicy::default();
 
         let bash_default = self
             .bash
             .default
             .map(|a| match a {
-                PolicyAction::Allow => gestalt_policy::PolicyAction::Allow,
-                PolicyAction::Confirm => gestalt_policy::PolicyAction::Confirm,
-                PolicyAction::Deny => gestalt_policy::PolicyAction::Deny,
+                PolicyAction::Allow => gestalt_runtime::PolicyAction::Allow,
+                PolicyAction::Confirm => gestalt_runtime::PolicyAction::Confirm,
+                PolicyAction::Deny => gestalt_runtime::PolicyAction::Deny,
             })
             .unwrap_or(default_bash.default);
 
@@ -616,14 +616,14 @@ impl PoliciesConfig {
             .network
             .default
             .map(|a| match a {
-                PolicyAction::Allow => gestalt_policy::PolicyAction::Allow,
-                PolicyAction::Confirm => gestalt_policy::PolicyAction::Confirm,
-                PolicyAction::Deny => gestalt_policy::PolicyAction::Deny,
+                PolicyAction::Allow => gestalt_runtime::PolicyAction::Allow,
+                PolicyAction::Confirm => gestalt_runtime::PolicyAction::Confirm,
+                PolicyAction::Deny => gestalt_runtime::PolicyAction::Deny,
             })
             .unwrap_or(default_network.default);
 
-        gestalt_policy::PolicyConfig {
-            paths: gestalt_policy::PathPolicy {
+        gestalt_runtime::PolicyConfig {
+            paths: gestalt_runtime::PathPolicy {
                 allow_read: with_default(self.paths.allow_read.clone(), default_paths.allow_read),
                 allow_write: with_default(
                     self.paths.allow_write.clone(),
@@ -632,13 +632,13 @@ impl PoliciesConfig {
                 deny_write: with_default(self.paths.deny_write.clone(), default_paths.deny_write),
                 deny_read: with_default(self.paths.deny_read.clone(), default_paths.deny_read),
             },
-            bash: gestalt_policy::BashPolicy {
+            bash: gestalt_runtime::BashPolicy {
                 default: bash_default,
                 yolo_allow: allow_list,
                 always_confirm: confirm_list,
                 always_deny: deny_list,
             },
-            network: gestalt_policy::NetworkPolicy {
+            network: gestalt_runtime::NetworkPolicy {
                 default: network_default,
                 allow_domains: with_default(
                     self.network.allow_domains.clone(),
@@ -653,7 +653,7 @@ impl PoliciesConfig {
         }
     }
 
-    pub fn from_policy_config(config: &gestalt_policy::PolicyConfig) -> Self {
+    pub fn from_policy_config(config: &gestalt_runtime::PolicyConfig) -> Self {
         Self {
             paths: PolicyPathsConfig {
                 allow_read: Some(config.paths.allow_read.clone()),
@@ -663,9 +663,9 @@ impl PoliciesConfig {
             },
             bash: PolicyBashConfig {
                 default: Some(match config.bash.default {
-                    gestalt_policy::PolicyAction::Allow => PolicyAction::Allow,
-                    gestalt_policy::PolicyAction::Confirm => PolicyAction::Confirm,
-                    gestalt_policy::PolicyAction::Deny => PolicyAction::Deny,
+                    gestalt_runtime::PolicyAction::Allow => PolicyAction::Allow,
+                    gestalt_runtime::PolicyAction::Confirm => PolicyAction::Confirm,
+                    gestalt_runtime::PolicyAction::Deny => PolicyAction::Deny,
                 }),
                 allow: Some(config.bash.yolo_allow.clone()),
                 confirm: Some(config.bash.always_confirm.clone()),
@@ -676,9 +676,9 @@ impl PoliciesConfig {
             },
             network: PolicyNetworkConfig {
                 default: Some(match config.network.default {
-                    gestalt_policy::PolicyAction::Allow => PolicyAction::Allow,
-                    gestalt_policy::PolicyAction::Confirm => PolicyAction::Confirm,
-                    gestalt_policy::PolicyAction::Deny => PolicyAction::Deny,
+                    gestalt_runtime::PolicyAction::Allow => PolicyAction::Allow,
+                    gestalt_runtime::PolicyAction::Confirm => PolicyAction::Confirm,
+                    gestalt_runtime::PolicyAction::Deny => PolicyAction::Deny,
                 }),
                 allow_domains: Some(config.network.allow_domains.clone()),
                 deny_domains: Some(config.network.deny_domains.clone()),
@@ -871,7 +871,7 @@ fn bootstrap_global_config(path: &Path) -> Result<(), HarnessError> {
 }
 
 pub fn default_workspace_config() -> WorkspaceConfig {
-    let mut scaffold_policies = gestalt_policy::PolicyConfig::default();
+    let mut scaffold_policies = gestalt_runtime::PolicyConfig::default();
     scaffold_policies.paths.allow_write = vec!["docs/".to_string(), ".gestalt/".to_string()];
     WorkspaceConfig {
         version: 1,
@@ -1941,7 +1941,7 @@ pub struct ResolvedProvider {
     pub base_url: String,
     pub request_path: Option<String>,
     #[serde(skip)]
-    pub auth: gestalt_models::auth::ProviderAuthConfig,
+    pub auth: gestalt_runtime::auth::ProviderAuthConfig,
     pub protocol: Option<String>,
     pub models_endpoint: Option<String>,
     pub headers: BTreeMap<String, String>,
@@ -1976,10 +1976,10 @@ impl ResolvedProvider {
             "request": self.request,
             "capabilities": self.provider_capabilities,
             "auth": match &self.auth.credential {
-                gestalt_models::auth::ConfiguredCredential::None => "none",
-                gestalt_models::auth::ConfiguredCredential::Environment(_) => "environment",
-                gestalt_models::auth::ConfiguredCredential::Keychain(_) => "keychain",
-                gestalt_models::auth::ConfiguredCredential::Inline(_) => "inline",
+                gestalt_runtime::auth::ConfiguredCredential::None => "none",
+                gestalt_runtime::auth::ConfiguredCredential::Environment(_) => "environment",
+                gestalt_runtime::auth::ConfiguredCredential::Keychain(_) => "keychain",
+                gestalt_runtime::auth::ConfiguredCredential::Inline(_) => "inline",
             }
         })
     }
@@ -2080,7 +2080,7 @@ impl EffectiveConfig {
 
         if crate::catalog::get_builtin_provider(&provider_name).is_none()
             && !self.providers.contains_key(&provider_name)
-            && !gestalt_models::registered().contains(&provider_name)
+            && !gestalt_runtime::registered().contains(&provider_name)
         {
             return Err(HarnessError::Provider(ProviderError::UnknownProvider(
                 provider_name.clone(),
@@ -2373,7 +2373,7 @@ impl EffectiveConfig {
 
         let config_val = serde_json::to_value(&merged_prov_cfg).unwrap_or_default();
         let auth =
-            gestalt_models::auth::provider_auth_config(&config_val, &provider_name, default_env)?;
+            gestalt_runtime::auth::provider_auth_config(&config_val, &provider_name, default_env)?;
 
         let base_url = merged_prov_cfg.base_url.clone().unwrap_or_default();
         let request_path = merged_prov_cfg.request_path.clone();
@@ -2468,12 +2468,12 @@ impl EffectiveConfig {
 
     fn validate_resolved_provider(&self, resolved: &ResolvedProvider) -> Result<(), HarnessError> {
         let is_builtin = crate::catalog::get_builtin_provider(resolved.provider_name()).is_some();
-        let is_registered = gestalt_models::registered()
+        let is_registered = gestalt_runtime::registered()
             .contains(&resolved.provider_name().to_string())
             || resolved
                 .protocol
                 .as_ref()
-                .map(|p| gestalt_models::registered().contains(p))
+                .map(|p| gestalt_runtime::registered().contains(p))
                 .unwrap_or(false);
 
         if !is_builtin && !is_registered && resolved.base_url.is_empty() {

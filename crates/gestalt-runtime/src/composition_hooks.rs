@@ -234,7 +234,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
             let snapshot = PromptSnapshot::new(snapshot_messages, 0);
 
             if let Some(path) = snapshot_path.as_ref() {
-                let _ = gestalt_trace::write_prompt_snapshot(path, &snapshot);
+                let _ = crate::legacy_trace::write_prompt_snapshot(path, &snapshot);
             }
 
             let mut state = self.prompt_snapshot_state.lock().unwrap();

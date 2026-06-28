@@ -6,7 +6,6 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     HarnessError,
 };
-use gestalt_runtime as gestalt_models;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -113,7 +112,7 @@ async fn test_cli_smoke_prompt_source() {
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -270,7 +269,7 @@ async fn test_cli_smoke_custom_provider_via_profile() {
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "custom-mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );

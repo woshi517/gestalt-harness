@@ -264,7 +264,7 @@ git commit -m "refactor: introduce shared app service crate"
 
 - [ ] **Step 1: Move closed service modules**
 
-Move the listed modules to `crates/gestalt-app/src/`, rename `provider_catalog.rs` to `catalog.rs`, and rename CLI-specific `build_cli_runtime` to `build_runtime`. Replace internal `crate::...` imports with app-local modules and external callers with `gestalt_app::...`.
+Move the listed modules to `crates/gestalt-app/src/`, rename `provider_catalog.rs` to `catalog.rs`, and rename CLI-specific `build_app_runtime` to `build_runtime`. Replace internal `crate::...` imports with app-local modules and external callers with `gestalt_app::...`.
 
 During this task, move every non-presentation dependency used by those modules from `crates/gestalt-cli/Cargo.toml` to `crates/gestalt-app/Cargo.toml`, including the nine old implementation crates, `dirs`, `toml`, `toml_edit`, `keyring`, `rpassword`, `reqwest`, `chrono`, `uuid`, `sha2`, `schemars`, `async-trait`, and `tokio-util`. Remove each dependency from CLI when `rg` confirms no remaining CLI-owned module imports it. Task 8 replaces the old crate dependencies with runtime features.
 

@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 pub struct McpBackedTool {
-    registry: Arc<gestalt_mcp::McpRegistry>,
+    registry: Arc<crate::legacy_mcp::McpRegistry>,
     server_name: String,
     tool_name: String,
     description: String,
@@ -21,7 +21,7 @@ pub struct McpBackedTool {
 
 impl McpBackedTool {
     pub fn new(
-        registry: Arc<gestalt_mcp::McpRegistry>,
+        registry: Arc<crate::legacy_mcp::McpRegistry>,
         server_name: String,
         tool_name: String,
         description: String,
