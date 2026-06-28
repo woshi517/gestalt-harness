@@ -1340,7 +1340,7 @@ Responsibilities:
 
 This should be separate from the Chat Completions adapter.
 
-Do not overload `OpenAiProvider` with both Chat and Responses behavior unless the implementation remains cleanly split by serializer modules.
+Do not overload `OpenAiChatCompletionsProvider` with both Chat and Responses behavior unless the implementation remains cleanly split by serializer modules.
 
 Acceptable structure:
 
