@@ -1,10 +1,10 @@
 # Release Checklist
 
-Use this checklist before tagging or publishing `gestalt-harness` v0.1.
+Use this checklist before tagging or publishing `gestalt-cli` v0.1.
 
 ## Packaging and Install
 
-- Confirm `crates/gestalt-cli/Cargo.toml` declares package name `gestalt-harness`.
+- Confirm `crates/gestalt-cli/Cargo.toml` declares package name `gestalt-cli`.
 - Confirm the installed executable name remains `gestalt`.
 - Run `cargo install --path crates/gestalt-cli` or `cargo install --locked --path crates/gestalt-cli`, or run `bash scripts/install-smoke.sh`.
 - Verify the installed binary starts and `gestalt --workspace tests/fixtures/workspaces/minimal config validate` succeeds without provider credentials.
@@ -28,7 +28,7 @@ Use this checklist before tagging or publishing `gestalt-harness` v0.1.
 
 - Review `README.md` for platform support, install guidance, philosophy, and architecture overview.
 - Review `CHANGELOG.md` for the `0.1.0` entry.
-- Confirm the README, changelog, and release checklist all mention the `gestalt-harness` package and `gestalt` binary names.
+- Confirm the README, changelog, and release checklist all mention the `gestalt-cli` package and `gestalt` binary names.
 - Confirm documented v0.1 non-goals still match product scope.
 
 ## Sanity Checks

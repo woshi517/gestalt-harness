@@ -28,7 +28,7 @@ declare -A budgets=(
   ["gestalt-context"]=6
   ["gestalt-policy"]=7
   ["gestalt-trace"]=9
-  ["gestalt-harness"]=18
+  ["gestalt-cli"]=18
   ["gestalt-runtime"]=12
 )
 
@@ -39,7 +39,7 @@ packages=(
   "gestalt-context"
   "gestalt-policy"
   "gestalt-trace"
-  "gestalt-harness"
+  "gestalt-cli"
   "gestalt-runtime"
 )
 

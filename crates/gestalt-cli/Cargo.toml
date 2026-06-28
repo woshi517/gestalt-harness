@@ -1,5 +1,5 @@
 [package]
-name = "gestalt-harness"
+name = "gestalt-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

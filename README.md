@@ -85,7 +85,7 @@ cargo install --locked --path crates/gestalt-cli
 gestalt --help
 ```
 
-> When the crate is published, the package name will be `gestalt-harness` and the installed executable will remain `gestalt`.
+> When the crate is published, the package name will be `gestalt-cli` and the installed executable will remain `gestalt`.
 
 ---
 

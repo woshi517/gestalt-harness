@@ -15,7 +15,7 @@ Initial Phase 1 release candidate for `gestalt-harness`.
 
 ### Install and Platform Notes
 
-- Published package name: `gestalt-harness`
+- Published package name: `gestalt-cli`
 - Installed `gestalt` binary name remains unchanged
 - Supported platforms for v0.1: Linux x86-64 and macOS
 - Local install from a checkout: `cargo install --locked --path crates/gestalt-cli`
