@@ -49,7 +49,7 @@ Layering precedence (lowest to highest): built-in defaults < global `gestalt.jso
   "version": 1,
   "defaults": { "provider": "...", "model": "...", "mode": "...", "max_turns": 50, "profile": "default" },
   "profiles": { "default": { "provider": "openrouter", "model": "openrouter/free" } },
-  "providers": { "openrouter": { "kind": "openrouter", "base_url": "...", "api_key_env": "..." } },
+  "providers": { "openrouter": { "api_format": "openai_chat_completions", "base_url": "...", "api_key_env": "..." } },
   "tools": { "bash_timeout_secs": 60, "max_output_tokens": 4000, "sandbox_type": "none" },
   "context": { "max_context_window": 120000, "reserved_output_tokens": 8000, "workspace": { "enabled": true, "path": ".gestalt/workspace.md" }, "memory": { "enabled": true, "path": ".gestalt/memory.md", "strategy": "budgeted", "max_tokens": 8000 } },
   "observe": { "run_log_dir": ".gestalt/runs", "log_format": "jsonl" },
