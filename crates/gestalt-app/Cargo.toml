@@ -32,9 +32,12 @@ tokio-util = { workspace = true }
 futures = { workspace = true }
 
 [features]
-default = ["mcp", "skills", "verify"]
+default = ["providers", "tools", "trace", "mcp", "skills", "verify"]
+providers = ["gestalt-runtime/providers"]
+tools = ["gestalt-runtime/tools"]
+trace = ["gestalt-runtime/trace"]
 mcp = ["gestalt-runtime/mcp"]
 skills = ["gestalt-runtime/skills"]
 verify = ["gestalt-runtime/verify"]
-otel = ["gestalt-runtime/otel"]
 tui = []
+otel = ["gestalt-runtime/otel"]

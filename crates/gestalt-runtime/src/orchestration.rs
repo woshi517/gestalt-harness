@@ -81,8 +81,9 @@ impl RuntimeHost {
                     .unwrap(),
                 )
             }),
+            #[cfg(feature = "mcp")]
             builder.mcp_registry.clone().unwrap_or_else(|| {
-                Arc::new(crate::legacy_mcp::McpRegistry::new(
+                Arc::new(crate::mcp::McpRegistry::new(
                     workspace_root.clone(),
                     std::collections::HashMap::new(),
                 ))
@@ -114,8 +115,9 @@ impl RuntimeHost {
                             .unwrap(),
                         )
                     }),
+                    #[cfg(feature = "mcp")]
                     mcp_registry: builder.mcp_registry.clone().unwrap_or_else(|| {
-                        Arc::new(crate::legacy_mcp::McpRegistry::new(
+                        Arc::new(crate::mcp::McpRegistry::new(
                             workspace_root.clone(),
                             std::collections::HashMap::new(),
                         ))
@@ -339,8 +341,9 @@ impl crate::control::RuntimeControl for RuntimeHost {
                         .unwrap(),
                     )
                 }),
+                #[cfg(feature = "mcp")]
                 mcp_registry: self.builder.mcp_registry.clone().unwrap_or_else(|| {
-                    Arc::new(crate::legacy_mcp::McpRegistry::new(
+                    Arc::new(crate::mcp::McpRegistry::new(
                         self.workspace_root.clone(),
                         std::collections::HashMap::new(),
                     ))

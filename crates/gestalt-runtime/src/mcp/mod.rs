@@ -1,3 +1,21 @@
+pub mod client;
+pub mod error;
+pub mod model;
+pub mod registry;
+pub mod transport;
+pub mod discovery;
+
+pub use client::McpClient;
+pub use error::McpError;
+pub use model::{
+    parse_mcp_call_result, McpCallResult, McpConnectionState, McpEventCallback, McpLifecycleMode,
+    McpRegistryEvent, McpServerConfig, McpServerId, McpServerState, McpToolIdentity, McpToolSchema,
+    McpToolSummary, McpTransportConfig,
+};
+pub use registry::McpRegistry;
+pub use transport::McpTransport;
+pub use discovery::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
+
 use async_trait::async_trait;
 use gestalt_core::error::ToolError;
 use gestalt_core::tool::{RiskLevel, Tool, ToolContext, ToolOutput, ToolSchema};
@@ -9,7 +27,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 pub struct McpBackedTool {
-    registry: Arc<crate::legacy_mcp::McpRegistry>,
+    registry: Arc<McpRegistry>,
     server_name: String,
     tool_name: String,
     description: String,
@@ -21,7 +39,7 @@ pub struct McpBackedTool {
 
 impl McpBackedTool {
     pub fn new(
-        registry: Arc<crate::legacy_mcp::McpRegistry>,
+        registry: Arc<McpRegistry>,
         server_name: String,
         tool_name: String,
         description: String,

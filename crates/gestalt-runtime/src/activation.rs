@@ -29,7 +29,8 @@ impl ExtensionSource for StaticExtensionSource {
 
 pub struct BaseRuntimeComposition {
     pub tool_catalog: Arc<dyn gestalt_core::tool::ToolCatalog>,
-    pub mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
+    #[cfg(feature = "mcp")]
+    pub mcp_registry: Arc<crate::mcp::McpRegistry>,
     pub base_registry: crate::registry::RuntimeRegistrySnapshot,
 }
 
@@ -51,13 +52,14 @@ pub struct HostLaunchContext {
     pub package_source_root: Option<PathBuf>,
     pub extension_instances:
         std::collections::BTreeMap<String, crate::extension::ExtensionInstanceConfig>,
-    pub mcp_servers: std::collections::HashMap<String, crate::legacy_mcp::McpServerConfig>,
+    #[cfg(feature = "mcp")]
+    pub mcp_servers: std::collections::HashMap<String, crate::mcp::McpServerConfig>,
 }
 
 impl std::fmt::Debug for HostLaunchContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HostLaunchContext")
-            .field("workspace_root", &self.workspace_root)
+        let mut s = f.debug_struct("HostLaunchContext");
+        s.field("workspace_root", &self.workspace_root)
             .field("allow_network", &self.allow_network)
             .field("effective_permissions", &self.effective_permissions)
             .field("trusted_extension_ids", &self.trusted_extension_ids)
@@ -70,9 +72,12 @@ impl std::fmt::Debug for HostLaunchContext {
             .field("max_pending_requests", &self.max_pending_requests)
             .field("environment", &self.environment)
             .field("package_source_root", &self.package_source_root)
-            .field("extension_instances", &self.extension_instances)
-            .field("mcp_servers", &self.mcp_servers)
-            .finish_non_exhaustive()
+            .field("extension_instances", &self.extension_instances);
+        #[cfg(feature = "mcp")]
+        {
+            s.field("mcp_servers", &self.mcp_servers);
+        }
+        s.finish_non_exhaustive()
     }
 }
 
@@ -109,6 +114,7 @@ impl HostLaunchContext {
             environment: config.environment.clone(),
             package_source_root: None,
             extension_instances: config.extension_instances.clone(),
+            #[cfg(feature = "mcp")]
             mcp_servers: config.mcp_servers.clone(),
         }
     }
@@ -411,7 +417,7 @@ impl ExtensionActivationPipeline {
         // 3. Namespace validation
         let mut tool_runtime_names = std::collections::HashSet::new();
         let mut canonical_tool_ids = std::collections::HashSet::new();
-        let mut mcp_server_names = std::collections::HashSet::new();
+        let mut mcp_server_names: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut context_source_ids = std::collections::HashSet::new();
         let mut lifecycle_capability_ids = std::collections::HashSet::new();
         let mut skill_ids = std::collections::HashSet::new();
@@ -468,6 +474,7 @@ impl ExtensionActivationPipeline {
                             }
                         }
                     }
+                    #[cfg(feature = "mcp")]
                     crate::extension::ComponentKind::McpServer => {
                         let mcp_name = crate::extension::package_mcp_server_name(
                             &component.id.package_id,
@@ -481,6 +488,8 @@ impl ExtensionActivationPipeline {
                             )));
                         }
                     }
+                    #[cfg(not(feature = "mcp"))]
+                    crate::extension::ComponentKind::McpServer => {}
                     crate::extension::ComponentKind::GestaltLifecycle => {
                         let canonical_comp_id = component.id.canonical_id();
                         if !lifecycle_capability_ids.insert(canonical_comp_id.clone()) {
@@ -903,6 +912,7 @@ impl ExtensionActivationPipeline {
                             }
                         }
                     }
+                    #[cfg(feature = "mcp")]
                     crate::extension::ComponentKind::McpServer => {
                         let mcp_name = crate::extension::package_mcp_server_name(
                             &component.id.package_id,
@@ -924,16 +934,24 @@ impl ExtensionActivationPipeline {
                             });
                         }
                     }
+                    #[cfg(not(feature = "mcp"))]
+                    crate::extension::ComponentKind::McpServer => {
+                        return Err(crate::error::RuntimeError::Extension(
+                            "MCP feature is disabled".to_string()
+                        ));
+                    }
                     _ => {}
                 }
             }
         }
 
         // 5. Rebuild MCP registry config
+        // 5. Rebuild MCP registry config
+        #[cfg(feature = "mcp")]
         let direct_mcp_fingerprint = {
             let sorted_direct_mcp: std::collections::BTreeMap<
                 String,
-                crate::legacy_mcp::McpServerConfig,
+                crate::mcp::McpServerConfig,
             > = self
                 .host_context
                 .mcp_servers
@@ -942,119 +960,125 @@ impl ExtensionActivationPipeline {
                 .collect();
             fingerprint_json(&sorted_direct_mcp)
         };
+        #[cfg(not(feature = "mcp"))]
+        let direct_mcp_fingerprint = String::new();
 
-        let mut mcp_servers_config = self.host_context.mcp_servers.clone();
-        for package in &final_resolved_packages {
-            for (name, config) in crate::extension::package_mcp_servers(package)? {
-                mcp_servers_config.insert(name, config);
-            }
-        }
-
-        let mcp_registry = Arc::new(crate::legacy_mcp::McpRegistry::new(
-            self.host_context.workspace_root.clone(),
-            mcp_servers_config,
-        ));
-
-        let mut package_permissions = std::collections::HashMap::new();
-        for package in &final_resolved_packages {
-            for component in &package.components {
-                if component.kind == crate::extension::ComponentKind::McpServer {
-                    let server_name = crate::extension::package_mcp_server_name(
-                        &component.id.package_id,
-                        &component.id.instance_id,
-                        &component.id.component_id,
-                    );
-                    package_permissions.insert(
-                        server_name,
-                        (component.permissions.clone(), component.grants.clone()),
-                    );
+        #[cfg(feature = "mcp")]
+        let mcp_registry = {
+            let mut mcp_servers_config = self.host_context.mcp_servers.clone();
+            for package in &final_resolved_packages {
+                for (name, config) in crate::extension::package_mcp_servers(package)? {
+                    mcp_servers_config.insert(name, config);
                 }
             }
-        }
 
-        let event_bus = self.host_context.event_bus.clone();
-        let allow_network = self.host_context.allow_network;
-        mcp_registry.set_permission_validator(move |name, config| {
-            match &config.transport {
-                crate::legacy_mcp::McpTransportConfig::Stdio { .. } => {
-                    if let Some((permissions, grants)) = package_permissions.get(name) {
-                        crate::permissions::check_shell_permission_effective(
-                            permissions,
-                            Some(grants),
-                            &event_bus,
-                            name,
-                        )
-                        .map_err(|e| e.clone())?;
-                    }
-                }
-                crate::legacy_mcp::McpTransportConfig::Http { url, .. } => {
-                    let host = if let Ok(parsed_url) = url::Url::parse(url) {
-                        parsed_url.host_str().unwrap_or("").to_string()
-                    } else {
-                        url.clone()
-                    };
-                    if let Some((permissions, grants)) = package_permissions.get(name) {
-                        crate::permissions::check_network_permission_effective(
-                            permissions,
-                            Some(grants),
-                            allow_network,
-                            &host,
-                            &event_bus,
-                            name,
-                        )
-                        .map_err(|e| e.clone())?;
-                    } else if !allow_network {
-                        return Err(format!(
-                            "Network access to host '{host}' is not allowed by host policy"
-                        ));
+            let mcp_registry = Arc::new(crate::mcp::McpRegistry::new(
+                self.host_context.workspace_root.clone(),
+                mcp_servers_config,
+            ));
+
+            let mut package_permissions = std::collections::HashMap::new();
+            for package in &final_resolved_packages {
+                for component in &package.components {
+                    if component.kind == crate::extension::ComponentKind::McpServer {
+                        let server_name = crate::extension::package_mcp_server_name(
+                            &component.id.package_id,
+                            &component.id.instance_id,
+                            &component.id.component_id,
+                        );
+                        package_permissions.insert(
+                            server_name,
+                            (component.permissions.clone(), component.grants.clone()),
+                        );
                     }
                 }
             }
-            Ok(())
-        });
 
-        let event_bus = self.host_context.event_bus.clone();
-        mcp_registry.set_event_callback(Arc::new(move |event| match event {
-            crate::legacy_mcp::McpRegistryEvent::Connecting { server_name } => {
-                event_bus
-                    .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
-            }
-            crate::legacy_mcp::McpRegistryEvent::Connected {
-                server_name,
-                protocol_version,
-                tool_count,
-            } => {
-                event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnected {
+            let event_bus = self.host_context.event_bus.clone();
+            let allow_network = self.host_context.allow_network;
+            mcp_registry.set_permission_validator(move |name, config| {
+                match &config.transport {
+                    crate::mcp::McpTransportConfig::Stdio { .. } => {
+                        if let Some((permissions, grants)) = package_permissions.get(name) {
+                            crate::permissions::check_shell_permission_effective(
+                                permissions,
+                                Some(grants),
+                                &event_bus,
+                                name,
+                            )
+                            .map_err(|e| e.clone())?;
+                        }
+                    }
+                    crate::mcp::McpTransportConfig::Http { url, .. } => {
+                        let host = if let Ok(parsed_url) = url::Url::parse(url) {
+                            parsed_url.host_str().unwrap_or("").to_string()
+                        } else {
+                            url.clone()
+                        };
+                        if let Some((permissions, grants)) = package_permissions.get(name) {
+                            crate::permissions::check_network_permission_effective(
+                                permissions,
+                                Some(grants),
+                                allow_network,
+                                &host,
+                                &event_bus,
+                                name,
+                            )
+                            .map_err(|e| e.clone())?;
+                        } else if !allow_network {
+                            return Err(format!(
+                                "Network access to host '{host}' is not allowed by host policy"
+                            ));
+                        }
+                    }
+                }
+                Ok(())
+            });
+
+            let event_bus = self.host_context.event_bus.clone();
+            mcp_registry.set_event_callback(Arc::new(move |event| match event {
+                crate::mcp::McpRegistryEvent::Connecting { server_name } => {
+                    event_bus
+                        .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
+                }
+                crate::mcp::McpRegistryEvent::Connected {
                     server_name,
                     protocol_version,
                     tool_count,
-                });
-            }
-            crate::legacy_mcp::McpRegistryEvent::ConnectionFailed {
-                server_name,
-                reason,
-            } => {
-                event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnectionFailed {
+                } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnected {
+                        server_name,
+                        protocol_version,
+                        tool_count,
+                    });
+                }
+                crate::mcp::McpRegistryEvent::ConnectionFailed {
                     server_name,
                     reason,
-                });
-            }
-            crate::legacy_mcp::McpRegistryEvent::ToolCatalogRefreshed {
-                server_name,
-                tool_count,
-                schema_hash,
-            } => {
-                event_bus.publish(crate::event_bus::RuntimeEvent::McpToolCatalogRefreshed {
+                } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnectionFailed {
+                        server_name,
+                        reason,
+                    });
+                }
+                crate::mcp::McpRegistryEvent::ToolCatalogRefreshed {
                     server_name,
                     tool_count,
                     schema_hash,
-                });
-            }
-            crate::legacy_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
-                event_bus
-                    .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
-            }
-        }));
+                } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolCatalogRefreshed {
+                        server_name,
+                        tool_count,
+                        schema_hash,
+                    });
+                }
+                crate::mcp::McpRegistryEvent::ToolListChanged { server_name } => {
+                    event_bus
+                        .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
+                }
+            }));
+            mcp_registry
+        };
 
         // 6. Build composed tool catalog
         let mut extension_tools = std::collections::BTreeMap::new();
@@ -1064,13 +1088,16 @@ impl ExtensionActivationPipeline {
             }
         }
 
-        let composed_tools = crate::tool_catalog::ComposedToolCatalog::new(
+        let mut composed_tools = crate::tool_catalog::ComposedToolCatalog::new(
             self.base_composition.tool_catalog.clone(),
             extension_tools,
         )
-        .map_err(crate::error::RuntimeError::Registry)?
-        .with_mcp(mcp_registry.clone())
-        .with_event_bus(self.host_context.event_bus.clone());
+        .map_err(crate::error::RuntimeError::Registry)?;
+        #[cfg(feature = "mcp")]
+        {
+            composed_tools = composed_tools.with_mcp(mcp_registry.clone());
+        }
+        let composed_tools = composed_tools.with_event_bus(self.host_context.event_bus.clone());
 
         // 7. Construct candidate snapshot
         let mut complete_fp = crate::extension::compute_complete_fingerprint(
@@ -1161,6 +1188,7 @@ impl ExtensionActivationPipeline {
             observer_plan: Arc::new(crate::lifecycle::EventObserverPlan::new(
                 observer_registrations,
             )),
+            #[cfg(feature = "mcp")]
             mcp_registry,
             process_instances: Arc::from(process_instances),
             package_health: Arc::from([]),

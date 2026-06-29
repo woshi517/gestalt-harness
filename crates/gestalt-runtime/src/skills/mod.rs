@@ -9,6 +9,7 @@ pub mod index;
 pub mod manifest;
 pub mod policy;
 pub mod resources;
+pub mod contributor;
 
 // Re-exports for ergonomic access
 pub use activation::{

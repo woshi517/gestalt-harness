@@ -3,8 +3,8 @@ use std::{sync::Arc, time::Duration};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::legacy_exec::NetworkPolicy as ExecNetworkPolicy;
-use crate::legacy_exec::{ExecRequest, ExecutionSandbox, NoSandbox};
+use crate::exec::NetworkPolicy as ExecNetworkPolicy;
+use crate::exec::{ExecRequest, ExecutionSandbox, NoSandbox};
 use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
 use crate::path::validate_child_dir;
@@ -275,7 +275,7 @@ mod tests {
                 BashTool::default().risk(&json!({"command": command})),
                 expected
             );
-            assert_eq!(crate::legacy_policy::classify_bash(command), expected);
+            assert_eq!(crate::classify_bash(command), expected);
         }
     }
 

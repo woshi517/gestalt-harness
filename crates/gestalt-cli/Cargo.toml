@@ -36,11 +36,13 @@ uuid = { workspace = true }
 rpassword = "7"
 
 [features]
-default = ["mcp", "skills", "verify"]
+default = ["providers", "tools", "trace", "mcp", "skills", "verify"]
+providers = ["gestalt-app/providers", "gestalt-runtime/providers"]
+tools = ["gestalt-app/tools", "gestalt-runtime/tools"]
+trace = ["gestalt-app/trace", "gestalt-runtime/trace"]
 mcp = ["gestalt-app/mcp", "gestalt-runtime/mcp"]
 skills = ["gestalt-app/skills", "gestalt-runtime/skills"]
 verify = ["gestalt-app/verify", "gestalt-runtime/verify"]
-otel = ["gestalt-app/otel", "gestalt-runtime/otel"]
 
 [dev-dependencies]
 uuid = { workspace = true }

@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::legacy_policy::MinimalPolicyEngine;
+use crate::MinimalPolicyEngine;
 use gestalt_core::{
     agent::AgentLoop,
     approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest},
@@ -316,7 +316,7 @@ impl GoldenTraceRunner {
 
         let policy: Arc<dyn PolicyEngine> = if let Some(ref policy_toml) = golden.input.policy_toml
         {
-            let cfg = crate::legacy_policy::PolicyConfig::parse_toml(policy_toml)
+            let cfg = crate::PolicyConfig::parse_toml(policy_toml)
                 .map_err(HarnessError::Policy)?;
             Arc::new(MinimalPolicyEngine::new(cfg))
         } else {

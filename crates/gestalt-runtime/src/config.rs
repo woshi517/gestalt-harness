@@ -3,6 +3,30 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
+#[cfg(feature = "skills")]
+pub use crate::skills::SkillDescriptor;
+
+#[cfg(not(feature = "skills"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct SkillDescriptor {
+    pub name: String,
+    pub description: String,
+    pub skill_path: std::path::PathBuf,
+    pub triggers: Vec<String>,
+    pub manifest_hash: String,
+}
+
+#[cfg(feature = "mcp")]
+pub use crate::mcp::McpServerConfig;
+
+#[cfg(not(feature = "mcp"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct McpServerConfig {
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeConfig {
     pub workspace_root: PathBuf,
@@ -29,13 +53,13 @@ pub struct RuntimeConfig {
     pub trusted_extension_ids: Vec<String>,
     /// Discovered skill descriptors available at runtime startup.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub discovered_skills: Vec<crate::legacy_skills::SkillDescriptor>,
+    pub discovered_skills: Vec<SkillDescriptor>,
     /// Names of skills explicitly activated for this session.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub active_skills: Vec<String>,
     /// Configured MCP servers
     #[serde(default)]
-    pub mcp_servers: HashMap<String, crate::legacy_mcp::McpServerConfig>,
+    pub mcp_servers: HashMap<String, McpServerConfig>,
     /// Threshold to switch to progressive discovery
     #[serde(default)]
     pub mcp_discovery_threshold: Option<usize>,

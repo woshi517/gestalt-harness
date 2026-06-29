@@ -20,10 +20,14 @@ pub struct ToolCatalogPlanner {
     /// Additional skill-scoped tool name filter. Applied as intersection
     /// after the base profile filter.
     pub skill_allowed_names: Option<Vec<String>>,
-    pub skill_state: Option<Arc<Mutex<crate::skill_contributor::SkillContributorState>>>,
+    #[cfg(feature = "skills")]
+    pub skill_state: Option<Arc<Mutex<crate::skills::contributor::SkillContributorState>>>,
+    #[cfg(feature = "mcp")]
     pub mcp_discovery_threshold: Option<usize>,
-    pub mcp_discovery_state: Option<Arc<Mutex<crate::mcp_discovery::McpDiscoveryState>>>,
-    pub mcp_registry: Option<Arc<crate::legacy_mcp::McpRegistry>>,
+    #[cfg(feature = "mcp")]
+    pub mcp_discovery_state: Option<Arc<Mutex<crate::mcp::McpDiscoveryState>>>,
+    #[cfg(feature = "mcp")]
+    pub mcp_registry: Option<Arc<crate::mcp::McpRegistry>>,
 }
 
 impl ToolCatalogPlanner {
@@ -31,9 +35,13 @@ impl ToolCatalogPlanner {
         Self {
             profile,
             skill_allowed_names: None,
+            #[cfg(feature = "skills")]
             skill_state: None,
+            #[cfg(feature = "mcp")]
             mcp_discovery_threshold: None,
+            #[cfg(feature = "mcp")]
             mcp_discovery_state: None,
+            #[cfg(feature = "mcp")]
             mcp_registry: None,
         }
     }
@@ -43,19 +51,21 @@ impl ToolCatalogPlanner {
         self
     }
 
+    #[cfg(feature = "skills")]
     pub fn with_skill_state(
         mut self,
-        state: Arc<Mutex<crate::skill_contributor::SkillContributorState>>,
+        state: Arc<Mutex<crate::skills::contributor::SkillContributorState>>,
     ) -> Self {
         self.skill_state = Some(state);
         self
     }
 
+    #[cfg(feature = "mcp")]
     pub fn with_mcp(
         mut self,
         threshold: Option<usize>,
-        state: Arc<Mutex<crate::mcp_discovery::McpDiscoveryState>>,
-        registry: Arc<crate::legacy_mcp::McpRegistry>,
+        state: Arc<Mutex<crate::mcp::McpDiscoveryState>>,
+        registry: Arc<crate::mcp::McpRegistry>,
     ) -> Self {
         self.mcp_discovery_threshold = threshold;
         self.mcp_discovery_state = Some(state);
@@ -92,10 +102,11 @@ impl ToolCatalogPlanner {
                 .collect(),
         };
 
+        #[cfg(feature = "skills")]
         let dynamic_allowed = self.skill_state.as_ref().and_then(|state| {
             let guard = state.lock().ok()?;
             let active = guard.active_descriptors();
-            let policy = crate::legacy_skills::effective_tool_policy(&active);
+            let policy = crate::skills::effective_tool_policy(&active);
             if policy.restricts_tools {
                 let mut allowed = policy.allowed_tool_names.into_iter().collect::<Vec<_>>();
                 allowed.sort();
@@ -104,6 +115,8 @@ impl ToolCatalogPlanner {
                 None
             }
         });
+        #[cfg(not(feature = "skills"))]
+        let dynamic_allowed: Option<Vec<String>> = None;
         let allowed = dynamic_allowed
             .as_ref()
             .or(self.skill_allowed_names.as_ref());
@@ -119,6 +132,7 @@ impl ToolCatalogPlanner {
         };
 
         // Apply MCP progressive discovery filtering
+        #[cfg(feature = "mcp")]
         if let (Some(threshold), Some(ref mcp_state), Some(ref mcp_reg)) = (
             self.mcp_discovery_threshold,
             &self.mcp_discovery_state,

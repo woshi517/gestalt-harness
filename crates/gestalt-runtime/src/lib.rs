@@ -1,24 +1,5 @@
 #![allow(deprecated)]
 
-#[path = "legacy/context/lib.rs"]
-mod legacy_context;
-#[path = "legacy/exec/lib.rs"]
-mod legacy_exec;
-#[path = "legacy/mcp/lib.rs"]
-mod legacy_mcp;
-#[path = "legacy/models/lib.rs"]
-mod legacy_models;
-#[path = "legacy/policy/lib.rs"]
-mod legacy_policy;
-#[path = "legacy/skills/lib.rs"]
-mod legacy_skills;
-#[path = "legacy/tools/lib.rs"]
-mod legacy_tools;
-#[path = "legacy/trace/lib.rs"]
-mod legacy_trace;
-#[path = "legacy/verify/lib.rs"]
-mod legacy_verify;
-
 pub mod activation;
 pub mod artifact_store;
 pub mod builder;
@@ -30,6 +11,7 @@ pub mod control;
 pub mod discovery;
 pub mod error;
 pub mod event_bus;
+pub mod exec;
 pub mod extension;
 pub mod extension_trust;
 pub mod inspect;
@@ -43,45 +25,76 @@ pub mod process_extension;
 pub mod registry;
 pub mod runtime;
 pub mod session_queue;
-pub mod skill_contributor;
+#[cfg(feature = "skills")]
+pub mod skill_contributor {
+    pub use crate::skills::contributor::*;
+}
 pub mod tool_catalog;
 pub mod tool_catalog_planner;
 pub mod tool_output;
 pub mod workspace_context;
 pub mod workspace_snapshot;
 
-pub use legacy_context::*;
-pub use legacy_exec::{ExecRequest, ExecResult, ExecutionSandbox, NoSandbox, SandboxMount};
-pub use legacy_mcp::*;
-pub use legacy_models::registry::registered;
-pub use legacy_models::*;
-pub use legacy_policy::*;
-pub use legacy_skills::*;
-pub use legacy_tools::*;
-pub use legacy_trace::*;
-pub use legacy_verify::*;
+#[cfg(feature = "mcp")]
+pub mod mcp;
+#[cfg(feature = "providers")]
+pub mod providers;
+#[cfg(feature = "skills")]
+pub mod skills;
+#[cfg(feature = "tools")]
+pub mod tools;
+#[cfg(feature = "trace")]
+pub mod trace;
+#[cfg(feature = "verify")]
+pub mod verify;
 
-pub use legacy_context::{
+pub use context::assembler::{ContextMessageAssembler, estimate_message_tokens, estimate_text_tokens};
+pub use exec::{ExecRequest, ExecResult, ExecutionSandbox, NoSandbox, SandboxMount};
+#[cfg(feature = "mcp")]
+pub use mcp::*;
+#[cfg(feature = "providers")]
+pub use providers::registry::registered;
+#[cfg(feature = "providers")]
+pub use providers::*;
+pub use policy::engine::{
+    classify_bash, BashPolicy, MinimalPolicyEngine, NetworkPolicy, PathPolicy, PolicyAction,
+    PolicyConfig,
+};
+#[cfg(feature = "skills")]
+pub use skills::*;
+#[cfg(feature = "tools")]
+pub use tools::*;
+#[cfg(feature = "trace")]
+pub use trace::*;
+#[cfg(feature = "verify")]
+pub use verify::*;
+
+pub use context::{
     accounting, checkpoint_validation, compaction as context_compaction, default_prompt,
     tool_clearing, tool_exchanges,
 };
-pub use legacy_mcp::transport;
-pub use legacy_mcp::{client, error as mcp_error, model as mcp_model, registry as mcp_registry};
-pub use legacy_models::sse;
-pub use legacy_models::{auth, catalog, openai, registry as model_registry, strict_schema};
-pub use legacy_skills::{
+#[cfg(feature = "mcp")]
+pub use mcp::transport;
+#[cfg(feature = "mcp")]
+pub use mcp::{client, error as mcp_error, model as mcp_model, registry as mcp_registry};
+#[cfg(feature = "providers")]
+pub use providers::sse;
+#[cfg(feature = "providers")]
+pub use providers::{auth, catalog, openai, registry as model_registry, strict_schema};
+#[cfg(feature = "skills")]
+pub use skills::{
     activation as skill_activation, discovery as skill_discovery, events as skill_events,
     index as skill_index, manifest as skill_manifest, policy as skill_policy,
     resources as skill_resources,
 };
-pub use legacy_tools::{backends, path, registry as tool_registry_module, tools};
-pub use legacy_trace::{
+#[cfg(feature = "tools")]
+pub use tools::{backends, path, registry as tool_registry_module};
+#[cfg(feature = "trace")]
+pub use trace::{
     context_artifacts, evaluator, fixture, golden, resume, run_manifest, tool_metrics,
 };
-pub use legacy_verify::verifiers;
-
-pub mod mcp;
-pub mod mcp_discovery;
+#[cfg(feature = "verify")]
+pub use verify::verifiers;
 
 pub use activation::{
     ActivationCandidate, ActivationDiagnostic, ActivationMode, ActivationRequest,
@@ -108,8 +121,10 @@ pub use inspect::{
     compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
 };
 pub use manifest::{Capabilities, Entrypoint, ExtensionManifest, Permissions};
+#[cfg(feature = "mcp")]
 pub use mcp::McpBackedTool;
-pub use mcp_discovery::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
+#[cfg(feature = "mcp")]
+pub use mcp::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
 pub use orchestration::{
     AgentRuntimeHandle, DefaultAgentRuntimeHandle, OrchestrationResult, OrchestrationTask,
     Orchestrator, RuntimeHost,

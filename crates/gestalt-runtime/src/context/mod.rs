@@ -1,3 +1,20 @@
+pub mod accounting;
+pub mod checkpoint_validation;
+pub mod compaction;
+pub mod default_prompt;
+pub mod tool_clearing;
+pub mod tool_exchanges;
+pub mod assembler;
+
+pub use accounting::{ContextAccountant, ContextManagementPolicy, DurabilityMode};
+pub use checkpoint_validation::{validate_checkpoint, ValidationError};
+pub use compaction::plan_compaction_range;
+pub use tool_clearing::clear_eligible_tool_results;
+pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
+pub use assembler::{
+    ContextMessageAssembler, estimate_message_tokens, estimate_text_tokens,
+};
+
 use crate::error::Result;
 use gestalt_core::context::ContextAssembler;
 use gestalt_core::context::{
@@ -65,6 +82,42 @@ pub struct RuntimeContextPipeline {
     pub patch_store: Arc<Mutex<Vec<ContextPatch>>>,
 }
 
+#[cfg(feature = "trace")]
+pub use crate::trace::{CompactionCheckpoint, MessageMetadataRef, ProjectionManifest};
+
+#[cfg(not(feature = "trace"))]
+pub type ProjectionManifest = gestalt_core::context::ProjectionManifest;
+#[cfg(not(feature = "trace"))]
+pub type MessageMetadataRef = gestalt_core::context::ProjectionMessageMetadata;
+
+#[cfg(not(feature = "trace"))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompactionCheckpoint {
+    pub checkpoint_id: String,
+    pub history_range: gestalt_core::context::HistoryRange,
+    pub history_range_hash: String,
+    pub policy_version: String,
+    pub compactor_model: String,
+    pub prompt_hash: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub goal: String,
+    pub constraints: Vec<String>,
+    pub completed_work: Vec<String>,
+    pub in_progress_work: Vec<String>,
+    pub blocked_items: Vec<String>,
+    pub key_decisions: Vec<String>,
+    pub next_steps: Vec<String>,
+    pub critical_context: String,
+    pub relevant_references: Vec<String>,
+}
+
+#[cfg(not(feature = "trace"))]
+impl CompactionCheckpoint {
+    pub fn render_markdown(&self) -> String {
+        String::new()
+    }
+}
+
 struct ProjectionStateApplication {
     projected_history: ProjectedHistory,
     checkpoint_update: StateUpdate<gestalt_core::CompactionCheckpointRef>,
@@ -74,7 +127,7 @@ struct ProjectionStateApplication {
 }
 
 struct LoadedCheckpoint {
-    checkpoint: crate::legacy_trace::CompactionCheckpoint,
+    checkpoint: CompactionCheckpoint,
     migrated_ref: Option<gestalt_core::context::CompactionCheckpointRef>,
 }
 
@@ -168,7 +221,7 @@ impl ContextPipeline for RuntimeContextPipeline {
 
         policy.validate()?;
 
-        let accountant = crate::legacy_context::accounting::ContextAccountant::new(
+        let accountant = self::accounting::ContextAccountant::new(
             budget,
             policy,
             &plain_history,
@@ -197,6 +250,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                 effective_cleared_results.clone(),
                 tool_retention,
             );
+            #[cfg(feature = "trace")]
             self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(PreparedContext {
                 packet,
@@ -232,6 +286,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                 effective_cleared_results.clone(),
                 tool_retention,
             );
+            #[cfg(feature = "trace")]
             self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(PreparedContext {
                 packet,
@@ -248,7 +303,7 @@ impl ContextPipeline for RuntimeContextPipeline {
         // 1. Tool result clearing
         let tool_budget = accountant.tool_result_budget();
         let (cleared_history, clear_actions) =
-            crate::legacy_context::tool_clearing::clear_eligible_tool_results(
+            self::tool_clearing::clear_eligible_tool_results(
                 run_id,
                 &plain_projected_history,
                 tool_retention,
@@ -266,7 +321,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                     canonical_index, ..
                 } = &final_projected_history.items[action.message_index]
                 {
-                    let tombstone_content = crate::legacy_context::tool_clearing::render_tombstone(
+                    let tombstone_content = self::tool_clearing::render_tombstone(
                         &action.tool_use_id,
                         &action.tool_name,
                         &action.output_hash,
@@ -322,6 +377,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                 final_cleared_results,
                 tool_retention,
             );
+            #[cfg(feature = "trace")]
             self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
             return Ok(PreparedContext {
                 packet: cleared_packet,
@@ -343,7 +399,7 @@ impl ContextPipeline for RuntimeContextPipeline {
             .position(|item| matches!(item, ProjectedHistoryItem::Checkpoint { .. }))
             .unwrap_or(0);
         let recent_protected_start =
-            crate::legacy_context::tool_clearing::find_recent_protected_start(
+            self::tool_clearing::find_recent_protected_start(
                 &cleared_history
                     .iter()
                     .map(|entry| entry.message.clone())
@@ -355,7 +411,7 @@ impl ContextPipeline for RuntimeContextPipeline {
         let compactor_input_limit = usable_limit;
         let target_limit = accountant.compaction_target();
         let min_tokens_to_compact = cleared_packet.token_estimate.saturating_sub(target_limit);
-        let compaction_range = crate::legacy_context::compaction::plan_compaction_range(
+        let compaction_range = self::compaction::plan_compaction_range(
             &cleared_history
                 .iter()
                 .map(|entry| entry.message.clone())
@@ -424,7 +480,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                     let plain_canonical_history: Vec<Message> =
                         history.iter().map(|entry| entry.message.clone()).collect();
                     if let Err(val_err) =
-                        crate::legacy_context::checkpoint_validation::validate_checkpoint(
+                        self::checkpoint_validation::validate_checkpoint(
                             &checkpoint,
                             &plain_canonical_history, // Validate against original canonical history
                             canonical_range,          // Validate canonical range
@@ -440,8 +496,9 @@ impl ContextPipeline for RuntimeContextPipeline {
                         ));
                     }
 
+                    #[cfg(feature = "trace")]
                     if let Some(dir) = artifacts_dir {
-                        crate::legacy_trace::persist_checkpoint(
+                        crate::trace::persist_checkpoint(
                             &checkpoint,
                             dir,
                             policy.durability,
@@ -491,6 +548,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                         tool_retention,
                     );
 
+                    #[cfg(feature = "trace")]
                     self.persist_manifest_if_configured(
                         &manifest,
                         artifacts_dir,
@@ -553,6 +611,7 @@ impl ContextPipeline for RuntimeContextPipeline {
             final_cleared_results,
             tool_retention,
         );
+        #[cfg(feature = "trace")]
         self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
 
         Ok(PreparedContext {
@@ -618,7 +677,7 @@ impl RuntimeContextPipeline {
         let sys_msgs = assembler.system_messages();
         let sys_tokens = sys_msgs
             .iter()
-            .map(crate::legacy_context::estimate_message_tokens)
+            .map(self::assembler::estimate_message_tokens)
             .sum::<usize>();
         let available = budget.available_total();
 
@@ -640,7 +699,7 @@ impl RuntimeContextPipeline {
                 }
 
                 let rendered = self.render_message_estimate(&message.message);
-                let cost = crate::legacy_context::estimate_message_tokens(&rendered);
+                let cost = self::assembler::estimate_message_tokens(&rendered);
 
                 if cost <= remaining {
                     remaining = remaining.saturating_sub(cost);
@@ -665,7 +724,7 @@ impl RuntimeContextPipeline {
                 let path_or_label = format!("history_message_{idx}");
                 let trust = self.message_trust_label(&msg.message);
                 let rendered = self.render_message_estimate(&msg.message);
-                let cost = crate::legacy_context::estimate_message_tokens(&rendered);
+                let cost = self::assembler::estimate_message_tokens(&rendered);
 
                 omissions.push(ContextOmission {
                     kind: "history".to_string(),
@@ -836,14 +895,15 @@ impl RuntimeContextPipeline {
         Ok(artifacts_dir)
     }
 
+    #[cfg(feature = "trace")]
     fn persist_manifest_if_configured(
         &self,
-        manifest: &crate::legacy_trace::ProjectionManifest,
+        manifest: &ProjectionManifest,
         artifacts_dir: Option<&Path>,
         durability: gestalt_core::DurabilityMode,
     ) -> std::result::Result<(), gestalt_core::error::HarnessError> {
         if let Some(dir) = artifacts_dir {
-            crate::legacy_trace::persist_manifest(manifest, dir, durability)?;
+            crate::trace::persist_manifest(manifest, dir, durability)?;
         }
 
         Ok(())
@@ -972,7 +1032,7 @@ impl RuntimeContextPipeline {
         checkpoint_ref: Option<gestalt_core::context::CompactionCheckpointRef>,
         cleared_results: Vec<gestalt_core::context::ClearedToolResultRef>,
         tool_retention: &gestalt_core::ToolRetentionRegistrySnapshot,
-    ) -> crate::legacy_trace::ProjectionManifest {
+    ) -> ProjectionManifest {
         let end_idx = if plan.budget_exhausted {
             packet.messages.len().saturating_sub(1)
         } else {
@@ -1009,7 +1069,7 @@ impl RuntimeContextPipeline {
                 hasher.update(msg_ser.as_bytes());
                 let hash = format!("{:x}", hasher.finalize());
 
-                crate::legacy_trace::MessageMetadataRef {
+                MessageMetadataRef {
                     message_id: projected_entry.map_or_else(
                         || Self::synthetic_message_id(session_id, idx),
                         |entry| entry.id.clone(),
@@ -1031,7 +1091,7 @@ impl RuntimeContextPipeline {
         let timestamp = chrono::Utc::now();
         let policy_cloned = policy.clone();
 
-        let manifest_partial = crate::legacy_trace::ProjectionManifest {
+        let manifest_partial = ProjectionManifest {
             manifest_id: String::new(),
             session_id: session_id.to_string(),
             run_id: run_id.to_string(),
@@ -1065,7 +1125,7 @@ impl RuntimeContextPipeline {
         hasher.update(manifest_serialized.as_bytes());
         let manifest_id = format!("{:x}", hasher.finalize());
 
-        crate::legacy_trace::ProjectionManifest {
+        ProjectionManifest {
             manifest_id,
             ..manifest_partial
         }
@@ -1132,7 +1192,7 @@ impl RuntimeContextPipeline {
             }
         }
 
-        let loaded: crate::legacy_trace::CompactionCheckpoint = serde_json::from_str(&content)
+        let loaded: CompactionCheckpoint = serde_json::from_str(&content)
             .map_err(|err| {
                 gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
                     reason: format!("failed to parse checkpoint: {}", err),
@@ -1176,7 +1236,7 @@ impl RuntimeContextPipeline {
         &self,
         canonical_history: &[SessionMessage],
         context_state: &gestalt_core::ContextProjectionState,
-        checkpoint: Option<&crate::legacy_trace::CompactionCheckpoint>,
+        checkpoint: Option<&CompactionCheckpoint>,
         session_id: &str,
     ) -> ProjectionStateApplication {
         // 1. Initialize with Canonical items
@@ -1283,7 +1343,7 @@ impl RuntimeContextPipeline {
                         {
                             let t_name = tool_name.as_deref().unwrap_or("");
                             let tombstone_content =
-                                crate::legacy_context::tool_clearing::render_tombstone(
+                                self::tool_clearing::render_tombstone(
                                     &persisted.tool_use_id,
                                     t_name,
                                     &persisted.output_hash,
@@ -1325,7 +1385,7 @@ impl RuntimeContextPipeline {
 
     fn checkpoint_message(
         session_id: &str,
-        checkpoint: &crate::legacy_trace::CompactionCheckpoint,
+        checkpoint: &CompactionCheckpoint,
     ) -> SessionMessage {
         SessionMessage {
             id: Self::synthetic_id(
@@ -1342,7 +1402,7 @@ impl RuntimeContextPipeline {
 
     fn checkpoint_artifact_ref(
         run_id: &str,
-        checkpoint: &crate::legacy_trace::CompactionCheckpoint,
+        checkpoint: &CompactionCheckpoint,
     ) -> gestalt_core::ArtifactRef {
         gestalt_core::ArtifactRef {
             run_id: run_id.to_string(),
@@ -1352,7 +1412,7 @@ impl RuntimeContextPipeline {
     }
 
     fn checkpoint_artifact_content_hash(
-        checkpoint: &crate::legacy_trace::CompactionCheckpoint,
+        checkpoint: &CompactionCheckpoint,
     ) -> String {
         let content = serde_json::to_string_pretty(checkpoint).unwrap_or_default();
         let mut hasher = sha2::Sha256::new();

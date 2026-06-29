@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-use crate::legacy_mcp::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use crate::mcp::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
 
 use crate::error::{Result, RuntimeError};
 

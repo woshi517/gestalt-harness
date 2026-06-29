@@ -42,8 +42,11 @@ regex = "1"
 tempfile = "3"
 
 [features]
-default = ["mcp", "skills", "verify"]
+default = ["providers", "tools", "trace"]
+providers = []
+tools = []
 mcp = []
 skills = []
-verify = []
+verify = ["tools"]
+trace = []
 otel = []

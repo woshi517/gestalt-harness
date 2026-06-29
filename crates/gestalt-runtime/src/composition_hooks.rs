@@ -96,7 +96,8 @@ pub struct RuntimeContextHookAdapter {
     pub block_reason: Option<Arc<Mutex<Option<String>>>>,
     pub event_bus: RuntimeEventBus,
     pub prompt_snapshot_state: Arc<Mutex<Option<String>>>,
-    pub skill_state: Option<Arc<Mutex<crate::skill_contributor::SkillContributorState>>>,
+    #[cfg(feature = "skills")]
+    pub skill_state: Option<Arc<Mutex<crate::skills::contributor::SkillContributorState>>>,
 }
 
 #[async_trait]
@@ -116,6 +117,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
         // the most recent user message as the task hint. The resulting diff is
         // published on the event bus so consumers (inspect, traces, debug)
         // can see what changed.
+        #[cfg(feature = "skills")]
         if let Some(state) = &self.skill_state {
             let task_hint = last_user_text(&session.history);
             let mut guard = state.lock().unwrap();
@@ -233,8 +235,9 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
                 .collect::<Vec<_>>();
             let snapshot = PromptSnapshot::new(snapshot_messages, 0);
 
+            #[cfg(feature = "trace")]
             if let Some(path) = snapshot_path.as_ref() {
-                let _ = crate::legacy_trace::write_prompt_snapshot(path, &snapshot);
+                let _ = crate::trace::write_prompt_snapshot(path, &snapshot);
             }
 
             let mut state = self.prompt_snapshot_state.lock().unwrap();

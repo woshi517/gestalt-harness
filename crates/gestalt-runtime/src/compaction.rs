@@ -1,5 +1,5 @@
-pub use crate::legacy_context::compaction::plan_compaction_range;
-use crate::legacy_trace::CompactionCheckpoint;
+pub use crate::context::compaction::plan_compaction_range;
+use crate::context::CompactionCheckpoint;
 use chrono::Utc;
 use gestalt_core::{
     context::HistoryRange,

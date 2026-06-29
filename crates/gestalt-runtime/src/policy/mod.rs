@@ -1,3 +1,10 @@
+pub mod engine;
+
+pub use engine::{
+    classify_bash, BashPolicy, MinimalPolicyEngine, NetworkPolicy, PathPolicy, PolicyAction,
+    PolicyConfig,
+};
+
 use crate::composition_hooks::{BeforeToolPolicyCtx, CompositionHooks, HookOutcome};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use async_trait::async_trait;
@@ -9,7 +16,8 @@ pub struct RuntimePolicyEngine {
     pub hooks: Arc<dyn CompositionHooks>,
     pub session_id: String,
     pub event_bus: RuntimeEventBus,
-    pub skill_state: Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
+    #[cfg(feature = "skills")]
+    pub skill_state: Option<Arc<std::sync::Mutex<crate::skills::contributor::SkillContributorState>>>,
 }
 
 #[async_trait]
@@ -21,16 +29,18 @@ impl PolicyEngine for RuntimePolicyEngine {
         });
 
         // Skill-scoped enforcement: fail-closed if a skill restricts tools
+        #[cfg(feature = "skills")]
         let skill_policy = self.skill_state.as_ref().and_then(|state| {
             let guard = state.lock().ok()?;
             let active = guard.active_descriptors();
-            let policy = crate::legacy_skills::effective_tool_policy(&active);
+            let policy = crate::skills::effective_tool_policy(&active);
             if policy.restricts_tools {
                 Some(policy)
             } else {
                 None
             }
         });
+        #[cfg(feature = "skills")]
         if let Some(ref policy) = skill_policy {
             if !policy.allows(&request.tool_name) {
                 let mut allowed_tools: Vec<String> =

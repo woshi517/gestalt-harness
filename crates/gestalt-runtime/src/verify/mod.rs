@@ -158,19 +158,19 @@ impl gestalt_core::hook::ToolHook for VerificationToolHook {
         let mut deleted_paths = std::collections::HashSet::new();
         if tool_name == "patch" {
             if let Some(patch_str) = input.get("patch").and_then(serde_json::Value::as_str) {
-                if let Ok(operations) = crate::legacy_tools::parse_patch("patch", patch_str) {
+                if let Ok(operations) = crate::tools::parse_patch("patch", patch_str) {
                     for op in operations {
                         match op {
-                            crate::legacy_tools::PatchOperation::Add { path, .. } => {
+                            crate::tools::PatchOperation::Add { path, .. } => {
                                 targets.push(path);
                             }
-                            crate::legacy_tools::PatchOperation::Update { path, .. } => {
+                            crate::tools::PatchOperation::Update { path, .. } => {
                                 targets.push(path);
                             }
-                            crate::legacy_tools::PatchOperation::Delete { path } => {
+                            crate::tools::PatchOperation::Delete { path } => {
                                 deleted_paths.insert(path);
                             }
-                            crate::legacy_tools::PatchOperation::Move { from, to } => {
+                            crate::tools::PatchOperation::Move { from, to } => {
                                 deleted_paths.insert(from);
                                 targets.push(to);
                             }

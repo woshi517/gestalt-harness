@@ -57,9 +57,12 @@ pub struct AgentRuntime {
     pub event_bus: RuntimeEventBus,
     /// Shared skill contributor state. Carried by the runtime so activation
     /// can be resolved per-turn from `before_context_build`.
-    pub skill_state: Option<Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>>,
-    pub mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
-    pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
+    #[cfg(feature = "skills")]
+    pub skill_state: Option<Arc<std::sync::Mutex<crate::skills::contributor::SkillContributorState>>>,
+    #[cfg(feature = "mcp")]
+    pub mcp_registry: Arc<crate::mcp::McpRegistry>,
+    #[cfg(feature = "mcp")]
+    pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp::McpDiscoveryState>>,
     steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
     pub extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
@@ -80,8 +83,10 @@ impl AgentRuntime {
         registry_snapshot: RuntimeRegistrySnapshot,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
         event_bus: RuntimeEventBus,
-        mcp_registry: Arc<crate::legacy_mcp::McpRegistry>,
-        mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp_discovery::McpDiscoveryState>>,
+        #[cfg(feature = "mcp")]
+        mcp_registry: Arc<crate::mcp::McpRegistry>,
+        #[cfg(feature = "mcp")]
+        mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp::McpDiscoveryState>>,
         extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     ) -> Self {
         let mut extension_snapshot =
@@ -89,6 +94,7 @@ impl AgentRuntime {
                 crate::extension::RuntimeGeneration(0),
                 registry_snapshot.clone(),
                 tools.clone(),
+                #[cfg(feature = "mcp")]
                 mcp_registry.clone(),
             );
         if composition_hooks.is_some() {
@@ -138,8 +144,11 @@ impl AgentRuntime {
             hooks,
             composition_hooks,
             event_bus,
+            #[cfg(feature = "skills")]
             skill_state: None,
+            #[cfg(feature = "mcp")]
             mcp_registry,
+            #[cfg(feature = "mcp")]
             mcp_discovery_state,
             steering_queue: Arc::new(crate::session_queue::InMemorySteeringQueue::new()),
             extensions,
@@ -149,9 +158,10 @@ impl AgentRuntime {
 
     /// Attach the shared skill state to the runtime. Called by the builder
     /// after the state has been registered with the contributor registry.
+    #[cfg(feature = "skills")]
     pub fn with_skill_state(
         mut self,
-        state: Arc<std::sync::Mutex<crate::skill_contributor::SkillContributorState>>,
+        state: Arc<std::sync::Mutex<crate::skills::contributor::SkillContributorState>>,
     ) -> Self {
         self.skill_state = Some(state);
         self
@@ -161,7 +171,8 @@ impl AgentRuntime {
     /// `RuntimeEvent::SkillResourceAccessed` on this runtime's event bus. Tools
     /// can install this recorder so that any read against a skill's
     /// `references/` or `scripts/` resources becomes observable in the trace.
-    pub fn skill_resource_recorder(&self) -> Option<crate::legacy_skills::ResourceAccessRecorder> {
+    #[cfg(feature = "skills")]
+    pub fn skill_resource_recorder(&self) -> Option<crate::skills::ResourceAccessRecorder> {
         self.skill_state
             .as_ref()
             .and_then(|s| s.lock().ok())
@@ -396,6 +407,7 @@ impl AgentRuntime {
                 hooks: lifecycle_hooks.clone(),
                 session_id: session.id.clone(),
                 event_bus: self.event_bus.clone(),
+                #[cfg(feature = "skills")]
                 skill_state: self.skill_state.clone(),
             });
 
@@ -414,6 +426,7 @@ impl AgentRuntime {
                 block_reason: Some(block_reason),
                 event_bus: self.event_bus.clone(),
                 prompt_snapshot_state: Arc::new(Mutex::new(initial_prompt_snapshot_hash)),
+                #[cfg(feature = "skills")]
                 skill_state: self.skill_state.clone(),
             }));
 
@@ -575,6 +588,7 @@ impl AgentRuntime {
             })
             .collect();
 
+        #[cfg(feature = "skills")]
         let active_descriptors = self
             .skill_state
             .as_ref()
@@ -587,6 +601,8 @@ impl AgentRuntime {
                     .cloned()
                     .collect()
             });
+        #[cfg(not(feature = "skills"))]
+        let active_descriptors: Vec<crate::config::SkillDescriptor> = Vec::new();
         let active_skills: Vec<String> = active_descriptors
             .iter()
             .map(|skill| skill.name.clone())
@@ -644,7 +660,9 @@ impl AgentRuntime {
             Some(format!("{:x}", hasher.finalize()))
         };
 
+        #[cfg(feature = "mcp")]
         let discovery_threshold = self.config.mcp_discovery_threshold.unwrap_or(5);
+        #[cfg(feature = "mcp")]
         let mcp_servers = self.mcp_registry.get_all_states(discovery_threshold);
 
         let active_extension_snapshot = self.extension_manager.active_snapshot();
@@ -686,7 +704,9 @@ impl AgentRuntime {
             discovered_skills,
             active_skills,
             skill_fingerprint,
+            #[cfg(feature = "mcp")]
             mcp_servers,
+            #[cfg(feature = "mcp")]
             mcp_discovery_threshold: self.config.mcp_discovery_threshold,
             effective_config_fingerprint,
             variant_fingerprint,
