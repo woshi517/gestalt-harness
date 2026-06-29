@@ -1,4 +1,6 @@
-use crate::config::{mutate_workspace_config_file, workspace_config_path, EffectiveConfig, global_config_dir};
+use crate::config::{
+    global_config_dir, mutate_workspace_config_file, workspace_config_path, EffectiveConfig,
+};
 use gestalt_core::error::HarnessError;
 use gestalt_core::tool::ToolCatalog;
 use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
