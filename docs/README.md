@@ -69,7 +69,7 @@ Active documents must declare the following metadata block (YAML frontmatter):
 | Context projection | accepted context ADRs plus active hardening spec | context feature specs and plans | Consolidate overlapping invariants into one domain contract |
 | MCP | ADR-027 | `mcp-client-best-practices.md` | Keep guide implementation-focused |
 | Extension packages | ADR-028 | product-neutral extension spec | Treat broad spec as evolution, not current authority |
-| Runtime snapshots | ADR-029 | extension spec | Resolve run-versus-turn pinning through ADR |
+| Runtime snapshots | ADR-029, clarified by H0B-F06 | extension spec | Keep the lease boundary aligned with the assistant-turn boundary |
 | Lifecycle protocol | ADR-030 as amended by ADR-031 | JSON-RPC and extension guides | Make V2 exclusive and remove V1 compatibility |
 | Greenfield compatibility cutoff | ADR-031 | v0.1 hardening spec | Maintain removal ledger and absence checks |
 | Crate boundaries | implemented workspace plus crate-boundary spec | crate READMEs | Mark consolidation spec implemented and remove old crate names from active docs |

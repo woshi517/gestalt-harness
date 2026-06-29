@@ -1718,7 +1718,7 @@ crates/gestalt-runtime/src/composition_hooks.rs
 crates/gestalt-core/src/context.rs
 crates/gestalt-core/src/message.rs
 crates/gestalt-core/src/event.rs
-crates/gestalt-trace/
+crates/gestalt-runtime/src/trace/
 src/workspace.rs
 src/config.rs
 src/run.rs
