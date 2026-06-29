@@ -2,6 +2,12 @@
 
 **Status:** Accepted
 
+> **Superseded in part by
+> [ADR-031](./ADR-031-v0-1-greenfield-compatibility-cutoff.md):** legacy TOML
+> fallback, parsing, migration seeding, and deprecated config aliases are
+> removed before stable v0.1. Known legacy files fail with
+> `UNSUPPORTED_LEGACY_CONFIG` without parsing or migration.
+
 ## Context
 
 The harness configuration was split across multiple files and multiple consumers:

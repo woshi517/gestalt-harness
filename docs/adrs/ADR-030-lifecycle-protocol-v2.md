@@ -2,6 +2,11 @@
 
 Status: Accepted
 
+> **Superseded in part by
+> [ADR-031](./ADR-031-v0-1-greenfield-compatibility-cutoff.md):** Protocol V1
+> compatibility through adapters is removed before stable v0.1. Lifecycle
+> Protocol V2 is the only supported Gestalt lifecycle protocol.
+
 Lifecycle protocol v2 replaces generic external hooks with typed capabilities: context providers, policy guards, turn routers, external verifiers, and event observers.
 
 The stable method set is `initialize`, `capabilities/describe`, `lifecycle/invoke`, `shutdown`, and `$/cancelRequest`. DTOs are versioned and must not serialize internal `Session`, raw `ContextPacket`, or raw `AgentEvent` values as the external contract.

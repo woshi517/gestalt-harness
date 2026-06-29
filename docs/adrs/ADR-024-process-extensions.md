@@ -2,6 +2,12 @@
 
 **Status:** Accepted
 
+> **Superseded in part by
+> [ADR-031](./ADR-031-v0-1-greenfield-compatibility-cutoff.md):** the
+> `GestaltExtension` compatibility abstraction and extension manifest/protocol
+> V1 paths are removed before stable v0.1. Process-backed execution remains
+> available through current manifest-V2 component contracts.
+
 ## Context
 Users wanted to extend the capabilities of the Gestalt harness (registering new tools, hooks, and context contributors) dynamically without recompiling the main binary. In-process Rust extensions require compile-time registration, which limits flexibility for developer environments.
 

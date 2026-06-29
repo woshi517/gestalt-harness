@@ -1,5 +1,12 @@
 # Extension Manifest V1 To V2 Migration
 
+> **Status:** Historical pre-release reference. Manifest V1 was never part of a
+> stable Gestalt release and is unsupported under
+> [ADR-031](../adrs/ADR-031-v0-1-greenfield-compatibility-cutoff.md). The
+> runtime does not parse or migrate V1 manifests. This document is retained
+> temporarily for historical context and must not be linked as an active
+> support path.
+
 V1 manifests describe one process extension. V2 manifests describe one package with one or more typed components.
 
 Minimal lifecycle migration:

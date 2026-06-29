@@ -21,7 +21,9 @@ Extensions can contribute the following kinds of functionality:
 
 These components are configured as package instances and verified using a cryptographic trust/grants model.
 
-Legacy V1 process-backed extensions (which register individual tools, context injectors, or hooks over a single stdio channel) remain supported via adapters. For details on migrating older manifests, see [Extension Manifest V1 to V2 Migration](./migrations/extension-manifest-v1-to-v2.md).
+Stable v0.1 and later require extension manifest version 2 and Lifecycle
+Protocol V2. Manifest/protocol V1 is unsupported and is not adapted or migrated
+by the runtime.
 
 ---
 
@@ -108,9 +110,11 @@ allowed_paths = []                 # Additional paths outside the workspace that
 
 Host-level MCP network policies are applied to outgoing connections.
 
-### 3.4 Legacy V1 Manifest Format (Compatibility Mode)
+### 3.4 Unsupported Manifest Versions
 
-For details on the legacy V1 format (manifests without `manifest_version = 2`), please see the [V1 to V2 Migration Guide](./migrations/extension-manifest-v1-to-v2.md). Legacy v1 process extensions register tools, context injectors, and hooks on a single stdio broker.
+Manifests without `manifest_version = 2`, including pre-hardening V1 manifests,
+are rejected before activation. Gestalt does not provide a V1 compatibility
+loader.
 
 ----empty, `capabilities.context` must be `true`
 - If `allow_shell` is `false`, the entrypoint command must not contain shell metacharacters or be a shell executable

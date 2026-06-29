@@ -1,11 +1,17 @@
 ## gestalt-harness — Product Requirements Document
 
-**Version:** 3.0 — Definitive  
-**Status:** Active  
-**License:** MIT  
+**Version:** 3.0
+**Status:** Active
+**License:** MIT
 **Form factor:** Rust crate · CLI-first · embeddable library
 
-> **Document scope:** This PRD owns product vision, problem statement, user needs, feature specification, governance philosophy, and roadmap. All runtime interfaces, trait contracts, Rust type definitions, and implementation diagrams live in [[gestalt-harness-architecture]]. When the two documents conflict, the architecture document governs implementation decisions; this document governs scope and priority decisions.
+> **Document scope:** This PRD owns product vision, user needs, product
+> philosophy, scope boundaries, and priorities. Accepted
+> [ADRs](./adrs/README.md) own architectural decisions, and released version
+> contracts own supported interfaces and persisted formats. The PRD is planned
+> to be simplified by moving duplicated technical contracts and implementation
+> detail into focused domain documents. See the
+> [documentation map](./README.md).
 
 ---
 

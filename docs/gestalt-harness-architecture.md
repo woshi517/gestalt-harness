@@ -1,13 +1,23 @@
 ## gestalt-harness — Architecture & Software Design
 
-**Version:** 1.0  
-**Status:** Implementation-Ready Draft  
-**Scope:** Architecture, interfaces, data models, and runtime contracts. Supersedes the code sections of [[gestalt-harness-prd]].
+**Version:** 1.0
+**Status:** Active legacy overview; simplification planned
+**Scope:** Architecture overview and consolidated historical design reference.
 
-> This document is the single source of truth for runtime structure, trait contracts, data models, and dependency boundaries. The PRD retains ownership of product vision, feature scope, roadmap, and user-facing design. When the two conflict, this document governs implementation.
+> Accepted [ADRs](./adrs/README.md) are authoritative for architectural
+> decisions. Released version contracts govern supported interfaces and
+> persisted formats. This document currently contains useful consolidated
+> design material, but it must not override a newer accepted ADR or versioned
+> contract. See the [documentation map](./README.md) for authority and the
+> staged simplification policy.
 
 > [!NOTE]
-> Extension architecture is currently governed by [ADR-028](./adrs/ADR-028-extension-package-components.md) through [ADR-030](./adrs/ADR-030-lifecycle-protocol-v2.md) and [docs/feature-spec/product-neutral-extension-architecture.md](./feature-spec/product-neutral-extension-architecture.md).
+> Extension architecture is governed by
+> [ADR-028](./adrs/ADR-028-extension-package-components.md) through
+> [ADR-030](./adrs/ADR-030-lifecycle-protocol-v2.md). The
+> [product-neutral extension specification](./feature-spec/product-neutral-extension-architecture.md)
+> describes broader proposed evolution where it does not conflict with those
+> decisions.
 
 ---
 

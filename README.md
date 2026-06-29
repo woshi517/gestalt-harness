@@ -213,7 +213,11 @@ You can use `--format json` to get machine-readable output envelopes for any of 
 
 ## Extensions & Runtime Composition
 
-Gestalt extensions are packages containing typed runtime components such as command tools, MCP servers, lifecycle components, skills, and optional client/product descriptors. Legacy V1 process extensions remain supported through compatibility activation.
+Gestalt extensions are packages containing typed runtime components such as
+command tools, MCP servers, lifecycle components, skills, and optional
+client/product descriptors. Stable v0.1 requires manifest version 2 and
+Lifecycle Protocol V2; pre-release V1 compatibility code is scheduled for
+removal by ADR-031.
 
 Manage and diagnose extensions with the following CLI commands:
 
