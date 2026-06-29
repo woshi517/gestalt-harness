@@ -1,7 +1,8 @@
 use gestalt_app::auth::resolve_auth;
 use gestalt_app::config::{load_effective_config, CliOverrides};
+use gestalt_app::reports::ServiceReportV1;
 use gestalt_app::run::run_prompt;
-use gestalt_app::runtime_factory::build_app_runtime;
+use gestalt_app::runtime_factory::build_app_runtime_with_report;
 use gestalt_core::cancel::CancelToken;
 use std::path::PathBuf;
 
@@ -16,7 +17,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_effective_config(&overrides)?;
     let provider = config.resolve_provider()?;
     let _auth = resolve_auth(&config, provider.provider_name())?;
-    let _runtime = build_app_runtime(&config, None, None, None, None).await?;
+    let ServiceReportV1 {
+        value: _runtime,
+        diagnostics: _diagnostics,
+        ..
+    } = build_app_runtime_with_report(&config, None, None, None, None).await?;
     let _ = run_prompt(
         &config,
         "hello from embed_app",

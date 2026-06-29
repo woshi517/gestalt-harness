@@ -7,6 +7,8 @@ use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::reports::ServiceReportV1;
+
 #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
 pub async fn build_app_runtime(
     config: &EffectiveConfig,
@@ -17,9 +19,7 @@ pub async fn build_app_runtime(
 ) -> Result<AgentRuntime, HarnessError> {
     let resolved_provider = config.resolve_provider()?;
     for warning in &resolved_provider.warnings {
-        if !crate::config::is_json_output() {
-            eprintln!("Warning: {}", warning.message);
-        }
+        let _ = &warning.message;
     }
     let resolver = crate::auth::build_credential_resolver(api_key, interaction);
     let lookup_id = resolved_provider
@@ -388,10 +388,6 @@ pub async fn build_app_runtime(
             let mut is_trusted_by_config = false;
             for trusted_entry in &config.extensions.trusted {
                 if trusted_entry == &ext.package.descriptor.id {
-                    eprintln!(
-                        "Warning: Extension '{}' is trusted using a legacy ID-only entry. Please migrate to integrity-aware trust by specifying '{}:{}'",
-                        ext.package.descriptor.id, ext.package.descriptor.id, ext.manifest_hash
-                    );
                     is_trusted_by_config = true;
                     break;
                 } else if trusted_entry.starts_with(&format!("{}:", ext.package.descriptor.id)) {
@@ -400,11 +396,6 @@ pub async fn build_app_runtime(
                         let expected_hash = parts[1];
                         if expected_hash == ext.manifest_hash {
                             is_trusted_by_config = true;
-                        } else {
-                            eprintln!(
-                                "Warning: Extension '{}' trust invalid: manifest integrity hash has changed (expected '{}', found '{}')",
-                                ext.package.descriptor.id, expected_hash, ext.manifest_hash
-                            );
                         }
                     }
                     break;
@@ -469,6 +460,19 @@ pub async fn build_app_runtime(
             reason: other.to_string(),
         }),
     })
+}
+
+#[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
+pub async fn build_app_runtime_with_report(
+    config: &EffectiveConfig,
+    api_key: Option<String>,
+    interaction: Option<Arc<dyn crate::InteractionProvider>>,
+    approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
+    trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
+) -> Result<ServiceReportV1<AgentRuntime>, HarnessError> {
+    let runtime =
+        build_app_runtime(config, api_key, interaction, approval_override, trace_sink).await?;
+    Ok(ServiceReportV1::new(runtime))
 }
 
 fn convert_extension_instances(

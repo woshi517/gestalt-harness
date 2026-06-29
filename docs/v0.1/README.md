@@ -7,14 +7,14 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 ## 1. Embedding and Runtime Control (RUNTIME-001–RUNTIME-006)
 * **Status:** 🟢 **Published**
 * **Specification:** [embedding-control.md](./embedding-control.md)
-* **Implementation Plan:** [H1A](./H1A-runtime-control-dtos-and-semantics.md), [H1B](./H1B-runtime-host-app-boundary-and-conformance.md)
+* **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md), [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
 * **Rust API Target:** `gestalt_runtime::control::contract::RuntimeControlV1`
 * **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
 
 ## 2. App Services (APP-001–APP-002)
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#99-app-001-keep-gestalt-app-product-neutral)
-* **Implementation Plan:** [H1B](./H1B-runtime-host-app-boundary-and-conformance.md)
+* **Implementation Plan:** [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
 * **Rust API Target:** `gestalt_app::workspace::{init_workspace, info_workspace}`
 * **Enforcing Tests:** `crates/gestalt-app/tests/report_contract_tests.rs` (pending)
 

@@ -23,10 +23,10 @@
 //! | **H1A-B06** | Late/duplicate approvals / input re-eval | `test_approval_validation_and_revalidation` |
 //! | **H1A-B07** | Artifact reads bounds, traversal & cross-sess | `test_artifact_traversal_and_oversize_reads` |
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::json;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use gestalt_runtime::control::contract::*;
 
@@ -36,7 +36,7 @@ use gestalt_runtime::control::contract::*;
 
 struct MockState {
     sessions: HashSet<String>,
-    runs: HashMap<String, Vec<String>>, // session_id -> run_ids
+    runs: HashMap<String, Vec<String>>,  // session_id -> run_ids
     run_status: HashMap<String, String>, // run_id -> "active" | "completed" | "cancelled"
     idempotency: HashMap<String, (serde_json::Value, Result<serde_json::Value, ControlErrorV1>)>,
     pending_approvals: HashMap<String, ApprovalProjectionV1>,
@@ -92,7 +92,10 @@ impl SessionControlV1 for ConformanceMock {
             }
         }
 
-        let session_id = req.session_id.clone().unwrap_or_else(|| SessionIdV1("host-gen-session".to_string()));
+        let session_id = req
+            .session_id
+            .clone()
+            .unwrap_or_else(|| SessionIdV1("host-gen-session".to_string()));
 
         // Conflict check
         if state.sessions.contains(&session_id.0) {
@@ -107,8 +110,12 @@ impl SessionControlV1 for ConformanceMock {
 
         let run_id = RunIdV1("run-0".to_string());
         state.sessions.insert(session_id.0.clone());
-        state.runs.insert(session_id.0.clone(), vec![run_id.0.clone()]);
-        state.run_status.insert(run_id.0.clone(), "active".to_string());
+        state
+            .runs
+            .insert(session_id.0.clone(), vec![run_id.0.clone()]);
+        state
+            .run_status
+            .insert(run_id.0.clone(), "active".to_string());
 
         let res = StartSessionResponseV1 {
             session_id,
@@ -164,13 +171,16 @@ impl SessionControlV1 for ConformanceMock {
             });
         }
 
-        let run_status = state.run_status.get(&req.run_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Run not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let run_status = state
+            .run_status
+            .get(&req.run_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Run not found".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
         if run_status != "active" {
             return Err(ControlErrorV1 {
@@ -218,13 +228,16 @@ impl SessionControlV1 for ConformanceMock {
             });
         }
 
-        let run_status = state.run_status.get(&req.run_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Run not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let run_status = state
+            .run_status
+            .get(&req.run_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Run not found".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
         if run_status == "active" {
             return Err(ControlErrorV1 {
@@ -237,8 +250,14 @@ impl SessionControlV1 for ConformanceMock {
         }
 
         let new_run_id = format!("{}-resume", req.run_id);
-        state.runs.get_mut(&req.session_id.0).unwrap().push(new_run_id.clone());
-        state.run_status.insert(new_run_id.clone(), "active".to_string());
+        state
+            .runs
+            .get_mut(&req.session_id.0)
+            .unwrap()
+            .push(new_run_id.clone());
+        state
+            .run_status
+            .insert(new_run_id.clone(), "active".to_string());
 
         Ok(ResumeSessionResponseV1 {
             session_id: req.session_id,
@@ -263,13 +282,17 @@ impl SessionControlV1 for ConformanceMock {
             });
         }
 
-        let run_status = state.run_status.get(&req.parent_run_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Parent run not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let run_status =
+            state
+                .run_status
+                .get(&req.parent_run_id.0)
+                .ok_or_else(|| ControlErrorV1 {
+                    code: ControlErrorCodeV1::NotFound,
+                    message: "Parent run not found".to_string(),
+                    retryable: false,
+                    details: None,
+                    correlation_id: None,
+                })?;
 
         // Invariant check: Parent run must be completed/finalized before branching
         if run_status != "completed" {
@@ -282,12 +305,19 @@ impl SessionControlV1 for ConformanceMock {
             });
         }
 
-        let new_session_id = req.new_session_id.clone().unwrap_or_else(|| SessionIdV1("branched-session".to_string()));
+        let new_session_id = req
+            .new_session_id
+            .clone()
+            .unwrap_or_else(|| SessionIdV1("branched-session".to_string()));
         let new_run_id = RunIdV1("run-branched-0".to_string());
 
         state.sessions.insert(new_session_id.0.clone());
-        state.runs.insert(new_session_id.0.clone(), vec![new_run_id.0.clone()]);
-        state.run_status.insert(new_run_id.0.clone(), "active".to_string());
+        state
+            .runs
+            .insert(new_session_id.0.clone(), vec![new_run_id.0.clone()]);
+        state
+            .run_status
+            .insert(new_run_id.0.clone(), "active".to_string());
 
         Ok(BranchSessionResponseV1 {
             new_session_id,
@@ -337,13 +367,16 @@ impl SessionControlV1 for ConformanceMock {
     ) -> Result<CancelRunResponseV1, ControlErrorV1> {
         let mut state = self.state.lock().unwrap();
 
-        let run_status = state.run_status.get_mut(&req.run_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Run not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let run_status = state
+            .run_status
+            .get_mut(&req.run_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Run not found".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
         if run_status == "completed" {
             // Already terminal, cannot cancel (cancellation never rewrites committed history)
@@ -382,7 +415,11 @@ impl RunQueryV1 for ConformanceMock {
         req: ListRunsRequestV1,
     ) -> Result<ListRunsResponseV1, ControlErrorV1> {
         let state = self.state.lock().unwrap();
-        let runs = state.runs.get(&req.session_id.0).cloned().unwrap_or_default();
+        let runs = state
+            .runs
+            .get(&req.session_id.0)
+            .cloned()
+            .unwrap_or_default();
         Ok(ListRunsResponseV1 {
             runs: runs.into_iter().map(RunIdV1).collect(),
             next_cursor: None,
@@ -397,9 +434,16 @@ impl ApprovalControlV1 for ConformanceMock {
         req: ListPendingApprovalsRequestV1,
     ) -> Result<ListPendingApprovalsResponseV1, ControlErrorV1> {
         let state = self.state.lock().unwrap();
-        let approvals = state.pending_approvals.values()
-            .filter(|a| a.correlation_id.as_ref().map_or(false, |c| c.0 == req.session_id.0))
-            .cloned().collect();
+        let approvals = state
+            .pending_approvals
+            .values()
+            .filter(|a| {
+                a.correlation_id
+                    .as_ref()
+                    .map_or(false, |c| c.0 == req.session_id.0)
+            })
+            .cloned()
+            .collect();
 
         Ok(ListPendingApprovalsResponseV1 { approvals })
     }
@@ -410,13 +454,16 @@ impl ApprovalControlV1 for ConformanceMock {
     ) -> Result<RespondToApprovalResponseV1, ControlErrorV1> {
         let mut state = self.state.lock().unwrap();
 
-        let approval = state.pending_approvals.get_mut(&req.approval_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Approval challenge not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let approval = state
+            .pending_approvals
+            .get_mut(&req.approval_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Approval challenge not found".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
         if approval.is_cancelled {
             return Err(ControlErrorV1 {
@@ -429,7 +476,11 @@ impl ApprovalControlV1 for ConformanceMock {
         }
 
         // Simulate expired check
-        if approval.expires_at.as_ref().map_or(false, |t| t == "EXPIRED") {
+        if approval
+            .expires_at
+            .as_ref()
+            .map_or(false, |t| t == "EXPIRED")
+        {
             return Err(ControlErrorV1 {
                 code: ControlErrorCodeV1::ExpiredCursor,
                 message: "Approval challenge has expired".to_string(),
@@ -462,13 +513,17 @@ impl ApprovalControlV1 for ConformanceMock {
         tool_call_id: ToolCallIdV1,
     ) -> Result<PolicyProjectionV1, ControlErrorV1> {
         let state = self.state.lock().unwrap();
-        state.policy_projections.get(&tool_call_id.0).cloned().ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Policy projection not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })
+        state
+            .policy_projections
+            .get(&tool_call_id.0)
+            .cloned()
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Policy projection not found".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })
     }
 }
 
@@ -493,7 +548,11 @@ impl EventSourceV1 for ConformanceMock {
             }
         }
 
-        let events = state.events.get(&req.session_id.0).cloned().unwrap_or_default();
+        let events = state
+            .events
+            .get(&req.session_id.0)
+            .cloned()
+            .unwrap_or_default();
         Ok(PollEventsResponseV1 {
             events,
             next_cursor: Some(CursorV1("next-token".to_string())),
@@ -509,7 +568,9 @@ impl ArtifactAccessV1 for ConformanceMock {
     ) -> Result<ListArtifactsResponseV1, ControlErrorV1> {
         let state = self.state.lock().unwrap();
         let session_map = state.artifacts.get(&req.session_id.0);
-        let artifacts = session_map.map(|m| m.values().map(|v| v.0.clone()).collect()).unwrap_or_default();
+        let artifacts = session_map
+            .map(|m| m.values().map(|v| v.0.clone()).collect())
+            .unwrap_or_default();
 
         Ok(ListArtifactsResponseV1 {
             artifacts,
@@ -522,23 +583,30 @@ impl ArtifactAccessV1 for ConformanceMock {
         req: DescribeArtifactRequestV1,
     ) -> Result<DescribeArtifactResponseV1, ControlErrorV1> {
         let state = self.state.lock().unwrap();
-        let session_map = state.artifacts.get(&req.session_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Session has no artifacts".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let session_map = state
+            .artifacts
+            .get(&req.session_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Session has no artifacts".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
-        let (meta, _) = session_map.get(&req.artifact_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Artifact not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let (meta, _) = session_map
+            .get(&req.artifact_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Artifact not found".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
-        Ok(DescribeArtifactResponseV1 { metadata: meta.clone() })
+        Ok(DescribeArtifactResponseV1 {
+            metadata: meta.clone(),
+        })
     }
 
     async fn read_artifact_range(
@@ -558,21 +626,26 @@ impl ArtifactAccessV1 for ConformanceMock {
             });
         }
 
-        let session_map = state.artifacts.get(&req.session_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Session has no artifacts".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let session_map = state
+            .artifacts
+            .get(&req.session_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Session has no artifacts".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
-        let (meta, data) = session_map.get(&req.artifact_id.0).ok_or_else(|| ControlErrorV1 {
-            code: ControlErrorCodeV1::NotFound,
-            message: "Artifact not found".to_string(),
-            retryable: false,
-            details: None,
-            correlation_id: None,
-        })?;
+        let (meta, data) = session_map
+            .get(&req.artifact_id.0)
+            .ok_or_else(|| ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: "Artifact not found".to_string(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            })?;
 
         // Conformance constraint: Rejects size above documented max chunk size (1024 bytes in mock)
         if req.length > 1024 {
@@ -621,7 +694,9 @@ impl ArtifactAccessV1 for ConformanceMock {
             integrity: "sha256-hash-placeholder".to_string(),
         };
 
-        state.artifacts.entry(req.session_id.0.clone())
+        state
+            .artifacts
+            .entry(req.session_id.0.clone())
             .or_default()
             .insert(artifact_id, (meta.clone(), req.data));
 
@@ -680,46 +755,60 @@ async fn test_session_lineage_and_id_collision() {
     let mock = ConformanceMock::new();
 
     // Start session
-    let start_res = mock.start_session(StartSessionRequestV1 {
-        session_id: Some(SessionIdV1("sess-a".to_string())),
-        idempotency_key: None,
-        config_override: None,
-    }).await.unwrap();
+    let start_res = mock
+        .start_session(StartSessionRequestV1 {
+            session_id: Some(SessionIdV1("sess-a".to_string())),
+            idempotency_key: None,
+            config_override: None,
+        })
+        .await
+        .unwrap();
 
     assert_eq!(start_res.session_id.0, "sess-a");
 
     // Collision check: starting same session ID yields Conflict error
-    let collision_err = mock.start_session(StartSessionRequestV1 {
-        session_id: Some(SessionIdV1("sess-a".to_string())),
-        idempotency_key: None,
-        config_override: None,
-    }).await.unwrap_err();
+    let collision_err = mock
+        .start_session(StartSessionRequestV1 {
+            session_id: Some(SessionIdV1("sess-a".to_string())),
+            idempotency_key: None,
+            config_override: None,
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(collision_err.code, ControlErrorCodeV1::Conflict);
 
     // Try branching: fails if parent run is not completed
-    let branch_err = mock.branch_session(BranchSessionRequestV1 {
-        parent_session_id: start_res.session_id.clone(),
-        parent_run_id: start_res.run_id.clone(),
-        new_session_id: Some(SessionIdV1("sess-b".to_string())),
-        idempotency_key: None,
-    }).await.unwrap_err();
+    let branch_err = mock
+        .branch_session(BranchSessionRequestV1 {
+            parent_session_id: start_res.session_id.clone(),
+            parent_run_id: start_res.run_id.clone(),
+            new_session_id: Some(SessionIdV1("sess-b".to_string())),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(branch_err.code, ControlErrorCodeV1::Conflict);
 
     // Complete run
     {
         let mut state = mock.state.lock().unwrap();
-        state.run_status.insert(start_res.run_id.0.clone(), "completed".to_string());
+        state
+            .run_status
+            .insert(start_res.run_id.0.clone(), "completed".to_string());
     }
 
     // Branching now succeeds
-    let branch_res = mock.branch_session(BranchSessionRequestV1 {
-        parent_session_id: start_res.session_id,
-        parent_run_id: start_res.run_id,
-        new_session_id: Some(SessionIdV1("sess-b".to_string())),
-        idempotency_key: None,
-    }).await.unwrap();
+    let branch_res = mock
+        .branch_session(BranchSessionRequestV1 {
+            parent_session_id: start_res.session_id,
+            parent_run_id: start_res.run_id,
+            new_session_id: Some(SessionIdV1("sess-b".to_string())),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
 
     assert_eq!(branch_res.new_session_id.0, "sess-b");
 }
@@ -760,22 +849,30 @@ async fn test_concurrency_and_queue_backpressure() {
         session_id: Some(SessionIdV1("sess-queue".to_string())),
         idempotency_key: None,
         config_override: None,
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
 
     // Normal message enqueued successfully (returns ack)
-    let ack_res = mock.submit_message(SubmitMessageRequestV1 {
-        session_id: SessionIdV1("sess-queue".to_string()),
-        message: "hello".to_string(),
-        idempotency_key: None,
-    }).await.unwrap();
+    let ack_res = mock
+        .submit_message(SubmitMessageRequestV1 {
+            session_id: SessionIdV1("sess-queue".to_string()),
+            message: "hello".to_string(),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
     assert!(ack_res.acknowledged);
 
     // Queue full triggers stable backpressure error (H1A-B03)
-    let full_err = mock.submit_message(SubmitMessageRequestV1 {
-        session_id: SessionIdV1("sess-queue".to_string()),
-        message: "trigger-queue-full".to_string(),
-        idempotency_key: None,
-    }).await.unwrap_err();
+    let full_err = mock
+        .submit_message(SubmitMessageRequestV1 {
+            session_id: SessionIdV1("sess-queue".to_string()),
+            message: "trigger-queue-full".to_string(),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(full_err.code, ControlErrorCodeV1::QueueFull);
     assert!(full_err.retryable);
@@ -785,27 +882,36 @@ async fn test_concurrency_and_queue_backpressure() {
 async fn test_cancellation_races() {
     let mock = ConformanceMock::new();
 
-    let start_res = mock.start_session(StartSessionRequestV1 {
-        session_id: Some(SessionIdV1("sess-cancel".to_string())),
-        idempotency_key: None,
-        config_override: None,
-    }).await.unwrap();
+    let start_res = mock
+        .start_session(StartSessionRequestV1 {
+            session_id: Some(SessionIdV1("sess-cancel".to_string())),
+            idempotency_key: None,
+            config_override: None,
+        })
+        .await
+        .unwrap();
 
     // Active run cancellation
-    let cancel_res = mock.cancel_run(CancelRunRequestV1 {
-        session_id: start_res.session_id.clone(),
-        run_id: start_res.run_id.clone(),
-        correlation_id: None,
-    }).await.unwrap();
+    let cancel_res = mock
+        .cancel_run(CancelRunRequestV1 {
+            session_id: start_res.session_id.clone(),
+            run_id: start_res.run_id.clone(),
+            correlation_id: None,
+        })
+        .await
+        .unwrap();
 
     assert!(cancel_res.cancelled);
 
     // Verification of race condition outcome when run is already cancelled/terminal
-    let cancel_again = mock.cancel_run(CancelRunRequestV1 {
-        session_id: start_res.session_id.clone(),
-        run_id: start_res.run_id.clone(),
-        correlation_id: None,
-    }).await.unwrap();
+    let cancel_again = mock
+        .cancel_run(CancelRunRequestV1 {
+            session_id: start_res.session_id.clone(),
+            run_id: start_res.run_id.clone(),
+            correlation_id: None,
+        })
+        .await
+        .unwrap();
 
     // Already cancelled/terminal means cancellation has no effect
     assert!(cancel_again.cancelled);
@@ -814,14 +920,19 @@ async fn test_cancellation_races() {
     let run2_id = RunIdV1("run-completed".to_string());
     {
         let mut state = mock.state.lock().unwrap();
-        state.run_status.insert(run2_id.0.clone(), "completed".to_string());
+        state
+            .run_status
+            .insert(run2_id.0.clone(), "completed".to_string());
     }
 
-    let cancel_completed = mock.cancel_run(CancelRunRequestV1 {
-        session_id: start_res.session_id,
-        run_id: run2_id,
-        correlation_id: None,
-    }).await.unwrap();
+    let cancel_completed = mock
+        .cancel_run(CancelRunRequestV1 {
+            session_id: start_res.session_id,
+            run_id: run2_id,
+            correlation_id: None,
+        })
+        .await
+        .unwrap();
 
     assert!(!cancel_completed.cancelled); // History not rewritten
 }
@@ -832,24 +943,33 @@ async fn test_cursor_resume_and_lag() {
     let session_id = SessionIdV1("sess-events".to_string());
 
     // Normal polling
-    let res = mock.poll_events(PollEventsRequestV1 {
-        session_id: session_id.clone(),
-        cursor: None,
-        limit: None,
-    }).await.unwrap();
+    let res = mock
+        .poll_events(PollEventsRequestV1 {
+            session_id: session_id.clone(),
+            cursor: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
 
     assert!(res.next_cursor.is_some());
 
     // Lagged cursor triggers lagged cursor error with resumption payload (H1A-B05)
-    let lag_err = mock.poll_events(PollEventsRequestV1 {
-        session_id,
-        cursor: Some(CursorV1("lagged-cursor-token".to_string())),
-        limit: None,
-    }).await.unwrap_err();
+    let lag_err = mock
+        .poll_events(PollEventsRequestV1 {
+            session_id,
+            cursor: Some(CursorV1("lagged-cursor-token".to_string())),
+            limit: None,
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(lag_err.code, ControlErrorCodeV1::LaggedCursor);
     let details = lag_err.details.unwrap();
-    assert_eq!(details.get("newest_safe_cursor").unwrap().as_str().unwrap(), "safe-resume-cursor");
+    assert_eq!(
+        details.get("newest_safe_cursor").unwrap().as_str().unwrap(),
+        "safe-resume-cursor"
+    );
 }
 
 #[tokio::test]
@@ -876,36 +996,53 @@ async fn test_approval_validation_and_revalidation() {
     }
 
     // Normal approval response accepts
-    let respond_res = mock.respond_to_approval(RespondToApprovalRequestV1 {
-        approval_id: ApprovalIdV1(approval_id.clone()),
-        decision: ApprovalDecisionV1::Approve,
-    }).await.unwrap();
+    let respond_res = mock
+        .respond_to_approval(RespondToApprovalRequestV1 {
+            approval_id: ApprovalIdV1(approval_id.clone()),
+            decision: ApprovalDecisionV1::Approve,
+        })
+        .await
+        .unwrap();
 
     assert!(respond_res.success);
 
     // Cancelled approvals cannot execute (H1A-B06)
     {
         let mut state = mock.state.lock().unwrap();
-        state.pending_approvals.get_mut(&approval_id).unwrap().is_cancelled = true;
+        state
+            .pending_approvals
+            .get_mut(&approval_id)
+            .unwrap()
+            .is_cancelled = true;
     }
 
-    let cancel_respond_err = mock.respond_to_approval(RespondToApprovalRequestV1 {
-        approval_id: ApprovalIdV1(approval_id.clone()),
-        decision: ApprovalDecisionV1::Approve,
-    }).await.unwrap_err();
+    let cancel_respond_err = mock
+        .respond_to_approval(RespondToApprovalRequestV1 {
+            approval_id: ApprovalIdV1(approval_id.clone()),
+            decision: ApprovalDecisionV1::Approve,
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(cancel_respond_err.code, ControlErrorCodeV1::Conflict);
 
     // Revalidation logic check: invalid edited value gets rejected by validation
     {
         let mut state = mock.state.lock().unwrap();
-        state.pending_approvals.get_mut(&approval_id).unwrap().is_cancelled = false;
+        state
+            .pending_approvals
+            .get_mut(&approval_id)
+            .unwrap()
+            .is_cancelled = false;
     }
 
-    let validation_err = mock.respond_to_approval(RespondToApprovalRequestV1 {
-        approval_id: ApprovalIdV1(approval_id),
-        decision: ApprovalDecisionV1::Edit(json!({ "invalid_field": true })),
-    }).await.unwrap_err();
+    let validation_err = mock
+        .respond_to_approval(RespondToApprovalRequestV1 {
+            approval_id: ApprovalIdV1(approval_id),
+            decision: ApprovalDecisionV1::Edit(json!({ "invalid_field": true })),
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(validation_err.code, ControlErrorCodeV1::Validation);
 }
@@ -917,50 +1054,65 @@ async fn test_artifact_traversal_and_oversize_reads() {
 
     // Create an artifact
     let data = vec![0u8; 2048]; // 2KB data
-    let create_res = mock.create_artifact(CreateArtifactRequestV1 {
-        session_id: session_id.clone(),
-        display_path: "report.json".to_string(),
-        data,
-    }).await.unwrap();
+    let create_res = mock
+        .create_artifact(CreateArtifactRequestV1 {
+            session_id: session_id.clone(),
+            display_path: "report.json".to_string(),
+            data,
+        })
+        .await
+        .unwrap();
 
     let art_id = create_res.metadata.logical_id;
 
     // Describe
-    let desc_res = mock.describe_artifact(DescribeArtifactRequestV1 {
-        session_id: session_id.clone(),
-        artifact_id: art_id.clone(),
-    }).await.unwrap();
+    let desc_res = mock
+        .describe_artifact(DescribeArtifactRequestV1 {
+            session_id: session_id.clone(),
+            artifact_id: art_id.clone(),
+        })
+        .await
+        .unwrap();
 
     assert_eq!(desc_res.metadata.size, 2048);
 
     // Valid ranged read (length <= 1024)
-    let read_res = mock.read_artifact_range(ReadArtifactRangeRequestV1 {
-        session_id: session_id.clone(),
-        artifact_id: art_id.clone(),
-        offset: 10,
-        length: 100,
-    }).await.unwrap();
+    let read_res = mock
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id: session_id.clone(),
+            artifact_id: art_id.clone(),
+            offset: 10,
+            length: 100,
+        })
+        .await
+        .unwrap();
 
     assert_eq!(read_res.length, 100);
     assert_eq!(read_res.data.len(), 100);
 
     // Traversal check: rejects any paths containing path traversal tokens (H1A-B07)
-    let traversal_err = mock.read_artifact_range(ReadArtifactRangeRequestV1 {
-        session_id: session_id.clone(),
-        artifact_id: ArtifactIdV1("../secrets.txt".to_string()),
-        offset: 0,
-        length: 100,
-    }).await.unwrap_err();
+    let traversal_err = mock
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id: session_id.clone(),
+            artifact_id: ArtifactIdV1("../secrets.txt".to_string()),
+            offset: 0,
+            length: 100,
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(traversal_err.code, ControlErrorCodeV1::Validation);
 
     // Oversize read request: rejects above max chunk size of 1024 bytes (H1A-B07)
-    let oversize_err = mock.read_artifact_range(ReadArtifactRangeRequestV1 {
-        session_id,
-        artifact_id: art_id,
-        offset: 0,
-        length: 1025,
-    }).await.unwrap_err();
+    let oversize_err = mock
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id,
+            artifact_id: art_id,
+            offset: 0,
+            length: 1025,
+        })
+        .await
+        .unwrap_err();
 
     assert_eq!(oversize_err.code, ControlErrorCodeV1::Validation);
 }
