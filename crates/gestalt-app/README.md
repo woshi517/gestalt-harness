@@ -13,34 +13,28 @@ The `gestalt-app` crate owns reusable product-level services built on top of `ge
 
 ## Core Entry Points
 
-- `WorkspaceResolver` / `WorkspaceContextLoader` — Resolves and loads the current workspace configuration.
+- `workspace::init_workspace` / `workspace::info_workspace` — Resolve, initialize, and inspect the current workspace configuration.
 - `reports::RunReport` — Serializes runs and cost estimates into human-readable data.
 
 ---
 
 ## Construction Example
 
-Construct and load a workspace configuration:
+Construct and initialize a workspace:
 
 ```rust
-use std::path::PathBuf;
-use gestalt_app::workspace::{WorkspaceContextConfig, WorkspaceContextLoader};
+use std::path::Path;
+use gestalt_app::workspace::init_workspace;
 
-let config = WorkspaceContextConfig {
-    workspace_root: PathBuf::from("./my-workspace"),
-    selected_profile: Some("default".to_string()),
-};
-
-let workspace = WorkspaceContextLoader::new()
-    .load(&config)
-    .expect("Failed to load workspace context");
+let report = init_workspace(Path::new("./my-workspace"), false)
+    .expect("Failed to initialize workspace");
 ```
 
 ---
 
 ## Error Handling & Cancellation
 
-- Expected validation errors return `HarnessError::Config` or `HarnessError::Workspace`.
+- Expected validation errors return `HarnessError::Config`; I/O and snapshot failures bubble through the relevant source error.
 - Cancellation is propagated via the standard `CancelToken` to abort network preflight tests and credential verification checks.
 
 ---

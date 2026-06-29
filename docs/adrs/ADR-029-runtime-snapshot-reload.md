@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-The runtime owns immutable generation snapshots. `ExtensionManager` publishes snapshots atomically through `RwLock<Arc<RuntimeExtensionSnapshot>>`; runs adopt a `RuntimeSnapshotLease` at run/session entry and execute against the pinned snapshot for the duration of the run.
+The runtime owns immutable generation snapshots. `ExtensionManager` publishes snapshots atomically through `RwLock<Arc<RuntimeExtensionSnapshot>>`; assistant turns adopt a `RuntimeSnapshotLease` at run/turn entry and execute against the pinned snapshot for the duration of that turn.
 
 Startup and reload both execute through `ExtensionActivationPipeline`. Reload candidates are validated before publication. Dry-runs return the candidate generation and fingerprint without publishing. Failed required candidates must leave the active generation untouched.
 

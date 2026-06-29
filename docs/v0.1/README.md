@@ -5,18 +5,18 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 ---
 
 ## 1. Embedding and Runtime Control (RUNTIME-001–RUNTIME-006)
-* **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#9-product-neutral-runtime-control)
+* **Status:** 🟢 **Published**
+* **Specification:** [embedding-control.md](./embedding-control.md)
 * **Implementation Plan:** [H1A](./H1A-runtime-control-dtos-and-semantics.md), [H1B](./H1B-runtime-host-app-boundary-and-conformance.md)
-* **Rust API Target:** `gestalt_runtime::control::RuntimeControlV1`
-* **Enforcing Tests:** `crates/gestalt-runtime/tests/control_tests.rs` (pending)
+* **Rust API Target:** `gestalt_runtime::control::contract::RuntimeControlV1`
+* **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
 
 ## 2. App Services (APP-001–APP-002)
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#99-app-001-keep-gestalt-app-product-neutral)
 * **Implementation Plan:** [H1B](./H1B-runtime-host-app-boundary-and-conformance.md)
-* **Rust API Target:** `gestalt_app::workspace::WorkspaceResolver`
-* **Enforcing Tests:** `crates/gestalt-app/tests/workspace_tests.rs` (pending)
+* **Rust API Target:** `gestalt_app::workspace::{init_workspace, info_workspace}`
+* **Enforcing Tests:** `crates/gestalt-app/tests/report_contract_tests.rs` (pending)
 
 ## 3. Context Diagnostics (CTX-001–CTX-004)
 * **Status:** 🔴 **Unpublished (Under Development)**
@@ -29,8 +29,8 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#34-events-remain-the-ground-truth)
 * **Implementation Plan:** [H2A](./H2A-event-trace-replay-contracts.md)
-* **Rust API Target:** `gestalt_trace::EventEnvelope`
-* **Enforcing Tests:** `crates/gestalt-trace/tests/trace_tests.rs` (pending)
+* **Rust API Target:** `gestalt_runtime::EventEnvelope`
+* **Enforcing Tests:** `crates/gestalt-app/tests/sessions_tests.rs` (pending)
 
 ## 5. Configuration (CFG-001–CFG-005)
 * **Status:** 🔴 **Unpublished (Under Development)**
@@ -40,11 +40,11 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 * **Enforcing Tests:** `crates/gestalt-app/tests/config_tests.rs` (pending)
 
 ## 6. Policy & Approval (POL-001–POL-004)
-* **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#10-core-primitive-hardening)
+* **Status:** 🟢 **Published**
+* **Specification:** [policy-approval.md](./policy-approval.md)
 * **Implementation Plan:** [H1A](./H1A-runtime-control-dtos-and-semantics.md)
-* **Rust API Target:** `gestalt_core::policy::PolicyEngine`
-* **Enforcing Tests:** `crates/gestalt-runtime/tests/policy_tests.rs` (pending)
+* **Rust API Target:** `gestalt_runtime::control::contract::ApprovalControlV1`
+* **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
 
 ## 7. Extensions V2 Compatibility (EXT-001–EXT-005)
 * **Status:** 🔴 **Unpublished (Under Development)**

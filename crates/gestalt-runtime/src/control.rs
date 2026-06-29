@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+pub mod contract;
+
 use crate::artifact_store::ArtifactStore;
 use crate::error::Result;
 use crate::event_bus::RuntimeEvent;
