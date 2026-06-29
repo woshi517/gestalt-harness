@@ -1,3 +1,5 @@
+#![cfg(feature = "skills")]
+
 //! Tests for the runtime integration of the skill activation engine.
 //!
 //! These tests exercise the wiring between the deterministic
@@ -19,9 +21,9 @@ use gestalt_runtime::composition_hooks::{
     CompositionHooks, HookOutcome, RuntimeContextHookAdapter,
 };
 use gestalt_runtime::event_bus::{RuntimeEvent, RuntimeEventBus};
-use gestalt_runtime::skill_contributor::SkillContributorState;
+use gestalt_runtime::skills::contributor::SkillContributorState;
 use gestalt_runtime::{ComposedToolCatalog, RuntimePolicyEngine, ToolCatalogPlanner, ToolProfile};
-use gestalt_skills::{SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel};
+use gestalt_runtime::{SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel};
 
 fn make_descriptor(name: &str, description: &str, _body: &str) -> SkillDescriptor {
     SkillDescriptor {

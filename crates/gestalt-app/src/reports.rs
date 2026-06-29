@@ -1,0 +1,344 @@
+use serde::Serialize;
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ConnectReport {
+    pub provider: String,
+    pub status: String,
+    pub profile_created: Option<String>,
+    pub keychain_stored: bool,
+}
+
+/// An entry in the run log index listing.
+#[derive(Serialize, Clone, Debug)]
+pub struct RunIndexEntry {
+    /// Unique run identifier.
+    pub run_id: String,
+    /// Absolute filesystem path to the run directory.
+    pub path: PathBuf,
+    /// Run start timestamp.
+    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Associated session identifier.
+    pub session_id: String,
+    /// LLM provider (e.g. "openai").
+    pub provider: Option<String>,
+    /// LLM model name.
+    pub model: Option<String>,
+    /// Whether the trace.jsonl file exists.
+    pub trace_exists: bool,
+    /// Whether the summary.md file exists.
+    pub summary_exists: bool,
+    /// Whether the cost.json file exists.
+    pub cost_exists: bool,
+    /// Number of generated workspace artifacts.
+    pub artifact_count: usize,
+    /// Current apparent status of the run.
+    pub apparent_status: String,
+    /// Input tokens consumed.
+    pub total_input_tokens: Option<usize>,
+    /// Output tokens consumed.
+    pub total_output_tokens: Option<usize>,
+    /// Estimated total cost of the run in USD.
+    pub estimated_cost_usd: Option<f64>,
+}
+
+/// Report containing a list of run entries.
+#[derive(Serialize, Debug, Clone)]
+pub struct RunsListReport {
+    /// List of indexed runs.
+    pub runs: Vec<RunIndexEntry>,
+}
+
+/// Report containing metrics of pruned runs.
+#[derive(Serialize, Debug, Clone)]
+pub struct RunsPruneReport {
+    /// List of pruned run identifiers.
+    pub pruned_runs: Vec<String>,
+    /// Reclaimed disk space in bytes.
+    pub reclaimed_bytes: u64,
+    /// Whether this was a dry run.
+    pub dry_run: bool,
+}
+
+/// Report containing metrics of a deleted run.
+#[derive(Serialize, Debug, Clone)]
+pub struct RunsDeleteReport {
+    /// Deleted run identifier.
+    pub deleted_run: String,
+    /// Reclaimed disk space in bytes.
+    pub reclaimed_bytes: u64,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ContextExplainReport {
+    pub prompt: Option<String>,
+    pub run_id: Option<String>,
+    pub token_estimate: usize,
+    pub packet_hash: String,
+    pub pipeline_version: String,
+    pub prompt_source: Option<String>,
+    pub system_prompt: Option<String>,
+    pub sources: Vec<gestalt_core::context::ContextSourceRef>,
+    pub omissions: Vec<gestalt_core::context::ContextOmission>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct RunsInspectReport {
+    /// Unique run identifier.
+    pub run_id: String,
+    /// Absolute filesystem path to the run directory.
+    pub path: PathBuf,
+    /// Run start timestamp.
+    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Associated session identifier.
+    pub session_id: String,
+    pub parent_run_id: Option<String>,
+    pub run_kind: Option<String>,
+    pub lifecycle_state: Option<String>,
+    /// LLM provider (e.g. "openai").
+    pub provider: Option<String>,
+    /// LLM model name.
+    pub model: Option<String>,
+    /// Whether the trace.jsonl file exists.
+    pub trace_exists: bool,
+    /// Whether the summary.md file exists.
+    pub summary_exists: bool,
+    /// Whether the cost.json file exists.
+    pub cost_exists: bool,
+    /// Current apparent status of the run.
+    pub apparent_status: String,
+    /// Total turns executed.
+    pub turns: Option<usize>,
+    /// Stop reason description.
+    pub stop_reason: Option<String>,
+    /// Total input tokens consumed.
+    pub total_input_tokens: Option<usize>,
+    /// Total output tokens consumed.
+    pub total_output_tokens: Option<usize>,
+    /// Estimated total cost of the run in USD.
+    pub estimated_cost_usd: Option<f64>,
+    /// Workspace snapshot identifier.
+    pub workspace_snapshot_id: Option<String>,
+    /// List of generated workspace artifacts.
+    pub artifacts: Vec<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct AuthResolveReport {
+    pub provider: String,
+    pub source: String,
+    pub variable: String,
+    pub status: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct AuthDoctorEntry {
+    pub variable: String,
+    pub status: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct AuthDoctorReport {
+    pub entries: Vec<AuthDoctorEntry>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ProviderDoctorResult {
+    pub provider: String,
+    pub auth_variable: String,
+    pub auth_status: String,
+    pub auth_source: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ProvidersDoctorReport {
+    pub results: Vec<ProviderDoctorResult>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ModelsRefreshReport {
+    pub count: usize,
+    pub status: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ProfileInfoEntry {
+    pub name: String,
+    pub provider: String,
+    pub model: String,
+    pub active: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ProfilesListReport {
+    pub profiles: Vec<ProfileInfoEntry>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ProfilesInspectReport {
+    pub name: String,
+    pub provider: String,
+    pub model: String,
+    pub active: bool,
+    pub resolved_provider_kind: String,
+    pub resolved_base_url: Option<String>,
+    pub resolved_auth_ref: Option<String>,
+    pub resolved_api_key_env: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ProfilesUseReport {
+    pub name: String,
+    pub active: bool,
+    pub file_updated: PathBuf,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct DisconnectReport {
+    pub provider: String,
+    pub profile_removed: Option<String>,
+    pub keychain_cleared: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct WorkspaceDoctorReport {
+    pub workspace_root: PathBuf,
+    pub config_valid: bool,
+    pub config_error: Option<String>,
+    pub policies_valid: bool,
+    pub policies_error: Option<String>,
+    pub missing_files: Vec<String>,
+    pub auth_summary: HashMap<String, String>,
+    pub run_dir_exists: bool,
+    pub run_dir_writable: Option<bool>,
+    pub selected_model: Option<String>,
+    pub model_valid: bool,
+    pub model_error: Option<String>,
+    pub memory_writable: Option<bool>,
+    pub memory_write_error: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct GlobalDoctorReport {
+    pub workspace_doctor: WorkspaceDoctorReport,
+    pub live: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct VerifierResultEntry {
+    pub name: String,
+    pub status: gestalt_core::event::VerificationStatus,
+    pub findings: Vec<gestalt_core::event::VerificationFinding>,
+    pub report: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ArtifactVerificationResult {
+    pub artifact_path: String,
+    pub verifiers: Vec<VerifierResultEntry>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct VerifyRunReport {
+    pub run_id: String,
+    pub status: gestalt_core::event::VerificationStatus,
+    pub total_checks: usize,
+    pub total_failed: usize,
+    pub artifacts: Vec<ArtifactVerificationResult>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct SkillListEntry {
+    pub name: String,
+    pub description: String,
+    pub trust_level: String,
+    pub source: String,
+    pub manifest_path: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct SkillsListReport {
+    pub skills: Vec<SkillListEntry>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub title: String,
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub runs_count: usize,
+    pub latest_run_id: String,
+    pub latest_run_status: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub total_turns: usize,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct SessionsListReport {
+    pub sessions: Vec<SessionSummary>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct SessionInspectReport {
+    pub session_id: String,
+    pub runs: Vec<RunManifestSummary>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct RunManifestSummary {
+    pub run_id: String,
+    pub dir_name: String,
+    pub parent_run_id: Option<String>,
+    pub run_kind: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub lifecycle_state: String,
+    pub turns: usize,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct SessionHistoryReport {
+    pub session_id: String,
+    pub timeline: Vec<TimelineItem>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct TimelineItem {
+    pub run_id: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub event_summary: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct WorkspaceInitReport {
+    pub workspace_root: PathBuf,
+    pub created_files: Vec<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct WorkspaceStatusReport {
+    pub workspace_root: PathBuf,
+    pub config_valid: bool,
+    pub active_provider: Option<String>,
+    pub active_model: Option<String>,
+    pub active_mode: Option<String>,
+    pub recent_runs_count: usize,
+    pub auth_summary: HashMap<String, String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct WorkspaceInfoReport {
+    pub workspace_root: PathBuf,
+    pub config_path: PathBuf,
+    pub workspace_md_path: PathBuf,
+    pub memory_md_path: PathBuf,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct WorkspaceSnapshotReport {
+    pub snapshot: gestalt_core::snapshot::WorkspaceSnapshot,
+}

@@ -104,7 +104,7 @@ impl ContextPipeline for MockContextPipeline {
     }
 
     fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
-        Some(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        Some(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
     }

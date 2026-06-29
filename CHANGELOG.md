@@ -15,8 +15,9 @@ Initial Phase 1 release candidate for `gestalt-harness`.
 
 ### Install and Platform Notes
 
-- Published package name: `gestalt-harness`
+- Published package name: `gestalt-cli`
 - Installed `gestalt` binary name remains unchanged
+- Terminal UI ships as the separate `gestalt-tui` package/binary
 - Supported platforms for v0.1: Linux x86-64 and macOS
 - Local install from a checkout: `cargo install --locked --path crates/gestalt-cli`
 
@@ -24,5 +25,4 @@ Initial Phase 1 release candidate for `gestalt-harness`.
 
 - Registry publishing automation
 - Windows support
-- MCP enabled by default
-- PDF ingestion, skills, vector search, deterministic replay, or other Phase 2 features
+- PDF ingestion, vector search, deterministic replay, or other Phase 2 features

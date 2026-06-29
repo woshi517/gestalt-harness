@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_cli::output::{
     AuthDoctorEntry, AuthDoctorReport, CliReport, ConfigValidateReport, ConnectReport,
     GlobalDoctorReport, JsonEnvelope, ModelsListReport, ModelsSearchReport, ProfileInfoEntry,
@@ -325,7 +327,7 @@ fn test_runtime_inspect_report_contract() {
         trace_sink_kind: Some("JsonlTraceSink".to_string()),
         trace_run_dir: None,
         workspace_root: "/workspace".to_string(),
-        enabled_cli_features: vec!["tui".to_string()],
+        enabled_host_features: vec!["tui".to_string()],
         discovered_skills: vec![],
         active_skills: vec![],
         skill_fingerprint: None,

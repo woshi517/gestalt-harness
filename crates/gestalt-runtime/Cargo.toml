@@ -12,9 +12,6 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
-gestalt-context = { path = "../gestalt-context" }
-gestalt-trace = { path = "../gestalt-trace" }
-gestalt-skills = { path = "../gestalt-skills" }
 tokio = { workspace = true }
 serde = { workspace = true }
 schemars = { workspace = true }
@@ -25,10 +22,36 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 sha2 = { workspace = true }
-toml = { workspace = true }
+toml = { workspace = true, optional = true }
 url = { workspace = true }
-gestalt-mcp = { path = "../gestalt-mcp" }
-
+reqwest = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
+eventsource-stream = { workspace = true, optional = true }
+encoding_rs = { workspace = true, optional = true }
+glob = { workspace = true }
+similar = { workspace = true, optional = true }
+tracing = { workspace = true }
+pulldown-cmark = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
+libc = { workspace = true }
+tokio-util = { workspace = true }
+walkdir = { version = "2", optional = true }
+regex = { version = "1", optional = true }
 
 [dev-dependencies]
-# We might add some test mocks later
+tempfile = "3"
+
+[features]
+default = ["providers", "tools", "trace"]
+providers = ["dep:eventsource-stream", "dep:reqwest", "dep:tokio-stream", "toml-config"]
+tools = ["dep:encoding_rs", "dep:regex", "dep:reqwest", "dep:similar", "dep:walkdir", "toml-config"]
+mcp = ["toml-config"]
+skills = ["dep:serde_yaml", "toml-config"]
+verify = ["tools", "dep:pulldown-cmark"]
+trace = ["toml-config"]
+toml-config = ["dep:toml"]
+
+[[bin]]
+name = "mock_mcp_server"
+path = "src/bin/mock_mcp_server.rs"
+required-features = ["mcp"]

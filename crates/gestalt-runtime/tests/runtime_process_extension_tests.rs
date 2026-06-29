@@ -1352,7 +1352,7 @@ done"#
         registry_snapshot,
         None,
         event_bus.clone(),
-        Arc::new(gestalt_mcp::McpRegistry::new(
+        Arc::new(gestalt_runtime::McpRegistry::new(
             std::env::current_dir().unwrap(),
             Default::default(),
         )),

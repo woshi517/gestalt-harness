@@ -6,7 +6,8 @@ pub struct ComposedToolCatalog {
     base: Arc<dyn ToolCatalog>,
     extension_tools: BTreeMap<String, Arc<dyn Tool>>,
     planner: Option<crate::tool_catalog_planner::ToolCatalogPlanner>,
-    mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
+    #[cfg(feature = "mcp")]
+    mcp_registry: Option<Arc<crate::mcp::McpRegistry>>,
     event_bus: Option<crate::event_bus::RuntimeEventBus>,
 }
 
@@ -20,6 +21,7 @@ impl ComposedToolCatalog {
             base,
             extension_tools,
             planner: None,
+            #[cfg(feature = "mcp")]
             mcp_registry: None,
             event_bus: None,
         })
@@ -33,7 +35,8 @@ impl ComposedToolCatalog {
         self
     }
 
-    pub fn with_mcp(mut self, mcp_registry: Arc<gestalt_mcp::McpRegistry>) -> Self {
+    #[cfg(feature = "mcp")]
+    pub fn with_mcp(mut self, mcp_registry: Arc<crate::mcp::McpRegistry>) -> Self {
         self.mcp_registry = Some(mcp_registry);
         self
     }
@@ -52,6 +55,7 @@ impl ToolCatalog for ComposedToolCatalog {
         }
 
         // Dynamic MCP schemas
+        #[cfg(feature = "mcp")]
         if let Some(ref mcp_reg) = self.mcp_registry {
             let cached = mcp_reg.get_cached_tools();
             for (server_id, schema) in cached {
@@ -104,6 +108,7 @@ impl ToolCatalog for ComposedToolCatalog {
                 .values()
                 .find(|tool| tool.descriptor().id == *id)
                 .cloned(),
+            #[cfg(feature = "mcp")]
             gestalt_core::tool_descriptor::ToolNamespace::Mcp(server_name) => {
                 if let Some(ref mcp_reg) = self.mcp_registry {
                     if let Some(schema) = mcp_reg.get_cached_tool(server_name, &id.name) {
@@ -122,6 +127,8 @@ impl ToolCatalog for ComposedToolCatalog {
                 }
                 None
             }
+            #[cfg(not(feature = "mcp"))]
+            gestalt_core::tool_descriptor::ToolNamespace::Mcp(_) => None,
         }
     }
 
@@ -132,6 +139,7 @@ impl ToolCatalog for ComposedToolCatalog {
         }
 
         // Dynamic MCP descriptors
+        #[cfg(feature = "mcp")]
         if let Some(ref mcp_reg) = self.mcp_registry {
             let cached = mcp_reg.get_cached_tools();
             for (server_id, schema) in cached {

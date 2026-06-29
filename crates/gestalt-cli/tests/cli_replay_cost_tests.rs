@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use std::fs;
 
 use gestalt_cli::{

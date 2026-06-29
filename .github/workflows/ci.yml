@@ -40,13 +40,33 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Check runtime feature matrix
+        run: |
+          cargo check -p gestalt-runtime --no-default-features --locked
+          for feature in providers tools mcp skills verify trace; do
+            cargo check -p gestalt-runtime --no-default-features --features "$feature" --locked
+          done
+          cargo check -p gestalt-runtime --all-features --locked
 
       - name: Build workspace
         run: cargo build --workspace
 
+      - name: Build minimal CLI
+        run: cargo check -p gestalt-cli --no-default-features --locked
+
+      - name: Test minimal CLI feature errors
+        run: cargo test -p gestalt-cli --no-default-features --locked
+
+      - name: Test trace-disabled checkpoint rendering
+        run: cargo test -p gestalt-runtime --no-default-features --test context_management_tests trace_disabled_compaction --locked
+
+      - name: Build standalone TUI
+        run: cargo check -p gestalt-tui
+
       - name: Test workspace
-        run: cargo test --workspace
+        run: cargo test --workspace --all-features --locked
 
       - name: Verify dependency boundaries and budgets
         run: bash scripts/check-deps.sh

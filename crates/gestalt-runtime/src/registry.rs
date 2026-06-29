@@ -7,6 +7,9 @@ use std::sync::Arc;
 
 pub mod snapshot;
 
+#[cfg(feature = "providers")]
+pub use crate::providers::registry::{register, registered};
+
 pub use snapshot::{
     ContextContributorSnapshot, HookRegistration, RuntimeFingerprint, RuntimeRegistrySnapshot,
     ToolRegistrationSnapshot, VerifierRegistration,

@@ -138,7 +138,7 @@ fn runtime() -> gestalt_runtime::AgentRuntime {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))

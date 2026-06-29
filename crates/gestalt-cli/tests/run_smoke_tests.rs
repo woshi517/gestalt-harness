@@ -1,5 +1,7 @@
+#![cfg(feature = "full")]
+
 use async_trait::async_trait;
-use gestalt_cli::config::{validate_workspace_config, CliOverrides};
+use gestalt_app::config::{validate_workspace_config, CliOverrides};
 use gestalt_core::{
     event::AgentEvent,
     message::Message,
@@ -112,7 +114,7 @@ async fn test_cli_smoke_prompt_source() {
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -164,11 +166,12 @@ override = "Smoke test override prompt"
     })
     .unwrap();
 
-    let log_dir = gestalt_cli::run::run_prompt(
+    let log_dir = gestalt_app::run::run_prompt(
         &config,
         "run smoke",
         None,
         gestalt_core::CancelToken::new(),
+        None,
         None,
         None,
         None,
@@ -223,11 +226,12 @@ default = "confirm"
     })
     .unwrap();
 
-    let log_dir2 = gestalt_cli::run::run_prompt(
+    let log_dir2 = gestalt_app::run::run_prompt(
         &config2,
         "run smoke",
         None,
         gestalt_core::CancelToken::new(),
+        None,
         None,
         None,
         None,
@@ -267,7 +271,7 @@ async fn test_cli_smoke_custom_provider_via_profile() {
     let _openai_api_key_guard = EnvVarGuard::set("OPENAI_API_KEY", "mock-key");
     let _openai_compatible_api_key_guard =
         EnvVarGuard::set("OPENAI_COMPATIBLE_API_KEY", "mock-key");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "custom-mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -323,11 +327,12 @@ default = "confirm"
     assert_eq!(resolved.model(), "mock-model");
 
     // Execute run_prompt to verify the loop runs
-    let log_dir = gestalt_cli::run::run_prompt(
+    let log_dir = gestalt_app::run::run_prompt(
         &config,
         "run smoke",
         None,
         gestalt_core::CancelToken::new(),
+        None,
         None,
         None,
         None,

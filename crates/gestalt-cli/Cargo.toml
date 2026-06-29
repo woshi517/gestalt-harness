@@ -1,5 +1,5 @@
 [package]
-name = "gestalt-harness"
+name = "gestalt-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,55 +21,32 @@ workspace = true
 
 [dependencies]
 gestalt-core = { path = "../gestalt-core" }
-gestalt-models = { path = "../gestalt-models" }
-gestalt-tools = { path = "../gestalt-tools" }
-gestalt-context = { path = "../gestalt-context" }
-gestalt-policy = { path = "../gestalt-policy" }
-gestalt-trace = { path = "../gestalt-trace" }
-gestalt-verify = { path = "../gestalt-verify" }
-gestalt-runtime = { path = "../gestalt-runtime" }
-gestalt-skills = { path = "../gestalt-skills" }
+gestalt-app = { path = "../gestalt-app", default-features = false }
+gestalt-runtime = { path = "../gestalt-runtime", default-features = false }
 clap = { workspace = true }
 toml = { workspace = true }
-dirs = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-schemars = { workspace = true }
-sha2 = { workspace = true }
 chrono = { workspace = true }
-reqwest = { workspace = true }
-keyring = "2"
-rpassword = "7"
 uuid = { workspace = true }
-toml_edit = { workspace = true }
-
-
-
+rpassword = "7"
 
 [features]
-default = []
-tui = ["dep:ratatui", "dep:crossterm"]
-otel = ["gestalt-trace/otel"]
-
-[dependencies.ratatui]
-workspace = true
-optional = true
-
-[dependencies.crossterm]
-workspace = true
-optional = true
-
-[dependencies.gestalt-mcp]
-path = "../gestalt-mcp"
+default = ["full"]
+full = ["providers", "tools", "trace", "mcp", "skills", "verify"]
+providers = ["gestalt-app/providers", "gestalt-runtime/providers"]
+tools = ["gestalt-app/tools", "gestalt-runtime/tools"]
+trace = ["gestalt-app/trace", "gestalt-runtime/trace"]
+mcp = ["gestalt-app/mcp", "gestalt-runtime/mcp"]
+skills = ["gestalt-app/skills", "gestalt-runtime/skills"]
+verify = ["gestalt-app/verify", "gestalt-runtime/verify"]
 
 [dev-dependencies]
 uuid = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
 insta = { version = "1", features = ["filters"] }
-

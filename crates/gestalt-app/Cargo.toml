@@ -1,0 +1,42 @@
+[package]
+name = "gestalt-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+gestalt-core = { path = "../gestalt-core" }
+gestalt-runtime = { path = "../gestalt-runtime", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+toml = { workspace = true }
+keyring = "2"
+rpassword = "7"
+reqwest = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+
+[features]
+default = ["providers", "tools", "trace", "mcp", "skills", "verify"]
+providers = ["gestalt-runtime/providers"]
+tools = ["gestalt-runtime/tools"]
+trace = ["gestalt-runtime/trace"]
+mcp = ["gestalt-runtime/mcp"]
+skills = ["gestalt-runtime/skills"]
+verify = ["gestalt-runtime/verify"]
+tui = []

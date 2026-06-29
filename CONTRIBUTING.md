@@ -43,11 +43,11 @@ bash scripts/check-binary-size.sh
   - Do not use `panic!` on expected error paths. All fallible operations must return a `Result<T, HarnessError>`.
 - **Documentation:** All public API items (modules, structs, enums, traits, functions, methods) must have rustdoc comments (`///`).
 - **Dependencies:**
-  - Dependencies must strictly adhere to the crate-level budgets defined in [the architecture document](docs/gestalt-harness-architecture.md#43-dependency-budget-revised).
+  - Dependencies must strictly adhere to the crate-level boundaries defined in [the architecture document](docs/gestalt-harness-architecture.md#43-dependency-budget-revised).
   - Adding any new dependency requires justification in the PR description.
   - All shared dependency versions must be pinned in the workspace `Cargo.toml`.
-  - `bash scripts/check-deps.sh` enforces the `gestalt-core` boundary plus the documented default non-dev direct external dependency budgets.
-  - Optional, path, and dev dependencies are reported separately by the audit so reviewers can see growth without confusing the enforced budget.
+  - `bash scripts/check-deps.sh` enforces the `gestalt-core` boundary, dependencies matrix, and minimal packaging profiles.
+  - Feature-gated optional dependencies must be placed under the narrowest matching feature flag to keep minimal profiles lean.
 
 ## System Invariants & Architecture Guardrails
 
@@ -58,8 +58,9 @@ bash scripts/check-binary-size.sh
    - `gestalt-core` must contain **zero** file I/O operations and **zero** network (HTTP) calls.
    - The sacred loop implementation (`gestalt-core/src/agent.rs`) must remain lightweight (target: under 200 lines).
 3. **Crate Boundaries:**
-   - `gestalt-tools` depends on `gestalt-exec` for subprocess execution.
-   - `gestalt-context` compiles context sources like the current workspace and session memory.
+   - `gestalt-runtime` consolidates all runtime capability submodules (context, tools, providers, trace, verify, etc.) and exposes them as optional/conditional modules.
+   - `gestalt-app` compiles shared product services (workspace config, reports, runs, sessions) on top of `gestalt-runtime`.
+   - `gestalt-cli` and `gestalt-tui` are lightweight presentation shells and must not contain core/runtime orchestration logic.
 4. **Git Hygiene:**
    - Never stage all changes indiscriminately (avoid `git add -A` or `git add .`). Manually inspect and stage specific files.
    - Avoid destructive git actions (`git reset --hard` or `git checkout .`) unless absolutely necessary.

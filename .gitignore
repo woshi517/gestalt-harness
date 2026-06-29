@@ -4,6 +4,7 @@
 # Run logs and generated artifacts
 .gestalt/runs/
 .gestalt/source-cache/
+tests/fixtures/workspaces/minimal/.gestalt/runs/
 
 # Environment and secrets
 .env

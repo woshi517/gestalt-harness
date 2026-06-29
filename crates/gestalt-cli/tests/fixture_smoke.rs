@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 //! Smoke test to verify test fixture paths exist.
 //! Prevents accidental deletion of fixture directories.
 

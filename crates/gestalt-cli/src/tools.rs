@@ -1,9 +1,9 @@
 use gestalt_core::{error::HarnessError, ToolCatalog};
-use gestalt_tools::default_registry;
+use gestalt_runtime::default_registry;
 use serde_json::Value;
 
-use crate::config::CliOverrides;
 use crate::output::{ToolInfoEntry, ToolsClassifyReport, ToolsInspectReport, ToolsListReport};
+use gestalt_app::config::CliOverrides;
 
 pub fn list_tools(
     _overrides: &CliOverrides,
@@ -54,7 +54,7 @@ pub fn classify_bash(
     command: &[String],
 ) -> Result<ToolsClassifyReport, Box<dyn std::error::Error>> {
     let full_command = command.join(" ");
-    let risk = gestalt_policy::classify_bash(&full_command);
+    let risk = gestalt_runtime::classify_bash(&full_command);
 
     Ok(ToolsClassifyReport {
         command: full_command,

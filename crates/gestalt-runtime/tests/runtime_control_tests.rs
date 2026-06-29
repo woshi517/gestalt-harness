@@ -130,7 +130,7 @@ fn runtime() -> gestalt_runtime::AgentRuntime {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -145,7 +145,7 @@ async fn test_host_owns_workspace_and_generation_lineage() {
     let builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -180,7 +180,7 @@ async fn test_per_session_override_cannot_mutate_critical_inputs() {
     let builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -217,7 +217,7 @@ async fn host_reload_advances_shared_generation_only_once_across_sessions() {
     let builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -361,7 +361,7 @@ fn test_builder(workspace_root: PathBuf) -> AgentRuntimeBuilder {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -386,7 +386,7 @@ fn runtime_host_with_discovery(
         ));
     let registry_snapshot = builder.registry.snapshot();
     let mcp_registry = builder.mcp_registry.clone().unwrap_or_else(|| {
-        Arc::new(gestalt_mcp::McpRegistry::new(
+        Arc::new(gestalt_runtime::McpRegistry::new(
             workspace_root.clone(),
             std::collections::HashMap::new(),
         ))

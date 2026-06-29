@@ -197,7 +197,7 @@ fn test_builder_publishes_registry_snapshot() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -228,7 +228,7 @@ fn test_inspect_reads_tool_catalog_from_pinned_snapshot() {
         .tools(Arc::new(InspectToolCatalog {
             tool: Arc::new(SnapshotTool),
         }))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -253,7 +253,7 @@ fn test_sync_builder_rejects_pending_process_extensions() {
     let res = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -275,7 +275,7 @@ async fn test_async_builder_launches_process_extensions_through_manager() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -311,7 +311,7 @@ fn test_sync_builder_activates_v1_extension_packages_through_pipeline() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))

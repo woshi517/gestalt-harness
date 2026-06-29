@@ -13,11 +13,10 @@ This crate defines the abstract skeleton that every other gestalt crate implemen
 ```mermaid
 graph TD
     Core[gestalt-core]
-    Models[gestalt-models] -->|implements Provider| Core
-    Tools[gestalt-tools] -->|implements Tool, ToolCatalog| Core
     Runtime[gestalt-runtime] -->|composes and injects| Core
-    Policy[gestalt-policy] -->|implements PolicyEngine| Core
-    Trace[gestalt-trace] -->|implements TraceSink| Core
+    App[gestalt-app] --> Runtime
+    Cli[gestalt-cli] --> App
+    Tui[gestalt-tui] --> App
 
     Core --> Loop[AgentLoop]
     Loop -->|delegates to| TE[ToolExecutor]
@@ -53,7 +52,7 @@ pub struct AgentLoop {
 
 ### Provider (`provider.rs`)
 
-The `Provider` trait abstracts the LLM backend. Every provider adapter (OpenAI, Anthropic) implements this trait and lives in `gestalt-models`:
+The `Provider` trait abstracts the LLM backend. Concrete provider adapters live in `gestalt-runtime`:
 
 ```rust
 pub trait Provider: Send + Sync {

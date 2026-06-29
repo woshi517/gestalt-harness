@@ -1,6 +1,8 @@
+#![cfg(feature = "full")]
+
 use async_trait::async_trait;
-use gestalt_cli::config::CliOverrides;
-use gestalt_cli::runtime::inspect_runtime;
+use gestalt_app::config::CliOverrides;
+use gestalt_app::runtime_factory::inspect_runtime;
 use gestalt_core::{
     event::AgentEvent,
     message::Message,
@@ -102,7 +104,7 @@ where
 #[tokio::test]
 async fn test_inspect_runtime_cli() {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -206,9 +208,9 @@ fn test_runtime_inspect_cli_subcommand() {
 }
 
 #[tokio::test]
-async fn test_build_cli_runtime_loads_configured_extension_instance() {
+async fn test_build_app_runtime_loads_configured_extension_instance() {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
-    let _ = gestalt_models::registry::register(
+    let _ = gestalt_runtime::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -275,9 +277,9 @@ args = []
         skills: Vec::new(),
         context_window_override: None,
     };
-    let config = gestalt_cli::config::load_effective_config(&overrides).unwrap();
+    let config = gestalt_app::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_cli::runtime::build_cli_runtime(&config, None, None, None, None)
+    let runtime = gestalt_app::runtime_factory::build_app_runtime(&config, None, None, None, None)
         .await
         .unwrap();
 

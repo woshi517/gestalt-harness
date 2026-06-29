@@ -5,6 +5,7 @@ mod instance;
 mod inventory;
 mod launcher;
 mod manager;
+#[cfg(feature = "mcp")]
 mod mcp_component;
 mod package;
 mod process_instance;
@@ -21,6 +22,7 @@ pub use instance::{ComponentInstanceId, ExtensionInstanceSpec};
 pub use inventory::ExtensionInventory;
 pub use launcher::{ExtensionLauncher, LocalProcessLauncher, NoopExtensionLauncher};
 pub use manager::{ComponentFingerprint, ExtensionManager, ExtensionRuntimeComponent, ReuseKey};
+#[cfg(feature = "mcp")]
 pub use mcp_component::{merge_mcp_server_configs, package_mcp_server_name, package_mcp_servers};
 pub use package::{
     apply_trust_decisions, compute_complete_fingerprint, resolve_configured_instances,

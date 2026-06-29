@@ -156,7 +156,7 @@ fn runtime_snapshot_contains_typed_context_and_policy_plans() {
     let mut builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))

@@ -1,13 +1,14 @@
 # Release Checklist
 
-Use this checklist before tagging or publishing `gestalt-harness` v0.1.
+Use this checklist before tagging or publishing `gestalt-cli` v0.1.
 
 ## Packaging and Install
 
-- Confirm `crates/gestalt-cli/Cargo.toml` declares package name `gestalt-harness`.
+- Confirm `crates/gestalt-cli/Cargo.toml` declares package name `gestalt-cli`.
 - Confirm the installed executable name remains `gestalt`.
+- Confirm `crates/gestalt-tui/Cargo.toml` declares package name `gestalt-tui`.
 - Run `cargo install --path crates/gestalt-cli` or `cargo install --locked --path crates/gestalt-cli`, or run `bash scripts/install-smoke.sh`.
-- Verify the installed binary starts and `gestalt --workspace tests/fixtures/workspaces/minimal config validate` succeeds without provider credentials.
+- Verify the installed binaries start, `gestalt --workspace tests/fixtures/workspaces/minimal config validate` succeeds without provider credentials, and bare `gestalt` delegates to `gestalt-tui`.
 
 ## Quality Gates
 
@@ -28,7 +29,7 @@ Use this checklist before tagging or publishing `gestalt-harness` v0.1.
 
 - Review `README.md` for platform support, install guidance, philosophy, and architecture overview.
 - Review `CHANGELOG.md` for the `0.1.0` entry.
-- Confirm the README, changelog, and release checklist all mention the `gestalt-harness` package and `gestalt` binary names.
+- Confirm the README, changelog, and release checklist all mention the `gestalt-cli` package and `gestalt` binary names.
 - Confirm documented v0.1 non-goals still match product scope.
 
 ## Sanity Checks
@@ -36,7 +37,7 @@ Use this checklist before tagging or publishing `gestalt-harness` v0.1.
 - Replay at least one known trace with `gestalt replay`.
 - Run `gestalt cost` on a recorded trace.
 - Confirm trace output remains JSONL and auditable.
-- Confirm default builds do not enable optional `tui`, `mcp`, `otel`, or PDF-related features unless explicitly requested.
+- Confirm the default CLI and TUI builds match their intended feature sets, and verify `cargo check -p gestalt-cli --no-default-features` still passes.
 - Run `gestalt extension list` and confirm it lists discovered/enabled extensions.
 - Run `gestalt runtime doctor` and confirm it reports the status of registered extensions and configuration integrity.
 - Run `gestalt runtime inspect` to verify that active extensions, tools, hooks, and context injectors are correctly reported.
@@ -45,4 +46,3 @@ Use this checklist before tagging or publishing `gestalt-harness` v0.1.
 - `gestalt runtime events` produces non-empty output
 - Verify extension discovery finds `.gestalt/extensions/` entries
 - Verify `gestalt runtime inspect` shows expected tool/hook hashes
-

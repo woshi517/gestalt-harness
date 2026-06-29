@@ -29,16 +29,7 @@ case "$os_name" in
     ;;
 esac
 
-host_triple=$(
-  rustc -vV | while IFS= read -r line; do
-    case "$line" in
-      host:*)
-        printf '%s\n' "${line#host: }"
-        break
-        ;;
-    esac
-  done
-)
+host_triple=$(rustc -vV | sed -n 's/^host: //p')
 
 size_mib_whole=$((size_bytes / 1048576))
 size_mib_fraction=$((((size_bytes % 1048576) * 100) / 1048576))

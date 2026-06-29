@@ -39,7 +39,8 @@ pub struct AgentRuntimeBuilder {
     pub pending_process_extensions: Vec<PendingProcessExtension>,
     pub extension_manager: Option<Arc<crate::extension::ExtensionManager>>,
     pub event_bus: RuntimeEventBus,
-    pub mcp_registry: Option<Arc<gestalt_mcp::McpRegistry>>,
+    #[cfg(feature = "mcp")]
+    pub mcp_registry: Option<Arc<crate::mcp::McpRegistry>>,
     pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
 }
 
@@ -68,6 +69,7 @@ impl AgentRuntimeBuilder {
             pending_process_extensions: Vec::new(),
             extension_manager: None,
             event_bus: RuntimeEventBus::new(),
+            #[cfg(feature = "mcp")]
             mcp_registry: None,
             workspace_context_snapshot: None,
         }
@@ -166,7 +168,8 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    pub fn mcp_registry(mut self, registry: Arc<gestalt_mcp::McpRegistry>) -> Self {
+    #[cfg(feature = "mcp")]
+    pub fn mcp_registry(mut self, registry: Arc<crate::mcp::McpRegistry>) -> Self {
         self.mcp_registry = Some(registry);
         self
     }
@@ -253,11 +256,12 @@ impl AgentRuntimeBuilder {
         }
 
         // Register skill context contributors if skills are configured
+        #[cfg(feature = "skills")]
         let skill_state_handle = if self.config.discovered_skills.is_empty() {
             None
         } else {
             let skill_state = Arc::new(std::sync::Mutex::new(
-                crate::skill_contributor::SkillContributorState::new(
+                crate::skills::contributor::SkillContributorState::new(
                     self.config.discovered_skills.clone(),
                     self.config.active_skills.clone(),
                 )
@@ -265,197 +269,206 @@ impl AgentRuntimeBuilder {
             ));
             let _ = self.registry.register_context_contributor(
                 "available_skills".to_string(),
-                Arc::new(crate::skill_contributor::AvailableSkillsContributor::new(
+                Arc::new(crate::skills::contributor::AvailableSkillsContributor::new(
                     skill_state.clone(),
                 )),
             );
             let _ = self.registry.register_context_contributor(
                 "active_skills".to_string(),
-                Arc::new(crate::skill_contributor::ActiveSkillsContributor::new(
+                Arc::new(crate::skills::contributor::ActiveSkillsContributor::new(
                     skill_state.clone(),
                 )),
             );
             Some(skill_state)
         };
-
         // Initialize MCP Registry
-        let mcp_registry = self.mcp_registry.unwrap_or_else(|| {
-            Arc::new(gestalt_mcp::McpRegistry::new(
-                self.config.workspace_root.clone(),
-                self.config.mcp_servers.clone(),
-            ))
-        });
+        #[cfg(feature = "mcp")]
+        let mcp_registry = {
+            let mcp_registry = self.mcp_registry.clone().unwrap_or_else(|| {
+                Arc::new(crate::mcp::McpRegistry::new(
+                    self.config.workspace_root.clone(),
+                    self.config.mcp_servers.clone(),
+                ))
+            });
 
-        let mut package_permissions = std::collections::HashMap::new();
-        for package in &resolved_extension_packages {
-            for component in &package.components {
-                if component.kind == crate::extension::ComponentKind::McpServer {
-                    let server_name = crate::extension::package_mcp_server_name(
-                        &component.id.package_id,
-                        &component.id.instance_id,
-                        &component.id.component_id,
-                    );
-                    package_permissions.insert(
+            let mut package_permissions = std::collections::HashMap::new();
+            for package in &resolved_extension_packages {
+                for component in &package.components {
+                    if component.kind == crate::extension::ComponentKind::McpServer {
+                        let server_name = crate::extension::package_mcp_server_name(
+                            &component.id.package_id,
+                            &component.id.instance_id,
+                            &component.id.component_id,
+                        );
+                        package_permissions.insert(
+                            server_name,
+                            (component.permissions.clone(), component.grants.clone()),
+                        );
+                    }
+                }
+            }
+
+            let event_bus = self.event_bus.clone();
+            let allow_network = self.config.allow_network;
+            mcp_registry.set_permission_validator(move |name, config| {
+                match &config.transport {
+                    crate::mcp::McpTransportConfig::Stdio { .. } => {
+                        if let Some((permissions, grants)) = package_permissions.get(name) {
+                            crate::permissions::check_shell_permission_effective(
+                                permissions,
+                                Some(grants),
+                                &event_bus,
+                                name,
+                            )
+                            .map_err(|e| e.clone())?;
+                        }
+                    }
+                    crate::mcp::McpTransportConfig::Http { url, .. } => {
+                        let host = if let Ok(parsed_url) = url::Url::parse(url) {
+                            parsed_url.host_str().unwrap_or("").to_string()
+                        } else {
+                            url.clone()
+                        };
+                        if let Some((permissions, grants)) = package_permissions.get(name) {
+                            crate::permissions::check_network_permission_effective(
+                                permissions,
+                                Some(grants),
+                                allow_network,
+                                &host,
+                                &event_bus,
+                                name,
+                            )
+                            .map_err(|e| e.clone())?;
+                        } else if !allow_network {
+                            return Err(format!(
+                                "Network access to host '{host}' is not allowed by host policy"
+                            ));
+                        }
+                    }
+                }
+                Ok(())
+            });
+
+            // Publish configuration events
+            for (name, server_cfg) in &self.config.mcp_servers {
+                self.event_bus
+                    .publish(crate::event_bus::RuntimeEvent::McpServerConfigured {
+                        server_name: name.clone(),
+                        transport: format!("{:?}", server_cfg.transport),
+                    });
+            }
+
+            // Wire event callback to propagate MCP Registry events to Runtime Event Bus
+            let event_bus = self.event_bus.clone();
+            mcp_registry.set_event_callback(Arc::new(move |event| match event {
+                crate::mcp::McpRegistryEvent::Connecting { server_name } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnecting {
                         server_name,
-                        (component.permissions.clone(), component.grants.clone()),
-                    );
+                    });
                 }
-            }
-        }
-
-        let event_bus = self.event_bus.clone();
-        let allow_network = self.config.allow_network;
-        mcp_registry.set_permission_validator(move |name, config| {
-            match &config.transport {
-                gestalt_mcp::McpTransportConfig::Stdio { .. } => {
-                    if let Some((permissions, grants)) = package_permissions.get(name) {
-                        crate::permissions::check_shell_permission_effective(
-                            permissions,
-                            Some(grants),
-                            &event_bus,
-                            name,
-                        )
-                        .map_err(|e| e.clone())?;
-                    }
-                }
-                gestalt_mcp::McpTransportConfig::Http { url, .. } => {
-                    let host = if let Ok(parsed_url) = url::Url::parse(url) {
-                        parsed_url.host_str().unwrap_or("").to_string()
-                    } else {
-                        url.clone()
-                    };
-                    if let Some((permissions, grants)) = package_permissions.get(name) {
-                        crate::permissions::check_network_permission_effective(
-                            permissions,
-                            Some(grants),
-                            allow_network,
-                            &host,
-                            &event_bus,
-                            name,
-                        )
-                        .map_err(|e| e.clone())?;
-                    } else if !allow_network {
-                        return Err(format!(
-                            "Network access to host '{host}' is not allowed by host policy"
-                        ));
-                    }
-                }
-            }
-            Ok(())
-        });
-
-        // Publish configuration events
-        for (name, server_cfg) in &self.config.mcp_servers {
-            self.event_bus
-                .publish(crate::event_bus::RuntimeEvent::McpServerConfigured {
-                    server_name: name.clone(),
-                    transport: format!("{:?}", server_cfg.transport),
-                });
-        }
-
-        // Wire event callback to propagate MCP Registry events to Runtime Event Bus
-        let event_bus = self.event_bus.clone();
-        mcp_registry.set_event_callback(Arc::new(move |event| match event {
-            gestalt_mcp::McpRegistryEvent::Connecting { server_name } => {
-                event_bus
-                    .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
-            }
-            gestalt_mcp::McpRegistryEvent::Connected {
-                server_name,
-                protocol_version,
-                tool_count,
-            } => {
-                event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnected {
+                crate::mcp::McpRegistryEvent::Connected {
                     server_name,
                     protocol_version,
                     tool_count,
-                });
-            }
-            gestalt_mcp::McpRegistryEvent::ConnectionFailed {
-                server_name,
-                reason,
-            } => {
-                event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnectionFailed {
+                } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnected {
+                        server_name,
+                        protocol_version,
+                        tool_count,
+                    });
+                }
+                crate::mcp::McpRegistryEvent::ConnectionFailed {
                     server_name,
                     reason,
-                });
-            }
-            gestalt_mcp::McpRegistryEvent::ToolCatalogRefreshed {
-                server_name,
-                tool_count,
-                schema_hash,
-            } => {
-                event_bus.publish(crate::event_bus::RuntimeEvent::McpToolCatalogRefreshed {
+                } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnectionFailed {
+                        server_name,
+                        reason,
+                    });
+                }
+                crate::mcp::McpRegistryEvent::ToolCatalogRefreshed {
                     server_name,
                     tool_count,
                     schema_hash,
-                });
-            }
-            gestalt_mcp::McpRegistryEvent::ToolListChanged { server_name } => {
-                event_bus
-                    .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
-            }
-        }));
+                } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolCatalogRefreshed {
+                        server_name,
+                        tool_count,
+                        schema_hash,
+                    });
+                }
+                crate::mcp::McpRegistryEvent::ToolListChanged { server_name } => {
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolListChanged {
+                        server_name,
+                    });
+                }
+            }));
 
-        // Spawn always_on servers
-        for (name, server_cfg) in &self.config.mcp_servers {
-            if server_cfg.lifecycle == gestalt_mcp::McpLifecycleMode::AlwaysOn {
-                let mcp_registry = mcp_registry.clone();
-                let name = name.clone();
-                tokio::spawn(async move {
-                    let _ = mcp_registry.get_client(&name).await;
-                });
+            // Spawn always_on servers
+            for (name, server_cfg) in &self.config.mcp_servers {
+                if server_cfg.lifecycle == crate::mcp::McpLifecycleMode::AlwaysOn {
+                    let mcp_registry = mcp_registry.clone();
+                    let name = name.clone();
+                    tokio::spawn(async move {
+                        let _ = mcp_registry.get_client(&name).await;
+                    });
+                }
             }
-        }
+
+            mcp_registry
+        };
 
         // Create MCP discovery state
-        let mcp_discovery_state = Arc::new(std::sync::Mutex::new(
-            crate::mcp_discovery::McpDiscoveryState::new(),
-        ));
+        #[cfg(feature = "mcp")]
+        let mcp_discovery_state =
+            Arc::new(std::sync::Mutex::new(crate::mcp::McpDiscoveryState::new()));
 
         // Register MCP discovery tools
-        self.registry.register_executable_tool(
-            "search_tools".to_string(),
-            serde_json::json!({
-                "name": "search_tools",
-                "description": "Search for available tools by keyword or description query.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "The query term or keywords to search for in tool names and descriptions."
-                        }
-                    },
-                    "required": ["query"]
-                }
-            }),
-            Arc::new(crate::mcp_discovery::SearchToolsTool::new(mcp_registry.clone())),
-            None,
-        )?;
+        #[cfg(feature = "mcp")]
+        {
+            self.registry.register_executable_tool(
+                "search_tools".to_string(),
+                serde_json::json!({
+                    "name": "search_tools",
+                    "description": "Search for available tools by keyword or description query.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The query term or keywords to search for in tool names and descriptions."
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }),
+                Arc::new(crate::mcp::SearchToolsTool::new(mcp_registry.clone())),
+                None,
+            )?;
 
-        self.registry.register_executable_tool(
-            "get_tool_details".to_string(),
-            serde_json::json!({
-                "name": "get_tool_details",
-                "description": "Inspect the detailed schema and arguments for a specific tool.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "The name or canonical ID of the tool to inspect."
-                        }
-                    },
-                    "required": ["name"]
-                }
-            }),
-            Arc::new(crate::mcp_discovery::GetToolDetailsTool::new(
-                mcp_registry.clone(),
-                mcp_discovery_state.clone(),
-            )),
-            None,
-        )?;
+            self.registry.register_executable_tool(
+                "get_tool_details".to_string(),
+                serde_json::json!({
+                    "name": "get_tool_details",
+                    "description": "Inspect the detailed schema and arguments for a specific tool.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "The name or canonical ID of the tool to inspect."
+                            }
+                        },
+                        "required": ["name"]
+                    }
+                }),
+                Arc::new(crate::mcp::GetToolDetailsTool::new(
+                    mcp_registry.clone(),
+                    mcp_discovery_state.clone(),
+                )),
+                None,
+            )?;
+        }
 
         let provider = self
             .provider
@@ -471,17 +484,21 @@ impl AgentRuntimeBuilder {
             }
         }
 
-        let mut composed_tools =
+        let composed_tools =
             crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
-                .map_err(RuntimeError::Registry)?
-                .with_mcp(mcp_registry.clone())
-                .with_event_bus(self.event_bus.clone());
+                .map_err(RuntimeError::Registry)?;
+        #[cfg(feature = "mcp")]
+        let composed_tools = composed_tools.with_mcp(mcp_registry.clone());
+        let mut composed_tools = composed_tools.with_event_bus(self.event_bus.clone());
 
-        let mut planner = self
+        let planner = self
             .config
             .tool_profile
             .clone()
             .map(crate::tool_catalog_planner::ToolCatalogPlanner::new);
+        #[cfg(feature = "skills")]
+        let mut planner = planner;
+        #[cfg(feature = "skills")]
         if let Some(ref state) = skill_state_handle {
             planner = Some(match planner {
                 Some(p) => p.with_skill_state(state.clone()),
@@ -493,21 +510,26 @@ impl AgentRuntimeBuilder {
         }
 
         // Configure MCP in planner
-        planner = Some(match planner {
-            Some(p) => p.with_mcp(
-                self.config.mcp_discovery_threshold,
-                mcp_discovery_state.clone(),
-                mcp_registry.clone(),
-            ),
-            None => crate::tool_catalog_planner::ToolCatalogPlanner::new(
-                crate::tool_catalog_planner::ToolProfile::All,
-            )
-            .with_mcp(
-                self.config.mcp_discovery_threshold,
-                mcp_discovery_state.clone(),
-                mcp_registry.clone(),
-            ),
-        });
+        #[cfg(feature = "mcp")]
+        let mut planner = planner;
+        #[cfg(feature = "mcp")]
+        {
+            planner = Some(match planner {
+                Some(p) => p.with_mcp(
+                    self.config.mcp_discovery_threshold,
+                    mcp_discovery_state.clone(),
+                    mcp_registry.clone(),
+                ),
+                None => crate::tool_catalog_planner::ToolCatalogPlanner::new(
+                    crate::tool_catalog_planner::ToolProfile::All,
+                )
+                .with_mcp(
+                    self.config.mcp_discovery_threshold,
+                    mcp_discovery_state.clone(),
+                    mcp_registry.clone(),
+                ),
+            });
+        }
 
         if let Some(p) = planner {
             composed_tools = composed_tools.with_planner(p);
@@ -552,7 +574,9 @@ impl AgentRuntimeBuilder {
             registry_snapshot,
             Some(composed_hooks),
             self.event_bus,
+            #[cfg(feature = "mcp")]
             mcp_registry,
+            #[cfg(feature = "mcp")]
             mcp_discovery_state,
             self.extensions.clone(),
         );
@@ -579,6 +603,7 @@ impl AgentRuntimeBuilder {
                     launcher: Arc::new(crate::extension::LocalProcessLauncher),
                     base_composition: Arc::new(crate::activation::BaseRuntimeComposition {
                         tool_catalog: runtime.tools.clone(),
+                        #[cfg(feature = "mcp")]
                         mcp_registry: runtime.mcp_registry.clone(),
                         base_registry: runtime.registry_snapshot.clone(),
                     }),
@@ -622,9 +647,11 @@ impl AgentRuntimeBuilder {
             runtime.extension_manager = extension_manager;
         }
         runtime.workspace_context_snapshot = self.workspace_context_snapshot;
-        Ok(match skill_state_handle {
+        #[cfg(feature = "skills")]
+        let runtime = match skill_state_handle {
             Some(state) => runtime.with_skill_state(state),
             None => runtime,
-        })
+        };
+        Ok(runtime)
     }
 }

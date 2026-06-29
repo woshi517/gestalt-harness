@@ -134,7 +134,7 @@ fn builder_registers_command_tool_components_as_tools() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))
@@ -156,7 +156,7 @@ fn builder_keeps_same_component_names_unique_across_instances() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_context::ContextMessageAssembler::new(
+        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
             "pipeline-v1",
         )))
         .policy(Arc::new(MockPolicyEngine))

@@ -1,12 +1,14 @@
+#![cfg(feature = "full")]
+
 use std::path::PathBuf;
 
-use gestalt_cli::{
+use gestalt_app::{
     config::{load_effective_config, CliOverrides},
     models::inspect_model,
     providers::list_providers,
 };
 
-fn config() -> gestalt_cli::config::EffectiveConfig {
+fn config() -> gestalt_app::config::EffectiveConfig {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     load_effective_config(&CliOverrides {
         workspace: Some(PathBuf::from("../../tests/fixtures/workspaces/minimal")),
@@ -31,7 +33,7 @@ fn model_inspect_reads_catalog_metadata() {
 
 #[tokio::test]
 async fn test_models_filtering_and_refresh() {
-    use gestalt_cli::models::{list_models, refresh_models};
+    use gestalt_app::models::{list_models, refresh_models};
 
     let cfg = config();
     // filter models list by provider

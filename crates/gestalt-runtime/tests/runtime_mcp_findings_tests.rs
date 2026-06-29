@@ -1,13 +1,14 @@
+#![cfg(feature = "mcp")]
 #![allow(deprecated)]
 
-use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     tool::ToolCatalog,
 };
-use gestalt_mcp::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent};
+use gestalt_runtime::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
 use std::sync::Arc;
 
 struct DummyContextPipeline;
@@ -102,17 +103,8 @@ fn build_runtime_config(servers: Vec<(&str, McpLifecycleMode)>) -> RuntimeConfig
                 name: name.to_string(),
                 enabled: true,
                 transport: McpTransportConfig::Stdio {
-                    command: "cargo".to_string(),
-                    args: vec![
-                        "run",
-                        "--package",
-                        "gestalt-mcp",
-                        "--bin",
-                        "mock_mcp_server",
-                    ]
-                    .into_iter()
-                    .map(String::from)
-                    .collect(),
+                    command: env!("CARGO_BIN_EXE_mock_mcp_server").to_string(),
+                    args: Vec::new(),
                     cwd: None,
                     env: std::collections::HashMap::new(),
                 },
@@ -474,17 +466,8 @@ async fn test_findings_risk_reduction_requires_annotations() {
             name: "server-high-no-ann".to_string(),
             enabled: true,
             transport: McpTransportConfig::Stdio {
-                command: "cargo".to_string(),
-                args: vec![
-                    "run",
-                    "--package",
-                    "gestalt-mcp",
-                    "--bin",
-                    "mock_mcp_server",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+                command: env!("CARGO_BIN_EXE_mock_mcp_server").to_string(),
+                args: Vec::new(),
                 cwd: None,
                 env: std::collections::HashMap::new(),
             },
@@ -510,17 +493,8 @@ async fn test_findings_risk_reduction_requires_annotations() {
             name: "server-high-with-ann".to_string(),
             enabled: true,
             transport: McpTransportConfig::Stdio {
-                command: "cargo".to_string(),
-                args: vec![
-                    "run",
-                    "--package",
-                    "gestalt-mcp",
-                    "--bin",
-                    "mock_mcp_server",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+                command: env!("CARGO_BIN_EXE_mock_mcp_server").to_string(),
+                args: Vec::new(),
                 cwd: None,
                 env: std::collections::HashMap::new(),
             },

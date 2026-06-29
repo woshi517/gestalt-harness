@@ -57,8 +57,14 @@ pub struct ExtensionManifestV2 {
 }
 
 impl ExtensionManifestV2 {
+    #[cfg(feature = "toml-config")]
     pub fn parse(content: &str) -> std::result::Result<Self, String> {
         toml::from_str(content).map_err(|e| format!("TOML parse error: {}", e))
+    }
+
+    #[cfg(not(feature = "toml-config"))]
+    pub fn parse(_content: &str) -> std::result::Result<Self, String> {
+        Err("feature 'toml' is not enabled for extension manifest parsing".to_string())
     }
 
     pub fn validate(&self) -> std::result::Result<(), String> {

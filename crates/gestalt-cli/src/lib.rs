@@ -27,32 +27,53 @@
     clippy::large_futures
 )]
 
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
 pub mod approval;
-pub mod auth;
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
 pub mod chat;
-pub mod config;
-pub mod connect;
-pub mod context;
+#[cfg(all(feature = "providers", feature = "trace"))]
 pub mod cost;
-pub mod doctor;
+#[cfg(feature = "trace")]
 pub mod export;
-pub mod model_cache;
-pub mod models;
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
 pub mod output;
+#[cfg(feature = "tools")]
 pub mod policy;
-pub mod profiles;
-pub mod provider_catalog;
-pub mod providers;
+#[cfg(feature = "trace")]
 pub mod replay;
-pub mod run;
+#[cfg(feature = "trace")]
 pub mod runs;
-pub mod runtime;
-pub mod sessions;
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
 pub mod slash;
+#[cfg(feature = "tools")]
 pub mod tools;
+#[cfg(all(feature = "providers", feature = "trace"))]
 pub mod trace;
-pub mod verify;
-pub mod workspace;
-
-#[cfg(feature = "tui")]
-pub mod tui;

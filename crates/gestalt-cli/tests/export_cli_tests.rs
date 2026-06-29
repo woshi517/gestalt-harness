@@ -1,4 +1,6 @@
-use gestalt_cli::config::{load_effective_config, CliOverrides};
+#![cfg(feature = "full")]
+
+use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_cli::export::export_run;
 use gestalt_cli::output::ExportFormat;
 use std::fs;

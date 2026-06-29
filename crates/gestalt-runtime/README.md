@@ -155,7 +155,7 @@ pub struct RuntimeConfig {
     pub max_output_tokens: Option<usize>,
     pub allow_network: bool,
     pub environment: HashMap<String, String>,
-    pub enabled_cli_features: Vec<String>,
+    pub enabled_host_features: Vec<String>,
 }
 ```
 
@@ -176,7 +176,7 @@ Defaults:
 | `max_output_tokens` | `None` (falls back to 4,000) |
 | `allow_network` | `false` |
 | `environment` | empty `HashMap` |
-| `enabled_cli_features` | empty `Vec` |
+| `enabled_host_features` | empty `Vec` |
 
 ---
 
@@ -823,7 +823,7 @@ pub struct RuntimeInspect {
     pub trace_sink_kind: Option<String>,
     pub trace_run_dir: Option<String>,
     pub workspace_root: String,
-    pub enabled_cli_features: Vec<String>,
+    pub enabled_host_features: Vec<String>,
 }
 
 pub struct ToolInspectInfo {

@@ -1,6 +1,6 @@
+#![cfg(feature = "mcp")]
 #![allow(deprecated)]
 
-use gestalt_context::ContextMessageAssembler;
 use gestalt_core::{
     agent::executor::ToolExecutor,
     approval::AutoApprovalProvider,
@@ -8,8 +8,9 @@ use gestalt_core::{
     session::Session,
     tool_descriptor::ToolNamespace,
 };
-use gestalt_mcp::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
+use gestalt_runtime::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -121,17 +122,8 @@ async fn test_runtime_mcp_policy_check_and_execution() {
             name: "mock-server".to_string(),
             enabled: true,
             transport: McpTransportConfig::Stdio {
-                command: "cargo".to_string(),
-                args: vec![
-                    "run",
-                    "--package",
-                    "gestalt-mcp",
-                    "--bin",
-                    "mock_mcp_server",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+                command: env!("CARGO_BIN_EXE_mock_mcp_server").to_string(),
+                args: Vec::new(),
                 cwd: None,
                 env: std::collections::HashMap::new(),
             },
@@ -204,6 +196,7 @@ async fn test_runtime_mcp_policy_check_and_execution() {
         runtime.tools.clone(),
         runtime.policy.clone(),
         runtime.approval.clone(),
+        Arc::new(gestalt_runtime::RuntimeToolOutputMaterializer),
     );
 
     let mut session_grants = Vec::new();

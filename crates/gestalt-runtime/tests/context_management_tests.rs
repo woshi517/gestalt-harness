@@ -1,15 +1,18 @@
 use std::sync::{Arc, Mutex};
 
-use gestalt_context::ContextMessageAssembler;
+#[cfg(feature = "trace")]
+use gestalt_core::context::StateUpdate;
 use gestalt_core::{
-    context::{HistoryRange, StateUpdate, TokenBudget},
+    context::{HistoryRange, TokenBudget},
     event::{AgentEvent, StopReason},
     message::{ContentBlock, Message},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     ContextAssembler, ContextPipeline, MessageId, SessionMessage,
 };
+#[cfg(feature = "trace")]
+use gestalt_runtime::CompactionCheckpoint;
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::RuntimeContextPipeline;
-use gestalt_trace::CompactionCheckpoint;
 
 fn runtime_pipeline() -> RuntimeContextPipeline {
     RuntimeContextPipeline {
@@ -18,7 +21,7 @@ fn runtime_pipeline() -> RuntimeContextPipeline {
     }
 }
 
-fn compute_checkpoint_artifact_hash(checkpoint: &gestalt_trace::CompactionCheckpoint) -> String {
+fn compute_checkpoint_artifact_hash(checkpoint: &gestalt_runtime::CompactionCheckpoint) -> String {
     use sha2::Digest as _;
     let content = serde_json::to_string_pretty(checkpoint).unwrap();
     let mut hasher = sha2::Sha256::new();
@@ -230,11 +233,13 @@ impl Provider for CompactionProvider {
     }
 }
 
+#[cfg(feature = "trace")]
 #[derive(Clone)]
 struct SecondCompactionProvider {
     trace: Arc<Mutex<Vec<String>>>,
 }
 
+#[cfg(feature = "trace")]
 #[async_trait::async_trait]
 impl Provider for SecondCompactionProvider {
     fn id(&self) -> &str {
@@ -272,7 +277,7 @@ impl Provider for SecondCompactionProvider {
         let total = request
             .messages
             .iter()
-            .map(gestalt_context::estimate_message_tokens)
+            .map(gestalt_runtime::estimate_message_tokens)
             .sum::<usize>();
         Ok(total)
     }
@@ -350,6 +355,50 @@ fn canonical_history(messages: Vec<Message>) -> Vec<SessionMessage> {
             message,
         })
         .collect()
+}
+
+fn compaction_history() -> Vec<SessionMessage> {
+    canonical_history(vec![
+        Message::User {
+            content: vec![ContentBlock::Text {
+                text: "You must preserve the customer_id mapping during the migration. ".repeat(3),
+            }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::ToolUse {
+                id: "tool-1".to_string(),
+                name: "view_file".to_string(),
+                input: serde_json::json!({"path": "docs/spec.md"}),
+            }],
+        },
+        Message::ToolResult {
+            tool_use_id: "tool-1".to_string(),
+            content: "spec details about preserving mappings\n".repeat(20),
+            is_error: false,
+            failure: None,
+            tool_name: Some("view_file".to_string()),
+            output_hash: Some("hash-1".to_string()),
+            artifact_refs: Some(vec!["docs/spec.md".to_string()]),
+        },
+        Message::User {
+            content: vec![ContentBlock::Text {
+                text: "Also do not drop audit events while compacting this history. ".repeat(3),
+            }],
+            metadata: None,
+        },
+        Message::Assistant {
+            content: vec![ContentBlock::Text {
+                text: "I inspected the spec and the audit requirements. ".repeat(4),
+            }],
+        },
+        Message::User {
+            content: vec![ContentBlock::Text {
+                text: "Recent turn should stay verbatim.".to_string(),
+            }],
+            metadata: None,
+        },
+    ])
 }
 
 #[tokio::test]
@@ -497,47 +546,7 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
     let provider = CompactionProvider {
         trace: sequence.clone(),
     };
-    let history = canonical_history(vec![
-        Message::User {
-            content: vec![ContentBlock::Text {
-                text: "You must preserve the customer_id mapping during the migration. ".repeat(3),
-            }],
-            metadata: None,
-        },
-        Message::Assistant {
-            content: vec![ContentBlock::ToolUse {
-                id: "tool-1".to_string(),
-                name: "view_file".to_string(),
-                input: serde_json::json!({"path": "docs/spec.md"}),
-            }],
-        },
-        Message::ToolResult {
-            tool_use_id: "tool-1".to_string(),
-            content: "spec details about preserving mappings\n".repeat(20),
-            is_error: false,
-            failure: None,
-            tool_name: Some("view_file".to_string()),
-            output_hash: Some("hash-1".to_string()),
-            artifact_refs: Some(vec!["docs/spec.md".to_string()]),
-        },
-        Message::User {
-            content: vec![ContentBlock::Text {
-                text: "Also do not drop audit events while compacting this history. ".repeat(3),
-            }],
-            metadata: None,
-        },
-        Message::Assistant {
-            content: vec![ContentBlock::Text {
-                text: "I inspected the spec and the audit requirements. ".repeat(4),
-            }],
-        },
-        Message::User {
-            content: vec![ContentBlock::Text {
-                text: "Recent turn should stay verbatim.".to_string(),
-            }],
-            metadata: None,
-        },
-    ]);
+    let history = compaction_history();
     let artifacts = temp_artifact_dir("compaction");
     let events = sequence.clone();
 
@@ -628,7 +637,7 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
             .relative_path
             .clone(),
     );
-    let checkpoint: gestalt_trace::CompactionCheckpoint = serde_json::from_str(
+    let checkpoint: gestalt_runtime::CompactionCheckpoint = serde_json::from_str(
         &std::fs::read_to_string(checkpoint_file).expect("checkpoint file should exist"),
     )
     .expect("checkpoint file should parse");
@@ -642,6 +651,47 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
     );
 }
 
+#[cfg(not(feature = "trace"))]
+#[tokio::test]
+async fn trace_disabled_compaction_keeps_summary_without_artifact_reference() {
+    let pipeline = runtime_pipeline();
+    let provider = CompactionProvider {
+        trace: Arc::new(Mutex::new(Vec::new())),
+    };
+    let history = compaction_history();
+    let mut compaction_policy = policy();
+    compaction_policy.durability = gestalt_core::DurabilityMode::Disabled;
+
+    let prepared = pipeline
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &history,
+            context_state: &gestalt_core::ContextProjectionState::default(),
+            token_budget: &budget(220, 40, 16),
+            provider: &provider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &compaction_policy,
+            artifacts_dir: None,
+            tool_retention: &retention_snapshot(),
+            emit: &mut |_| Ok(()),
+        })
+        .await
+        .expect("trace-disabled compaction should succeed");
+
+    assert!(prepared.packet.messages.iter().any(|message| {
+        matches!(message, Message::System { content } if content.starts_with("### Session Checkpoint Summary"))
+    }));
+    assert!(prepared
+        .manifest
+        .checkpoint_ref
+        .as_ref()
+        .is_some_and(|checkpoint| checkpoint.artifact.is_none()));
+}
+
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn active_checkpoint_survives_noop_preparation() {
     let pipeline = runtime_pipeline();
@@ -690,7 +740,7 @@ async fn active_checkpoint_survives_noop_preparation() {
     };
 
     let artifacts = temp_artifact_dir("noop_survive");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -737,6 +787,7 @@ async fn active_checkpoint_survives_noop_preparation() {
     }));
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn resume_resolves_checkpoint_from_parent_run() {
     let pipeline = runtime_pipeline();
@@ -784,7 +835,7 @@ async fn resume_resolves_checkpoint_from_parent_run() {
     std::fs::create_dir_all(&parent_artifacts).unwrap();
     std::fs::create_dir_all(&child_artifacts).unwrap();
 
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &parent_artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -831,6 +882,7 @@ async fn resume_resolves_checkpoint_from_parent_run() {
     }));
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn continue_after_compaction_reuses_checkpoint() {
     let pipeline = runtime_pipeline();
@@ -879,7 +931,7 @@ async fn continue_after_compaction_reuses_checkpoint() {
     };
 
     let artifacts = temp_artifact_dir("continue_reuse");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -978,6 +1030,7 @@ async fn missing_referenced_checkpoint_artifact() {
     assert!(res.is_err());
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn legacy_checkpoint_artifact_hash_is_migrated() {
     let pipeline = runtime_pipeline();
@@ -1021,7 +1074,7 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
     };
 
     let artifacts = temp_artifact_dir("legacy_hash_migration");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1073,6 +1126,7 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
     );
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
     let pipeline = runtime_pipeline();
@@ -1116,7 +1170,7 @@ async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
     };
 
     let artifacts = temp_artifact_dir("path_escape");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1158,6 +1212,7 @@ async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
     assert!(err.contains("escapes artifact directory") || err.contains("must be relative"));
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn missing_checkpoint_run_directory_is_an_error() {
     let pipeline = runtime_pipeline();
@@ -1201,7 +1256,7 @@ async fn missing_checkpoint_run_directory_is_an_error() {
     };
 
     let artifacts = temp_artifact_dir("missing_run_dir");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1245,6 +1300,7 @@ async fn missing_checkpoint_run_directory_is_an_error() {
         .contains("artifact run directory not found"));
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn second_compaction_maps_projected_range_to_canonical_range() {
     let pipeline = RuntimeContextPipeline {
@@ -1304,7 +1360,7 @@ async fn second_compaction_maps_projected_range_to_canonical_range() {
     };
 
     let artifacts = temp_artifact_dir("second_compaction");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1365,6 +1421,7 @@ async fn second_compaction_maps_projected_range_to_canonical_range() {
     }
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn second_checkpoint_hash_matches_actual_canonical_source() {
     let pipeline = RuntimeContextPipeline {
@@ -1424,7 +1481,7 @@ async fn second_checkpoint_hash_matches_actual_canonical_source() {
     };
 
     let artifacts = temp_artifact_dir("second_checkpoint_hash");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,
@@ -1563,6 +1620,7 @@ async fn persisted_cleared_result_remains_tombstoned_next_turn() {
     }
 }
 
+#[cfg(feature = "trace")]
 #[tokio::test]
 async fn cleared_result_reference_is_removed_when_source_disappears() {
     let pipeline = runtime_pipeline();
@@ -1597,7 +1655,7 @@ async fn cleared_result_reference_is_removed_when_source_disappears() {
     };
 
     let artifacts = temp_artifact_dir("disappearing_reference");
-    gestalt_trace::persist_checkpoint(
+    gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
         gestalt_core::DurabilityMode::Required,

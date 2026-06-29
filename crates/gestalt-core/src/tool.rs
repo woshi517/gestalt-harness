@@ -36,8 +36,6 @@ pub trait Tool: Send + Sync {
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError>;
 
-    fn shape_output(&self, _result: &mut ToolExecutionResult) {}
-
     fn descriptor(&self) -> crate::tool_descriptor::ToolDescriptor {
         let name = self.name().to_string();
         let canonical_id = crate::tool_descriptor::CanonicalToolId {
@@ -58,6 +56,17 @@ pub trait Tool: Send + Sync {
             retention: None,
         }
     }
+}
+
+pub trait ToolOutputMaterializer: Send + Sync {
+    fn materialize(
+        &self,
+        tool: &dyn Tool,
+        output: ToolOutput,
+        is_error: bool,
+        ctx: &ToolContext,
+        tool_call_id: &str,
+    ) -> ToolExecutionResult;
 }
 
 #[async_trait]
@@ -110,132 +119,6 @@ pub enum ToolOutput {
         mime_type: String,
         size_bytes: usize,
     },
-}
-
-impl ToolOutput {
-    pub fn into_execution_result(
-        self,
-        is_error: bool,
-        max_bytes: usize,
-        ctx: &ToolContext,
-        tool_call_id: &str,
-    ) -> Result<ToolExecutionResult, ToolError> {
-        let full_content = match &self {
-            Self::Text { content } => content.clone(),
-            Self::Json { value } => value.to_string(),
-            Self::Artifact { path, .. } => format!("artifact saved: {}", path.display()),
-        };
-
-        let mut artifact = match &self {
-            Self::Artifact {
-                path,
-                mime_type,
-                size_bytes,
-            } => Some(ToolArtifact {
-                path: path.clone(),
-                mime_type: mime_type.clone(),
-                size_bytes: *size_bytes,
-            }),
-            _ => None,
-        };
-
-        let artifact_path = ctx
-            .artifact_dir
-            .as_ref()
-            .map(|artifact_dir| artifact_path(artifact_dir, tool_call_id, ".txt"));
-
-        let exec_report_truncated = extract_exec_truncated_flag(&full_content);
-        let original_len = full_content.len();
-        let truncated = exec_report_truncated.unwrap_or(original_len > max_bytes);
-        let mut original_bytes = if truncated { Some(original_len) } else { None };
-        let mut output_hash = None;
-
-        let content = if truncated {
-            let truncated_content = full_content.chars().take(max_bytes).collect::<String>();
-            if let Some(path) = artifact_path {
-                if path.exists() {
-                    let bytes = std::fs::read(&path).map_err(ToolError::ExecutionFailed)?;
-                    artifact = Some(ToolArtifact {
-                        path,
-                        mime_type: "text/plain".to_string(),
-                        size_bytes: bytes.len(),
-                    });
-                    let mut hasher = Sha256::new();
-                    hasher.update(&bytes);
-                    output_hash = Some(format!("{:x}", hasher.finalize()));
-                    original_bytes = Some(bytes.len());
-                } else {
-                    if let Some(parent) = path.parent() {
-                        std::fs::create_dir_all(parent).map_err(ToolError::ExecutionFailed)?;
-                    }
-                    std::fs::write(&path, &full_content).map_err(ToolError::ExecutionFailed)?;
-                    artifact = Some(ToolArtifact {
-                        path,
-                        mime_type: "text/plain".to_string(),
-                        size_bytes: original_len,
-                    });
-                    let mut hasher = Sha256::new();
-                    hasher.update(full_content.as_bytes());
-                    output_hash = Some(format!("{:x}", hasher.finalize()));
-                }
-            } else {
-                let mut hasher = Sha256::new();
-                hasher.update(full_content.as_bytes());
-                output_hash = Some(format!("{:x}", hasher.finalize()));
-            }
-
-            truncated_content
-        } else {
-            if let Some(path) = artifact_path {
-                if path.exists() {
-                    let metadata = std::fs::metadata(&path).map_err(ToolError::ExecutionFailed)?;
-                    artifact = Some(ToolArtifact {
-                        path,
-                        mime_type: "text/plain".to_string(),
-                        size_bytes: usize::try_from(metadata.len()).unwrap_or(usize::MAX),
-                    });
-                }
-            }
-            full_content
-        };
-
-        // Fallback hashing for any other ToolOutput::Artifact variant
-        if let Some(ref art) = artifact {
-            if output_hash.is_none() {
-                let bytes = std::fs::read(&art.path).map_err(ToolError::ExecutionFailed)?;
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                output_hash = Some(format!("{:x}", hasher.finalize()));
-            }
-        }
-
-        // When the caller flagged this result as an error we synthesize
-        // an `ExecutionFailed` failure report so the structured payload
-        // matches the rendered content. The report is intentionally
-        // minimal here — callers that have richer classification
-        // information (the executor) override it before the result
-        // reaches the model.
-        let failure = if is_error {
-            Some(ToolErrorReport::new(
-                crate::tool_failure::ToolFailureKind::ExecutionFailed,
-                content.clone(),
-            ))
-        } else {
-            None
-        };
-
-        Ok(ToolExecutionResult {
-            content,
-            is_error,
-            artifact,
-            truncated,
-            original_bytes,
-            output_hash,
-            metadata: Value::Null,
-            failure,
-            tool_name: None,
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -308,17 +191,6 @@ impl ToolExecutionResult {
             failure: None,
             tool_name: None,
         }
-    }
-
-    pub fn truncation_notice(&self) -> String {
-        format!(
-            "[Output truncated. Original: {} bytes. Full output saved to artifact: {}]",
-            self.original_bytes.unwrap_or(0),
-            self.artifact.as_ref().map_or_else(
-                || "unavailable".to_string(),
-                |artifact| artifact.path.display().to_string(),
-            )
-        )
     }
 }
 
@@ -412,12 +284,4 @@ fn contains_shell_metacharacters(command: &str) -> bool {
             '>' | '<' | '|' | '&' | ';' | '`' | '$' | '\\' | '\n' | '\r'
         )
     })
-}
-
-fn extract_exec_truncated_flag(content: &str) -> Option<bool> {
-    let mut lines = content.lines();
-    let _ = lines.next()?;
-    let _ = lines.next()?;
-    let line = lines.next()?;
-    line.strip_prefix("truncated: ")?.parse().ok()
 }

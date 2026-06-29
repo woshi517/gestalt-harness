@@ -87,6 +87,7 @@ impl RuntimeControl for crate::runtime::AgentRuntime {
             launcher: self.extension_manager.launcher.clone(),
             base_composition: Arc::new(crate::activation::BaseRuntimeComposition {
                 tool_catalog: self.tools.clone(),
+                #[cfg(feature = "mcp")]
                 mcp_registry: self.mcp_registry.clone(),
                 base_registry: self.registry_snapshot.clone(),
             }),

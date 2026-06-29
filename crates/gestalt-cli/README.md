@@ -12,7 +12,7 @@ Binary entry point and command surface for the `gestalt` CLI tool. Local-first A
 |---------|-------------|
 | `gestalt run <prompt>` | Execute a single prompt in a fresh session |
 | `gestalt chat` | Start interactive chat mode |
-| `gestalt tui` | Launch terminal UI (feature-gated behind `tui`) |
+| `gestalt tui` | Launch the separately installed `gestalt-tui` binary |
 
 ### Inspection & Analysis
 
@@ -143,10 +143,10 @@ All commands support `--format text` (default) and `--format json`. JSON output 
 
 ## Runtime Construction
 
-The CLI builds the runtime pipeline in `build_cli_runtime()`:
+The CLI builds the runtime pipeline in `gestalt_app::runtime_factory::build_app_runtime()`:
 
 ```rust
-pub async fn build_cli_runtime(
+pub async fn build_app_runtime(
     workspace: &Path,
     effective: &EffectiveConfig,
     overrides: &CliOverrides,
@@ -155,10 +155,10 @@ pub async fn build_cli_runtime(
 ```
 
 This assembles:
-- Tool registry (`gestalt_tools::default_registry()`)
+- Tool registry (`gestalt_runtime::default_registry()`)
 - Provider adapter (resolved from `gestalt.json` providers and model catalog)
-- Context pipeline (`gestalt-context`)
-- Policy engine (`gestalt-policy`, driven from the `policies` key in `gestalt.json`)
+- Context pipeline (`gestalt-runtime::context`)
+- Policy engine (`gestalt-runtime::policy`, driven from the `policies` key in `gestalt.json`)
 - Approval provider (CLI interactive or yolo auto-approve)
 - Trace sink (filesystem JSONL writer)
 - Extension discovery and loading

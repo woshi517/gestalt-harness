@@ -1,12 +1,12 @@
-use crate::config::{
+use crate::output::{PolicyExplainReport, PolicyTestReport, PolicyValidateReport};
+use gestalt_app::config::{
     global_config_path, legacy_global_config_path, legacy_workspace_policies_path,
     load_effective_config, workspace_config_path, CliOverrides,
 };
-use crate::output::{PolicyExplainReport, PolicyTestReport, PolicyValidateReport};
 use gestalt_core::policy::{PolicyEngine, PolicyRequest};
 use gestalt_core::ToolCatalog;
 use gestalt_core::{tool::RiskLevel, HarnessError};
-use gestalt_policy::{MinimalPolicyEngine, PolicyConfig};
+use gestalt_runtime::{MinimalPolicyEngine, PolicyConfig};
 use serde_json::Value;
 
 pub fn validate_policy(overrides: &CliOverrides) -> Result<PolicyValidateReport, HarnessError> {
@@ -64,8 +64,8 @@ fn get_tool_risk(tool_name: &str, input: &Value) -> RiskLevel {
             .get("command")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        gestalt_policy::classify_bash(command)
-    } else if let Ok(registry) = gestalt_tools::default_registry() {
+        gestalt_runtime::classify_bash(command)
+    } else if let Ok(registry) = gestalt_runtime::default_registry() {
         if let Some(tool) = registry.get(tool_name) {
             tool.risk(input)
         } else {
@@ -146,7 +146,7 @@ pub async fn test_policy(
     let input: Value = serde_json::from_str(input_str)?;
     validate_tool_input(tool_name, &input)?;
     let mode = if let Some(m) = override_mode {
-        crate::config::mode_from_str(m)?
+        gestalt_app::config::mode_from_str(m)?
     } else {
         config.selected_mode()?
     };
