@@ -58,7 +58,8 @@ pub struct AgentRuntime {
     /// Shared skill contributor state. Carried by the runtime so activation
     /// can be resolved per-turn from `before_context_build`.
     #[cfg(feature = "skills")]
-    pub skill_state: Option<Arc<std::sync::Mutex<crate::skills::contributor::SkillContributorState>>>,
+    pub skill_state:
+        Option<Arc<std::sync::Mutex<crate::skills::contributor::SkillContributorState>>>,
     #[cfg(feature = "mcp")]
     pub mcp_registry: Arc<crate::mcp::McpRegistry>,
     #[cfg(feature = "mcp")]
@@ -83,10 +84,10 @@ impl AgentRuntime {
         registry_snapshot: RuntimeRegistrySnapshot,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
         event_bus: RuntimeEventBus,
-        #[cfg(feature = "mcp")]
-        mcp_registry: Arc<crate::mcp::McpRegistry>,
-        #[cfg(feature = "mcp")]
-        mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp::McpDiscoveryState>>,
+        #[cfg(feature = "mcp")] mcp_registry: Arc<crate::mcp::McpRegistry>,
+        #[cfg(feature = "mcp")] mcp_discovery_state: Arc<
+            std::sync::Mutex<crate::mcp::McpDiscoveryState>,
+        >,
         extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     ) -> Self {
         let mut extension_snapshot =

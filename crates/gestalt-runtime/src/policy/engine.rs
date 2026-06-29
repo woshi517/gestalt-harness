@@ -18,6 +18,7 @@ use gestalt_core::{
     PolicyError,
 };
 use glob::Pattern;
+#[cfg(feature = "toml-config")]
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -30,10 +31,18 @@ pub struct PolicyConfig {
 }
 
 impl PolicyConfig {
+    #[cfg(feature = "toml-config")]
     pub fn parse_toml(input: &str) -> Result<Self, PolicyError> {
         let raw = toml::from_str::<RawPolicyConfig>(input)
             .map_err(|err| PolicyError::InvalidPolicy(err.to_string()))?;
         Ok(raw.into_config())
+    }
+
+    #[cfg(not(feature = "toml-config"))]
+    pub fn parse_toml(_input: &str) -> Result<Self, PolicyError> {
+        Err(PolicyError::InvalidPolicy(
+            "feature 'toml' is not enabled for policy parsing".to_string(),
+        ))
     }
 
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, PolicyError> {
@@ -131,6 +140,7 @@ pub enum PolicyAction {
     Deny,
 }
 
+#[cfg(feature = "toml-config")]
 impl PolicyAction {
     fn parse(input: Option<&str>, default: Self) -> Self {
         match input {
@@ -141,6 +151,7 @@ impl PolicyAction {
     }
 }
 
+#[cfg(feature = "toml-config")]
 #[derive(Debug, Default, Deserialize)]
 struct RawPolicyConfig {
     #[serde(default)]
@@ -151,6 +162,7 @@ struct RawPolicyConfig {
     network: RawNetworkPolicy,
 }
 
+#[cfg(feature = "toml-config")]
 impl RawPolicyConfig {
     fn into_config(self) -> PolicyConfig {
         let default_paths = PathPolicy::default();
@@ -188,6 +200,7 @@ impl RawPolicyConfig {
     }
 }
 
+#[cfg(feature = "toml-config")]
 #[derive(Debug, Default, Deserialize)]
 struct RawPathPolicy {
     allow_read: Option<Vec<String>>,
@@ -195,12 +208,14 @@ struct RawPathPolicy {
     deny_write: Option<Vec<String>>,
 }
 
+#[cfg(feature = "toml-config")]
 #[derive(Debug, Default, Deserialize)]
 struct RawToolsPolicy {
     #[serde(default)]
     bash: RawBashPolicy,
 }
 
+#[cfg(feature = "toml-config")]
 #[derive(Debug, Default, Deserialize)]
 struct RawBashPolicy {
     default: Option<String>,
@@ -209,6 +224,7 @@ struct RawBashPolicy {
     always_deny: Option<Vec<String>>,
 }
 
+#[cfg(feature = "toml-config")]
 #[derive(Debug, Default, Deserialize)]
 struct RawNetworkPolicy {
     default: Option<String>,
@@ -216,6 +232,7 @@ struct RawNetworkPolicy {
     deny_domains: Option<Vec<String>>,
 }
 
+#[cfg(feature = "toml-config")]
 fn with_default<T>(value: Option<Vec<T>>, default: Vec<T>) -> Vec<T> {
     value.filter(|items| !items.is_empty()).unwrap_or(default)
 }

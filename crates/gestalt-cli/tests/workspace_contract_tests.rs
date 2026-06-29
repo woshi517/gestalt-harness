@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use chrono::Utc;
 use gestalt_cli::output::{
     CliReport, JsonEnvelope, WorkspaceDoctorReport, WorkspaceInfoReport, WorkspaceInitReport,

@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::{EffectiveConfig, SecretString};
 use gestalt_cli::output::{CliReport, ConfigShowReport};
 

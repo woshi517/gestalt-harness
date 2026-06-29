@@ -223,6 +223,7 @@ impl gestalt_core::hook::ContextHook for RuntimeContextHookAdapter {
         }
 
         if let Some(cache_plan) = packet.cache_plan.as_ref() {
+            #[cfg(feature = "trace")]
             let snapshot_path = ctx
                 .artifact_dir
                 .as_ref()
@@ -1358,6 +1359,7 @@ fn plain_history(history: &[gestalt_core::SessionMessage]) -> Vec<gestalt_core::
     history.iter().map(|entry| entry.message.clone()).collect()
 }
 
+#[cfg(feature = "skills")]
 fn last_user_text(history: &[gestalt_core::SessionMessage]) -> Option<String> {
     for msg in history.iter().rev() {
         if let gestalt_core::message::Message::User { content, .. } = &msg.message {

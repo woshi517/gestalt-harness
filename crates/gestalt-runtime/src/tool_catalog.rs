@@ -108,8 +108,8 @@ impl ToolCatalog for ComposedToolCatalog {
                 .values()
                 .find(|tool| tool.descriptor().id == *id)
                 .cloned(),
+            #[cfg(feature = "mcp")]
             gestalt_core::tool_descriptor::ToolNamespace::Mcp(server_name) => {
-                #[cfg(feature = "mcp")]
                 if let Some(ref mcp_reg) = self.mcp_registry {
                     if let Some(schema) = mcp_reg.get_cached_tool(server_name, &id.name) {
                         let trust_level = mcp_reg.get_server_trust_level(server_name);
@@ -127,6 +127,8 @@ impl ToolCatalog for ComposedToolCatalog {
                 }
                 None
             }
+            #[cfg(not(feature = "mcp"))]
+            gestalt_core::tool_descriptor::ToolNamespace::Mcp(_) => None,
         }
     }
 

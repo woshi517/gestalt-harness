@@ -1,6 +1,7 @@
 use gestalt_core::tool::ToolCatalog;
 use gestalt_core::tool_descriptor::ToolDescriptor;
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "mcp", feature = "skills"))]
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,11 +75,7 @@ impl ToolCatalogPlanner {
     }
 
     pub fn plan(&self, catalog: &dyn ToolCatalog) -> Vec<ToolDescriptor> {
-        let mut all_descriptors = catalog.descriptors();
-        // Ensure deterministic ordering by canonical string representation of ID
-        all_descriptors.sort_by_key(|a| a.id.to_string());
-
-        self.plan_descriptors(all_descriptors)
+        self.plan_descriptors(catalog.descriptors())
     }
 
     pub fn plan_descriptors(&self, mut descs: Vec<ToolDescriptor>) -> Vec<ToolDescriptor> {
@@ -122,7 +119,7 @@ impl ToolCatalogPlanner {
             .or(self.skill_allowed_names.as_ref());
 
         // Apply skill filter as intersection
-        let mut final_filtered = if let Some(allowed) = allowed {
+        let final_filtered = if let Some(allowed) = allowed {
             filtered
                 .into_iter()
                 .filter(|desc| allowed.contains(&desc.id.name))
@@ -132,6 +129,8 @@ impl ToolCatalogPlanner {
         };
 
         // Apply MCP progressive discovery filtering
+        #[cfg(feature = "mcp")]
+        let mut final_filtered = final_filtered;
         #[cfg(feature = "mcp")]
         if let (Some(threshold), Some(ref mcp_state), Some(ref mcp_reg)) = (
             self.mcp_discovery_threshold,

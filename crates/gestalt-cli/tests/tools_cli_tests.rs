@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::CliOverrides;
 use gestalt_cli::tools::{inspect_tool, list_tools};
 

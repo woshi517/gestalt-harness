@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::workspace::init_workspace;
 use std::fs;
 use std::process::Command;

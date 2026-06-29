@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 const CARGO_TOML: &str = include_str!("../Cargo.toml");
 const README: &str = include_str!("../../../README.md");
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");

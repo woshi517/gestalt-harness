@@ -4,7 +4,10 @@ use gestalt_core::{
 };
 use sha2::{Digest, Sha256};
 
-pub(super) fn compute_output_hash(content: &str, artifact: Option<&ToolArtifact>) -> Option<String> {
+pub(super) fn compute_output_hash(
+    content: &str,
+    artifact: Option<&ToolArtifact>,
+) -> Option<String> {
     if content.is_empty() {
         return None;
     }

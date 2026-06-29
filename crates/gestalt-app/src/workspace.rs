@@ -1,15 +1,37 @@
+#[cfg(feature = "trace")]
 use gestalt_core::snapshot::WorkspaceSnapshotter;
 use gestalt_core::{ConfigError, HarnessError};
+#[cfg(feature = "trace")]
 use gestalt_runtime::GitWorkspaceSnapshotter;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
+use std::path::PathBuf;
 
+#[cfg(feature = "providers")]
 use crate::auth::resolve_auth;
 use crate::config::{load_effective_config, CliOverrides};
-use crate::reports::{
-    WorkspaceDoctorReport, WorkspaceInfoReport, WorkspaceInitReport, WorkspaceSnapshotReport,
-    WorkspaceStatusReport,
-};
+#[cfg(feature = "providers")]
+use crate::reports::WorkspaceDoctorReport;
+#[cfg(feature = "trace")]
+use crate::reports::WorkspaceSnapshotReport;
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
+use crate::reports::WorkspaceStatusReport;
+use crate::reports::{WorkspaceInfoReport, WorkspaceInitReport};
 
 #[allow(dead_code)]
 const DEFAULT_CONFIG: &str = r#"[defaults]
@@ -133,6 +155,14 @@ pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, H
     })
 }
 
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
 pub async fn status_workspace(
     overrides: &CliOverrides,
 ) -> Result<WorkspaceStatusReport, HarnessError> {
@@ -282,6 +312,7 @@ pub fn info_workspace(overrides: &CliOverrides) -> Result<WorkspaceInfoReport, H
     })
 }
 
+#[cfg(feature = "trace")]
 pub async fn snapshot_workspace(
     overrides: &CliOverrides,
 ) -> Result<WorkspaceSnapshotReport, HarnessError> {
@@ -291,6 +322,7 @@ pub async fn snapshot_workspace(
     Ok(WorkspaceSnapshotReport { snapshot })
 }
 
+#[cfg(feature = "providers")]
 pub async fn doctor_workspace(
     overrides: &CliOverrides,
 ) -> Result<WorkspaceDoctorReport, HarnessError> {

@@ -1,92 +1,9 @@
-use chrono::{DateTime, Utc};
-use gestalt_core::{context::HistoryRange, DurabilityMode, TraceError};
-use serde::{Deserialize, Serialize};
-use std::fmt::Write as _;
+pub use crate::context::projection::{
+    CompactionCheckpoint, MessageMetadataRef, ProjectionManifest,
+};
+use gestalt_core::{DurabilityMode, TraceError};
 use std::fs;
 use std::path::Path;
-
-pub type MessageMetadataRef = gestalt_core::context::ProjectionMessageMetadata;
-pub type ProjectionManifest = gestalt_core::context::ProjectionManifest;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CompactionCheckpoint {
-    pub checkpoint_id: String,
-    pub history_range: HistoryRange,
-    pub history_range_hash: String,
-    pub policy_version: String,
-    pub compactor_model: String,
-    pub prompt_hash: String,
-    pub created_at: DateTime<Utc>,
-
-    pub goal: String,
-    pub constraints: Vec<String>,
-    pub completed_work: Vec<String>,
-    pub in_progress_work: Vec<String>,
-    pub blocked_items: Vec<String>,
-    pub key_decisions: Vec<String>,
-    pub next_steps: Vec<String>,
-    pub critical_context: String,
-    pub relevant_references: Vec<String>,
-}
-
-impl CompactionCheckpoint {
-    /// Renders the checkpoint summary as a structured Markdown block
-    pub fn render_markdown(&self) -> String {
-        let mut md = String::new();
-        let _ = write!(
-            md,
-            "### Session Checkpoint Summary (ID: {})\n\n",
-            self.checkpoint_id
-        );
-        let _ = write!(md, "**Goal:** {}\n\n", self.goal);
-
-        md.push_str("**Constraints:**\n");
-        for c in &self.constraints {
-            let _ = writeln!(md, "- {c}");
-        }
-        md.push('\n');
-
-        md.push_str("**Completed Work:**\n");
-        for w in &self.completed_work {
-            let _ = writeln!(md, "- {w}");
-        }
-        md.push('\n');
-
-        md.push_str("**In Progress Work:**\n");
-        for w in &self.in_progress_work {
-            let _ = writeln!(md, "- {w}");
-        }
-        md.push('\n');
-
-        md.push_str("**Blocked Items:**\n");
-        for b in &self.blocked_items {
-            let _ = writeln!(md, "- {b}");
-        }
-        md.push('\n');
-
-        md.push_str("**Key Decisions:**\n");
-        for d in &self.key_decisions {
-            let _ = writeln!(md, "- {d}");
-        }
-        md.push('\n');
-
-        md.push_str("**Next Steps:**\n");
-        for s in &self.next_steps {
-            let _ = writeln!(md, "- {s}");
-        }
-        md.push('\n');
-
-        let _ = write!(md, "**Critical Context:**\n{}\n\n", self.critical_context);
-
-        md.push_str("**Relevant References:**\n");
-        for r in &self.relevant_references {
-            let _ = writeln!(md, "- {r}");
-        }
-        md.push('\n');
-
-        md
-    }
-}
 
 pub fn persist_manifest(
     manifest: &ProjectionManifest,

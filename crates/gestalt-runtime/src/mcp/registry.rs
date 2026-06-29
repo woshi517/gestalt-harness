@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::client::McpClient;
-use crate::mcp_error::{McpError, Result};
-use crate::model::{
+use super::client::McpClient;
+use super::error::{McpError, Result};
+use super::model::{
     McpCallResult, McpConnectionState, McpServerConfig, McpServerId, McpServerState, McpToolSchema,
 };
 
@@ -22,7 +22,7 @@ pub struct McpRegistry {
         >,
     >,
     failures: Arc<Mutex<HashMap<String, String>>>, // server_name -> error_msg
-    event_callback: Arc<std::sync::Mutex<Option<crate::model::McpEventCallback>>>,
+    event_callback: Arc<std::sync::Mutex<Option<super::model::McpEventCallback>>>,
     permission_validator: Arc<
         std::sync::RwLock<
             Option<
@@ -55,7 +55,7 @@ impl McpRegistry {
         }
     }
 
-    pub fn set_event_callback(&self, callback: crate::model::McpEventCallback) {
+    pub fn set_event_callback(&self, callback: super::model::McpEventCallback) {
         if let Ok(mut lock) = self.event_callback.lock() {
             *lock = Some(callback);
         }
@@ -127,7 +127,7 @@ impl McpRegistry {
                 let cb_for_init = cb.clone();
                 async move {
                     if let Some(ref handler) = cb_for_init {
-                        handler(crate::model::McpRegistryEvent::Connecting {
+                        handler(super::model::McpRegistryEvent::Connecting {
                             server_name: name_for_init.clone(),
                         });
                     }
@@ -135,7 +135,7 @@ impl McpRegistry {
                         Ok(client) => {
                             let tool_count = client.get_cached_tools().map_or(0, |t| t.len());
                             if let Some(ref handler) = cb_for_init {
-                                handler(crate::model::McpRegistryEvent::Connected {
+                                handler(super::model::McpRegistryEvent::Connected {
                                     server_name: name_for_init.clone(),
                                     protocol_version: "2024-11-05".to_string(),
                                     tool_count,
@@ -145,7 +145,7 @@ impl McpRegistry {
                         }
                         Err(e) => {
                             if let Some(ref handler) = cb_for_init {
-                                handler(crate::model::McpRegistryEvent::ConnectionFailed {
+                                handler(super::model::McpRegistryEvent::ConnectionFailed {
                                     server_name: name_for_init.clone(),
                                     reason: e.to_string(),
                                 });
@@ -257,7 +257,7 @@ impl McpRegistry {
         client.call_tool(tool_name, arguments).await
     }
 
-    pub fn get_cached_tools(&self) -> Vec<(McpServerId, crate::model::McpToolSchema)> {
+    pub fn get_cached_tools(&self) -> Vec<(McpServerId, super::model::McpToolSchema)> {
         let mut tools = Vec::new();
         if let Ok(clients) = self.clients.try_lock() {
             for (name, cell) in clients.iter() {
@@ -291,7 +291,7 @@ impl McpRegistry {
         &self,
         server_name: &str,
         tool_name: &str,
-    ) -> Option<crate::model::McpToolSchema> {
+    ) -> Option<super::model::McpToolSchema> {
         if let Ok(clients) = self.clients.try_lock() {
             if let Some(cell) = clients.get(server_name) {
                 if let Some(Ok(client)) = cell.get() {

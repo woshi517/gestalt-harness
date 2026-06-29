@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::verify::verify_run;
 use gestalt_core::event::VerificationStatus;

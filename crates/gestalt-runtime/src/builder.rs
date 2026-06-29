@@ -281,9 +281,6 @@ impl AgentRuntimeBuilder {
             );
             Some(skill_state)
         };
-        #[cfg(not(feature = "skills"))]
-        let skill_state_handle: Option<()> = None;
-
         // Initialize MCP Registry
         #[cfg(feature = "mcp")]
         let mcp_registry = {
@@ -365,8 +362,9 @@ impl AgentRuntimeBuilder {
             let event_bus = self.event_bus.clone();
             mcp_registry.set_event_callback(Arc::new(move |event| match event {
                 crate::mcp::McpRegistryEvent::Connecting { server_name } => {
-                    event_bus
-                        .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnecting {
+                        server_name,
+                    });
                 }
                 crate::mcp::McpRegistryEvent::Connected {
                     server_name,
@@ -400,8 +398,9 @@ impl AgentRuntimeBuilder {
                     });
                 }
                 crate::mcp::McpRegistryEvent::ToolListChanged { server_name } => {
-                    event_bus
-                        .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolListChanged {
+                        server_name,
+                    });
                 }
             }));
 
@@ -421,9 +420,8 @@ impl AgentRuntimeBuilder {
 
         // Create MCP discovery state
         #[cfg(feature = "mcp")]
-        let mcp_discovery_state = Arc::new(std::sync::Mutex::new(
-            crate::mcp::McpDiscoveryState::new(),
-        ));
+        let mcp_discovery_state =
+            Arc::new(std::sync::Mutex::new(crate::mcp::McpDiscoveryState::new()));
 
         // Register MCP discovery tools
         #[cfg(feature = "mcp")]
@@ -486,20 +484,20 @@ impl AgentRuntimeBuilder {
             }
         }
 
-        let mut composed_tools =
+        let composed_tools =
             crate::tool_catalog::ComposedToolCatalog::new(base_tools, extension_tools)
                 .map_err(RuntimeError::Registry)?;
         #[cfg(feature = "mcp")]
-        {
-            composed_tools = composed_tools.with_mcp(mcp_registry.clone());
-        }
+        let composed_tools = composed_tools.with_mcp(mcp_registry.clone());
         let mut composed_tools = composed_tools.with_event_bus(self.event_bus.clone());
 
-        let mut planner = self
+        let planner = self
             .config
             .tool_profile
             .clone()
             .map(crate::tool_catalog_planner::ToolCatalogPlanner::new);
+        #[cfg(feature = "skills")]
+        let mut planner = planner;
         #[cfg(feature = "skills")]
         if let Some(ref state) = skill_state_handle {
             planner = Some(match planner {
@@ -512,6 +510,8 @@ impl AgentRuntimeBuilder {
         }
 
         // Configure MCP in planner
+        #[cfg(feature = "mcp")]
+        let mut planner = planner;
         #[cfg(feature = "mcp")]
         {
             planner = Some(match planner {

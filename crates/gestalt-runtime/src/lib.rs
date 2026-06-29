@@ -25,10 +25,6 @@ pub mod process_extension;
 pub mod registry;
 pub mod runtime;
 pub mod session_queue;
-#[cfg(feature = "skills")]
-pub mod skill_contributor {
-    pub use crate::skills::contributor::*;
-}
 pub mod tool_catalog;
 pub mod tool_catalog_planner;
 pub mod tool_output;
@@ -48,18 +44,20 @@ pub mod trace;
 #[cfg(feature = "verify")]
 pub mod verify;
 
-pub use context::assembler::{ContextMessageAssembler, estimate_message_tokens, estimate_text_tokens};
+pub use context::assembler::{
+    estimate_message_tokens, estimate_text_tokens, ContextMessageAssembler,
+};
 pub use exec::{ExecRequest, ExecResult, ExecutionSandbox, NoSandbox, SandboxMount};
 #[cfg(feature = "mcp")]
 pub use mcp::*;
-#[cfg(feature = "providers")]
-pub use providers::registry::registered;
-#[cfg(feature = "providers")]
-pub use providers::*;
 pub use policy::engine::{
     classify_bash, BashPolicy, MinimalPolicyEngine, NetworkPolicy, PathPolicy, PolicyAction,
     PolicyConfig,
 };
+#[cfg(feature = "providers")]
+pub use providers::registry::registered;
+#[cfg(feature = "providers")]
+pub use providers::*;
 #[cfg(feature = "skills")]
 pub use skills::*;
 #[cfg(feature = "tools")]
@@ -110,6 +108,7 @@ pub use composition_hooks::{
     RuntimeNextTurnHookAdapter, RuntimeToolHookAdapter, RuntimeTraceHookAdapter,
 };
 pub use config::RuntimeConfig;
+pub use context::projection::{CompactionCheckpoint, MessageMetadataRef, ProjectionManifest};
 pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
 pub use control::{HostControl, ReloadExtensionsReport, ReloadExtensionsRequest, RuntimeControl};
 pub use discovery::{DiscoveredExtension, DiscoveredExtensionPackage, ExtensionDiscovery};

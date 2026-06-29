@@ -65,8 +65,6 @@ pub async fn build_app_runtime(
         "verify".to_string(),
         #[cfg(feature = "tui")]
         "tui".to_string(),
-        #[cfg(feature = "otel")]
-        "otel".to_string(),
     ];
 
     let explicit_loads: Vec<std::path::PathBuf> = config

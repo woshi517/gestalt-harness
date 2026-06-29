@@ -163,10 +163,8 @@ mod tests {
 
         shape_tool_response("read", &mut result);
 
-        assert!(
-            result
-                .content
-                .starts_with("[Output truncated. Original: 42 bytes. Full output saved to artifact: ")
-        );
+        assert!(result
+            .content
+            .starts_with("[Output truncated. Original: 42 bytes. Full output saved to artifact: "));
     }
 }

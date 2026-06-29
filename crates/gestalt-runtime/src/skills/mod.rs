@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub mod activation;
+pub mod contributor;
 pub mod discovery;
 pub mod events;
 pub mod index;
 pub mod manifest;
 pub mod policy;
 pub mod resources;
-pub mod contributor;
 
 // Re-exports for ergonomic access
 pub use activation::{

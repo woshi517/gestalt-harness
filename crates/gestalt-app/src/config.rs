@@ -5,9 +5,10 @@ use std::{
 };
 
 use gestalt_core::{
-    ApiFormat, ConfigError, ExecutionMode, HarnessError, ModelCapabilities, ModelSelection,
-    PromptAssemblyStrategy, PromptCacheMode, ProviderError, ResolvedModelSnapshot,
+    ApiFormat, ConfigError, ExecutionMode, HarnessError, PromptAssemblyStrategy, PromptCacheMode,
 };
+#[cfg(feature = "providers")]
+use gestalt_core::{ModelCapabilities, ModelSelection, ProviderError, ResolvedModelSnapshot};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -342,7 +343,11 @@ pub struct SkillsConfig {
 #[serde(deny_unknown_fields)]
 pub struct McpConfig {
     #[serde(default)]
+    #[cfg(feature = "mcp")]
     pub servers: HashMap<String, gestalt_runtime::McpServerConfig>,
+    #[serde(default)]
+    #[cfg(not(feature = "mcp"))]
+    pub servers: HashMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_threshold: Option<usize>,
 }
@@ -1932,6 +1937,7 @@ pub struct ConfigWarning {
     pub message: String,
 }
 
+#[cfg(feature = "providers")]
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedProvider {
     pub profile_name: Option<String>,
@@ -1950,6 +1956,7 @@ pub struct ResolvedProvider {
     pub warnings: Vec<ConfigWarning>,
 }
 
+#[cfg(feature = "providers")]
 impl ResolvedProvider {
     pub fn provider_name(&self) -> &str {
         &self.resolved_model.selection.provider_id
@@ -1985,6 +1992,7 @@ impl ResolvedProvider {
     }
 }
 
+#[cfg(feature = "providers")]
 impl EffectiveConfig {
     #[allow(clippy::cast_possible_truncation)]
     pub fn resolve_provider(&self) -> Result<ResolvedProvider, HarnessError> {
@@ -2558,18 +2566,21 @@ impl EffectiveConfig {
 
         Ok(())
     }
+}
 
+impl EffectiveConfig {
+    #[cfg(feature = "providers")]
     pub fn selected_provider(&self) -> Result<String, HarnessError> {
         let resolved = self.resolve_provider()?;
         Ok(resolved.provider_name().to_string())
     }
 
     pub fn selected_model(&self) -> Option<String> {
+        #[cfg(feature = "providers")]
         if let Ok(resolved) = self.resolve_provider() {
-            Some(resolved.model().to_string())
-        } else {
-            self.defaults.model.clone()
+            return Some(resolved.model().to_string());
         }
+        self.defaults.model.clone()
     }
 
     pub fn selected_mode(&self) -> Result<ExecutionMode, HarnessError> {
@@ -2601,6 +2612,7 @@ impl EffectiveConfig {
         self.workspace_file("memory.md")
     }
 
+    #[cfg(feature = "providers")]
     pub fn provider_json(&self, provider: &str) -> Value {
         let configured = self.providers.get(provider).cloned().unwrap_or_default();
         let mut base = crate::catalog::get_builtin_provider(provider).unwrap_or_default();
@@ -3466,6 +3478,7 @@ pub fn explain_config(
     Ok(map)
 }
 
+#[cfg(feature = "providers")]
 fn resolve_variant(
     variants: &HashMap<String, ModelVariantConfig>,
     variant_name: &str,

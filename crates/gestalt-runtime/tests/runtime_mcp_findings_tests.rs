@@ -1,3 +1,4 @@
+#![cfg(feature = "mcp")]
 #![allow(deprecated)]
 
 use gestalt_core::{
@@ -107,6 +108,8 @@ fn build_runtime_config(servers: Vec<(&str, McpLifecycleMode)>) -> RuntimeConfig
                         "run",
                         "--package",
                         "gestalt-runtime",
+                        "--features",
+                        "mcp",
                         "--bin",
                         "mock_mcp_server",
                     ]
@@ -479,6 +482,8 @@ async fn test_findings_risk_reduction_requires_annotations() {
                     "run",
                     "--package",
                     "gestalt-runtime",
+                    "--features",
+                    "mcp",
                     "--bin",
                     "mock_mcp_server",
                 ]
@@ -515,6 +520,8 @@ async fn test_findings_risk_reduction_requires_annotations() {
                     "run",
                     "--package",
                     "gestalt-runtime",
+                    "--features",
+                    "mcp",
                     "--bin",
                     "mock_mcp_server",
                 ]

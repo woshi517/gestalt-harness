@@ -1,11 +1,12 @@
 pub mod client;
+pub mod discovery;
 pub mod error;
 pub mod model;
 pub mod registry;
 pub mod transport;
-pub mod discovery;
 
 pub use client::McpClient;
+pub use discovery::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
 pub use error::McpError;
 pub use model::{
     parse_mcp_call_result, McpCallResult, McpConnectionState, McpEventCallback, McpLifecycleMode,
@@ -14,7 +15,6 @@ pub use model::{
 };
 pub use registry::McpRegistry;
 pub use transport::McpTransport;
-pub use discovery::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
 
 use async_trait::async_trait;
 use gestalt_core::error::ToolError;

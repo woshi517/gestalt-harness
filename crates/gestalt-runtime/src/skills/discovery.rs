@@ -1,4 +1,4 @@
-use crate::skill_manifest::SkillManifest;
+use super::manifest::SkillManifest;
 use crate::{SkillDescriptor, SkillError, SkillSource, SkillTrustLevel};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;

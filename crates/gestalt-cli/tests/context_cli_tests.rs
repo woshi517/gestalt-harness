@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::CliOverrides;
 use gestalt_app::context::explain_context;
 use std::fs;

@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::CliOverrides;
 use gestalt_cli::policy::{explain_policy, test_policy};
 

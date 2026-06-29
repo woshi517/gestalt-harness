@@ -1,3 +1,4 @@
+#![cfg(feature = "mcp")]
 #![allow(deprecated)]
 
 use gestalt_core::{
@@ -126,6 +127,8 @@ async fn test_runtime_mcp_policy_check_and_execution() {
                     "run",
                     "--package",
                     "gestalt-runtime",
+                    "--features",
+                    "mcp",
                     "--bin",
                     "mock_mcp_server",
                 ]

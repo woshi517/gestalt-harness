@@ -1,19 +1,18 @@
 pub mod accounting;
+pub mod assembler;
 pub mod checkpoint_validation;
 pub mod compaction;
 pub mod default_prompt;
+pub mod projection;
 pub mod tool_clearing;
 pub mod tool_exchanges;
-pub mod assembler;
 
 pub use accounting::{ContextAccountant, ContextManagementPolicy, DurabilityMode};
+pub use assembler::{estimate_message_tokens, estimate_text_tokens, ContextMessageAssembler};
 pub use checkpoint_validation::{validate_checkpoint, ValidationError};
 pub use compaction::plan_compaction_range;
 pub use tool_clearing::clear_eligible_tool_results;
 pub use tool_exchanges::{group_tool_exchanges, ToolExchange};
-pub use assembler::{
-    ContextMessageAssembler, estimate_message_tokens, estimate_text_tokens,
-};
 
 use crate::error::Result;
 use gestalt_core::context::ContextAssembler;
@@ -82,41 +81,7 @@ pub struct RuntimeContextPipeline {
     pub patch_store: Arc<Mutex<Vec<ContextPatch>>>,
 }
 
-#[cfg(feature = "trace")]
-pub use crate::trace::{CompactionCheckpoint, MessageMetadataRef, ProjectionManifest};
-
-#[cfg(not(feature = "trace"))]
-pub type ProjectionManifest = gestalt_core::context::ProjectionManifest;
-#[cfg(not(feature = "trace"))]
-pub type MessageMetadataRef = gestalt_core::context::ProjectionMessageMetadata;
-
-#[cfg(not(feature = "trace"))]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CompactionCheckpoint {
-    pub checkpoint_id: String,
-    pub history_range: gestalt_core::context::HistoryRange,
-    pub history_range_hash: String,
-    pub policy_version: String,
-    pub compactor_model: String,
-    pub prompt_hash: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub goal: String,
-    pub constraints: Vec<String>,
-    pub completed_work: Vec<String>,
-    pub in_progress_work: Vec<String>,
-    pub blocked_items: Vec<String>,
-    pub key_decisions: Vec<String>,
-    pub next_steps: Vec<String>,
-    pub critical_context: String,
-    pub relevant_references: Vec<String>,
-}
-
-#[cfg(not(feature = "trace"))]
-impl CompactionCheckpoint {
-    pub fn render_markdown(&self) -> String {
-        String::new()
-    }
-}
+pub use projection::{CompactionCheckpoint, MessageMetadataRef, ProjectionManifest};
 
 struct ProjectionStateApplication {
     projected_history: ProjectedHistory,
@@ -221,11 +186,7 @@ impl ContextPipeline for RuntimeContextPipeline {
 
         policy.validate()?;
 
-        let accountant = self::accounting::ContextAccountant::new(
-            budget,
-            policy,
-            &plain_history,
-        );
+        let accountant = self::accounting::ContextAccountant::new(budget, policy, &plain_history);
         let usable_limit = accountant.usable_limit();
 
         let (packet, plan) = if policy.enabled && budget.model_limit > 0 && usable_limit > 0 {
@@ -302,16 +263,15 @@ impl ContextPipeline for RuntimeContextPipeline {
 
         // 1. Tool result clearing
         let tool_budget = accountant.tool_result_budget();
-        let (cleared_history, clear_actions) =
-            self::tool_clearing::clear_eligible_tool_results(
-                run_id,
-                &plain_projected_history,
-                tool_retention,
-                usable_limit,
-                tool_budget,
-                policy.keep_recent_turns,
-                policy.keep_recent_tokens,
-            );
+        let (cleared_history, clear_actions) = self::tool_clearing::clear_eligible_tool_results(
+            run_id,
+            &plain_projected_history,
+            tool_retention,
+            usable_limit,
+            tool_budget,
+            policy.keep_recent_turns,
+            policy.keep_recent_tokens,
+        );
 
         // Update the ProjectedHistory items with new clear actions to keep mapping correct
         let mut final_projected_history = projected_history.clone();
@@ -398,15 +358,14 @@ impl ContextPipeline for RuntimeContextPipeline {
             .iter()
             .position(|item| matches!(item, ProjectedHistoryItem::Checkpoint { .. }))
             .unwrap_or(0);
-        let recent_protected_start =
-            self::tool_clearing::find_recent_protected_start(
-                &cleared_history
-                    .iter()
-                    .map(|entry| entry.message.clone())
-                    .collect::<Vec<_>>(),
-                policy.keep_recent_turns,
-                policy.keep_recent_tokens,
-            );
+        let recent_protected_start = self::tool_clearing::find_recent_protected_start(
+            &cleared_history
+                .iter()
+                .map(|entry| entry.message.clone())
+                .collect::<Vec<_>>(),
+            policy.keep_recent_turns,
+            policy.keep_recent_tokens,
+        );
 
         let compactor_input_limit = usable_limit;
         let target_limit = accountant.compaction_target();
@@ -479,14 +438,12 @@ impl ContextPipeline for RuntimeContextPipeline {
 
                     let plain_canonical_history: Vec<Message> =
                         history.iter().map(|entry| entry.message.clone()).collect();
-                    if let Err(val_err) =
-                        self::checkpoint_validation::validate_checkpoint(
-                            &checkpoint,
-                            &plain_canonical_history, // Validate against original canonical history
-                            canonical_range,          // Validate canonical range
-                            &history_range_hash,
-                        )
-                    {
+                    if let Err(val_err) = self::checkpoint_validation::validate_checkpoint(
+                        &checkpoint,
+                        &plain_canonical_history, // Validate against original canonical history
+                        canonical_range,          // Validate canonical range
+                        &history_range_hash,
+                    ) {
                         let err_msg = format!("Checkpoint validation failed: {:?}", val_err);
                         emit(gestalt_core::event::AgentEvent::ContextManagementFailed {
                             error: err_msg.clone(),
@@ -497,13 +454,15 @@ impl ContextPipeline for RuntimeContextPipeline {
                     }
 
                     #[cfg(feature = "trace")]
-                    if let Some(dir) = artifacts_dir {
-                        crate::trace::persist_checkpoint(
-                            &checkpoint,
-                            dir,
-                            policy.durability,
-                        )?;
-                    }
+                    let checkpoint_artifact = if let Some(dir) = artifacts_dir {
+                        crate::trace::persist_checkpoint(&checkpoint, dir, policy.durability)?;
+                        (!matches!(policy.durability, gestalt_core::DurabilityMode::Disabled))
+                            .then(|| Self::checkpoint_artifact_ref(run_id, &checkpoint))
+                    } else {
+                        None
+                    };
+                    #[cfg(not(feature = "trace"))]
+                    let checkpoint_artifact = None;
 
                     emit(gestalt_core::event::AgentEvent::ContextCompacted {
                         checkpoint_id: checkpoint.checkpoint_id.clone(),
@@ -515,7 +474,7 @@ impl ContextPipeline for RuntimeContextPipeline {
                         checkpoint_id: checkpoint.checkpoint_id.clone(),
                         source_range: checkpoint.history_range,
                         source_hash: checkpoint.history_range_hash.clone(),
-                        artifact: Some(Self::checkpoint_artifact_ref(run_id, &checkpoint)),
+                        artifact: checkpoint_artifact,
                     };
 
                     let mut all_tombstones = effective_cleared_results.clone();
@@ -1192,12 +1151,11 @@ impl RuntimeContextPipeline {
             }
         }
 
-        let loaded: CompactionCheckpoint = serde_json::from_str(&content)
-            .map_err(|err| {
-                gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
-                    reason: format!("failed to parse checkpoint: {}", err),
-                })
-            })?;
+        let loaded: CompactionCheckpoint = serde_json::from_str(&content).map_err(|err| {
+            gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
+                reason: format!("failed to parse checkpoint: {}", err),
+            })
+        })?;
 
         if loaded.checkpoint_id != checkpoint_ref.checkpoint_id {
             return Err(gestalt_core::error::HarnessError::Context(
@@ -1342,12 +1300,11 @@ impl RuntimeContextPipeline {
                             && output_hash.as_deref() == Some(&persisted.output_hash)
                         {
                             let t_name = tool_name.as_deref().unwrap_or("");
-                            let tombstone_content =
-                                self::tool_clearing::render_tombstone(
-                                    &persisted.tool_use_id,
-                                    t_name,
-                                    &persisted.output_hash,
-                                );
+                            let tombstone_content = self::tool_clearing::render_tombstone(
+                                &persisted.tool_use_id,
+                                t_name,
+                                &persisted.output_hash,
+                            );
                             let tombstone_msg = Message::ToolResult {
                                 tool_use_id: persisted.tool_use_id.clone(),
                                 content: tombstone_content,
@@ -1383,10 +1340,7 @@ impl RuntimeContextPipeline {
         }
     }
 
-    fn checkpoint_message(
-        session_id: &str,
-        checkpoint: &CompactionCheckpoint,
-    ) -> SessionMessage {
+    fn checkpoint_message(session_id: &str, checkpoint: &CompactionCheckpoint) -> SessionMessage {
         SessionMessage {
             id: Self::synthetic_id(
                 session_id,
@@ -1400,6 +1354,7 @@ impl RuntimeContextPipeline {
         }
     }
 
+    #[cfg(feature = "trace")]
     fn checkpoint_artifact_ref(
         run_id: &str,
         checkpoint: &CompactionCheckpoint,
@@ -1411,9 +1366,8 @@ impl RuntimeContextPipeline {
         }
     }
 
-    fn checkpoint_artifact_content_hash(
-        checkpoint: &CompactionCheckpoint,
-    ) -> String {
+    #[cfg(feature = "trace")]
+    fn checkpoint_artifact_content_hash(checkpoint: &CompactionCheckpoint) -> String {
         let content = serde_json::to_string_pretty(checkpoint).unwrap_or_default();
         let mut hasher = sha2::Sha256::new();
         hasher.update(content.as_bytes());

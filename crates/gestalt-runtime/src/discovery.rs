@@ -288,13 +288,21 @@ fn parse_package_manifest(content: &str) -> std::result::Result<ResolvedExtensio
 }
 
 fn is_manifest_v2(content: &str) -> std::result::Result<bool, String> {
-    let value = content
-        .parse::<toml::Value>()
-        .map_err(|err| format!("TOML parse error: {}", err))?;
-    Ok(value
-        .get("manifest_version")
-        .and_then(toml::Value::as_integer)
-        == Some(2))
+    #[cfg(feature = "toml-config")]
+    {
+        let value = content
+            .parse::<toml::Value>()
+            .map_err(|err| format!("TOML parse error: {}", err))?;
+        Ok(value
+            .get("manifest_version")
+            .and_then(toml::Value::as_integer)
+            == Some(2))
+    }
+    #[cfg(not(feature = "toml-config"))]
+    {
+        let _ = content;
+        Err("feature 'toml' is not enabled for extension manifest parsing".to_string())
+    }
 }
 
 pub struct DiscoverySource {

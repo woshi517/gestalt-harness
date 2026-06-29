@@ -55,6 +55,29 @@ fi
 
 printf 'OK: minimal CLI excludes terminal UI dependencies.\n'
 
+if [ -d crates/gestalt-runtime/src/legacy ]; then
+  printf 'ERROR: runtime legacy source directory still exists\n' >&2
+  exit 1
+fi
+
+if rg -n '#\[path\s*=\s*"legacy/|mod legacy_|crate::legacy_|pub use legacy_' \
+  crates/gestalt-runtime/src >/dev/null; then
+  printf 'ERROR: runtime contains a legacy module mount or reference\n' >&2
+  exit 1
+fi
+
+printf 'OK: runtime source layout contains no legacy mounts.\n'
+
+minimal_runtime_tree=$(cargo tree -p gestalt-runtime --no-default-features --edges normal --prefix none)
+runtime_deny='^(encoding_rs|eventsource-stream|pulldown-cmark|regex|reqwest|serde_yaml|similar|tokio-stream|toml|walkdir) v'
+if grep -Eq "$runtime_deny" <<<"$minimal_runtime_tree"; then
+  printf 'ERROR: minimal runtime includes an optional integration dependency\n' >&2
+  grep -E "$runtime_deny" <<<"$minimal_runtime_tree" >&2
+  exit 1
+fi
+
+printf 'OK: minimal runtime excludes optional integration dependencies.\n'
+
 if rg -n 'extern crate .* as gestalt_' crates/gestalt-runtime/src crates/gestalt-runtime/tests crates/gestalt-app/src crates/gestalt-app/tests crates/gestalt-cli/src crates/gestalt-cli/tests crates/gestalt-tui/src >/dev/null; then
   printf 'ERROR: compatibility aliases leaked across crate boundaries\n' >&2
   exit 1

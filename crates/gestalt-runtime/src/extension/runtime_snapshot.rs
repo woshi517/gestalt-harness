@@ -55,8 +55,7 @@ impl RuntimeExtensionSnapshot {
         generation: RuntimeGeneration,
         registry_snapshot: RuntimeRegistrySnapshot,
         tool_catalog: Arc<dyn ToolCatalog>,
-        #[cfg(feature = "mcp")]
-        mcp_registry: Arc<crate::mcp::McpRegistry>,
+        #[cfg(feature = "mcp")] mcp_registry: Arc<crate::mcp::McpRegistry>,
     ) -> Self {
         let context_plan = Self::context_plan_from_registry(&registry_snapshot, false);
         let fingerprint = registry_snapshot.fingerprint.clone();

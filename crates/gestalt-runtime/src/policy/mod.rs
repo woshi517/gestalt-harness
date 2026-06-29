@@ -17,7 +17,8 @@ pub struct RuntimePolicyEngine {
     pub session_id: String,
     pub event_bus: RuntimeEventBus,
     #[cfg(feature = "skills")]
-    pub skill_state: Option<Arc<std::sync::Mutex<crate::skills::contributor::SkillContributorState>>>,
+    pub skill_state:
+        Option<Arc<std::sync::Mutex<crate::skills::contributor::SkillContributorState>>>,
 }
 
 #[async_trait]

@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_cli::output::{
     AuthDoctorEntry, AuthDoctorReport, CliReport, ConfigValidateReport, ConnectReport,
     GlobalDoctorReport, JsonEnvelope, ModelsListReport, ModelsSearchReport, ProfileInfoEntry,

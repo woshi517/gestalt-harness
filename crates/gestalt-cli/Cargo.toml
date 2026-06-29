@@ -36,7 +36,8 @@ uuid = { workspace = true }
 rpassword = "7"
 
 [features]
-default = ["providers", "tools", "trace", "mcp", "skills", "verify"]
+default = ["full"]
+full = ["providers", "tools", "trace", "mcp", "skills", "verify"]
 providers = ["gestalt-app/providers", "gestalt-runtime/providers"]
 tools = ["gestalt-app/tools", "gestalt-runtime/tools"]
 trace = ["gestalt-app/trace", "gestalt-runtime/trace"]

@@ -417,7 +417,9 @@ impl ExtensionActivationPipeline {
         // 3. Namespace validation
         let mut tool_runtime_names = std::collections::HashSet::new();
         let mut canonical_tool_ids = std::collections::HashSet::new();
-        let mut mcp_server_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        #[cfg(feature = "mcp")]
+        let mut mcp_server_names: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let mut context_source_ids = std::collections::HashSet::new();
         let mut lifecycle_capability_ids = std::collections::HashSet::new();
         let mut skill_ids = std::collections::HashSet::new();
@@ -937,7 +939,7 @@ impl ExtensionActivationPipeline {
                     #[cfg(not(feature = "mcp"))]
                     crate::extension::ComponentKind::McpServer => {
                         return Err(crate::error::RuntimeError::Extension(
-                            "MCP feature is disabled".to_string()
+                            "MCP feature is disabled".to_string(),
                         ));
                     }
                     _ => {}
@@ -949,15 +951,12 @@ impl ExtensionActivationPipeline {
         // 5. Rebuild MCP registry config
         #[cfg(feature = "mcp")]
         let direct_mcp_fingerprint = {
-            let sorted_direct_mcp: std::collections::BTreeMap<
-                String,
-                crate::mcp::McpServerConfig,
-            > = self
-                .host_context
-                .mcp_servers
-                .iter()
-                .map(|(name, config)| (name.clone(), config.clone()))
-                .collect();
+            let sorted_direct_mcp: std::collections::BTreeMap<String, crate::mcp::McpServerConfig> =
+                self.host_context
+                    .mcp_servers
+                    .iter()
+                    .map(|(name, config)| (name.clone(), config.clone()))
+                    .collect();
             fingerprint_json(&sorted_direct_mcp)
         };
         #[cfg(not(feature = "mcp"))]
@@ -1038,8 +1037,9 @@ impl ExtensionActivationPipeline {
             let event_bus = self.host_context.event_bus.clone();
             mcp_registry.set_event_callback(Arc::new(move |event| match event {
                 crate::mcp::McpRegistryEvent::Connecting { server_name } => {
-                    event_bus
-                        .publish(crate::event_bus::RuntimeEvent::McpServerConnecting { server_name });
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpServerConnecting {
+                        server_name,
+                    });
                 }
                 crate::mcp::McpRegistryEvent::Connected {
                     server_name,
@@ -1073,8 +1073,9 @@ impl ExtensionActivationPipeline {
                     });
                 }
                 crate::mcp::McpRegistryEvent::ToolListChanged { server_name } => {
-                    event_bus
-                        .publish(crate::event_bus::RuntimeEvent::McpToolListChanged { server_name });
+                    event_bus.publish(crate::event_bus::RuntimeEvent::McpToolListChanged {
+                        server_name,
+                    });
                 }
             }));
             mcp_registry
@@ -1088,15 +1089,13 @@ impl ExtensionActivationPipeline {
             }
         }
 
-        let mut composed_tools = crate::tool_catalog::ComposedToolCatalog::new(
+        let composed_tools = crate::tool_catalog::ComposedToolCatalog::new(
             self.base_composition.tool_catalog.clone(),
             extension_tools,
         )
         .map_err(crate::error::RuntimeError::Registry)?;
         #[cfg(feature = "mcp")]
-        {
-            composed_tools = composed_tools.with_mcp(mcp_registry.clone());
-        }
+        let composed_tools = composed_tools.with_mcp(mcp_registry.clone());
         let composed_tools = composed_tools.with_event_bus(self.host_context.event_bus.clone());
 
         // 7. Construct candidate snapshot
@@ -1210,6 +1209,7 @@ impl ExtensionActivationPipeline {
     }
 }
 
+#[cfg(feature = "mcp")]
 fn fingerprint_json<T: serde::Serialize>(value: &T) -> String {
     use sha2::{Digest, Sha256};
 

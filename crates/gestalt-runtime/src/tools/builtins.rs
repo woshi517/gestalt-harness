@@ -1,28 +1,11 @@
-mod bash;
-mod common;
-mod find_files;
-mod patch;
-mod read;
-mod search;
-#[cfg(test)]
-mod test_support;
-mod web_fetch;
-mod write;
-
-pub use bash::{BashInput, BashTool};
-pub use find_files::{FindFilesInput, FindFilesTool};
-pub use patch::{parse_patch, PatchInput, PatchOperation, PatchTool, SearchReplace};
-pub use read::{ReadInput, ReadTool};
-pub use search::{SearchInput, SearchTool};
-pub use web_fetch::{WebFetchInput, WebFetchTool};
-pub use write::{WriteInput, WriteTool};
+use super::{BashTool, FindFilesTool, PatchTool, ReadTool, SearchTool, WebFetchTool, WriteTool};
 
 use std::sync::Arc;
 
 use gestalt_core::ToolError;
 
-pub fn default_registry() -> Result<crate::ToolRegistry, ToolError> {
-    let mut registry = crate::ToolRegistry::new();
+pub fn default_registry() -> Result<super::ToolRegistry, ToolError> {
+    let mut registry = super::ToolRegistry::new();
     registry.register(Arc::new(ReadTool))?;
     registry.register(Arc::new(SearchTool))?;
     registry.register(Arc::new(FindFilesTool))?;

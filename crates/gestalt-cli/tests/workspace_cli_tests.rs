@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::CliOverrides;
 use gestalt_app::workspace::{
     doctor_workspace, info_workspace, init_workspace, snapshot_workspace, status_workspace,

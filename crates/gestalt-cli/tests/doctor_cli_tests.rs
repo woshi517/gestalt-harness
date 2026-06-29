@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::CliOverrides;
 use gestalt_app::doctor::diagnose_workspace;
 use gestalt_cli::output::CliReport;

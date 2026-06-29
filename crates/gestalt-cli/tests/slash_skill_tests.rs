@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 //! Tests for the `/skill` slash command. Validates that unknown or
 //! untrusted skill names are rejected, and that known names produce the
 //! expected `SlashOutcome` for the chat loop to consume.

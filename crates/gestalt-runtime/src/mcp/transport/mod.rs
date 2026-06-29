@@ -1,4 +1,4 @@
-use crate::mcp_error::Result;
+use super::error::Result;
 use async_trait::async_trait;
 use serde_json::Value;
 

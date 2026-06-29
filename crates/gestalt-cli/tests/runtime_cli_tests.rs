@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use async_trait::async_trait;
 use gestalt_app::config::CliOverrides;
 use gestalt_app::runtime_factory::inspect_runtime;

@@ -10,8 +10,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
-use crate::mcp_error::{McpError, Result};
-use crate::transport::McpTransport;
+use super::super::error::{McpError, Result};
+use super::McpTransport;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcRequest {

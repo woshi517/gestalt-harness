@@ -2,13 +2,13 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::mcp_error::{McpError, Result};
-use crate::model::{
+use super::error::{McpError, Result};
+use super::model::{
     parse_mcp_call_result, McpCallResult, McpServerConfig, McpServerId, McpToolSchema,
     McpTransportConfig,
 };
-use crate::transport::stdio::StdioTransport;
-use crate::transport::McpTransport;
+use super::transport::stdio::StdioTransport;
+use super::transport::McpTransport;
 
 pub struct McpClient {
     pub server_id: McpServerId,
@@ -16,14 +16,14 @@ pub struct McpClient {
     transport: Arc<dyn McpTransport>,
     cached_tools: Arc<Mutex<Option<Vec<McpToolSchema>>>>,
     capabilities: Arc<Mutex<Option<Value>>>,
-    event_callback: Option<crate::model::McpEventCallback>,
+    event_callback: Option<super::model::McpEventCallback>,
 }
 
 impl McpClient {
     pub async fn connect(
         config: McpServerConfig,
         workspace_root: &std::path::Path,
-        event_callback: Option<crate::model::McpEventCallback>,
+        event_callback: Option<super::model::McpEventCallback>,
     ) -> Result<Self> {
         let server_id = McpServerId(config.name.clone());
         let transport: Arc<dyn McpTransport> = match &config.transport {
@@ -85,7 +85,7 @@ impl McpClient {
                     let mut lock = cached_tools_clone.lock().await;
                     *lock = None;
                     if let Some(ref cb) = event_callback_clone {
-                        cb(crate::model::McpRegistryEvent::ToolListChanged {
+                        cb(super::model::McpRegistryEvent::ToolListChanged {
                             server_name: server_id_clone.0.clone(),
                         });
                     }
@@ -191,7 +191,7 @@ impl McpClient {
             }
             let hash_str = format!("{:x}", hasher.finalize());
 
-            cb(crate::model::McpRegistryEvent::ToolCatalogRefreshed {
+            cb(super::model::McpRegistryEvent::ToolCatalogRefreshed {
                 server_name: self.server_id.0.clone(),
                 tool_count: tools.len(),
                 schema_hash: hash_str,

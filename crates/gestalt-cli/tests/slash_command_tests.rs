@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_cli::slash::{calculate_session_cost, handle_slash_command, SlashOutcome};
 use gestalt_runtime::run_manifest::{

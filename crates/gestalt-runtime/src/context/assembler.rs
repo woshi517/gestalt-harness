@@ -5,8 +5,8 @@
 
 // Workspace lint configuration is inherited via Cargo.toml [lints] workspace = true
 
-pub use gestalt_core::ClearAction;
 use super::default_prompt;
+pub use gestalt_core::ClearAction;
 
 use gestalt_core::{
     context::{

@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::runs::{delete_run, inspect_run, list_runs, prune_runs, resolve_run_path};
 use std::fs;

@@ -1,3 +1,4 @@
+#![cfg(feature = "full")]
 #![allow(clippy::large_futures)]
 
 use gestalt_app::config::CliOverrides;

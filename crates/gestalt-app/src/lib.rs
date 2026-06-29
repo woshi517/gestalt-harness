@@ -27,21 +27,49 @@
     clippy::large_futures
 )]
 
+#[cfg(feature = "providers")]
 pub mod auth;
+#[cfg(feature = "providers")]
 pub mod catalog;
 pub mod config;
+#[cfg(feature = "providers")]
 pub mod connect;
+#[cfg(all(feature = "tools", feature = "trace"))]
 pub mod context;
+#[cfg(feature = "providers")]
 pub mod doctor;
+#[cfg(feature = "providers")]
 pub mod model_cache;
+#[cfg(feature = "providers")]
 pub mod models;
+#[cfg(feature = "providers")]
 pub mod profiles;
+#[cfg(feature = "providers")]
 pub mod providers;
 pub mod reports;
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
 pub mod run;
+#[cfg(feature = "trace")]
 pub mod runs;
+#[cfg(all(
+    feature = "providers",
+    feature = "tools",
+    feature = "trace",
+    feature = "mcp",
+    feature = "skills",
+    feature = "verify"
+))]
 pub mod runtime_factory;
+#[cfg(all(feature = "providers", feature = "tools", feature = "trace"))]
 pub mod sessions;
+#[cfg(feature = "verify")]
 pub mod verify;
 pub mod workspace;
 

@@ -1,3 +1,5 @@
+#![cfg(feature = "full")]
+
 //! Tests for skill activation surfaces: validation, slash commands, and
 //! runtime error paths.
 
