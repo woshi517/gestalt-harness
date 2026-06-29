@@ -314,7 +314,6 @@ pub(crate) fn emit_trace_event<S: TraceSink>(
 ) -> Result<(), gestalt_core::HarnessError> {
     if let Err(err) = sink.emit(event) {
         *trace_error_count += 1;
-        eprintln!("Trace emit error: {err}");
         if *trace_error_count >= max_trace_errors {
             return Err(gestalt_core::HarnessError::Trace(err));
         }
@@ -338,8 +337,7 @@ pub(crate) fn flush_trace_sink_with_warning(
                 return;
             }
         }
-
-        eprintln!("trace flush failed: {err}");
+        let _ = err;
     }
 }
 

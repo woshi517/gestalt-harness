@@ -2,6 +2,61 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub enum DiagnosticSeverityV1 {
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct AppDiagnosticV1 {
+    pub severity: DiagnosticSeverityV1,
+    pub code: String,
+    pub message: String,
+    pub correlation_id: Option<String>,
+    pub details: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct AppErrorProjectionV1 {
+    pub code: String,
+    pub message: String,
+    pub retryable: bool,
+    pub details: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceReportV1<T> {
+    pub value: T,
+    pub diagnostics: Vec<AppDiagnosticV1>,
+    pub error: Option<AppErrorProjectionV1>,
+    pub correlation_id: Option<String>,
+}
+
+impl<T> ServiceReportV1<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            diagnostics: Vec::new(),
+            error: None,
+            correlation_id: None,
+        }
+    }
+}
+
+pub trait DiagnosticSinkV1: Send + Sync {
+    fn emit(&self, diagnostic: AppDiagnosticV1);
+}
+
+impl<F> DiagnosticSinkV1 for F
+where
+    F: Fn(AppDiagnosticV1) + Send + Sync,
+{
+    fn emit(&self, diagnostic: AppDiagnosticV1) {
+        self(diagnostic);
+    }
+}
+
 #[derive(Serialize, Debug, Clone)]
 pub struct ConnectReport {
     pub provider: String,

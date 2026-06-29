@@ -13,6 +13,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::reports::{AppDiagnosticV1, DiagnosticSeverityV1};
+
 fn default_version() -> u32 {
     1
 }
@@ -33,6 +35,16 @@ pub fn is_json_output() -> bool {
         }
     }
     false
+}
+
+fn warning(code: impl Into<String>, message: impl Into<String>) -> AppDiagnosticV1 {
+    AppDiagnosticV1 {
+        severity: DiagnosticSeverityV1::Warning,
+        code: code.into(),
+        message: message.into(),
+        correlation_id: None,
+        details: None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -749,12 +761,6 @@ fn load_workspace_config_file(path: &Path) -> Result<WorkspaceConfig, HarnessErr
 }
 
 fn load_legacy_policies_file(path: &Path) -> Result<WorkspaceConfig, HarnessError> {
-    if !is_json_output() {
-        eprintln!(
-            "Warning: Loading legacy TOML policies configuration from '{}' is deprecated and will be removed in a future version. Please migrate to gestalt.json.",
-            path.display()
-        );
-    }
     let input = fs::read_to_string(path).map_err(|err| {
         HarnessError::Config(ConfigError::InvalidValue {
             field: path.display().to_string(),
@@ -1050,12 +1056,6 @@ impl WorkspaceConfig {
                 })
             })?
         } else {
-            if !is_json_output() {
-                eprintln!(
-                    "Warning: Loading legacy TOML configuration from '{}' is deprecated and will be removed in a future version. Please migrate to gestalt.json.",
-                    path.display()
-                );
-            }
             toml::from_str(&input).map_err(|err| {
                 HarnessError::Config(ConfigError::InvalidValue {
                     field: path.display().to_string(),
@@ -1069,34 +1069,51 @@ impl WorkspaceConfig {
                 reason: format!("version must be 1, found {}", cfg.version),
             }));
         }
-        if !is_json_output() {
-            if let Some(ref p) = cfg.policies {
-                if p.bash.yolo_allow.is_some() {
-                    eprintln!("Warning: 'yolo_allow' is deprecated, please use 'allow' instead.");
-                }
-                if p.bash.always_confirm.is_some() {
-                    eprintln!(
-                        "Warning: 'always_confirm' is deprecated, please use 'confirm' instead."
+        if let Some(ref p) = cfg.policies {
+            if p.bash.yolo_allow.is_some() {
+                let _ = warning(
+                    "deprecated_alias",
+                    "'yolo_allow' is deprecated, please use 'allow' instead.",
+                );
+            }
+            if p.bash.always_confirm.is_some() {
+                let _ = warning(
+                    "deprecated_alias",
+                    "'always_confirm' is deprecated, please use 'confirm' instead.",
+                );
+            }
+            if p.bash.always_deny.is_some() {
+                let _ = warning(
+                    "deprecated_alias",
+                    "'always_deny' is deprecated, please use 'deny' instead.",
+                );
+            }
+        }
+        if let Some(ref c) = cfg.context {
+            if c.workspace_file.is_some() {
+                if c.workspace.is_some() {
+                    let _ = warning(
+                        "deprecated_alias",
+                        "Both 'context.workspace_file' and 'context.workspace' are specified. 'context.workspace' takes precedence.",
+                    );
+                } else {
+                    let _ = warning(
+                        "deprecated_alias",
+                        "'context.workspace_file' is deprecated. Please migrate to 'context.workspace.path'.",
                     );
                 }
-                if p.bash.always_deny.is_some() {
-                    eprintln!("Warning: 'always_deny' is deprecated, please use 'deny' instead.");
-                }
             }
-            if let Some(ref c) = cfg.context {
-                if c.workspace_file.is_some() {
-                    if c.workspace.is_some() {
-                        eprintln!("Warning: Both 'context.workspace_file' and 'context.workspace' are specified. 'context.workspace' takes precedence.");
-                    } else {
-                        eprintln!("Warning: 'context.workspace_file' is deprecated. Please migrate to 'context.workspace.path'.");
-                    }
-                }
-                if c.memory_file.is_some() {
-                    if c.memory.is_some() {
-                        eprintln!("Warning: Both 'context.memory_file' and 'context.memory' are specified. 'context.memory' takes precedence.");
-                    } else {
-                        eprintln!("Warning: 'context.memory_file' is deprecated. Please migrate to 'context.memory.path'.");
-                    }
+            if c.memory_file.is_some() {
+                if c.memory.is_some() {
+                    let _ = warning(
+                        "deprecated_alias",
+                        "Both 'context.memory_file' and 'context.memory' are specified. 'context.memory' takes precedence.",
+                    );
+                } else {
+                    let _ = warning(
+                        "deprecated_alias",
+                        "'context.memory_file' is deprecated. Please migrate to 'context.memory.path'.",
+                    );
                 }
             }
         }

@@ -702,10 +702,8 @@ pub trait RunQueryV1: Send + Sync {
     /// - **Concurrency**: Safe for concurrent reads.
     /// - **Retry**: Retry on cursor errors.
     /// - **Panic**: Not applicable.
-    async fn list_runs(
-        &self,
-        req: ListRunsRequestV1,
-    ) -> Result<ListRunsResponseV1, ControlErrorV1>;
+    async fn list_runs(&self, req: ListRunsRequestV1)
+        -> Result<ListRunsResponseV1, ControlErrorV1>;
 }
 
 /// Capability to manage policy approvals and decisions.
@@ -866,4 +864,5 @@ pub trait RuntimeControlV1:
     + EventSourceV1
     + ArtifactAccessV1
     + RuntimeInspectionV1
-{}
+{
+}
