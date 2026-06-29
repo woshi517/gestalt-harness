@@ -122,19 +122,8 @@ async fn test_runtime_mcp_policy_check_and_execution() {
             name: "mock-server".to_string(),
             enabled: true,
             transport: McpTransportConfig::Stdio {
-                command: "cargo".to_string(),
-                args: vec![
-                    "run",
-                    "--package",
-                    "gestalt-runtime",
-                    "--features",
-                    "mcp",
-                    "--bin",
-                    "mock_mcp_server",
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect(),
+                command: env!("CARGO_BIN_EXE_mock_mcp_server").to_string(),
+                args: Vec::new(),
                 cwd: None,
                 env: std::collections::HashMap::new(),
             },

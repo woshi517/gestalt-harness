@@ -704,14 +704,22 @@ pub fn legacy_workspace_policies_path(root: &Path) -> PathBuf {
     root.join(".gestalt/policies.toml")
 }
 
+pub fn global_config_dir() -> Option<PathBuf> {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        Some(PathBuf::from(xdg))
+    } else {
+        dirs::config_dir()
+    }
+}
+
 pub fn global_config_path() -> PathBuf {
-    dirs::config_dir()
+    global_config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("gestalt/gestalt.json")
 }
 
 pub fn legacy_global_config_path() -> PathBuf {
-    dirs::config_dir()
+    global_config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("gestalt/config.toml")
 }

@@ -1,4 +1,4 @@
-use crate::config::{mutate_workspace_config_file, workspace_config_path, EffectiveConfig};
+use crate::config::{mutate_workspace_config_file, workspace_config_path, EffectiveConfig, global_config_dir};
 use gestalt_core::error::HarnessError;
 use gestalt_core::tool::ToolCatalog;
 use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
@@ -74,7 +74,7 @@ pub async fn build_app_runtime(
         .map(|s| std::path::PathBuf::from(s))
         .collect();
 
-    let global_dir = dirs::config_dir().map(|d| d.join("gestalt"));
+    let global_dir = global_config_dir().map(|d| d.join("gestalt"));
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
 
@@ -567,7 +567,7 @@ pub fn inspect_extension(
         .iter()
         .map(|s| std::path::PathBuf::from(s))
         .collect();
-    let global_dir = dirs::config_dir().map(|d| d.join("gestalt"));
+    let global_dir = global_config_dir().map(|d| d.join("gestalt"));
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
     let discovered = discovery.discover_all(&explicit_loads)?;
@@ -589,7 +589,7 @@ pub fn list_extensions(
         .iter()
         .map(|s| std::path::PathBuf::from(s))
         .collect();
-    let global_dir = dirs::config_dir().map(|d| d.join("gestalt"));
+    let global_dir = global_config_dir().map(|d| d.join("gestalt"));
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
     let mut discovered = discovery.discover_all(&explicit_loads)?;
@@ -629,7 +629,7 @@ pub fn runtime_doctor(
         .iter()
         .map(|s| std::path::PathBuf::from(s))
         .collect();
-    let global_dir = dirs::config_dir().map(|d| d.join("gestalt"));
+    let global_dir = global_config_dir().map(|d| d.join("gestalt"));
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
 
@@ -696,7 +696,7 @@ pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_runtime::Skill
     let global_dir = if std::env::var_os("GESTALT_NO_GLOBAL_SKILLS").is_some() {
         None
     } else {
-        dirs::config_dir().map(|d| d.join("gestalt"))
+        global_config_dir().map(|d| d.join("gestalt"))
     };
     let home_dir = if std::env::var_os("GESTALT_NO_GLOBAL_SKILLS").is_some() {
         None
