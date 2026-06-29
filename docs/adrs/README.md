@@ -3,6 +3,15 @@
 This index lists the Architecture Decision Records (ADRs) accepted for `gestalt-harness`.
 ADRs 001–022 are documented in the [architecture document](../gestalt-harness-architecture.md). ADRs 023+ are standalone files in this directory.
 
+Accepted ADRs are authoritative for architectural decisions. Feature
+specifications and implementation plans may propose changes, but they must
+amend or supersede the affected ADR before implementation. See the
+[documentation map](../README.md) for the complete authority hierarchy.
+
+ADRs 001–022 should be extracted into standalone files as part of documentation
+hardening. Until extraction is complete, the linked sections remain their
+canonical records.
+
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-001](../gestalt-harness-architecture.md#adr-001-inverted-crate-dependency-direction) | Inverted Crate Dependency Direction | Accepted |
@@ -35,12 +44,15 @@ ADRs 001–022 are documented in the [architecture document](../gestalt-harness-
 | [ADR-028](./ADR-028-extension-package-components.md) | Extension Package Components | Accepted |
 | [ADR-029](./ADR-029-runtime-snapshot-reload.md) | Runtime Snapshot Reload | Accepted |
 | [ADR-030](./ADR-030-lifecycle-protocol-v2.md) | Lifecycle Protocol V2 | Accepted |
+| [ADR-031](./ADR-031-v0-1-greenfield-compatibility-cutoff.md) | v0.1 Greenfield Compatibility Cutoff | Accepted |
 
 ADR-023: Introduces the gestalt-runtime crate as the primary orchestration and composition shell above the pure kernel (gestalt-core).
 
 ADR-024: Implements process-backed extensions executed in separate child processes over stdio using newline-delimited JSON-RPC 2.0 protocol.
 
-ADR-025: Consolidates workspace-scoped and global harness configuration into a single `gestalt.json` per scope, with JSON-first loading, legacy TOML fallback, and transparent migration seeding.
+ADR-025: Consolidates workspace-scoped and global harness configuration into a
+single `gestalt.json` per scope. Its legacy TOML fallback and migration-seeding
+clauses are superseded by ADR-031.
 
 ADR-026: Introduces `PromptAssemblyStrategy` (Snapshot/Dynamic), `ContextStability` classification, and cache-aware context compilation that preserves provider prompt-cache hit rates by separating stable session context from turn-specific context.
 
@@ -52,3 +64,7 @@ ADR-029: Focuses on extension activation pipeline, generation snapshots, lease m
 
 ADR-030: Replaces generic external hooks with typed capabilities: context providers, policy guards, turn routers, external verifiers, and event observers in Lifecycle Protocol V2.
 
+ADR-031: Establishes stable v0.1 as a greenfield compatibility boundary,
+removing legacy harness TOML, extension manifest/protocol V1, deprecated Rust
+APIs, and pre-hardening persistence migrations. Known legacy harness config
+files fail with `UNSUPPORTED_LEGACY_CONFIG` without parsing or migration.

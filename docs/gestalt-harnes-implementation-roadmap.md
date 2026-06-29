@@ -1,11 +1,16 @@
 ## gestalt-harness Implementation Roadmap
 
-**Status:** Draft  
+**Status:** Historical draft; superseded by feature-specific plans
 **Created:** 2026-05-31  
 **Source documents:** [gestalt-harness-prd.md](gestalt-harness-prd.md), [gestalt-harness-architecture.md](gestalt-harness-architecture.md)  
 **Purpose:** Give engineers a shared, phase-by-phase implementation plan with explicit task dependencies, test expectations, and progress checkpoints.
 
-> The PRD owns scope and priority. The architecture document owns runtime contracts, crate boundaries, trait shapes, and implementation decisions. When they conflict, follow the architecture document.
+> This roadmap is retained as historical planning context. It is not the
+> current implementation authority and still reflects earlier repository
+> structure in places. New work should use an active feature specification,
+> accepted ADRs, and a focused plan under `docs/plans/`. See the
+> [documentation map](README.md). The filename typo is retained until archival
+> so existing links do not break.
 
 ---
 
@@ -489,7 +494,7 @@ Introduce durable, human-readable memory. This capability is deferred from the c
 
 ### P2.5 MCP Integration
 
-Introduce MCP as the primary external tool-extension mechanism. [mcp-best-practices](docs/mcp-client-best-practices.md)
+Introduce MCP as the primary external tool-extension mechanism. [mcp-best-practices](mcp-client-best-practices.md)
 
 #### Deliverables
 
@@ -515,7 +520,7 @@ Introduce MCP as the primary external tool-extension mechanism. [mcp-best-practi
 
 ### P2.6 Skill System
 
-Implement reusable procedural instruction sets. [skill-specification](docs/skill-specification.md)
+Implement reusable procedural instruction sets. [skill-specification](skill-specification.md)
 
 #### Deliverables
 

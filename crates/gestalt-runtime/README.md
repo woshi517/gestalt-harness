@@ -1,6 +1,12 @@
 # Gestalt Runtime Crate (`gestalt-runtime`)
 
-The `gestalt-runtime` crate is the **Runtime Composition Layer** of the Gestalt agent harness. It wraps `AgentLoop` (from `gestalt-core`) with concrete implementations of LLM providers, tool catalogs, policy engines, and a transaction-safe extension architecture. This crate implements the V2 package/component architecture supporting hot-reloadable snapshots, lifecycle clients, command tools, and host-level network policies, while maintaining compatibility with legacy V1 process-backed extensions.
+The `gestalt-runtime` crate is the **Runtime Composition Layer** of the Gestalt
+agent harness. It wraps `AgentLoop` (from `gestalt-core`) with concrete
+implementations of LLM providers, tool catalogs, policy engines, and a
+transaction-safe extension architecture. Stable v0.1 supports the V2
+package/component architecture; pre-release V1 compatibility code visible in
+the current source is scheduled for removal by ADR-031 and is not part of the
+stable contract.
 
 For a detailed view of the traits, configuration structures, and fingerprinting mechanisms, please consult the complete [API Reference](./REFERENCE.md).
 
@@ -251,9 +257,11 @@ Schema hashing utilities:
 
 ---
 
-## Legacy V1 Process Extension Compatibility
+## Pre-release V1 Compatibility Code (Scheduled for Removal)
 
-The runtime remains backwards-compatible with the legacy V1 process-backed extension model, allowing child processes to register tools, hooks, and context contributors over a single stdio channel using JSON-RPC 2.0.
+The current pre-release runtime still contains V1 process-extension adapters.
+ADR-031 requires their removal before stable v0.1. This section documents
+implementation debt, not a supported compatibility contract.
 
 ### Concept
 
