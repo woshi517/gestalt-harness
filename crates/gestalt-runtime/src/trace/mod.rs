@@ -1,5 +1,5 @@
-//! `gestalt-trace` — JSONL trace writer + `EventEnvelope`
-
+//! JSONL trace writer + `EventEnvelope` implementation for `gestalt-runtime`.
+//!
 pub mod context_artifacts;
 pub mod evaluator;
 pub mod fixture;

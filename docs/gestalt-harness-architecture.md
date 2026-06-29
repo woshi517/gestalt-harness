@@ -142,7 +142,7 @@ The `gestalt-runtime` crate in `crates/gestalt-runtime` is the composition layer
 ```text
 gestalt-core/src/
 ├── agent.rs          # AgentLoop (<200 lines)
-├── event.rs          # AgentEvent enum (no timestamps — those live in gestalt-trace)
+├── event.rs          # AgentEvent enum (no timestamps — those live in gestalt-runtime::trace)
 ├── message.rs        # Message, ContentBlock, ImageSource, DocumentSource
 ├── provider.rs       # Provider trait, ProviderRequest, ProviderCapabilities
 ├── tool.rs           # Tool trait, ToolSchema, RiskLevel, ToolContext, ToolExecutionResult
@@ -743,7 +743,7 @@ pub struct DocumentSource {
 
 ### 7.3 Agent Events
 
-`AgentEvent` is defined in core without timestamps. Timestamps and correlation IDs are added by `gestalt-trace` in `EventEnvelope`.
+`AgentEvent` is defined in core without timestamps. Timestamps and correlation IDs are added by `gestalt-runtime::trace` in `EventEnvelope`.
 
 ```rust
 // gestalt-core/src/event.rs
@@ -754,7 +754,7 @@ use serde_json::Value;
 /// A single semantic event in an agent session.
 ///
 /// These events drive the UI, the trace log, cost analysis, and replay.
-/// Timestamps and session correlation live in EventEnvelope (gestalt-trace).
+/// Timestamps and session correlation live in EventEnvelope (gestalt-runtime::trace).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
@@ -1098,7 +1098,7 @@ pub enum TraceError {
 ### 8.1 Context Item Model
 
 ```rust
-// gestalt-context/src/item.rs
+// (architectural) gestalt-runtime/src/context/mod.rs
 
 use serde::{Deserialize, Serialize};
 
@@ -1464,10 +1464,10 @@ pub struct ToolArtifact {
 
 ### 9.2 Tool Registry and Tool Catalog
 
-`ToolRegistry` (in `gestalt-tools`) is the concrete implementation of the `ToolCatalog` trait. It stores `Arc<dyn Tool>` by name and provides both name-based and canonical-ID-based lookup:
+`ToolRegistry` (in `gestalt-runtime::tools`) is the concrete implementation of the `ToolCatalog` trait. It stores `Arc<dyn Tool>` by name and provides both name-based and canonical-ID-based lookup:
 
 ```rust
-// gestalt-tools/src/registry.rs
+// crates/gestalt-runtime/src/tools/registry.rs
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -2452,7 +2452,7 @@ This preserves correctness for providers that stream partial tool arguments and 
 Providers are registered lazily via factory closures. Adding a provider must not require changes to the agent loop.
 
 ```rust
-// gestalt-models/src/registry.rs
+// crates/gestalt-runtime/src/providers/registry.rs
 
 use std::{
     collections::HashMap,
@@ -2654,7 +2654,7 @@ The provider layer must preserve these invariants:
 MCP tools are internally distinguishable from built-in tools even when presented uniformly to the model. The `ToolIdentity` type tracks provenance for policy and audit.
 
 ```rust
-// gestalt-mcp/src/identity.rs
+// crates/gestalt-runtime/src/mcp/model.rs
 
 use serde::{Deserialize, Serialize};
 
@@ -2713,14 +2713,13 @@ sequenceDiagram
 
 ## 13. Skill Architecture
 
-The skill system lets users bundle task-specific procedural instructions (`SKILL.md`) that the runtime loads progressively. Skills are **passive** — they are not tools, do not execute code on their own, and are never injected into `gestalt-core`. They integrate entirely through runtime composition: a dedicated `gestalt-skills` crate owns parsing and discovery, `gestalt-runtime` owns activation and context injection, and `gestalt-cli` owns configuration and command surfaces. The fingerprinting and inspect layers capture the resulting state for replay and diagnostics.
+The skill system lets users bundle task-specific procedural instructions (`SKILL.md`) that the runtime loads progressively. Skills are **passive** — they are not tools, do not execute code on their own, and are never injected into `gestalt-core`. They integrate entirely through runtime composition: a dedicated `skills` module in `gestalt-runtime` owns parsing, discovery, activation, and context injection, and `gestalt-app` and `gestalt-cli` own configuration and command surfaces. The fingerprinting and inspect layers capture the resulting state for replay and diagnostics.
 
 ### 13.1 Crate Layout
 
 ```text
 crates/
-├── gestalt-skills/      # Parsing, validation, discovery, indexing, policy types
-└── gestalt-runtime/     # Activation engine, context contributors, tool/policy overlay
+└── gestalt-runtime/     # Activation engine, context contributors, tool/policy overlay, and parsing/discovery/indexing
 ```
 
 `gestalt-core` is skill-agnostic. Skill-specific code never crosses the `core` boundary.
@@ -2758,7 +2757,7 @@ Optional subdirectories (`scripts/`, `references/`, `assets/`) hold demand-loade
 Skills are tagged with both a `SkillTrustLevel` and a `SkillSource` derived from where they were discovered:
 
 ```rust
-// crates/gestalt-skills/src/lib.rs
+// crates/gestalt-runtime/src/skills/mod.rs
 
 pub enum SkillTrustLevel {
     /// Loaded from an explicit user-provided path (e.g., CLI flag or config).
@@ -2841,7 +2840,7 @@ Activation precedence in V1 is fully deterministic (no model-assisted activation
 2. **CLI-provided activation** — `gestalt run --skill <name>` populates the CLI-requested set for that run.
 3. **Deterministic trigger matching** — for trusted skills (`Explicit` or `Workspace` trust, or names in `skills.trusted`), the activation engine tokenizes the current task text and the skill's description/name and counts word matches. A non-zero score activates the skill. `Global` and `Downloaded` skills not in `skills.trusted` are never auto-activated.
 
-Explicit deactivation (`/skill off <name>` or the deactivation set in runtime config) overrides all auto-activation paths. The activation engine is implemented in `crates/gestalt-skills/src/activation.rs` and is shared between the runtime and CLI.
+Explicit deactivation (`/skill off <name>` or the deactivation set in runtime config) overrides all auto-activation paths. The activation engine is implemented in `crates/gestalt-runtime/src/skills/activation.rs` and is shared between the runtime and CLI.
 
 The runtime wires the engine into the per-turn flow at `RuntimeContextHookAdapter::before_context_build`. Each turn:
 
@@ -2939,10 +2938,10 @@ Skill state for a run or session is session-local; explicit activation does not 
 
 ### 14.1 EventEnvelope
 
-Timestamps and correlation IDs live in `gestalt-trace`, not `gestalt-core`. The envelope wraps raw `AgentEvent`s.
+Timestamps and correlation IDs live in `gestalt-runtime::trace`, not `gestalt-core`. The envelope wraps raw `AgentEvent`s.
 
 ```rust
-// gestalt-trace/src/envelope.rs
+// crates/gestalt-runtime/src/trace/mod.rs
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -2987,7 +2986,7 @@ impl TraceSink for NullTraceSink {
 }
 ```
 
-The concrete `JsonlTraceSink` lives in `gestalt-trace` and adds the `EventEnvelope` wrapper.
+The concrete `JsonlTraceSink` lives in `gestalt-runtime::trace` and adds the `EventEnvelope` wrapper.
 
 ### 14.3 Three Replay Modes
 
