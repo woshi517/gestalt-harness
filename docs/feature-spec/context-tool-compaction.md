@@ -4,9 +4,8 @@ status: proposed
 type: feature
 depth: deep
 owners:
-  - gestalt-context
-  - gestalt-runtime
   - gestalt-core
+  - gestalt-runtime
 
 ---
 

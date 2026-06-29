@@ -7,13 +7,21 @@ depth: deep
 target: post-v0.1
 owners:
   - gestalt-runtime
-  - gestalt-cli
+  - gestalt-app
   - gestalt-core
-  - gestalt-mcp
+authority: proposed-evolution
 
 ---
 
 # feat: Product-Neutral Extension Architecture
+
+> [!IMPORTANT]
+> Accepted [ADR-028](../adrs/ADR-028-extension-package-components.md) through
+> [ADR-031](../adrs/ADR-031-v0-1-greenfield-compatibility-cutoff.md) govern
+> implemented and v0.1-target extension architecture. This specification
+> describes broader post-v0.1 evolution and may not downgrade or override those
+> decisions. In particular, manifest/protocol V1 compatibility and migration
+> paths described below are superseded by ADR-031.
 
 ## 1. Summary
 
@@ -2129,24 +2137,24 @@ SDKs must not introduce behavior absent from the protocol.
 
 ---
 
-# 25. Migration From Current Architecture
+# 25. Greenfield Transition From Current Architecture
+
+ADR-031 supersedes compatibility migration from pre-hardening extension
+formats. The transition removes the old path rather than adapting it.
 
 ## Phase 1: Terminology and internal separation
 
 1. Introduce `RuntimeModule`.
-2. Deprecate `GestaltExtension` as the universal external concept.
+2. Remove `GestaltExtension` as the universal external concept.
 3. Add `ExtensionPackage`, `ExtensionComponent`, and `ExtensionInstance`.
 4. Split process transport from tool, context, and hook adapters.
-5. Preserve existing behavior through adapters.
+5. Remove pre-hardening adapters after current component paths are verified.
 
 ## Phase 2: Package manifest v2
 
 1. Add component-based manifest schema.
-2. Support current manifests through a v1-to-v2 loader.
-3. Map existing:
-   - tools to command-tool or legacy process-tool components;
-   - context injectors to context-provider handlers;
-   - hooks to lifecycle handlers.
+2. Require `manifest_version = 2`.
+3. Reject absent, malformed, or V1 manifest versions before activation.
 4. Add extension configuration schema support.
 
 ## Phase 3: Lifecycle protocol v2
@@ -2157,14 +2165,14 @@ SDKs must not introduce behavior absent from the protocol.
 4. Add typed DTOs.
 5. Add data-scope projection.
 6. Add deterministic reducers.
-7. Preserve v1 process extensions behind a compatibility client.
+7. Remove V1 process-extension compatibility clients.
 
 ## Phase 4: External tool simplification
 
 1. Promote MCP as the preferred external tool protocol.
 2. Add command-tool adapter.
-3. Mark proprietary process `tools/call` as legacy for new extensions.
-4. Preserve existing process tools during migration.
+3. Remove proprietary V1 process `tools/call` routing.
+4. Verify command-tool and MCP paths as the supported external tool contracts.
 
 ## Phase 5: Runtime snapshots
 
@@ -2334,8 +2342,7 @@ These questions may be resolved during implementation planning:
 6. Should remote lifecycle components use the same protocol over another transport or require a separate worker protocol?
 7. How should optional components affect package health and reload success?
 8. Should MCP servers remain configured directly under `mcp`, be activatable through extension packages, or support both?
-9. At what release should legacy process `tools/call` stop being recommended for new extensions?
-10. Which runtime events belong in the stable client event projection v1?
+9. Which runtime events belong in the stable client event projection v1?
 
 ---
 
