@@ -40,8 +40,23 @@ published in the relevant version-contract documentation.
 | Migration | Explain a version transition | active while either version is supported |
 | Archive | Preserve superseded context | historical |
 
-Active documents should declare `status`, `type`, `target` where applicable,
-and an owner or owning crate/domain.
+Active documents must declare the following metadata block (YAML frontmatter):
+- `status`: One of the allowed statuses for the document type (e.g., proposed, active, accepted, superseded, completed, abandoned).
+- `type`: The document category (e.g., adr, feature-spec, plan, guide, reference).
+- `target`: The target release version (e.g., v0.1, v0.2, general).
+- `owners`: The primary owning team or individuals responsible for maintenance.
+
+### Owner Responsibilities
+1. **Maintenance:** Keep the document content aligned with current code implementation or active plans.
+2. **Review:** Approve any changes to downstream documents relying on this document's domain.
+3. **Maturity Updates:** Transition document status as the lifecycle changes (e.g., proposed -> active -> completed).
+4. **Link Preservation:** Verify relative links when moving files, ensuring redirects are created at the old paths.
+
+### Archive and Redirect Rules
+1. **Never Silent Deletes:** Historical plans or specs must not be silently deleted if they are referenced.
+2. **Redirect Stub:** Replace the contents of the moved file with a notice: `Redirect: This file has been moved to [New Path](path)`.
+3. **Archive Marker:** Historical or superseded documents must be marked `status: archived` and stored under `docs/archive/` (or labeled clearly if left in place).
+
 
 ## Canonical Domain Map
 
