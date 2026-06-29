@@ -1,6 +1,5 @@
 #![allow(deprecated)]
 
-use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     agent::executor::ToolExecutor,
     approval::AutoApprovalProvider,
@@ -8,8 +7,9 @@ use gestalt_core::{
     session::Session,
     tool_descriptor::ToolNamespace,
 };
-use gestalt_runtime::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
+use gestalt_runtime::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -204,6 +204,7 @@ async fn test_runtime_mcp_policy_check_and_execution() {
         runtime.tools.clone(),
         runtime.policy.clone(),
         runtime.approval.clone(),
+        Arc::new(gestalt_runtime::RuntimeToolOutputMaterializer),
     );
 
     let mut session_grants = Vec::new();

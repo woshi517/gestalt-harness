@@ -116,6 +116,8 @@ pub enum ConfigError {
     UnknownKey(String),
     #[error("invalid config value for {field}: {reason}")]
     InvalidValue { field: String, reason: String },
+    #[error("feature '{feature}' is not enabled for {operation}")]
+    FeatureDisabled { feature: String, operation: String },
 }
 
 #[derive(Debug, Error)]

@@ -437,6 +437,7 @@ impl AgentRuntime {
                 middleware,
                 policy,
                 self.approval.clone(),
+                Arc::new(crate::RuntimeToolOutputMaterializer),
                 self.config.max_turns,
             )
             .with_hooks(core_hooks)

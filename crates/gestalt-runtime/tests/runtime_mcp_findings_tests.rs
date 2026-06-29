@@ -1,13 +1,13 @@
 #![allow(deprecated)]
 
-use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     tool::ToolCatalog,
 };
-use gestalt_runtime::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent};
+use gestalt_runtime::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
 use std::sync::Arc;
 
 struct DummyContextPipeline;

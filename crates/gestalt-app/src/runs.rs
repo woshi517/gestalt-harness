@@ -648,9 +648,9 @@ pub fn prune_runs(
                     let run_manifest_path = path.join("run.json");
                     let mut r_id = None;
                     if run_manifest_path.exists() {
-                        if let Ok(m) =
-                            gestalt_runtime::run_manifest::RunManifest::load_from(&run_manifest_path)
-                        {
+                        if let Ok(m) = gestalt_runtime::run_manifest::RunManifest::load_from(
+                            &run_manifest_path,
+                        ) {
                             r_id = Some(m.run_id);
                         }
                     }

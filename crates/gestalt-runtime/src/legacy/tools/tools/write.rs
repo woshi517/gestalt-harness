@@ -58,10 +58,6 @@ impl Tool for WriteTool {
         )
     }
 
-    fn shape_output(&self, result: &mut gestalt_core::tool::ToolExecutionResult) {
-        crate::response_shaping::shape_tool_response(self.name(), result);
-    }
-
     fn can_run_in_parallel(&self, _input: &Value) -> bool {
         false
     }

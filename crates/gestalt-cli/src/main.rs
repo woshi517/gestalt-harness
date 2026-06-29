@@ -495,7 +495,12 @@ fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload 
     if let Some(harness_err) = err.downcast_ref::<gestalt_core::HarnessError>() {
         match harness_err {
             gestalt_core::HarnessError::Config(cfg_err) => CliErrorPayload {
-                code: "CONFIG_ERROR".to_string(),
+                code: match cfg_err {
+                    gestalt_core::ConfigError::FeatureDisabled { .. } => {
+                        "FEATURE_DISABLED".to_string()
+                    }
+                    _ => "CONFIG_ERROR".to_string(),
+                },
                 message: cfg_err.to_string(),
                 details: None,
             },

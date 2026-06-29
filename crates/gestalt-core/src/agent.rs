@@ -12,7 +12,7 @@ use crate::{
     policy::PolicyEngine,
     provider::{Provider, ProviderRequest},
     session::{RunResult, Session},
-    tool::ToolCatalog,
+    tool::{ToolCatalog, ToolOutputMaterializer},
 };
 
 pub mod executor;
@@ -56,13 +56,14 @@ impl AgentLoop {
         middleware: Arc<dyn ContextPipeline>,
         policy: Arc<dyn PolicyEngine>,
         approval: Arc<dyn ApprovalProvider>,
+        materializer: Arc<dyn ToolOutputMaterializer>,
         max_turns: usize,
     ) -> Self {
         Self {
             provider,
             middleware,
             max_turns,
-            executor: ToolExecutor::new(tools, policy, approval),
+            executor: ToolExecutor::new(tools, policy, approval, materializer.clone()),
             hooks: crate::hook::HookRegistry::default(),
             steering_queue: None,
         }

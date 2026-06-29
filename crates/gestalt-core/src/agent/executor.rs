@@ -13,7 +13,9 @@ use crate::{
     event::{AgentEvent, ApprovalOutcome, PolicyStatus},
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     session::Session,
-    tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolExecutionResult},
+    tool::{
+        RiskLevel, Tool, ToolCatalog, ToolContext, ToolExecutionResult, ToolOutputMaterializer,
+    },
     tool_descriptor::{ToolAnnotations, ToolDescriptor, ToolNamespace, ToolRetryPolicy},
     tool_failure::{ToolErrorReport, ToolFailureKind},
 };
@@ -22,6 +24,7 @@ pub struct ToolExecutor {
     tools: Arc<dyn ToolCatalog>,
     policy: Arc<dyn PolicyEngine>,
     approval: Arc<dyn ApprovalProvider>,
+    materializer: Arc<dyn ToolOutputMaterializer>,
 }
 
 impl ToolExecutor {
@@ -29,11 +32,13 @@ impl ToolExecutor {
         tools: Arc<dyn ToolCatalog>,
         policy: Arc<dyn PolicyEngine>,
         approval: Arc<dyn ApprovalProvider>,
+        materializer: Arc<dyn ToolOutputMaterializer>,
     ) -> Self {
         Self {
             tools,
             policy,
             approval,
+            materializer,
         }
     }
 
@@ -361,6 +366,7 @@ impl ToolExecutor {
         let mut results = denied_results;
         let mut current_parallel = Vec::new();
         let (retry_tx, mut retry_rx) = tokio::sync::mpsc::unbounded_channel();
+        let materializer = self.materializer.clone();
 
         // 4. Execution of planned calls
         for (order, id, canonical_id, input, tool, policy) in planned {
@@ -400,27 +406,29 @@ impl ToolExecutor {
 
                 let cancel_clone = cancel_token.clone();
                 let retry_tx_clone = retry_tx.clone();
+                let materializer = materializer.clone();
                 let futures = std::mem::take(&mut current_parallel).into_iter().map(
                     |(order, id, _canonical_id, input, tool, policy, tool_ctx)| {
                         let tool_call_id = id.clone();
                         let c = cancel_clone.clone();
                         let r_tx = retry_tx_clone.clone();
+                        let materializer = materializer.clone();
                         async move {
                             let descriptor = tool.descriptor();
                             let retry_policy = descriptor.retry_policy.as_ref();
                             let start = std::time::Instant::now();
-                            let mut result = execute_tool_with_retry(
+                            let result = execute_tool_with_retry(
                                 tool.as_ref(),
                                 input,
                                 &tool_ctx,
                                 &tool_call_id,
+                                materializer.as_ref(),
                                 &c,
                                 retry_policy,
                                 &descriptor,
                                 &r_tx,
                             )
                             .await;
-                            tool.shape_output(&mut result);
                             let duration =
                                 u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                             (order, id, result, duration, policy.policy_source)
@@ -477,13 +485,12 @@ impl ToolExecutor {
             let retry_policy = descriptor.retry_policy.as_ref();
             let start = std::time::Instant::now();
             let retry_tx_clone = retry_tx.clone();
-            let mut result = tokio::select! {
-                res = execute_tool_with_retry(tool.as_ref(), input, &tool_ctx, &id, cancel_token, retry_policy, &descriptor, &retry_tx_clone) => res,
+            let result = tokio::select! {
+                res = execute_tool_with_retry(tool.as_ref(), input, &tool_ctx, &id, materializer.as_ref(), cancel_token, retry_policy, &descriptor, &retry_tx_clone) => res,
                 _ = cancel_token.cancelled() => {
                     return Err(crate::error::HarnessError::Cancelled);
                 }
             };
-            tool.shape_output(&mut result);
 
             while let Ok(event) = retry_rx.try_recv() {
                 emit(event)?;
@@ -510,27 +517,29 @@ impl ToolExecutor {
 
             let cancel_clone = cancel_token.clone();
             let retry_tx_clone = retry_tx.clone();
+            let materializer = materializer.clone();
             let futures = current_parallel.into_iter().map(
                 |(order, id, _canonical_id, input, tool, policy, tool_ctx)| {
                     let tool_call_id = id.clone();
                     let c = cancel_clone.clone();
                     let r_tx = retry_tx_clone.clone();
+                    let materializer = materializer.clone();
                     async move {
                         let descriptor = tool.descriptor();
                         let retry_policy = descriptor.retry_policy.as_ref();
                         let start = std::time::Instant::now();
-                        let mut result = execute_tool_with_retry(
+                        let result = execute_tool_with_retry(
                             tool.as_ref(),
                             input,
                             &tool_ctx,
                             &tool_call_id,
+                            materializer.as_ref(),
                             &c,
                             retry_policy,
                             &descriptor,
                             &r_tx,
                         )
                         .await;
-                        tool.shape_output(&mut result);
                         let duration =
                             u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                         (order, id, result, duration, policy.policy_source)
@@ -810,14 +819,13 @@ pub async fn execute_tool(
     input: Value,
     ctx: &ToolContext,
     tool_call_id: &str,
+    materializer: &dyn ToolOutputMaterializer,
     cancel_token: &crate::cancel::CancelToken,
 ) -> ToolExecutionResult {
     tokio::select! {
         res = tokio::time::timeout(ctx.timeout, tool.execute(input, ctx)) => {
             match res {
-                Ok(Ok(output)) => output
-                    .into_execution_result(false, ctx.max_output_bytes, ctx, tool_call_id)
-                    .unwrap_or_else(|err| ToolExecutionResult::error(err.to_string())),
+                Ok(Ok(output)) => materializer.materialize(tool, output, false, ctx, tool_call_id),
                 Ok(Err(err)) => {
                     let failure = match &err {
                         crate::error::ToolError::Timeout { tool_name, timeout_secs } => {
@@ -912,6 +920,7 @@ async fn execute_tool_with_retry(
     input: Value,
     ctx: &ToolContext,
     tool_call_id: &str,
+    materializer: &dyn ToolOutputMaterializer,
     cancel_token: &crate::cancel::CancelToken,
     retry_policy: Option<&ToolRetryPolicy>,
     descriptor: &ToolDescriptor,
@@ -919,7 +928,15 @@ async fn execute_tool_with_retry(
 ) -> ToolExecutionResult {
     let mut attempt = 0;
     loop {
-        let result = execute_tool(tool, input.clone(), ctx, tool_call_id, cancel_token).await;
+        let result = execute_tool(
+            tool,
+            input.clone(),
+            ctx,
+            tool_call_id,
+            materializer,
+            cancel_token,
+        )
+        .await;
 
         if !result.is_error {
             return result;

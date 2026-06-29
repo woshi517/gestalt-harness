@@ -655,7 +655,8 @@ pub async fn run_session_action(
         _ => None,
     };
 
-    let current_tool_hash = gestalt_runtime::run_manifest::compute_tool_schema_hash(&tools.schemas());
+    let current_tool_hash =
+        gestalt_runtime::run_manifest::compute_tool_schema_hash(&tools.schemas());
     let current_cache_key =
         analysis
             .prompt_snapshot

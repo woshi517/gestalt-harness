@@ -168,8 +168,11 @@ impl ContextPipeline for RuntimeContextPipeline {
 
         policy.validate()?;
 
-        let accountant =
-            crate::legacy_context::accounting::ContextAccountant::new(budget, policy, &plain_history);
+        let accountant = crate::legacy_context::accounting::ContextAccountant::new(
+            budget,
+            policy,
+            &plain_history,
+        );
         let usable_limit = accountant.usable_limit();
 
         let (packet, plan) = if policy.enabled && budget.model_limit > 0 && usable_limit > 0 {
@@ -339,14 +342,15 @@ impl ContextPipeline for RuntimeContextPipeline {
             .iter()
             .position(|item| matches!(item, ProjectedHistoryItem::Checkpoint { .. }))
             .unwrap_or(0);
-        let recent_protected_start = crate::legacy_context::tool_clearing::find_recent_protected_start(
-            &cleared_history
-                .iter()
-                .map(|entry| entry.message.clone())
-                .collect::<Vec<_>>(),
-            policy.keep_recent_turns,
-            policy.keep_recent_tokens,
-        );
+        let recent_protected_start =
+            crate::legacy_context::tool_clearing::find_recent_protected_start(
+                &cleared_history
+                    .iter()
+                    .map(|entry| entry.message.clone())
+                    .collect::<Vec<_>>(),
+                policy.keep_recent_turns,
+                policy.keep_recent_tokens,
+            );
 
         let compactor_input_limit = usable_limit;
         let target_limit = accountant.compaction_target();
@@ -437,7 +441,11 @@ impl ContextPipeline for RuntimeContextPipeline {
                     }
 
                     if let Some(dir) = artifacts_dir {
-                        crate::legacy_trace::persist_checkpoint(&checkpoint, dir, policy.durability)?;
+                        crate::legacy_trace::persist_checkpoint(
+                            &checkpoint,
+                            dir,
+                            policy.durability,
+                        )?;
                     }
 
                     emit(gestalt_core::event::AgentEvent::ContextCompacted {
@@ -1124,8 +1132,8 @@ impl RuntimeContextPipeline {
             }
         }
 
-        let loaded: crate::legacy_trace::CompactionCheckpoint =
-            serde_json::from_str(&content).map_err(|err| {
+        let loaded: crate::legacy_trace::CompactionCheckpoint = serde_json::from_str(&content)
+            .map_err(|err| {
                 gestalt_core::error::HarnessError::Trace(gestalt_core::TraceError::ReadFailed {
                     reason: format!("failed to parse checkpoint: {}", err),
                 })

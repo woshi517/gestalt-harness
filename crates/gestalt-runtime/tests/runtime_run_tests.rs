@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{
@@ -19,6 +18,7 @@ use gestalt_core::{
     session::{Session, SessionConfig},
     tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::{
     AfterContextBuildCtx, AgentRuntimeBuilder, CompositionHooks, ContextPatch, HookOutcome,
     RuntimeConfig, RuntimeContextHookAdapter, RuntimeContextPipeline, RuntimeEventBus, UserInput,
@@ -994,8 +994,9 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
         AgentEvent::PromptCachePlanGenerated { .. }
     ));
 
-    let persisted = gestalt_runtime::read_prompt_snapshot(artifact_dir.join("prompt-snapshot.json"))
-        .expect("prompt snapshot persisted");
+    let persisted =
+        gestalt_runtime::read_prompt_snapshot(artifact_dir.join("prompt-snapshot.json"))
+            .expect("prompt snapshot persisted");
     assert_eq!(persisted.snapshot_hash, snapshot.snapshot_hash);
 
     let events_second = adapter

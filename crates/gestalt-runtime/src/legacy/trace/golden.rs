@@ -5,6 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use crate::legacy_policy::MinimalPolicyEngine;
 use gestalt_core::{
     agent::AgentLoop,
     approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest},
@@ -19,7 +20,6 @@ use gestalt_core::{
     tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
     trace::TraceSink,
 };
-use crate::legacy_policy::MinimalPolicyEngine;
 
 use crate::fixture::{FixtureInput, MockToolConfig};
 use crate::{read_trace, EventEnvelope, JsonlTraceSink};
@@ -356,6 +356,7 @@ impl GoldenTraceRunner {
             pipeline,
             policy,
             approval,
+            Arc::new(crate::RuntimeToolOutputMaterializer),
             golden.input.session_config.max_turns,
         )
         .with_hooks(hooks);

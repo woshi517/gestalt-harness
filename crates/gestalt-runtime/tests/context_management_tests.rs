@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     context::{HistoryRange, StateUpdate, TokenBudget},
     event::{AgentEvent, StopReason},
@@ -8,8 +7,9 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     ContextAssembler, ContextPipeline, MessageId, SessionMessage,
 };
-use gestalt_runtime::RuntimeContextPipeline;
 use gestalt_runtime::CompactionCheckpoint;
+use gestalt_runtime::ContextMessageAssembler;
+use gestalt_runtime::RuntimeContextPipeline;
 
 fn runtime_pipeline() -> RuntimeContextPipeline {
     RuntimeContextPipeline {

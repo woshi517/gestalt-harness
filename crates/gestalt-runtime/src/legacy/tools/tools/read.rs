@@ -56,10 +56,6 @@ impl Tool for ReadTool {
         )
     }
 
-    fn shape_output(&self, result: &mut gestalt_core::tool::ToolExecutionResult) {
-        crate::response_shaping::shape_tool_response(self.name(), result);
-    }
-
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let input = parse_input::<ReadInput>(self.name(), input)?;
         let path = validate_existing_path(&input.path, ctx)?;

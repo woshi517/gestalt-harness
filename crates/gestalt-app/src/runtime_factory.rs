@@ -56,18 +56,18 @@ pub async fn build_app_runtime(
         resolved_provider.model().to_string()
     };
 
-    #[allow(unused_mut)]
-    let mut enabled_host_features = Vec::new();
-    #[cfg(feature = "mcp")]
-    enabled_host_features.push("mcp".to_string());
-    #[cfg(feature = "skills")]
-    enabled_host_features.push("skills".to_string());
-    #[cfg(feature = "verify")]
-    enabled_host_features.push("verify".to_string());
-    #[cfg(feature = "tui")]
-    enabled_host_features.push("tui".to_string());
-    #[cfg(feature = "otel")]
-    enabled_host_features.push("otel".to_string());
+    let enabled_host_features = vec![
+        #[cfg(feature = "mcp")]
+        "mcp".to_string(),
+        #[cfg(feature = "skills")]
+        "skills".to_string(),
+        #[cfg(feature = "verify")]
+        "verify".to_string(),
+        #[cfg(feature = "tui")]
+        "tui".to_string(),
+        #[cfg(feature = "otel")]
+        "otel".to_string(),
+    ];
 
     let explicit_loads: Vec<std::path::PathBuf> = config
         .extensions
@@ -142,7 +142,8 @@ pub async fn build_app_runtime(
         };
         let trusted = matches!(
             desc.trust_level,
-            gestalt_runtime::SkillTrustLevel::Explicit | gestalt_runtime::SkillTrustLevel::Workspace
+            gestalt_runtime::SkillTrustLevel::Explicit
+                | gestalt_runtime::SkillTrustLevel::Workspace
         ) || trusted_names.contains(name.as_str());
         if !trusted {
             return Err(HarnessError::Config(
@@ -275,7 +276,9 @@ pub async fn build_app_runtime(
         "echo 'Command verified'",
     )));
 
-    let verification_hook = Arc::new(gestalt_runtime::VerificationToolHook::new(verifier_registry));
+    let verification_hook = Arc::new(gestalt_runtime::VerificationToolHook::new(
+        verifier_registry,
+    ));
     let evaluator = Arc::new(gestalt_runtime::evaluator::NoopTraceEvaluator);
 
     let mut core_hooks = gestalt_core::HookRegistry::new();

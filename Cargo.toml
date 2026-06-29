@@ -84,13 +84,11 @@ eventsource-stream = "0.2"
 # === CLI ===
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
-toml_edit = "0.22"
 dirs = "5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # === Context ===
-tiktoken-rs = "0.6"
 pulldown-cmark = "0.12"
 sha2 = "0.10"
 serde_yaml = "0.9"

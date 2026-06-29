@@ -19,7 +19,6 @@ tokio = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 toml = { workspace = true }
-toml_edit = { workspace = true }
 keyring = "2"
 rpassword = "7"
 reqwest = { workspace = true }

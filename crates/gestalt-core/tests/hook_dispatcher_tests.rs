@@ -16,6 +16,12 @@ use gestalt_core::{
 use std::sync::Arc;
 use std::sync::Mutex;
 
+mod tool_materializer;
+
+fn materializer() -> Arc<dyn gestalt_core::tool::ToolOutputMaterializer> {
+    Arc::new(tool_materializer::TestToolOutputMaterializer)
+}
+
 struct MockProvider;
 #[async_trait]
 impl Provider for MockProvider {
@@ -301,6 +307,7 @@ async fn test_context_hook_fail_open() {
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
+        materializer(),
         1,
     );
     let mut hooks = HookRegistry::new();
@@ -350,6 +357,7 @@ async fn test_tool_hook_fail_open() {
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
+        materializer(),
         1,
     );
     let mut hooks = HookRegistry::new();
@@ -397,6 +405,7 @@ async fn test_next_turn_hook_fail_closed_blocked() {
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
+        materializer(),
         2,
     );
     let mut hooks = HookRegistry::new();

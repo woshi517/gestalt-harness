@@ -16,6 +16,12 @@ use gestalt_core::{
 use std::sync::Arc;
 use std::sync::Mutex;
 
+mod tool_materializer;
+
+fn materializer() -> Arc<dyn gestalt_core::tool::ToolOutputMaterializer> {
+    Arc::new(tool_materializer::TestToolOutputMaterializer)
+}
+
 struct MockProvider;
 #[async_trait::async_trait]
 impl Provider for MockProvider {
@@ -209,6 +215,7 @@ async fn test_agent_loop_drain_single_message() {
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
+        materializer(),
         1,
     )
     .with_steering_queue(queue.clone());
@@ -306,6 +313,7 @@ async fn test_agent_loop_drain_empty_no_events() {
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
+        materializer(),
         1,
     )
     .with_steering_queue(queue.clone());
@@ -347,6 +355,7 @@ async fn test_agent_loop_does_not_drain_messages_after_terminal_stop() {
         Arc::new(MockContextPipeline),
         Arc::new(MockPolicyEngine),
         Arc::new(AutoApprovalProvider),
+        materializer(),
         1,
     )
     .with_hooks(hooks)

@@ -32,7 +32,6 @@ glob = { workspace = true }
 similar = { workspace = true }
 tracing = { workspace = true }
 pulldown-cmark = { workspace = true }
-tiktoken-rs = { workspace = true }
 serde_yaml = { workspace = true }
 libc = { workspace = true }
 tokio-util = { workspace = true }

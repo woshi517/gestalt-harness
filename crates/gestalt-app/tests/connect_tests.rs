@@ -72,9 +72,7 @@ fn test_connect_openrouter() {
     assert_eq!(resolved.model(), "openrouter/free");
     assert_eq!(
         resolved.auth.credential_ref(),
-        gestalt_runtime::auth::CredentialRef::Keychain(
-            "gestalt/openrouter".to_string()
-        )
+        gestalt_runtime::auth::CredentialRef::Keychain("gestalt/openrouter".to_string())
     );
 
     // Verify disconnect

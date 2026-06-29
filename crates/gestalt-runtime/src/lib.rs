@@ -46,6 +46,7 @@ pub mod session_queue;
 pub mod skill_contributor;
 pub mod tool_catalog;
 pub mod tool_catalog_planner;
+pub mod tool_output;
 pub mod workspace_context;
 pub mod workspace_snapshot;
 
@@ -130,6 +131,7 @@ pub use runtime::{AgentRuntime, UserInput};
 pub use session_queue::InMemorySteeringQueue;
 pub use tool_catalog::ComposedToolCatalog;
 pub use tool_catalog_planner::{ToolCatalogPlanner, ToolProfile};
+pub use tool_output::RuntimeToolOutputMaterializer;
 pub use workspace_context::{
     load_and_snapshot_workspace_context, ContextSnapshotMode, MemoryContextConfig,
     MemorySelectionStrategy, MemoryWriteMode, WorkspaceContextConfig, WorkspaceContextError,

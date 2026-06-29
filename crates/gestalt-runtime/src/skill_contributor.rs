@@ -1,11 +1,11 @@
 use crate::context::ContextContributor;
 use crate::error::Result;
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
-use gestalt_core::{message::Message, ContextStability};
 use crate::legacy_skills::{
     render_active_skill_instructions, ActivationEngine, ActivationReason as SkActivationReason,
     ActivationState, SkillIndex,
 };
+use gestalt_core::{message::Message, ContextStability};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

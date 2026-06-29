@@ -29,6 +29,8 @@ use gestalt_core::{
 };
 use serde_json::{json, Value};
 
+mod tool_materializer;
+
 #[derive(Clone)]
 enum ScriptedResponse {
     EchoField(&'static str),
@@ -89,6 +91,10 @@ impl TestTool {
     fn executions(&self) -> Vec<Value> {
         self.executed_inputs.lock().unwrap().clone()
     }
+}
+
+fn materializer() -> Arc<dyn gestalt_core::tool::ToolOutputMaterializer> {
+    Arc::new(tool_materializer::TestToolOutputMaterializer)
 }
 
 #[async_trait]
@@ -390,6 +396,7 @@ async fn denied_policy_returns_failure_without_executing_tool() {
         Arc::new(TestCatalog::new(vec![tool.clone()])),
         Arc::new(QueuePolicyEngine::new(vec![deny("test:deny")])),
         Arc::new(QueueApprovalProvider::new(vec![])),
+        materializer(),
     );
 
     let (results, events) = execute_batch(
@@ -450,6 +457,7 @@ async fn session_grant_applies_only_to_same_input_hash() {
             confirm("test:confirm-3"),
         ])),
         approvals.clone(),
+        materializer(),
     );
     let session = make_session(ExecutionMode::Confirm);
     let mut grants = Vec::new();
@@ -532,6 +540,7 @@ async fn edited_approval_re_evaluates_and_executes_edited_input() {
         Arc::new(QueueApprovalProvider::new(vec![ApprovalDecision::Edit(
             json!({"value": "edited"}),
         )])),
+        materializer(),
     );
 
     let (results, events) = execute_batch(
@@ -579,6 +588,7 @@ async fn edited_input_that_still_requires_confirmation_is_denied() {
         Arc::new(QueueApprovalProvider::new(vec![ApprovalDecision::Edit(
             json!({"value": "still-risky"}),
         )])),
+        materializer(),
     );
 
     let (results, events) = execute_batch(
@@ -626,6 +636,7 @@ async fn retryable_timeout_retries_for_trusted_read_only_tool() {
         Arc::new(TestCatalog::new(vec![tool.clone()])),
         Arc::new(QueuePolicyEngine::new(vec![allow("test:allow")])),
         Arc::new(QueueApprovalProvider::new(vec![])),
+        materializer(),
     );
 
     let (results, events) = execute_batch(
@@ -675,6 +686,7 @@ async fn parallel_results_preserve_original_order_and_grouping() {
             allow("test:allow-2"),
         ])),
         Arc::new(QueueApprovalProvider::new(vec![])),
+        materializer(),
     );
 
     let (results, events) = execute_batch(
@@ -735,6 +747,7 @@ async fn trace_flush_failure_is_non_fatal_and_emits_warning() {
         Arc::new(TestCatalog::new(vec![tool])),
         Arc::new(QueuePolicyEngine::new(vec![allow("test:allow")])),
         Arc::new(QueueApprovalProvider::new(vec![])),
+        materializer(),
     );
 
     let (results, events) = execute_batch(

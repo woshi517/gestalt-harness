@@ -2,7 +2,9 @@
 
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::sessions::{history_session, inspect_session, list_sessions, run_session_action};
-use gestalt_runtime::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
+use gestalt_runtime::run_manifest::{
+    CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
+};
 use std::fs;
 use std::path::PathBuf;
 

@@ -1,4 +1,5 @@
 pub use crate::legacy_context::compaction::plan_compaction_range;
+use crate::legacy_trace::CompactionCheckpoint;
 use chrono::Utc;
 use gestalt_core::{
     context::HistoryRange,
@@ -7,7 +8,6 @@ use gestalt_core::{
     provider::{Provider, ProviderRequest},
     turn::TurnAccumulator,
 };
-use crate::legacy_trace::CompactionCheckpoint;
 use sha2::{Digest as _, Sha256};
 use std::fmt::Write as _;
 

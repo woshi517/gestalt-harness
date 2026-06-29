@@ -69,10 +69,6 @@ impl Tool for FindFilesTool {
         )
     }
 
-    fn shape_output(&self, result: &mut gestalt_core::tool::ToolExecutionResult) {
-        crate::response_shaping::shape_tool_response(self.name(), result);
-    }
-
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         let input = parse_input::<FindFilesInput>(self.name(), input)?;
         let root = validate_child_dir(input.path.as_deref(), ctx)?;

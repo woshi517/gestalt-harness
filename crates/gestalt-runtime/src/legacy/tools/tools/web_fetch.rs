@@ -61,10 +61,6 @@ impl Tool for WebFetchTool {
         )
     }
 
-    fn shape_output(&self, result: &mut gestalt_core::tool::ToolExecutionResult) {
-        crate::response_shaping::shape_tool_response(self.name(), result);
-    }
-
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
         if !ctx.allow_network {
             return Err(ToolError::NetworkDenied(

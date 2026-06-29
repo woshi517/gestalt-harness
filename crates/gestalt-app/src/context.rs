@@ -3,8 +3,8 @@ use crate::reports::ContextExplainReport;
 use gestalt_core::ToolCatalog;
 use gestalt_core::{context::ContextPipeline, Message, TokenBudget};
 use gestalt_runtime::context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
-use gestalt_runtime::workspace_context::load_and_snapshot_workspace_context;
 use gestalt_runtime::default_registry;
+use gestalt_runtime::workspace_context::load_and_snapshot_workspace_context;
 use std::sync::{Arc, Mutex};
 
 pub async fn explain_context(

@@ -188,7 +188,8 @@ pub struct KeychainCredentialResolver;
 
 impl CredentialResolver for KeychainCredentialResolver {
     fn resolve(&self, auth: &ProviderAuthConfig) -> Result<ResolvedCredential, HarnessError> {
-        if let gestalt_runtime::auth::ConfiguredCredential::Keychain(ref account) = auth.credential {
+        if let gestalt_runtime::auth::ConfiguredCredential::Keychain(ref account) = auth.credential
+        {
             if let Ok(password) = get_keychain_secret(account) {
                 return Ok(ResolvedCredential::new(
                     password,

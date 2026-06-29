@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
 use crate::config::EffectiveConfig;
-use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     trace::TraceSink, AgentEvent, ExecutionMode, PromptAssemblyStrategy, WorkspaceSnapshotter,
 };
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::MinimalPolicyEngine;
 use gestalt_runtime::{
     aggregate_costs, read_prompt_snapshot, write_cost_report, write_summary, JsonlTraceSink,
@@ -615,21 +615,21 @@ pub fn compute_skill_fingerprint(
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
 
-    let active_descriptors: Vec<&gestalt_runtime::SkillDescriptor> = if let Some(task) = current_task
-    {
-        let index = gestalt_runtime::SkillIndex::new(discovered.to_vec());
-        let state = gestalt_runtime::ActivationState::new(config.skills.active.clone());
-        let resolved = gestalt_runtime::ActivationEngine::resolve(&index, &state, Some(task));
-        resolved
-            .iter()
-            .filter_map(|name| discovered.iter().find(|skill| &skill.name == name))
-            .collect()
-    } else {
-        discovered
-            .iter()
-            .filter(|skill| config.skills.active.iter().any(|name| name == &skill.name))
-            .collect()
-    };
+    let active_descriptors: Vec<&gestalt_runtime::SkillDescriptor> =
+        if let Some(task) = current_task {
+            let index = gestalt_runtime::SkillIndex::new(discovered.to_vec());
+            let state = gestalt_runtime::ActivationState::new(config.skills.active.clone());
+            let resolved = gestalt_runtime::ActivationEngine::resolve(&index, &state, Some(task));
+            resolved
+                .iter()
+                .filter_map(|name| discovered.iter().find(|skill| &skill.name == name))
+                .collect()
+        } else {
+            discovered
+                .iter()
+                .filter(|skill| config.skills.active.iter().any(|name| name == &skill.name))
+                .collect()
+        };
 
     if active_descriptors.is_empty() && config.skills.explicit_paths.is_empty() {
         return None;

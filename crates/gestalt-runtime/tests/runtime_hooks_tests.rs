@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use gestalt_runtime::ContextMessageAssembler;
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{ContextPipeline, TokenBudget},
@@ -14,6 +13,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
+use gestalt_runtime::ContextMessageAssembler;
 use gestalt_runtime::{
     AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, BeforeContextBuildCtx,
     BeforeToolPolicyCtx, CompositionHooks, HookOutcome, OnEventCtx, RuntimeConfig, UserInput,

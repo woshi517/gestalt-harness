@@ -84,7 +84,7 @@ pub use session_queue::{
 pub use snapshot::{WorkspaceSnapshot, WorkspaceSnapshotter};
 pub use tool::{
     artifact_path, is_audited_local_command, sanitize_artifact_stem, RiskLevel, Tool, ToolArtifact,
-    ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolSchema,
+    ToolCatalog, ToolContext, ToolExecutionResult, ToolOutput, ToolOutputMaterializer, ToolSchema,
 };
 pub use tool_descriptor::{
     AnnotationSource, CanonicalToolId, ProviderToolFormat, ResponseShapeRules, ToolAnnotation,

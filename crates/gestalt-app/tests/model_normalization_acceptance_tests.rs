@@ -1,7 +1,9 @@
 use gestalt_core::{
     AgentEvent, ApiFormat, ModelCapabilities, PromptCacheMode, ResolvedModelSnapshot,
 };
-use gestalt_runtime::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
+use gestalt_runtime::run_manifest::{
+    CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
+};
 
 #[test]
 fn test_responses_sse_parsing() {

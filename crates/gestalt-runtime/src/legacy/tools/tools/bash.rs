@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::legacy_exec::NetworkPolicy as ExecNetworkPolicy;
-use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 use crate::legacy_exec::{ExecRequest, ExecutionSandbox, NoSandbox};
+use gestalt_core::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolSchema};
 
 use crate::path::validate_child_dir;
 
@@ -74,10 +74,6 @@ impl Tool for BashTool {
             None,  // no retries
             &[],
         )
-    }
-
-    fn shape_output(&self, result: &mut gestalt_core::tool::ToolExecutionResult) {
-        crate::response_shaping::shape_tool_response(self.name(), result);
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

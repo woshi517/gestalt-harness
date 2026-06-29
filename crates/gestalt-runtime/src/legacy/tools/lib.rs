@@ -9,7 +9,6 @@ pub mod backends;
 pub mod builtin_descriptors;
 pub mod path;
 pub mod registry;
-pub mod response_shaping;
 pub mod tools;
 
 pub use registry::ToolRegistry;

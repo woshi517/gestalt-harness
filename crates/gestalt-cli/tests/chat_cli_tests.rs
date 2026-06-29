@@ -3,7 +3,9 @@
 use gestalt_app::config::CliOverrides;
 use gestalt_cli::chat::run_chat;
 use gestalt_core::HarnessError;
-use gestalt_runtime::run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
+use gestalt_runtime::run_manifest::{
+    CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
+};
 use std::fs;
 use std::path::PathBuf;
 

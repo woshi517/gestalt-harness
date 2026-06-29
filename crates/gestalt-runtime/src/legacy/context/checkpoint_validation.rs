@@ -1,7 +1,7 @@
+use crate::legacy_trace::CompactionCheckpoint;
 use crate::{estimate_message_tokens, estimate_text_tokens};
 use gestalt_core::context::HistoryRange;
 use gestalt_core::message::{ContentBlock, ContentTrust, Message};
-use crate::legacy_trace::CompactionCheckpoint;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
