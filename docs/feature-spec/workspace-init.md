@@ -6,12 +6,10 @@ type: feat
 depth: deep
 scope:
 
-* gestalt-cli
-* gestalt-runtime
-* gestalt-context
-* gestalt-config
-* gestalt-trace
-* gestalt-core-types
+  - gestalt-cli
+  - gestalt-app
+  - gestalt-runtime
+  - gestalt-core
 
 ---
 

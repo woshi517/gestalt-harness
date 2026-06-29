@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+Implemented; retained as the feature rationale for the five-crate consolidation.
+Current crate READMEs and the workspace manifest govern the implemented
+boundary.
 
 ## Summary
 

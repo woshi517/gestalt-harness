@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 **Target:** `gestalt-harness`
-**Primary crates:** `gestalt-core`, `gestalt-context`, `gestalt-runtime`, `gestalt-trace`
+**Primary crates:** `gestalt-core`, `gestalt-runtime`, `gestalt-app`
 **Feature class:** Architectural hardening
 **Priority:** P0
 **Breaking change:** Internal architecture only; public configuration should remain backward-compatible

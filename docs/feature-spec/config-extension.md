@@ -1,11 +1,25 @@
+---
 title: "feat: Gestalt Configuration and Extension Protocol Refinement"
 date: 2026-06-13
-status: active
+status: superseded-in-part
 type: feat
 depth: deep
 target: v0.1
+owners:
+  - gestalt-app
+  - gestalt-runtime
+  - gestalt-cli
+---
 
 # feat: Gestalt Configuration and Extension Protocol Refinement
+
+> [!IMPORTANT]
+> [ADR-031](../adrs/ADR-031-v0-1-greenfield-compatibility-cutoff.md)
+> supersedes this document's pre-hardening compatibility and migration
+> requirements. Legacy harness TOML, deprecated config aliases, extension
+> manifest/protocol V1, and deprecated Rust compatibility APIs are removed
+> before stable v0.1. Remaining configuration and protocol hardening proposals
+> apply only where they are consistent with ADR-031.
 
 ## Summary
 
@@ -1376,7 +1390,7 @@ Do not send raw workspace paths unless the extension has already been granted th
 - same major protocol version: potentially compatible;
 - selected protocol is the highest mutually supported version;
 - no mutually supported version: reject before registration;
-- protocol 1.0 remains temporarily supported through an adapter;
+- protocol 1.0 is rejected and has no compatibility adapter;
 - protocol negotiation is recorded in `ExtensionLoaded`.
 
 ---
@@ -1458,9 +1472,8 @@ interface ExtensionToolResult {
 
 The host converts this to canonical `ToolExecutionResult`.
 
-A missing `content` field is a protocol validation failure. Do not silently serialize the entire result object as fallback in the stable protocol.
-
-Protocol 1.0 compatibility may retain the fallback behavior.
+A missing `content` field is a protocol validation failure. Do not silently
+serialize the entire result object as fallback. Protocol 1.0 is unsupported.
 
 ---
 
@@ -1534,7 +1547,8 @@ Use one tagged shape consistently:
 
 ```
 
-Do not support both raw string `"continue"` and tagged-object forms in the stable protocol. Keep raw strings only in the protocol 1.0 compatibility adapter.
+Do not support both raw string `"continue"` and tagged-object forms. Protocol
+1.0 raw-string outcomes are unsupported.
 
 ### Hook composition
 
@@ -1611,7 +1625,7 @@ Rules:
 - an extension that ignores cancellation may be terminated;
 - cancellation does not imply rollback.
 
-Protocol 1.0 extensions continue to rely on timeout/process termination.
+Protocol 1.0 extensions are rejected before lifecycle execution.
 
 ---
 
@@ -1807,7 +1821,7 @@ Required user-facing language:
 
 > Extension permissions govern host-mediated operations and provide auditability. Native extension processes are not isolated from the operating system unless a configured sandbox backend is active.
 
-The current heuristic input scan may remain as defense-in-depth for protocol 1.0, but stable extension declarations should support explicit resource annotations:
+Current V2 extension declarations should support explicit resource annotations:
 
 ```toml
 [[tools.resources]]  
@@ -1952,7 +1966,8 @@ If both exist in one scope, startup fails with an ambiguity error rather than gu
 
 ## 11. Migration and deprecation
 
-Config version 1 may support aliases for renamed fields with warnings.
+The following alias strategy is superseded by ADR-031. Stable config version 1
+does not accept pre-hardening aliases.
 
 Examples:
 
@@ -2202,7 +2217,10 @@ This enables replay diagnostics without logging secrets.
 - malformed MCP transport combinations fail schema validation;
 - long sessions do not produce unbounded in-memory runtime history.
 
-## Phase 4 — Extension protocol v1.1 hardening
+## Phase 4 — Extension protocol hardening (superseded in part)
+
+Protocol 1.0 compatibility work in this phase is superseded by ADR-031.
+Lifecycle Protocol V2 is the only supported Gestalt lifecycle protocol.
 
 ### Deliverables
 
@@ -2215,7 +2233,7 @@ This enables replay diagnostics without logging secrets.
 - protocol error events;
 - graceful shutdown;
 - optional negotiated cancellation;
-- protocol 1.0 compatibility adapter;
+- protocol 1.0 rejection and compatibility-adapter removal;
 - extension integrity-aware trust records.
 
 ### Exit criteria
@@ -2223,7 +2241,7 @@ This enables replay diagnostics without logging secrets.
 - incompatible extensions fail at initialization with actionable errors;
 - malformed stdout cannot degrade only into a timeout;
 - a large extension response cannot allocate without a configured bound;
-- protocol 1.0 fixtures remain supported;
+- protocol 1.0 fixtures are rejected before activation;
 - all extension lifecycle decisions are observable.
 
 ## Phase 5 — Hook contract stabilization
@@ -2370,7 +2388,7 @@ protocol_fault_threshold
 - [x]  Graceful shutdown is attempted before process termination.
 - [x]  Cancellation is negotiated and optional.
 - [x]  Protocol and lifecycle errors emit runtime events.
-- [x]  Protocol 1.0 remains supported through compatibility code.
+- [ ]  Protocol 1.0 compatibility code is removed under ADR-031.
 - [x]  Extension trust is not inferred solely from discovery location.
 
 ---
