@@ -180,13 +180,13 @@ pub fn load_session_transcript(
     for run_id in path {
         if let Some(run_path) = run_paths_map.get(&run_id) {
             let trace_path = run_path.join("trace.jsonl");
-            if trace_path.exists() {
-                if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
-                    for env in envelopes {
-                        push_event(&mut entries, env.event);
+                if trace_path.exists() {
+                    if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
+                        for env in envelopes {
+                        push_event(&mut entries, env.event.into());
+                        }
                     }
                 }
-            }
         }
     }
 

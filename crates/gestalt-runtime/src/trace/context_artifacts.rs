@@ -2,8 +2,12 @@ pub use crate::context::projection::{
     CompactionCheckpoint, MessageMetadataRef, ProjectionManifest,
 };
 use gestalt_core::{DurabilityMode, TraceError};
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
+
+pub const PROJECTION_MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const COMPACTION_CHECKPOINT_SCHEMA_VERSION: u32 = 1;
 
 pub fn persist_manifest(
     manifest: &ProjectionManifest,
@@ -81,7 +85,25 @@ pub fn load_manifest(
         reason: format!("manifest not found: {}", file_path.display()),
     })?;
 
-    serde_json::from_str(&content).map_err(|err| TraceError::ReadFailed {
+    let value: Value = serde_json::from_str(&content).map_err(|err| TraceError::ReadFailed {
+        reason: format!("failed to parse manifest: {}", err),
+    })?;
+    let version = value
+        .get("v")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| TraceError::ReadFailed {
+            reason: format!("manifest missing schema version: {}", file_path.display()),
+        })?;
+    if version != u64::from(PROJECTION_MANIFEST_SCHEMA_VERSION) {
+        return Err(TraceError::ReadFailed {
+            reason: format!(
+                "unsupported manifest schema version {version} (expected {})",
+                PROJECTION_MANIFEST_SCHEMA_VERSION
+            ),
+        });
+    }
+
+    serde_json::from_value(value).map_err(|err| TraceError::ReadFailed {
         reason: format!("failed to parse manifest: {}", err),
     })
 }
@@ -97,7 +119,25 @@ pub fn load_checkpoint(
         reason: format!("checkpoint not found: {}", file_path.display()),
     })?;
 
-    serde_json::from_str(&content).map_err(|err| TraceError::ReadFailed {
+    let value: Value = serde_json::from_str(&content).map_err(|err| TraceError::ReadFailed {
+        reason: format!("failed to parse checkpoint: {}", err),
+    })?;
+    let version = value
+        .get("v")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| TraceError::ReadFailed {
+            reason: format!("checkpoint missing schema version: {}", file_path.display()),
+        })?;
+    if version != u64::from(COMPACTION_CHECKPOINT_SCHEMA_VERSION) {
+        return Err(TraceError::ReadFailed {
+            reason: format!(
+                "unsupported checkpoint schema version {version} (expected {})",
+                COMPACTION_CHECKPOINT_SCHEMA_VERSION
+            ),
+        });
+    }
+
+    serde_json::from_value(value).map_err(|err| TraceError::ReadFailed {
         reason: format!("failed to parse checkpoint: {}", err),
     })
 }

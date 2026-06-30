@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gestalt_core::{
-    trace::TraceSink, AgentEvent, Message, Session, SessionConfig, TokenBudget, ToolCatalog,
-    ToolContext, WorkspaceSnapshotter,
+    trace::TraceSink, Message, Session, SessionConfig, TokenBudget, ToolCatalog, ToolContext,
+    WorkspaceSnapshotter,
 };
 use gestalt_runtime::default_registry;
 use gestalt_runtime::{
@@ -16,6 +16,7 @@ use gestalt_runtime::{
     run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
     write_cost_report, write_summary, JsonlTraceSink,
 };
+use gestalt_runtime::TraceEvent as AgentEvent;
 
 use crate::{
     config::EffectiveConfig,
@@ -68,8 +69,7 @@ pub fn list_sessions(
                     if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
                         let mut first_msg = None;
                         for env in envelopes {
-                            if let gestalt_core::event::AgentEvent::UserMessage { content } =
-                                env.event
+                            if let AgentEvent::UserMessage { content } = env.event
                             {
                                 let trimmed = content.trim();
                                 if !trimmed.is_empty() {
@@ -477,7 +477,7 @@ pub async fn run_session_action(
                 .map_err(gestalt_core::HarnessError::Trace)?;
             let mut target_checkpoint = None;
             for env in &envelopes {
-                if matches!(env.event, gestalt_core::AgentEvent::Checkpoint { .. })
+                if matches!(env.event, AgentEvent::Checkpoint { .. })
                     && env.seq == target_seq
                 {
                     target_checkpoint = Some(env);
@@ -486,7 +486,7 @@ pub async fn run_session_action(
             }
             match target_checkpoint {
                 Some(env) => match &env.event {
-                    gestalt_core::AgentEvent::Checkpoint {
+                    AgentEvent::Checkpoint {
                         history,
                         context_state,
                         token_budget,
@@ -684,9 +684,10 @@ pub async fn run_session_action(
                 snapshot_hash: prompt_snapshot.snapshot_hash.clone(),
                 source: gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
             };
-            sink.emit(loaded_event.clone())?;
+            let loaded_event_core: gestalt_core::event::AgentEvent = loaded_event.clone().into();
+            sink.emit(loaded_event_core)?;
             if let Some(ref tx) = event_tx {
-                let _ = tx.send(loaded_event);
+                let _ = tx.send(loaded_event.into());
             }
         }
         analysis
@@ -731,9 +732,10 @@ pub async fn run_session_action(
         snapshot_id,
         dirty: current_snapshot.git_dirty.unwrap_or(false),
     };
-    sink.emit(snapshot_event.clone())?;
+    let snapshot_event_core: gestalt_core::event::AgentEvent = snapshot_event.clone().into();
+    sink.emit(snapshot_event_core)?;
     if let Some(ref tx) = event_tx {
-        let _ = tx.send(snapshot_event);
+        let _ = tx.send(snapshot_event.into());
     }
 
     // If continue or branch, we append the user's prompt as the next turn
@@ -743,9 +745,10 @@ pub async fn run_session_action(
             metadata: None,
         });
         let user_msg_event = AgentEvent::UserMessage { content: p.clone() };
-        sink.emit(user_msg_event.clone())?;
+        let user_msg_event_core: gestalt_core::event::AgentEvent = user_msg_event.clone().into();
+        sink.emit(user_msg_event_core)?;
         if let Some(ref tx) = event_tx {
-            let _ = tx.send(user_msg_event);
+            let _ = tx.send(user_msg_event.into());
         }
     }
 

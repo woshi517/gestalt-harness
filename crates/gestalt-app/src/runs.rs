@@ -4,6 +4,7 @@ use crate::reports::{
 };
 use chrono::Utc;
 use gestalt_core::HarnessError;
+use gestalt_runtime::TraceEvent as AgentEvent;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -229,9 +230,12 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
         let line = line.map_err(|e| gestalt_core::TraceError::ReadFailed {
             reason: e.to_string(),
         })?;
-        let envelope = match serde_json::from_str::<gestalt_runtime::EventEnvelope>(&line) {
-            Ok(env) => env,
-            Err(_) => continue,
+        let Some(envelope) = gestalt_runtime::parse_trace_envelope_line(&line, 0).map_err(
+            |err| gestalt_core::TraceError::ReadFailed {
+                reason: err.to_string(),
+            },
+        )? else {
+            continue;
         };
 
         if envelope.turn_id > turns {
@@ -244,7 +248,7 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
         }
 
         match envelope.event {
-            gestalt_core::AgentEvent::ModelRequest {
+            AgentEvent::ModelRequest {
                 provider: ref p,
                 model: ref m,
                 ..
@@ -256,7 +260,7 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
                     model = Some(m.clone());
                 }
             }
-            gestalt_core::AgentEvent::Stop { reason } => {
+            AgentEvent::Stop { reason } => {
                 stop_reason = Some(format!("{:?}", reason));
                 match reason {
                     gestalt_core::StopReason::EndTurn => {
@@ -275,13 +279,13 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
                     }
                 }
             }
-            gestalt_core::AgentEvent::Error { recoverable, .. } => {
+            AgentEvent::Error { recoverable, .. } => {
                 if !recoverable {
                     apparent_status = "failed".to_string();
                     break;
                 }
             }
-            gestalt_core::AgentEvent::Usage {
+            AgentEvent::Usage {
                 input_tokens,
                 output_tokens,
             } => {

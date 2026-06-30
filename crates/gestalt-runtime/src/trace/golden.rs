@@ -11,7 +11,7 @@ use gestalt_core::{
     approval::{ApprovalDecision, ApprovalProvider, ApprovalRequest},
     context::{ContextPacket, ContextPipeline, SessionMessage, TokenBudget},
     error::{HarnessError, ToolError},
-    event::AgentEvent,
+    event::AgentEvent as CoreAgentEvent,
     message::Message,
     policy::PolicyEngine,
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
@@ -22,6 +22,7 @@ use gestalt_core::{
 };
 
 use crate::fixture::{FixtureInput, MockToolConfig};
+use crate::TraceEvent as AgentEvent;
 use crate::{read_trace, EventEnvelope, JsonlTraceSink};
 
 #[derive(Debug, Clone)]
@@ -245,12 +246,18 @@ impl Provider for FixtureProvider {
 
     async fn stream(&self, _request: ProviderRequest) -> Result<EventStream, HarnessError> {
         let events = self.turns.lock().unwrap().pop_front().unwrap_or_else(|| {
-            vec![AgentEvent::Stop {
+            vec![CoreAgentEvent::Stop {
                 reason: gestalt_core::event::StopReason::EndTurn,
-            }]
+            }
+            .into()]
         });
 
-        let stream = futures::stream::iter(events.into_iter().map(Ok::<_, HarnessError>));
+        let stream = futures::stream::iter(
+            events
+                .into_iter()
+                .map(Into::into)
+                .map(Ok::<_, HarnessError>),
+        );
         Ok(Box::pin(stream))
     }
 }
@@ -293,8 +300,13 @@ impl GoldenTraceRunner {
         .map_err(HarnessError::Trace)?;
         let sink = Arc::new(sink);
 
-        let turns_deque: VecDeque<Vec<AgentEvent>> =
-            golden.input.mock_turns.clone().into_iter().collect();
+        let turns_deque: VecDeque<Vec<AgentEvent>> = golden
+            .input
+            .mock_turns
+            .clone()
+            .into_iter()
+            .map(|turn| turn.into_iter().map(Into::into).collect())
+            .collect();
         let provider = Arc::new(FixtureProvider {
             turns: Mutex::new(turns_deque),
             capabilities: ProviderCapabilities::default(),

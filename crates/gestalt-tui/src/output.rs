@@ -1503,7 +1503,7 @@ impl CliReport for ContextExplainReport {
         for s in &self.sources {
             lines.push(format!(
                 "{:<15} | {:<30} | {:<10} | {:<15} | {:<8}",
-                s.kind, s.path_or_label, s.trust, s.token_estimate, s.included
+                s.kind, s.path_or_label, s.trust, s.token_contribution, s.included
             ));
         }
 
@@ -1518,7 +1518,7 @@ impl CliReport for ContextExplainReport {
             for o in &self.omissions {
                 lines.push(format!(
                     "{:<15} | {:<30} | {:<10} | {:<15} | {:<20}",
-                    o.kind, o.path_or_label, o.trust, o.token_estimate, o.reason
+                    o.kind, o.path_or_label, o.trust, o.token_estimate, o.reason_code
                 ));
             }
         }

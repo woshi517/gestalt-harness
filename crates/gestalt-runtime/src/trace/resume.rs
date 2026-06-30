@@ -1,3 +1,4 @@
+use crate::TraceEvent as AgentEvent;
 use crate::{
     read_prompt_snapshot, read_trace,
     run_manifest::{LifecycleState, RunManifest},
@@ -167,10 +168,10 @@ impl ResumeAnalyzer {
         let trace_has_prompt_snapshot_events = envelopes.iter().any(|env| {
             matches!(
                 env.event,
-                gestalt_core::AgentEvent::PromptSnapshotCreated { .. }
-                    | gestalt_core::AgentEvent::PromptSnapshotLoaded { .. }
-                    | gestalt_core::AgentEvent::PromptSnapshotReused { .. }
-                    | gestalt_core::AgentEvent::PromptCachePlanGenerated { .. }
+                AgentEvent::PromptSnapshotCreated { .. }
+                    | AgentEvent::PromptSnapshotLoaded { .. }
+                    | AgentEvent::PromptSnapshotReused { .. }
+                    | AgentEvent::PromptCachePlanGenerated { .. }
             )
         });
 
@@ -262,7 +263,7 @@ impl ResumeAnalyzer {
         let mut last_checkpoint = None;
         let mut last_checkpoint_index = None;
         for (i, env) in envelopes.iter().enumerate() {
-            if matches!(env.event, gestalt_core::AgentEvent::Checkpoint { .. }) {
+            if matches!(env.event, AgentEvent::Checkpoint { .. }) {
                 last_checkpoint = Some(env);
                 last_checkpoint_index = Some(i);
             }
@@ -270,7 +271,7 @@ impl ResumeAnalyzer {
 
         let (history, context_state, token_budget) = match last_checkpoint {
             Some(env) => match &env.event {
-                gestalt_core::AgentEvent::Checkpoint {
+                AgentEvent::Checkpoint {
                     history,
                     context_state,
                     token_budget,
@@ -358,52 +359,49 @@ impl ResumeAnalyzer {
 
         for env in &envelopes[last_checkpoint_index.unwrap() + 1..] {
             match &env.event {
-                gestalt_core::AgentEvent::ContextBuildStarted => {
+                AgentEvent::ContextBuildStarted => {
                     in_flight_context = true;
                 }
-                gestalt_core::AgentEvent::ContextBuilt { .. }
-                | gestalt_core::AgentEvent::ContextBuildFailed { .. } => {
+                AgentEvent::ContextBuilt { .. } | AgentEvent::ContextBuildFailed { .. } => {
                     in_flight_context = false;
                 }
 
-                gestalt_core::AgentEvent::ModelResponseStarted { .. } => {
+                AgentEvent::ModelResponseStarted { .. } => {
                     in_flight_provider = true;
                 }
-                gestalt_core::AgentEvent::ModelResponseStreamCompleted { .. }
-                | gestalt_core::AgentEvent::ModelResponseStreamFailed { .. }
-                | gestalt_core::AgentEvent::ModelResponseStreamInterrupted { .. } => {
+                AgentEvent::ModelResponseStreamCompleted { .. }
+                | AgentEvent::ModelResponseStreamFailed { .. }
+                | AgentEvent::ModelResponseStreamInterrupted { .. } => {
                     in_flight_provider = false;
                 }
 
-                gestalt_core::AgentEvent::PolicyEvaluationStarted { .. } => {
+                AgentEvent::PolicyEvaluationStarted { .. } => {
                     in_flight_policy = true;
                 }
-                gestalt_core::AgentEvent::PolicyDecision { .. }
-                | gestalt_core::AgentEvent::PolicyEvaluationFailed { .. }
-                | gestalt_core::AgentEvent::PolicyEvaluationCancelled { .. } => {
+                AgentEvent::PolicyDecision { .. }
+                | AgentEvent::PolicyEvaluationFailed { .. }
+                | AgentEvent::PolicyEvaluationCancelled { .. } => {
                     in_flight_policy = false;
                 }
 
-                gestalt_core::AgentEvent::ApprovalRequested { .. } => {
+                AgentEvent::ApprovalRequested { .. } => {
                     in_flight_approval = true;
                 }
-                gestalt_core::AgentEvent::ApprovalDecision { .. }
-                | gestalt_core::AgentEvent::ApprovalCancelled { .. } => {
+                AgentEvent::ApprovalDecision { .. } | AgentEvent::ApprovalCancelled { .. } => {
                     in_flight_approval = false;
                 }
 
-                gestalt_core::AgentEvent::ToolExecutionStarted { id, .. } => {
+                AgentEvent::ToolExecutionStarted { id, .. } => {
                     in_flight_tools.insert(id.clone());
                 }
-                gestalt_core::AgentEvent::ToolResult { id, .. } => {
+                AgentEvent::ToolResult { id, .. } => {
                     in_flight_tools.remove(id);
                 }
 
-                gestalt_core::AgentEvent::HookStarted { .. } => {
+                AgentEvent::HookStarted { .. } => {
                     in_flight_hook = true;
                 }
-                gestalt_core::AgentEvent::HookCompleted { .. }
-                | gestalt_core::AgentEvent::HookFailed { .. } => {
+                AgentEvent::HookCompleted { .. } | AgentEvent::HookFailed { .. } => {
                     in_flight_hook = false;
                 }
                 _ => {}
@@ -454,9 +452,10 @@ mod tests {
         CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
         PROMPT_SNAPSHOT_RELATIVE_PATH,
     };
+    use crate::TraceEvent as AgentEvent;
     use crate::{write_prompt_snapshot, EventEnvelope};
     use gestalt_core::snapshot::WorkspaceSnapshot;
-    use gestalt_core::{AgentEvent, Message, PromptSnapshot};
+    use gestalt_core::{Message, PromptSnapshot};
     use std::fs;
     use std::path::PathBuf;
 

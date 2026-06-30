@@ -217,6 +217,7 @@ pub async fn run_compactor(
     let prompt_hash = format!("{:x}", prompt_hasher.finalize());
 
     Ok(CompactionCheckpoint {
+        v: 1,
         checkpoint_id,
         history_range,
         history_range_hash,

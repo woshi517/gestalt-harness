@@ -4,6 +4,7 @@ pub mod checkpoint_validation;
 pub mod compaction;
 pub mod default_prompt;
 pub mod projection;
+pub mod report;
 pub mod tool_clearing;
 pub mod tool_exchanges;
 
@@ -212,7 +213,15 @@ impl ContextPipeline for RuntimeContextPipeline {
                 tool_retention,
             );
             #[cfg(feature = "trace")]
-            self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
+            self.persist_context_artifacts_if_configured(
+                &manifest,
+                &packet,
+                model,
+                budget.model_limit,
+                artifacts_dir,
+                policy.durability,
+                emit,
+            )?;
             return Ok(PreparedContext {
                 packet,
                 manifest,
@@ -248,7 +257,15 @@ impl ContextPipeline for RuntimeContextPipeline {
                 tool_retention,
             );
             #[cfg(feature = "trace")]
-            self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
+            self.persist_context_artifacts_if_configured(
+                &manifest,
+                &packet,
+                model,
+                budget.model_limit,
+                artifacts_dir,
+                policy.durability,
+                emit,
+            )?;
             return Ok(PreparedContext {
                 packet,
                 manifest,
@@ -338,7 +355,15 @@ impl ContextPipeline for RuntimeContextPipeline {
                 tool_retention,
             );
             #[cfg(feature = "trace")]
-            self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
+            self.persist_context_artifacts_if_configured(
+                &manifest,
+                &cleared_packet,
+                model,
+                budget.model_limit,
+                artifacts_dir,
+                policy.durability,
+                emit,
+            )?;
             return Ok(PreparedContext {
                 packet: cleared_packet,
                 manifest,
@@ -508,10 +533,14 @@ impl ContextPipeline for RuntimeContextPipeline {
                     );
 
                     #[cfg(feature = "trace")]
-                    self.persist_manifest_if_configured(
+                    self.persist_context_artifacts_if_configured(
                         &manifest,
+                        &compacted_packet,
+                        model,
+                        budget.model_limit,
                         artifacts_dir,
                         policy.durability,
+                        emit,
                     )?;
 
                     return Ok(PreparedContext {
@@ -571,7 +600,15 @@ impl ContextPipeline for RuntimeContextPipeline {
             tool_retention,
         );
         #[cfg(feature = "trace")]
-        self.persist_manifest_if_configured(&manifest, artifacts_dir, policy.durability)?;
+        self.persist_context_artifacts_if_configured(
+            &manifest,
+            &cleared_packet,
+            model,
+            budget.model_limit,
+            artifacts_dir,
+            policy.durability,
+            emit,
+        )?;
 
         Ok(PreparedContext {
             packet: cleared_packet,
@@ -855,14 +892,79 @@ impl RuntimeContextPipeline {
     }
 
     #[cfg(feature = "trace")]
-    fn persist_manifest_if_configured(
+    fn persist_context_artifacts_if_configured(
         &self,
         manifest: &ProjectionManifest,
+        packet: &gestalt_core::context::ContextPacket,
+        model: &str,
+        input_limit: usize,
         artifacts_dir: Option<&Path>,
         durability: gestalt_core::DurabilityMode,
+        emit: &mut (dyn FnMut(
+            gestalt_core::event::AgentEvent,
+        ) -> std::result::Result<(), gestalt_core::error::HarnessError>
+                  + Send),
     ) -> std::result::Result<(), gestalt_core::error::HarnessError> {
         if let Some(dir) = artifacts_dir {
             crate::trace::persist_manifest(manifest, dir, durability)?;
+            let policy = serde_json::to_string(&manifest.policy).unwrap_or_default();
+            let patches = self.patch_store.lock().unwrap();
+            let captures = patches
+                .iter()
+                .filter_map(|patch| {
+                    patch.source.as_ref().map(|source| {
+                        let content = serde_json::to_string(&patch.message).unwrap_or_default();
+                        let (redacted, _) = crate::trace::redact_string(&content);
+                        report::CapturedContributionV1::capture_redacted(
+                            format!("{}:{}", source.kind, source.path_or_label),
+                            redacted,
+                        )
+                    })
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let source_stabilities = patches
+                .iter()
+                .filter_map(|patch| {
+                    patch.source.as_ref().map(|source| {
+                        (
+                            format!("{}:{}", source.kind, source.path_or_label),
+                            patch.stability,
+                        )
+                    })
+                })
+                .collect();
+            drop(patches);
+            let report = report::ContextBuildReportV1::build(report::ContextBuildReportInputV1 {
+                session_id: &manifest.session_id,
+                run_id: &manifest.run_id,
+                turn_id: manifest.turn_id,
+                packet,
+                input_limit,
+                context_policy_fingerprint: &policy,
+                model_capability_fingerprint: model,
+                runtime_fingerprint: &packet.pipeline_version,
+                tool_fingerprint: manifest
+                    .retention_fingerprint
+                    .as_deref()
+                    .unwrap_or_default(),
+                workspace_snapshot_hash: None,
+                captured_contributions: captures,
+                source_stabilities,
+                deterministic: true,
+                prompt_artifact_ref: packet.prompt_source.clone(),
+                projection_artifact_ref: Some(format!(
+                    "projection_manifest_{}.json",
+                    manifest.manifest_id
+                )),
+            })?;
+            if let Some(diagnostic) =
+                report::persist_context_build_report(&report, dir, durability)?
+            {
+                emit(gestalt_core::event::AgentEvent::Error {
+                    message: format!("{}: {}", diagnostic.code, diagnostic.message),
+                    recoverable: true,
+                })?;
+            }
         }
 
         Ok(())
@@ -1051,6 +1153,7 @@ impl RuntimeContextPipeline {
         let policy_cloned = policy.clone();
 
         let manifest_partial = ProjectionManifest {
+            v: 1,
             manifest_id: String::new(),
             session_id: session_id.to_string(),
             run_id: run_id.to_string(),
@@ -1064,9 +1167,11 @@ impl RuntimeContextPipeline {
             omitted_messages: Self::omitted_message_ids(canonical_history, &plan.history),
             messages_metadata,
             retention_fingerprint: Some(tool_retention.fingerprint.clone()),
+            context_report_ref: Some(format!("context_report_{}.json", packet.packet_hash)),
         };
 
         let manifest_serialized = serde_json::to_string(&serde_json::json!({
+            "v": manifest_partial.v,
             "session_id": &manifest_partial.session_id,
             "run_id": &manifest_partial.run_id,
             "turn_id": manifest_partial.turn_id,
@@ -1078,6 +1183,7 @@ impl RuntimeContextPipeline {
             "messages_metadata": &manifest_partial.messages_metadata,
             "omitted_messages": &manifest_partial.omitted_messages,
             "retention_fingerprint": &manifest_partial.retention_fingerprint,
+            "context_report_ref": &manifest_partial.context_report_ref,
         }))
         .unwrap_or_default();
         let mut hasher = sha2::Sha256::new();
@@ -1085,6 +1191,7 @@ impl RuntimeContextPipeline {
         let manifest_id = format!("{:x}", hasher.finalize());
 
         ProjectionManifest {
+            v: 1,
             manifest_id,
             ..manifest_partial
         }
