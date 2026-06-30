@@ -2,7 +2,7 @@ use gestalt_app::config::{ConfigSourceInfo, EffectiveConfig, SecretString};
 pub use gestalt_app::reports::*;
 use gestalt_core::model::ModelInfo;
 use gestalt_runtime::CostReport;
-use serde::Serialize;
+use serde::{ser::SerializeMap, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -233,18 +233,41 @@ pub enum OutputFormat {
     Json,
 }
 
-#[derive(Serialize)]
 pub struct JsonEnvelope<T> {
     pub schema_version: u32,
     pub kind: String,
     pub data: T,
 }
 
+impl<T: Serialize> Serialize for JsonEnvelope<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let is_error = self.kind == "error";
+        let mut map = serializer.serialize_map(Some(6))?;
+        map.serialize_entry("schema_version", &self.schema_version)?;
+        map.serialize_entry("status", if is_error { "error" } else { "success" })?;
+        map.serialize_entry("kind", &self.kind)?;
+        if is_error {
+            map.serialize_entry("data", &Option::<()>::None)?;
+            map.serialize_entry("error", &self.data)?;
+        } else {
+            map.serialize_entry("data", &self.data)?;
+            map.serialize_entry("error", &Option::<()>::None)?;
+        }
+        map.serialize_entry("warnings", &Vec::<Value>::new())?;
+        map.end()
+    }
+}
+
 #[derive(Serialize)]
 pub struct CliErrorPayload {
     pub code: String,
     pub message: String,
+    pub retryable: bool,
     pub details: Option<Value>,
+    pub correlation_id: Option<String>,
 }
 
 pub trait CliReport: Serialize {
@@ -1188,6 +1211,7 @@ fn redact_explain_map(
             || lower_k.contains("headers"))
             && !lower_k.contains("api_key_env")
         {
+            info.redacted = true;
             match &mut info.value {
                 Value::String(s) => {
                     *s = "[REDACTED]".to_string();
@@ -1265,7 +1289,8 @@ impl CliReport for ConfigShowReport {
             }
         } else {
             let redacted_config = redact_effective_config(self.config.clone());
-            toml::to_string(&redacted_config).unwrap_or_else(|_| "Serialization error".to_string())
+            serde_json::to_string_pretty(&redacted_config)
+                .unwrap_or_else(|_| "Serialization error".to_string())
         }
     }
 }
@@ -1321,15 +1346,8 @@ impl CliReport for ConfigExplainReport {
 pub struct ConfigPathsReport {
     pub global_path: std::path::PathBuf,
     pub global_exists: bool,
-    pub legacy_global_path: std::path::PathBuf,
-    pub legacy_global_exists: bool,
     pub workspace_path: std::path::PathBuf,
     pub workspace_exists: bool,
-    pub legacy_workspace_path: std::path::PathBuf,
-    pub legacy_workspace_exists: bool,
-    pub legacy_policies_path: std::path::PathBuf,
-    pub legacy_policies_exists: bool,
-    pub ambiguities: Vec<String>,
 }
 
 impl CliReport for ConfigPathsReport {
@@ -1338,7 +1356,7 @@ impl CliReport for ConfigPathsReport {
     }
 
     fn render_text(&self) -> String {
-        let mut lines = vec![
+        vec![
             "Config Paths and Discovery:".to_string(),
             String::new(),
             format!(
@@ -1347,36 +1365,12 @@ impl CliReport for ConfigPathsReport {
                 self.global_exists
             ),
             format!(
-                "  Global Legacy TOML:        {} (exists: {}) [DEPRECATED]",
-                self.legacy_global_path.display(),
-                self.legacy_global_exists
-            ),
-            format!(
                 "  Workspace JSON Config:     {} (exists: {})",
                 self.workspace_path.display(),
                 self.workspace_exists
             ),
-            format!(
-                "  Workspace Legacy TOML:     {} (exists: {}) [DEPRECATED]",
-                self.legacy_workspace_path.display(),
-                self.legacy_workspace_exists
-            ),
-            format!(
-                "  Workspace Legacy Policies: {} (exists: {}) [DEPRECATED]",
-                self.legacy_policies_path.display(),
-                self.legacy_policies_exists
-            ),
-            String::new(),
-        ];
-        if self.ambiguities.is_empty() {
-            lines.push("  No ambiguity issues detected.".to_string());
-        } else {
-            lines.push("  Ambiguity Warnings:".to_string());
-            for amb in &self.ambiguities {
-                lines.push(format!("    - [WARNING] {amb}"));
-            }
-        }
-        lines.join("\n")
+        ]
+        .join("\n")
     }
 }
 

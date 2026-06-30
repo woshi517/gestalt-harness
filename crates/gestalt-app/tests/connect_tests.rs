@@ -31,7 +31,9 @@ impl Drop for EnvVarGuard {
 
 #[test]
 fn test_connect_openrouter() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     set_use_fake_keychain(true);
 
     let unique_id = uuid::Uuid::new_v4().to_string();
@@ -93,8 +95,10 @@ fn test_connect_openrouter() {
 }
 
 #[test]
-fn test_connect_migrates_legacy_global_config() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+fn test_connect_rejects_legacy_global_config() {
+    let _guard = ENV_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     set_use_fake_keychain(true);
 
     let unique_id = uuid::Uuid::new_v4().to_string();
@@ -122,39 +126,14 @@ model = "gpt-4o"
         ..CliOverrides::default()
     };
 
-    let config = load_effective_config(&overrides).expect("load config");
-    assert_eq!(config.defaults.provider.as_deref(), Some("openai"));
-    assert_eq!(config.defaults.model.as_deref(), Some("gpt-4o"));
+    let error = load_effective_config(&overrides).expect_err("legacy config must be rejected");
 
-    let report = connect_provider(
-        &config,
-        "openrouter",
-        Some("sk-or-test-key".to_string()),
-        false,
-        true,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .expect("connect succeeds");
-
-    assert_eq!(report.provider, "openrouter");
-    assert!(report.keychain_stored);
-
-    let config2 = load_effective_config(&overrides).expect("reload config");
-    assert_eq!(config2.defaults.provider.as_deref(), Some("openai"));
-    assert_eq!(config2.defaults.model.as_deref(), Some("gpt-4o"));
-    assert!(config2.providers.contains_key("openrouter"));
-
-    let dis_report =
-        disconnect_provider(&config2, "openrouter", true).expect("disconnect succeeds");
-    assert_eq!(dis_report.provider, "openrouter");
-
-    let config3 = load_effective_config(&overrides).expect("reload config");
-    assert!(!config3.providers.contains_key("openrouter"));
-    assert_eq!(config3.defaults.provider.as_deref(), Some("openai"));
+    assert!(matches!(
+        error,
+        gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::UnsupportedLegacyConfig { .. }
+        )
+    ));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

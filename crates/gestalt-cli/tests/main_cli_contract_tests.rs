@@ -34,7 +34,9 @@ fn test_cli_format_json_envelope() {
     let stdout_str = String::from_utf8(output.stdout).unwrap();
     let json: serde_json::Value = serde_json::from_str(&stdout_str).unwrap();
     assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["status"], "success");
     assert_eq!(json["kind"], "workspace.status");
+    assert!(json["error"].is_null());
     assert!(json["data"]["config_valid"].as_bool().unwrap());
 
     let _ = fs::remove_dir_all(&temp_root);
@@ -97,10 +99,36 @@ fn test_cli_invalid_provider_json_error() {
     let stderr_str = String::from_utf8(output.stderr).unwrap();
     let json: serde_json::Value = serde_json::from_str(&stderr_str).unwrap();
     assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["status"], "error");
     assert_eq!(json["kind"], "error");
-    assert_eq!(json["data"]["code"], "PROVIDER_ERROR");
+    assert_eq!(json["error"]["code"], "PROVIDER_NOT_FOUND");
+    assert_eq!(json["error"]["retryable"], false);
+    assert!(json["data"].is_null());
 
     let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn legacy_config_error_preserves_code_and_exit_category() {
+    let temp_root = create_temp_workspace();
+    fs::create_dir_all(temp_root.join(".gestalt")).unwrap();
+    fs::write(temp_root.join(".gestalt/config.toml"), "not valid toml").unwrap();
+
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("config")
+        .arg("validate")
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+
+    assert_eq!(
+        (output.status.code(), json["error"]["code"].as_str()),
+        (Some(3), Some("UNSUPPORTED_LEGACY_CONFIG"))
+    );
 }
 
 #[test]

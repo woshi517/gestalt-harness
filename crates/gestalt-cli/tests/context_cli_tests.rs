@@ -19,12 +19,8 @@ async fn test_context_explain_prompt() {
     fs::create_dir_all(&gestalt_dir).unwrap();
 
     fs::write(
-        gestalt_dir.join("config.toml"),
-        r#"
-[defaults]
-provider = "anthropic"
-mode = "confirm"
-"#,
+        temp_root.join("gestalt.json"),
+        r#"{"version":1,"defaults":{"provider":"anthropic","mode":"confirm"}}"#,
     )
     .unwrap();
     fs::write(
@@ -33,7 +29,6 @@ mode = "confirm"
     )
     .unwrap();
     fs::write(gestalt_dir.join("memory.md"), "# Memory\n").unwrap();
-    fs::write(gestalt_dir.join("policies.toml"), "# Policies\n").unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(temp_root.clone()),

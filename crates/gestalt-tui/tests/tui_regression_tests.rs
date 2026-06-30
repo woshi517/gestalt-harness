@@ -68,15 +68,11 @@ mod tests {
         fs::create_dir_all(&temp_dir).unwrap();
         let xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", temp_dir.as_os_str().to_str().unwrap());
         let skills_guard = EnvVarGuard::set("GESTALT_NO_GLOBAL_SKILLS", "1");
-        let gestalt_dir = temp_dir.join(".gestalt");
-        fs::create_dir_all(&gestalt_dir).unwrap();
-
         fs::write(
-            gestalt_dir.join("config.toml"),
-            "[defaults]\nprovider = \"mock\"\n",
+            temp_dir.join("gestalt.json"),
+            r#"{"version":1,"defaults":{"provider":"mock"}}"#,
         )
         .unwrap();
-        fs::write(gestalt_dir.join("policies.toml"), "[policies]\n").unwrap();
 
         let config = validate_workspace_config(&CliOverrides {
             workspace: Some(temp_dir.clone()),

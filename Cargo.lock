@@ -940,7 +940,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
- "toml",
  "uuid",
 ]
 
@@ -960,7 +959,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1033,7 +1031,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
  "uuid",

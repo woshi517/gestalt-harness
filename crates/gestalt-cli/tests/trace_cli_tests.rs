@@ -122,7 +122,7 @@ fn test_trace_validation() {
     fs::write(run_dir.join("trace.jsonl"), invalid_version_trace).unwrap();
     let invalid_ver_rep = validate_trace(&config, "20260603T110000Z-session-val").unwrap();
     assert!(!invalid_ver_rep.valid);
-    assert!(invalid_ver_rep.errors[0].contains("invalid schema version"));
+    assert!(invalid_ver_rep.errors[0].contains("unsupported trace schema version"));
 
     // Regression seq trace
     let reg_trace = r#"{"v":1,"session_id":"session-val","turn_id":1,"seq":5,"ts":"2026-06-03T11:00:00Z","event":{"type":"user_message","content":"test"},"redacted":false}

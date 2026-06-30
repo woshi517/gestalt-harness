@@ -469,8 +469,6 @@ mod tests {
             },
             context: ContextConfig {
                 reserved_output_tokens: None,
-                workspace_file: None,
-                memory_file: None,
                 ..Default::default()
             },
             observe: ObserveConfig {

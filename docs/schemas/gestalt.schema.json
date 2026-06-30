@@ -2,6 +2,9 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "WorkspaceConfig",
   "type": "object",
+  "required": [
+    "version"
+  ],
   "properties": {
     "$schema": {
       "type": [
@@ -134,7 +137,6 @@
       ]
     },
     "version": {
-      "default": 1,
       "type": "integer",
       "const": 1
     },
@@ -237,7 +239,6 @@
           ]
         },
         "max_context_window": {
-          "writeOnly": true,
           "type": [
             "integer",
             "null"
@@ -253,12 +254,6 @@
             {
               "type": "null"
             }
-          ]
-        },
-        "memory_file": {
-          "type": [
-            "string",
-            "null"
           ]
         },
         "reserved_output_tokens": {
@@ -285,12 +280,6 @@
             {
               "type": "null"
             }
-          ]
-        },
-        "workspace_file": {
-          "type": [
-            "string",
-            "null"
           ]
         }
       },
@@ -1196,26 +1185,6 @@
             "type": "string"
           }
         },
-        "always_confirm": {
-          "writeOnly": true,
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "always_deny": {
-          "writeOnly": true,
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
         "confirm": {
           "type": [
             "array",
@@ -1236,16 +1205,6 @@
           ]
         },
         "deny": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          }
-        },
-        "yolo_allow": {
-          "writeOnly": true,
           "type": [
             "array",
             "null"

@@ -24,7 +24,6 @@ gestalt-core = { path = "../gestalt-core" }
 gestalt-app = { path = "../gestalt-app", default-features = false }
 gestalt-runtime = { path = "../gestalt-runtime", default-features = false }
 clap = { workspace = true }
-toml = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -13,12 +13,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::reports::{AppDiagnosticV1, DiagnosticSeverityV1};
-
-fn default_version() -> u32 {
-    1
-}
-
 fn version_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     let mut schema = schemars::schema::SchemaObject::default();
     schema.instance_type = Some(schemars::schema::InstanceType::Integer.into());
@@ -35,16 +29,6 @@ pub fn is_json_output() -> bool {
         }
     }
     false
-}
-
-fn warning(code: impl Into<String>, message: impl Into<String>) -> AppDiagnosticV1 {
-    AppDiagnosticV1 {
-        severity: DiagnosticSeverityV1::Warning,
-        code: code.into(),
-        message: message.into(),
-        correlation_id: None,
-        details: None,
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -217,7 +201,6 @@ pub struct WorkspaceMetaConfig {
 pub struct WorkspaceConfig {
     #[serde(default, rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
-    #[serde(default = "default_version")]
     #[schemars(schema_with = "version_schema")]
     pub version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -410,12 +393,6 @@ pub struct PolicyBashConfig {
     pub confirm: Option<Vec<String>>,
     #[serde(default, rename = "deny", skip_serializing_if = "Option::is_none")]
     pub deny: Option<Vec<String>>,
-    #[serde(default, skip_serializing)]
-    pub yolo_allow: Option<Vec<String>>,
-    #[serde(default, skip_serializing)]
-    pub always_confirm: Option<Vec<String>>,
-    #[serde(default, skip_serializing)]
-    pub always_deny: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -508,9 +485,6 @@ pub struct ContextConfig {
     pub context_window_override: Option<usize>,
     pub reserved_output_tokens: Option<usize>,
     pub safety_margin_tokens: Option<usize>,
-    pub workspace_file: Option<String>,
-    pub memory_file: Option<String>,
-    #[serde(default, skip_serializing)]
     pub max_context_window: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceContextConfig>,
@@ -526,8 +500,6 @@ impl Default for ContextConfig {
             context_window_override: None,
             reserved_output_tokens: None,
             safety_margin_tokens: Some(2048),
-            workspace_file: None,
-            memory_file: None,
             max_context_window: None,
             workspace: None,
             memory: None,
@@ -552,24 +524,6 @@ impl Default for ObserveConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-pub struct LegacyPoliciesConfig {
-    #[serde(default)]
-    pub prompt: Option<PromptConfig>,
-    #[serde(default)]
-    pub paths: PolicyPathsConfig,
-    #[serde(default)]
-    pub tools: LegacyToolsConfig,
-    #[serde(default)]
-    pub network: PolicyNetworkConfig,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-pub struct LegacyToolsConfig {
-    #[serde(default)]
-    pub bash: PolicyBashConfig,
-}
-
 fn with_default<T>(value: Option<Vec<T>>, default: Vec<T>) -> Vec<T> {
     value.filter(|items| !items.is_empty()).unwrap_or(default)
 }
@@ -590,44 +544,11 @@ impl PoliciesConfig {
             })
             .unwrap_or(default_bash.default);
 
-        let mut allow_list = self.bash.allow.clone().unwrap_or_default();
-        if let Some(ref yolo) = self.bash.yolo_allow {
-            allow_list.extend(yolo.clone());
-        }
-        let allow_list = with_default(
-            if allow_list.is_empty() {
-                None
-            } else {
-                Some(allow_list)
-            },
-            default_bash.yolo_allow,
-        );
+        let allow_list = with_default(self.bash.allow.clone(), default_bash.yolo_allow);
 
-        let mut confirm_list = self.bash.confirm.clone().unwrap_or_default();
-        if let Some(ref conf) = self.bash.always_confirm {
-            confirm_list.extend(conf.clone());
-        }
-        let confirm_list = with_default(
-            if confirm_list.is_empty() {
-                None
-            } else {
-                Some(confirm_list)
-            },
-            default_bash.always_confirm,
-        );
+        let confirm_list = with_default(self.bash.confirm.clone(), default_bash.always_confirm);
 
-        let mut deny_list = self.bash.deny.clone().unwrap_or_default();
-        if let Some(ref deny) = self.bash.always_deny {
-            deny_list.extend(deny.clone());
-        }
-        let deny_list = with_default(
-            if deny_list.is_empty() {
-                None
-            } else {
-                Some(deny_list)
-            },
-            default_bash.always_deny,
-        );
+        let deny_list = with_default(self.bash.deny.clone(), default_bash.always_deny);
 
         let network_default = self
             .network
@@ -687,9 +608,6 @@ impl PoliciesConfig {
                 allow: Some(config.bash.yolo_allow.clone()),
                 confirm: Some(config.bash.always_confirm.clone()),
                 deny: Some(config.bash.always_deny.clone()),
-                yolo_allow: Some(config.bash.yolo_allow.clone()),
-                always_confirm: Some(config.bash.always_confirm.clone()),
-                always_deny: Some(config.bash.always_deny.clone()),
             },
             network: PolicyNetworkConfig {
                 default: Some(match config.network.default {
@@ -736,53 +654,31 @@ pub fn legacy_global_config_path() -> PathBuf {
         .join("gestalt/config.toml")
 }
 
-fn load_workspace_config_file(path: &Path) -> Result<WorkspaceConfig, HarnessError> {
-    let input = fs::read_to_string(path).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: path.display().to_string(),
-            reason: err.to_string(),
-        })
-    })?;
-
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("json") => serde_json::from_str(&input).map_err(|err| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: path.display().to_string(),
-                reason: err.to_string(),
-            })
-        }),
-        _ => toml::from_str(&input).map_err(|err| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: path.display().to_string(),
-                reason: err.to_string(),
-            })
-        }),
+pub fn reject_legacy_config(root: &Path) -> Result<(), HarnessError> {
+    let legacy_global = legacy_global_config_path();
+    let legacy_paths = [
+        legacy_global.clone(),
+        legacy_workspace_config_path(root),
+        legacy_workspace_policies_path(root),
+    ];
+    if let Some(path) = legacy_paths.into_iter().find(|path| path.exists()) {
+        let supported_path = if path == legacy_global {
+            global_config_path()
+        } else {
+            workspace_config_path(root)
+        };
+        return Err(ConfigError::UnsupportedLegacyConfig {
+            path: path.display().to_string(),
+            supported_path: supported_path.display().to_string(),
+            remediation: "Create a version 1 gestalt.json; automatic parsing and migration are intentionally unsupported.".to_string(),
+        }
+        .into());
     }
+    Ok(())
 }
 
-fn load_legacy_policies_file(path: &Path) -> Result<WorkspaceConfig, HarnessError> {
-    let input = fs::read_to_string(path).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: path.display().to_string(),
-            reason: err.to_string(),
-        })
-    })?;
-    let raw: LegacyPoliciesConfig = toml::from_str(&input).map_err(|err| {
-        HarnessError::Config(ConfigError::InvalidValue {
-            field: path.display().to_string(),
-            reason: err.to_string(),
-        })
-    })?;
-
-    Ok(WorkspaceConfig {
-        prompt: raw.prompt,
-        policies: Some(PoliciesConfig {
-            paths: raw.paths,
-            bash: raw.tools.bash,
-            network: raw.network,
-        }),
-        ..WorkspaceConfig::default()
-    })
+fn load_workspace_config_file(path: &Path) -> Result<WorkspaceConfig, HarnessError> {
+    WorkspaceConfig::from_file(path)
 }
 
 pub fn write_workspace_config_file(
@@ -822,71 +718,26 @@ pub fn write_workspace_config_file(
     })
 }
 
-fn seed_workspace_config_from_legacy(root: &Path) -> Result<WorkspaceConfig, HarnessError> {
-    let mut config = WorkspaceConfig::default();
-
-    let legacy_config_path = legacy_workspace_config_path(root);
-    if legacy_config_path.exists() {
-        config = config.merge(load_workspace_config_file(&legacy_config_path)?)?;
-    }
-
-    let legacy_policies_path = legacy_workspace_policies_path(root);
-    if legacy_policies_path.exists() {
-        config = config.merge(load_legacy_policies_file(&legacy_policies_path)?)?;
-    }
-
-    Ok(config)
-}
-
-fn seed_global_config_from_legacy() -> Result<WorkspaceConfig, HarnessError> {
-    let legacy_global_path = legacy_global_config_path();
-    if legacy_global_path.exists() {
-        load_workspace_config_file(&legacy_global_path)
-    } else {
-        Ok(WorkspaceConfig::default())
-    }
-}
-
 pub fn mutate_workspace_config_file(
     path: &Path,
     mutator: impl FnOnce(&mut WorkspaceConfig),
 ) -> Result<(), HarnessError> {
+    let root = if path == global_config_path() {
+        std::env::current_dir().map_err(|error| ConfigError::InvalidValue {
+            field: "workspace".to_string(),
+            reason: error.to_string(),
+        })?
+    } else {
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
+    };
+    reject_legacy_config(&root)?;
     let mut config = if path.exists() {
         load_workspace_config_file(path)?
-    } else if path == global_config_path() {
-        seed_global_config_from_legacy()?
     } else {
-        let root = path.parent().ok_or_else(|| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: path.display().to_string(),
-                reason: "configuration path has no parent directory".to_string(),
-            })
-        })?;
-        seed_workspace_config_from_legacy(root)?
+        WorkspaceConfig::default()
     };
     mutator(&mut config);
     write_workspace_config_file(path, &config)
-}
-
-fn bootstrap_global_config(path: &Path) -> Result<(), HarnessError> {
-    if path.exists() {
-        return Ok(());
-    }
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            HarnessError::Config(ConfigError::InvalidValue {
-                field: path.display().to_string(),
-                reason: err.to_string(),
-            })
-        })?;
-    }
-
-    let bootstrap = WorkspaceConfig {
-        version: 1,
-        ..WorkspaceConfig::default()
-    };
-    write_workspace_config_file(path, &bootstrap)
 }
 
 pub fn default_workspace_config() -> WorkspaceConfig {
@@ -1020,103 +871,37 @@ impl EffectiveConfig {
 
 impl WorkspaceConfig {
     pub fn from_file(path: &Path) -> Result<Self, HarnessError> {
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            return Err(ConfigError::UnsupportedLegacyConfig {
+                path: path.display().to_string(),
+                supported_path: path.with_file_name("gestalt.json").display().to_string(),
+                remediation: "Only gestalt.json schema version 1 is supported.".to_string(),
+            }
+            .into());
+        }
         let input = fs::read_to_string(path).map_err(|err| {
             HarnessError::Config(ConfigError::InvalidValue {
                 field: path.display().to_string(),
                 reason: err.to_string(),
             })
         })?;
-        let cfg: Self = if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-            let v: serde_json::Value = serde_json::from_str(&input).map_err(|err| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: path.display().to_string(),
-                    reason: err.to_string(),
-                })
-            })?;
-            if v.get("version").is_none() {
-                return Err(HarnessError::Config(ConfigError::InvalidValue {
-                    field: "version".to_string(),
-                    reason: "missing field `version`".to_string(),
-                }));
-            }
-            if let Some(providers) = v.get("providers").and_then(|p| p.as_object()) {
-                for (name, provider) in providers {
-                    if provider.get("kind").is_some() {
-                        return Err(HarnessError::Config(ConfigError::InvalidValue {
-                            field: format!("providers.{}.kind", name),
-                            reason: "field `kind` is not supported in gestalt.json. Use `protocol` or `api_format` instead.".to_string(),
-                        }));
-                    }
-                }
-            }
-            serde_json::from_value(v).map_err(|err| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: path.display().to_string(),
-                    reason: err.to_string(),
-                })
-            })?
-        } else {
-            toml::from_str(&input).map_err(|err| {
-                HarnessError::Config(ConfigError::InvalidValue {
-                    field: path.display().to_string(),
-                    reason: err.to_string(),
-                })
-            })?
-        };
-        if cfg.version != 1 {
-            return Err(HarnessError::Config(ConfigError::InvalidValue {
-                field: "version".to_string(),
-                reason: format!("version must be 1, found {}", cfg.version),
-            }));
+        let value: Value = serde_json::from_str(&input).map_err(|err| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: path.display().to_string(),
+                reason: err.to_string(),
+            })
+        })?;
+        let version = value.get("version").ok_or(ConfigError::MissingVersion)?;
+        let version = version.as_u64().ok_or(ConfigError::InvalidVersion)?;
+        if version != 1 {
+            return Err(ConfigError::UnsupportedVersion { found: version }.into());
         }
-        if let Some(ref p) = cfg.policies {
-            if p.bash.yolo_allow.is_some() {
-                let _ = warning(
-                    "deprecated_alias",
-                    "'yolo_allow' is deprecated, please use 'allow' instead.",
-                );
-            }
-            if p.bash.always_confirm.is_some() {
-                let _ = warning(
-                    "deprecated_alias",
-                    "'always_confirm' is deprecated, please use 'confirm' instead.",
-                );
-            }
-            if p.bash.always_deny.is_some() {
-                let _ = warning(
-                    "deprecated_alias",
-                    "'always_deny' is deprecated, please use 'deny' instead.",
-                );
-            }
-        }
-        if let Some(ref c) = cfg.context {
-            if c.workspace_file.is_some() {
-                if c.workspace.is_some() {
-                    let _ = warning(
-                        "deprecated_alias",
-                        "Both 'context.workspace_file' and 'context.workspace' are specified. 'context.workspace' takes precedence.",
-                    );
-                } else {
-                    let _ = warning(
-                        "deprecated_alias",
-                        "'context.workspace_file' is deprecated. Please migrate to 'context.workspace.path'.",
-                    );
-                }
-            }
-            if c.memory_file.is_some() {
-                if c.memory.is_some() {
-                    let _ = warning(
-                        "deprecated_alias",
-                        "Both 'context.memory_file' and 'context.memory' are specified. 'context.memory' takes precedence.",
-                    );
-                } else {
-                    let _ = warning(
-                        "deprecated_alias",
-                        "'context.memory_file' is deprecated. Please migrate to 'context.memory.path'.",
-                    );
-                }
-            }
-        }
+        let cfg: Self = serde_json::from_value(value).map_err(|err| {
+            HarnessError::Config(ConfigError::InvalidValue {
+                field: path.display().to_string(),
+                reason: err.to_string(),
+            })
+        })?;
         if let Some(ref c) = cfg.context {
             if let Some(ref w) = c.workspace {
                 if w.enabled == Some(false) && w.required == Some(true) {
@@ -1194,10 +979,6 @@ impl WorkspaceConfig {
             self_context.safety_margin_tokens = other_context
                 .safety_margin_tokens
                 .or(self_context.safety_margin_tokens);
-            self_context.workspace_file =
-                other_context.workspace_file.or(self_context.workspace_file);
-            self_context.memory_file = other_context.memory_file.or(self_context.memory_file);
-
             self_context.workspace = match (self_context.workspace.take(), other_context.workspace)
             {
                 (Some(s_w), Some(o_w)) => Some(WorkspaceContextConfig {
@@ -1301,10 +1082,6 @@ impl WorkspaceConfig {
             );
             self_policies.bash.deny =
                 merge_unions(self_policies.bash.deny, other_policies.bash.deny);
-            self_policies.bash.always_deny = merge_unions(
-                self_policies.bash.always_deny,
-                other_policies.bash.always_deny,
-            );
             self_policies.network.deny_domains = merge_unions(
                 self_policies.network.deny_domains,
                 other_policies.network.deny_domains,
@@ -1312,15 +1089,6 @@ impl WorkspaceConfig {
 
             self_policies.bash.default = other_policies.bash.default.or(self_policies.bash.default);
             self_policies.bash.confirm = other_policies.bash.confirm.or(self_policies.bash.confirm);
-            self_policies.bash.yolo_allow = other_policies
-                .bash
-                .yolo_allow
-                .or(self_policies.bash.yolo_allow);
-            self_policies.bash.always_confirm = other_policies
-                .bash
-                .always_confirm
-                .or(self_policies.bash.always_confirm);
-
             self_policies.network.default = other_policies
                 .network
                 .default
@@ -1722,42 +1490,23 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
             })
         })?);
     let global_path = global_config_path();
-    let legacy_global_path = legacy_global_config_path();
     let workspace_path = workspace_config_path(&workspace_root);
-    let legacy_workspace_path = legacy_workspace_config_path(&workspace_root);
-    let legacy_policies_path = legacy_workspace_policies_path(&workspace_root);
-
-    if !global_path.exists() && !legacy_global_path.exists() {
-        bootstrap_global_config(&global_path)?;
-    }
+    reject_legacy_config(&workspace_root)?;
 
     let mut config = WorkspaceConfig::default();
     let config_path = if workspace_path.exists() {
         workspace_path.clone()
-    } else if legacy_workspace_path.exists() {
-        legacy_workspace_path.clone()
-    } else if legacy_policies_path.exists() {
-        legacy_policies_path.clone()
     } else if global_path.exists() {
         global_path.clone()
     } else {
-        legacy_global_path.clone()
+        workspace_path.clone()
     };
 
     if global_path.exists() {
         config = config.merge(WorkspaceConfig::from_file(&global_path)?)?;
-    } else if legacy_global_path.exists() {
-        config = config.merge(WorkspaceConfig::from_file(&legacy_global_path)?)?;
     }
     if workspace_path.exists() {
         config = config.merge(WorkspaceConfig::from_file(&workspace_path)?)?;
-    } else {
-        if legacy_workspace_path.exists() {
-            config = config.merge(WorkspaceConfig::from_file(&legacy_workspace_path)?)?;
-        }
-        if legacy_policies_path.exists() {
-            config = config.merge(load_legacy_policies_file(&legacy_policies_path)?)?;
-        }
     }
 
     let mut defaults = config.defaults.unwrap_or_default();
@@ -1772,14 +1521,18 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         defaults.model = Some(model);
     }
     if let Ok(mode) = std::env::var("GESTALT_MODE") {
-        if let Ok(m) = mode_from_str(&mode) {
-            defaults.mode = Some(m);
-        }
+        defaults.mode = Some(mode_from_str(&mode)?);
     }
     if let Ok(max_turns) = std::env::var("GESTALT_MAX_TURNS") {
-        if let Ok(max_turns) = max_turns.parse::<usize>() {
-            defaults.max_turns = Some(max_turns);
-        }
+        defaults.max_turns =
+            Some(
+                max_turns
+                    .parse::<usize>()
+                    .map_err(|error| ConfigError::InvalidValue {
+                        field: "GESTALT_MAX_TURNS".to_string(),
+                        reason: error.to_string(),
+                    })?,
+            );
     }
 
     if let Some(profile) = &overrides.profile {
@@ -1792,9 +1545,7 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         defaults.model = Some(model.clone());
     }
     if let Some(mode) = &overrides.mode {
-        if let Ok(m) = mode_from_str(mode) {
-            defaults.mode = Some(m);
-        }
+        defaults.mode = Some(mode_from_str(mode)?);
     }
     if let Some(max_turns) = overrides.max_turns {
         defaults.max_turns = Some(max_turns);
@@ -1826,15 +1577,11 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
             .or(c.context_window_override);
         c.reserved_output_tokens = c.reserved_output_tokens.or(d.reserved_output_tokens);
         c.safety_margin_tokens = c.safety_margin_tokens.or(d.safety_margin_tokens);
-        c.workspace_file = c.workspace_file.or(d.workspace_file);
-        c.memory_file = c.memory_file.or(d.memory_file);
 
         // Resolve structured workspace config
         let mut w = c.workspace.unwrap_or_default();
         let resolved_workspace_path = if let Some(ref sp) = w.path {
             sp.clone()
-        } else if let Some(ref lp) = c.workspace_file {
-            PathBuf::from(lp)
         } else {
             PathBuf::from(".gestalt/workspace.md")
         };
@@ -1850,8 +1597,6 @@ pub fn load_effective_config(overrides: &CliOverrides) -> Result<EffectiveConfig
         let mut m = c.memory.unwrap_or_default();
         let resolved_memory_path = if let Some(ref sp) = m.path {
             sp.clone()
-        } else if let Some(ref lp) = c.memory_file {
-            PathBuf::from(lp)
         } else {
             PathBuf::from(".gestalt/memory.md")
         };
@@ -2749,6 +2494,50 @@ pub fn validate_workspace_config(
 pub struct ConfigSourceInfo {
     pub value: Value,
     pub source: String,
+    pub winning_layer: String,
+    pub source_location: Option<String>,
+    pub defaulted: bool,
+    pub overridden: bool,
+    pub redacted: bool,
+}
+
+fn source_info(
+    value: Value,
+    source: String,
+    global_path: &Path,
+    workspace_path: &Path,
+) -> ConfigSourceInfo {
+    let source_location = match source.as_str() {
+        "Global Config File" => Some(global_path.display().to_string()),
+        "Workspace Config File" => Some(workspace_path.display().to_string()),
+        "CLI Override" => Some("command line".to_string()),
+        source if source.starts_with("Env Var (") => Some(
+            source
+                .trim_start_matches("Env Var (")
+                .trim_end_matches(')')
+                .to_string(),
+        ),
+        _ => None,
+    };
+    let defaulted = source == "Default";
+    let winning_layer = match source.as_str() {
+        "Default" => "default",
+        "Global Config File" => "global",
+        "Workspace Config File" => "workspace",
+        "CLI Override" => "cli",
+        source if source.starts_with("Env Var (") => "environment",
+        _ => "unknown",
+    }
+    .to_string();
+    ConfigSourceInfo {
+        value,
+        winning_layer,
+        source_location,
+        defaulted,
+        overridden: !defaulted,
+        redacted: false,
+        source,
+    }
 }
 
 pub fn explain_config(
@@ -2764,31 +2553,16 @@ pub fn explain_config(
             })
         })?);
     let global_path = global_config_path();
-    let legacy_global_path = legacy_global_config_path();
     let workspace_path = workspace_config_path(&workspace_root);
-    let legacy_workspace_path = legacy_workspace_config_path(&workspace_root);
-    let legacy_policies_path = legacy_workspace_policies_path(&workspace_root);
+    reject_legacy_config(&workspace_root)?;
 
     let mut global_cfg = None;
     if global_path.exists() {
         global_cfg = Some(WorkspaceConfig::from_file(&global_path)?);
-    } else if legacy_global_path.exists() {
-        global_cfg = Some(WorkspaceConfig::from_file(&legacy_global_path)?);
     }
     let mut ws_cfg = None;
     if workspace_path.exists() {
         ws_cfg = Some(WorkspaceConfig::from_file(&workspace_path)?);
-    } else {
-        if legacy_workspace_path.exists() {
-            ws_cfg = Some(WorkspaceConfig::from_file(&legacy_workspace_path)?);
-        }
-        if legacy_policies_path.exists() {
-            let legacy = load_legacy_policies_file(&legacy_policies_path)?;
-            ws_cfg = Some(match ws_cfg.take() {
-                Some(existing) => existing.merge(legacy)?,
-                None => legacy,
-            });
-        }
     }
 
     let mut map = HashMap::new();
@@ -2827,10 +2601,7 @@ pub fn explain_config(
 
             map.insert(
                 $key.to_string(),
-                ConfigSourceInfo {
-                    value: active_value,
-                    source: active_source,
-                },
+                source_info(active_value, active_source, &global_path, &workspace_path),
             );
         };
     }
@@ -2935,24 +2706,6 @@ pub fn explain_config(
     );
 
     resolve!(
-        "context.workspace_file",
-        None::<String>,
-        None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace_file.clone())),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.workspace_file.clone())),
-        Value::Null
-    );
-
-    resolve!(
-        "context.memory_file",
-        None::<String>,
-        None::<&str>,
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory_file.clone())),
-        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.memory_file.clone())),
-        Value::Null
-    );
-
-    resolve!(
         "context.workspace.enabled",
         None::<bool>,
         None::<&str>,
@@ -2981,32 +2734,14 @@ pub fn explain_config(
                         active_value = json!(path);
                     }
                 }
-                if active_source == "Default" {
-                    if let Some(ref path) = c.workspace_file {
-                        active_source =
-                            "Global Config File (via deprecated context.workspace_file)"
-                                .to_string();
-                        active_value = json!(path);
-                    }
-                }
             }
         }
 
         if let Some(ref w_cfg) = ws_cfg {
             if let Some(ref c) = w_cfg.context {
-                let mut source_set = false;
                 if let Some(ref w) = c.workspace {
                     if let Some(ref path) = w.path {
                         active_source = "Workspace Config File".to_string();
-                        active_value = json!(path);
-                        source_set = true;
-                    }
-                }
-                if !source_set {
-                    if let Some(ref path) = c.workspace_file {
-                        active_source =
-                            "Workspace Config File (via deprecated context.workspace_file)"
-                                .to_string();
                         active_value = json!(path);
                     }
                 }
@@ -3015,10 +2750,7 @@ pub fn explain_config(
 
         map.insert(
             "context.workspace.path".to_string(),
-            ConfigSourceInfo {
-                value: active_value,
-                source: active_source,
-            },
+            source_info(active_value, active_source, &global_path, &workspace_path),
         );
     }
 
@@ -3119,31 +2851,14 @@ pub fn explain_config(
                         active_value = json!(path);
                     }
                 }
-                if active_source == "Default" {
-                    if let Some(ref path) = c.memory_file {
-                        active_source =
-                            "Global Config File (via deprecated context.memory_file)".to_string();
-                        active_value = json!(path);
-                    }
-                }
             }
         }
 
         if let Some(ref w_cfg) = ws_cfg {
             if let Some(ref c) = w_cfg.context {
-                let mut source_set = false;
                 if let Some(ref m) = c.memory {
                     if let Some(ref path) = m.path {
                         active_source = "Workspace Config File".to_string();
-                        active_value = json!(path);
-                        source_set = true;
-                    }
-                }
-                if !source_set {
-                    if let Some(ref path) = c.memory_file {
-                        active_source =
-                            "Workspace Config File (via deprecated context.memory_file)"
-                                .to_string();
                         active_value = json!(path);
                     }
                 }
@@ -3152,10 +2867,7 @@ pub fn explain_config(
 
         map.insert(
             "context.memory.path".to_string(),
-            ConfigSourceInfo {
-                value: active_value,
-                source: active_source,
-            },
+            source_info(active_value, active_source, &global_path, &workspace_path),
         );
     }
 
@@ -3362,11 +3074,11 @@ pub fn explain_config(
     );
 
     resolve!(
-        "policies.bash.yolo_allow",
+        "policies.bash.allow",
         None::<Vec<String>>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.yolo_allow.clone())),
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.yolo_allow.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.allow.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.allow.clone())),
         vec![
             "cargo test".to_string(),
             "cargo check".to_string(),
@@ -3380,17 +3092,11 @@ pub fn explain_config(
     );
 
     resolve!(
-        "policies.bash.always_confirm",
+        "policies.bash.confirm",
         None::<Vec<String>>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c
-            .policies
-            .as_ref()
-            .and_then(|p| p.bash.always_confirm.clone())),
-        (|c: &WorkspaceConfig| c
-            .policies
-            .as_ref()
-            .and_then(|p| p.bash.always_confirm.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.confirm.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.confirm.clone())),
         vec![
             "rm".to_string(),
             "sudo".to_string(),
@@ -3404,11 +3110,11 @@ pub fn explain_config(
     );
 
     resolve!(
-        "policies.bash.always_deny",
+        "policies.bash.deny",
         None::<Vec<String>>,
         None::<&str>,
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.always_deny.clone())),
-        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.always_deny.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.deny.clone())),
+        (|c: &WorkspaceConfig| c.policies.as_ref().and_then(|p| p.bash.deny.clone())),
         vec![
             "dd".to_string(),
             "mkfs".to_string(),

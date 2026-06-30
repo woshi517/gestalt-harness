@@ -116,3 +116,42 @@ fn test_invalid_version_fails() {
         );
     }
 }
+
+#[test]
+fn missing_version_has_distinct_error() {
+    let fixture = fixture("missing_version.json");
+    let error = WorkspaceConfig::from_file(&fixture).expect_err("missing version must fail");
+
+    assert!(matches!(
+        error,
+        gestalt_core::HarnessError::Config(gestalt_core::ConfigError::MissingVersion)
+    ));
+}
+
+#[test]
+fn invalid_version_type_has_distinct_error() {
+    let fixture = fixture("invalid_version_type.json");
+    let error = WorkspaceConfig::from_file(&fixture).expect_err("invalid version must fail");
+
+    assert!(matches!(
+        error,
+        gestalt_core::HarnessError::Config(gestalt_core::ConfigError::InvalidVersion)
+    ));
+}
+
+#[test]
+fn removed_alias_is_rejected_as_unknown() {
+    let fixture = fixture("removed_alias.json");
+
+    assert!(WorkspaceConfig::from_file(&fixture).is_err());
+}
+
+fn fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/config/v1")
+        .join(name)
+}

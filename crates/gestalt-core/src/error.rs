@@ -118,6 +118,18 @@ pub enum ConfigError {
     InvalidValue { field: String, reason: String },
     #[error("feature '{feature}' is not enabled for {operation}")]
     FeatureDisabled { feature: String, operation: String },
+    #[error("unsupported legacy configuration at {path}; use {supported_path}. {remediation}")]
+    UnsupportedLegacyConfig {
+        path: String,
+        supported_path: String,
+        remediation: String,
+    },
+    #[error("configuration schema version is missing")]
+    MissingVersion,
+    #[error("configuration schema version must be an integer")]
+    InvalidVersion,
+    #[error("unsupported configuration schema version {found}; expected 1")]
+    UnsupportedVersion { found: u64 },
 }
 
 #[derive(Debug, Error)]

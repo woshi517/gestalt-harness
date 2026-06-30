@@ -25,37 +25,37 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 * **Rust API Target:** `gestalt_runtime::ContextBuildReportV1`
 * **Enforcing Tests:** [context_report_contract_tests.rs](../../crates/gestalt-runtime/tests/context_report_contract_tests.rs)
 
-## 4. Trace & Run Manifests (EVT-001–EVT-005)
+## 4. Configuration (CFG-001–CFG-005)
+* **Status:** 🟢 **Published**
+* **Specification:** [configuration.md](./configuration.md)
+* **Implementation Plan:** [H3A](../plans/v0.1-hardening/H3A-config-schema-layering-and-cleanup.md)
+* **JSON Schema:** [gestalt.schema.json](../schemas/gestalt.schema.json)
+* **Enforcing Tests:** [config_schema_tests.rs](../../crates/gestalt-app/tests/config_schema_tests.rs), [config_tests.rs](../../crates/gestalt-app/tests/config_tests.rs)
+
+## 5. Trace & Run Manifests (EVT-001–EVT-005)
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#34-events-remain-the-ground-truth)
-* **Implementation Plan:** [H2A](./H2A-event-trace-replay-contracts.md)
+* **Implementation Plan:** [H2A](../plans/v0.1-hardening/H2A-event-trace-replay-contracts.md)
 * **Rust API Target:** `gestalt_runtime::EventEnvelope`
 * **Enforcing Tests:** `crates/gestalt-app/tests/sessions_tests.rs` (pending)
-
-## 5. Configuration (CFG-001–CFG-005)
-* **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Specification:** [feature-spec/config-extension.md](../feature-spec/config-extension.md)
-* **Implementation Plan:** [H3A](./H3A-config-schema-layering-and-cleanup.md)
-* **JSON Schema:** `docs/schemas/gestalt.schema.json`
-* **Enforcing Tests:** `crates/gestalt-app/tests/config_tests.rs` (pending)
 
 ## 6. Policy & Approval (POL-001–POL-004)
 * **Status:** 🟢 **Published**
 * **Specification:** [policy-approval.md](./policy-approval.md)
-* **Implementation Plan:** [H1A](./H1A-runtime-control-dtos-and-semantics.md)
+* **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md)
 * **Rust API Target:** `gestalt_runtime::control::contract::ApprovalControlV1`
 * **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
 
 ## 7. Extensions V2 Compatibility (EXT-001–EXT-005)
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/product-neutral-extension-architecture.md](../feature-spec/product-neutral-extension-architecture.md)
-* **Implementation Plan:** [H4A](./H4A-extension-v2-only-cleanup.md), [H4B](./H4B-extension-activation-trust-and-generation.md)
+* **Implementation Plan:** [H4A](../plans/v0.1-hardening/H4A-extension-v2-only-cleanup.md), [H4B](../plans/v0.1-hardening/H4B-extension-activation-trust-and-generation.md)
 * **JSON Schema:** `docs/schemas/extension-manifest.schema.json`
 * **Enforcing Tests:** `crates/gestalt-runtime/tests/extension_tests.rs` (pending)
 
 ## 8. Stable CLI Automation (CLI-001–CLI-004)
-* **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#7-contract-and-stability-model)
-* **Implementation Plan:** [H3B](./H3B-cli-automation-contract-and-snapshots.md)
-* **CLI Command Entry Points:** `gestalt run --json`, `gestalt session inspect --json`
-* **Enforcing Tests:** `crates/gestalt-cli/tests/cli_json_tests.rs` (pending)
+* **Status:** 🔴 **Unpublished (Envelope Implemented, Inventory Blocked)**
+* **Provisional Contract:** [cli-automation.md](./cli-automation.md)
+* **Implementation Plan:** [H3B](../plans/v0.1-hardening/H3B-cli-automation-contract-and-snapshots.md)
+* **CLI Command Entry Points:** See the stable command matrix.
+* **Enforcing Tests:** [main_cli_contract_tests.rs](../../crates/gestalt-cli/tests/main_cli_contract_tests.rs)

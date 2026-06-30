@@ -1,5 +1,6 @@
 #![allow(clippy::large_futures)]
 
+use std::io::{self, Write as _};
 use std::{path::PathBuf, sync::Arc};
 
 use clap::{Args, Parser, Subcommand};
@@ -493,70 +494,130 @@ enum ModelsSubcommand {
 
 fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload {
     if let Some(harness_err) = err.downcast_ref::<gestalt_core::HarnessError>() {
+        let retryable = harness_err.is_recoverable();
         match harness_err {
             gestalt_core::HarnessError::Config(cfg_err) => CliErrorPayload {
                 code: match cfg_err {
                     gestalt_core::ConfigError::FeatureDisabled { .. } => {
                         "FEATURE_DISABLED".to_string()
                     }
+                    gestalt_core::ConfigError::UnsupportedLegacyConfig { .. } => {
+                        "UNSUPPORTED_LEGACY_CONFIG".to_string()
+                    }
+                    gestalt_core::ConfigError::MissingVersion => {
+                        "CONFIG_VERSION_MISSING".to_string()
+                    }
+                    gestalt_core::ConfigError::InvalidVersion => {
+                        "CONFIG_VERSION_INVALID".to_string()
+                    }
+                    gestalt_core::ConfigError::UnsupportedVersion { .. } => {
+                        "CONFIG_VERSION_UNSUPPORTED".to_string()
+                    }
                     _ => "CONFIG_ERROR".to_string(),
                 },
                 message: cfg_err.to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
             gestalt_core::HarnessError::Provider(prov_err) => CliErrorPayload {
-                code: "PROVIDER_ERROR".to_string(),
+                code: if matches!(prov_err, gestalt_core::ProviderError::UnknownProvider(_)) {
+                    "PROVIDER_NOT_FOUND".to_string()
+                } else {
+                    "PROVIDER_ERROR".to_string()
+                },
                 message: prov_err.to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
             gestalt_core::HarnessError::Policy(pol_err) => CliErrorPayload {
                 code: "POLICY_ERROR".to_string(),
                 message: pol_err.to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
             gestalt_core::HarnessError::Context(ctx_err) => CliErrorPayload {
                 code: "CONTEXT_ERROR".to_string(),
                 message: ctx_err.to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
             gestalt_core::HarnessError::Tool(t_err) => CliErrorPayload {
-                code: "TOOL_ERROR".to_string(),
+                code: match t_err {
+                    gestalt_core::ToolError::NotFound(_) => "TOOL_NOT_FOUND",
+                    gestalt_core::ToolError::PathNotAllowed(_)
+                    | gestalt_core::ToolError::NetworkDenied(_)
+                    | gestalt_core::ToolError::Denied(_) => "TOOL_PERMISSION_DENIED",
+                    _ => "TOOL_ERROR",
+                }
+                .to_string(),
                 message: t_err.to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
             gestalt_core::HarnessError::Trace(tr_err) => CliErrorPayload {
                 code: "TRACE_ERROR".to_string(),
                 message: tr_err.to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
             gestalt_core::HarnessError::Approval(app_err) => CliErrorPayload {
                 code: "APPROVAL_ERROR".to_string(),
                 message: app_err.to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
             gestalt_core::HarnessError::Cancelled => CliErrorPayload {
                 code: "CANCELLED".to_string(),
                 message: "Execution was cancelled".to_string(),
+                retryable,
                 details: None,
+                correlation_id: None,
             },
         }
     } else if let Some(trace_err) = err.downcast_ref::<gestalt_core::TraceError>() {
         CliErrorPayload {
             code: "TRACE_ERROR".to_string(),
             message: trace_err.to_string(),
+            retryable: false,
             details: None,
+            correlation_id: None,
         }
     } else {
         CliErrorPayload {
             code: "INTERNAL_ERROR".to_string(),
             message: err.to_string(),
+            retryable: false,
             details: None,
+            correlation_id: None,
         }
+    }
+}
+
+fn exit_code(payload: &CliErrorPayload) -> i32 {
+    match payload.code.as_str() {
+        "FEATURE_DISABLED" => 7,
+        "UNSUPPORTED_LEGACY_CONFIG"
+        | "CONFIG_VERSION_MISSING"
+        | "CONFIG_VERSION_INVALID"
+        | "CONFIG_VERSION_UNSUPPORTED"
+        | "CONFIG_ERROR" => 3,
+        "PROVIDER_NOT_FOUND" | "TOOL_NOT_FOUND" => 4,
+        "POLICY_ERROR" | "TOOL_PERMISSION_DENIED" | "APPROVAL_ERROR" => 6,
+        "PROVIDER_ERROR" | "CONTEXT_ERROR" | "TOOL_ERROR" | "TRACE_ERROR" | "CANCELLED" => 5,
+        _ => 1,
     }
 }
 
 fn print_error_and_exit(err: &(dyn std::error::Error + 'static), format: OutputFormat) -> ! {
     let payload = map_to_cli_error(err);
+    let exit_code = exit_code(&payload);
     match format {
         OutputFormat::Json => {
             let envelope = JsonEnvelope {
@@ -572,7 +633,7 @@ fn print_error_and_exit(err: &(dyn std::error::Error + 'static), format: OutputF
             eprintln!("error: {}", payload.message);
         }
     }
-    std::process::exit(1);
+    std::process::exit(exit_code);
 }
 
 fn handle_result<T: CliReport>(
@@ -589,12 +650,12 @@ fn handle_result<T: CliReport>(
                         kind: report.kind().to_string(),
                         data: report,
                     };
-                    println!("{}", serde_json::to_string(&envelope)?);
+                    write_stdout(&serde_json::to_string(&envelope)?)?;
                 }
                 OutputFormat::Text => {
                     let text = report.render_text();
                     if !text.is_empty() {
-                        println!("{}", text);
+                        write_stdout(&text)?;
                     }
                 }
             }
@@ -603,6 +664,14 @@ fn handle_result<T: CliReport>(
         Err(err) => {
             print_error_and_exit(err.as_ref(), format);
         }
+    }
+}
+
+fn write_stdout(value: &str) -> Result<(), Box<dyn std::error::Error>> {
+    match writeln!(io::stdout().lock(), "{value}") {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(Box::new(error)),
     }
 }
 
@@ -776,7 +845,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     });
                 }
 
-                let (event_tx, printer_handle) = {
+                let (event_tx, printer_handle) = if matches!(format, OutputFormat::Text) {
                     let (tx, mut rx) =
                         tokio::sync::mpsc::unbounded_channel::<gestalt_core::AgentEvent>();
                     let handle = tokio::spawn(async move {
@@ -786,7 +855,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                     });
-                    (tx, handle)
+                    (Some(tx), Some(handle))
+                } else {
+                    (None, None)
                 };
 
                 let approval = Some(Arc::new(gestalt_cli::approval::CliApprovalProvider)
@@ -806,7 +877,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             cli.api_key.clone(),
                             cancel_token,
                             approval,
-                            Some(event_tx),
+                            event_tx,
                             interaction,
                         )
                         .await?
@@ -817,7 +888,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             cli.api_key.clone(),
                             cancel_token,
                             approval,
-                            Some(event_tx),
+                            event_tx,
                             None,
                             interaction,
                         )
@@ -826,7 +897,9 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(RunReport { run_dir })
                 }
                 .await;
-                let _ = printer_handle.await;
+                if let Some(handle) = printer_handle {
+                    let _ = handle.await;
+                }
                 handle_result(
                     res.map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
                     format,
@@ -946,67 +1019,19 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .workspace
                         .clone()
                         .unwrap_or(std::env::current_dir()?);
+                    gestalt_app::config::reject_legacy_config(&workspace_root)?;
                     let global_path = gestalt_app::config::global_config_path();
-                    let legacy_global_path = gestalt_app::config::legacy_global_config_path();
                     let workspace_path =
                         gestalt_app::config::workspace_config_path(&workspace_root);
-                    let legacy_workspace_path =
-                        gestalt_app::config::legacy_workspace_config_path(&workspace_root);
-                    let legacy_policies_path =
-                        gestalt_app::config::legacy_workspace_policies_path(&workspace_root);
 
                     let global_exists = global_path.exists();
-                    let legacy_global_exists = legacy_global_path.exists();
                     let workspace_exists = workspace_path.exists();
-                    let legacy_workspace_exists = legacy_workspace_path.exists();
-                    let legacy_policies_exists = legacy_policies_path.exists();
-
-                    let mut ambiguities = Vec::new();
-                    if global_exists && legacy_global_exists {
-                        ambiguities.push(format!(
-                            "Both global configs exist. '{}' takes precedence over '{}'.",
-                            global_path.display(),
-                            legacy_global_path.display()
-                        ));
-                    }
-                    if workspace_exists && legacy_workspace_exists {
-                        ambiguities.push(format!(
-                            "Both workspace configs exist. '{}' takes precedence over '{}'.",
-                            workspace_path.display(),
-                            legacy_workspace_path.display()
-                        ));
-                    }
-                    if legacy_global_exists {
-                        ambiguities.push(format!(
-                            "Legacy global TOML configuration '{}' is deprecated. Please migrate to gestalt.json.",
-                            legacy_global_path.display()
-                        ));
-                    }
-                    if legacy_workspace_exists {
-                        ambiguities.push(format!(
-                            "Legacy workspace TOML configuration '{}' is deprecated. Please migrate to gestalt.json.",
-                            legacy_workspace_path.display()
-                        ));
-                    }
-                    if legacy_policies_exists {
-                        ambiguities.push(format!(
-                            "Legacy workspace TOML policies configuration '{}' is deprecated. Please migrate to gestalt.json.",
-                            legacy_policies_path.display()
-                        ));
-                    }
 
                     Ok(ConfigPathsReport {
                         global_path,
                         global_exists,
-                        legacy_global_path,
-                        legacy_global_exists,
                         workspace_path,
                         workspace_exists,
-                        legacy_workspace_path,
-                        legacy_workspace_exists,
-                        legacy_policies_path,
-                        legacy_policies_exists,
-                        ambiguities,
                     })
                 })(
                 );
