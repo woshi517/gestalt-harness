@@ -1605,7 +1605,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match command.command {
                 ExtensionSubcommand::List => {
                     let res = gestalt_app::runtime_factory::list_extensions(&overrides)
-                        .map(|extensions| ExtensionsListReport { extensions });
+                        .map(ExtensionsListReport::from);
                     handle_result(res, format, quiet)?;
                 }
                 ExtensionSubcommand::Enable { id } => {

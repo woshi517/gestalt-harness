@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use gestalt_core::session::ExecutionMode;
 use gestalt_core::{
     approval::AutoApprovalProvider,
@@ -9,7 +7,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::{AgentRuntimeBuilder, ExtensionManifest, RuntimeConfig};
+use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeModule, RuntimeRegistryBuilder};
 use std::sync::Arc;
 
 #[test]
@@ -157,6 +155,19 @@ impl PolicyEngine for MockPolicyEngine {
     }
 }
 
+struct MockRuntimeModule;
+
+impl RuntimeModule for MockRuntimeModule {
+    fn id(&self) -> &str {
+        "test-module"
+    }
+
+    fn register(&self, registry: &mut RuntimeRegistryBuilder) -> gestalt_runtime::Result<()> {
+        registry.register_verifier("module-verifier".to_string())?;
+        Ok(())
+    }
+}
+
 struct LegacyContextPipeline;
 impl gestalt_core::ContextPipeline for LegacyContextPipeline {
     fn process(
@@ -173,6 +184,10 @@ impl gestalt_core::ContextPipeline for LegacyContextPipeline {
 }
 
 #[test]
+#[expect(
+    deprecated,
+    reason = "exercise the legacy pipeline validation path intentionally"
+)]
 fn test_builder_rejects_legacy_pipeline_without_assembler() {
     let res = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
@@ -206,6 +221,7 @@ fn test_builder_publishes_registry_snapshot() {
         .build()
         .unwrap();
 
+    #[cfg(feature = "mcp")]
     assert!(runtime.registry_snapshot.tools.contains_key("search_tools"));
     assert_eq!(
         runtime.registry_snapshot.fingerprint,
@@ -248,30 +264,7 @@ fn test_inspect_reads_tool_catalog_from_pinned_snapshot() {
 }
 
 #[test]
-fn test_sync_builder_rejects_pending_process_extensions() {
-    let manifest = mock_extension_manifest();
-    let res = AgentRuntimeBuilder::new()
-        .provider(Arc::new(MockProvider))
-        .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
-        .policy(Arc::new(MockPolicyEngine))
-        .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
-        .process_extension(manifest, "hash-a".to_string(), true)
-        .build();
-
-    let err = match res {
-        Ok(_) => panic!("sync build should reject external process activation"),
-        Err(err) => err,
-    };
-    assert!(err.to_string().contains("build_async"));
-}
-
-#[tokio::test]
-async fn test_async_builder_launches_process_extensions_through_manager() {
-    let manifest = mock_extension_manifest();
+fn test_runtime_module_registration() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
@@ -280,67 +273,19 @@ async fn test_async_builder_launches_process_extensions_through_manager() {
         )))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
-        .process_extension(manifest, "hash-a".to_string(), true)
-        .build_async()
-        .await
-        .unwrap();
-
-    assert!(runtime
-        .extension_snapshot
-        .registry_snapshot
-        .extensions
-        .contains(&"mock-ext@mock-ext".to_string()));
-    assert_eq!(
-        runtime.extension_manager.process_instances()[0].state(),
-        gestalt_runtime::extension::ExtensionProcessState::Ready
-    );
-    assert!(runtime
-        .extension_snapshot
-        .resolved_packages
-        .iter()
-        .any(|pkg| pkg.descriptor.id == "mock-ext"));
-}
-
-#[test]
-fn test_sync_builder_activates_v1_extension_packages_through_pipeline() {
-    let manifest = mock_extension_manifest();
-    let package =
-        gestalt_runtime::extension::ResolvedExtensionPackage::from_v1_manifest(manifest).unwrap();
-
-    let runtime = AgentRuntimeBuilder::new()
-        .provider(Arc::new(MockProvider))
-        .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
-        .policy(Arc::new(MockPolicyEngine))
-        .approval(Arc::new(AutoApprovalProvider))
-        .extension_package(package)
+        .runtime_module(Arc::new(MockRuntimeModule))
         .config(RuntimeConfig::default())
         .build()
         .unwrap();
 
     assert!(runtime
-        .extension_snapshot
-        .resolved_packages
+        .registry_snapshot
+        .verifiers
         .iter()
-        .any(|pkg| pkg.descriptor.id == "mock-ext"));
-    assert_eq!(runtime.extension_manager.process_instances().len(), 1);
-    assert_eq!(
-        runtime.extension_manager.process_instances()[0].state(),
-        gestalt_runtime::extension::ExtensionProcessState::Ready
-    );
-}
-
-fn mock_extension_manifest() -> ExtensionManifest {
-    let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(manifest_path).unwrap();
-    let mut manifest = ExtensionManifest::parse(&content).unwrap();
-    manifest.entrypoint.command = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/mock_ext.sh")
-        .to_string_lossy()
-        .into_owned();
-    manifest
+        .any(|verifier| verifier.name == "module-verifier"));
+    assert!(runtime
+        .registry_snapshot
+        .extensions
+        .iter()
+        .any(|extension| extension == "test-module"));
 }

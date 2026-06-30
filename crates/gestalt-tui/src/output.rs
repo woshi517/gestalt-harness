@@ -1873,8 +1873,32 @@ impl CliReport for RuntimeInspectReport {
 }
 
 #[derive(Serialize)]
+pub struct ExtensionListEntry {
+    pub id: String,
+    pub version: String,
+    pub enabled: bool,
+    pub manifest_path: String,
+}
+
+#[derive(Serialize)]
 pub struct ExtensionsListReport {
-    pub extensions: Vec<gestalt_runtime::DiscoveredExtension>,
+    pub extensions: Vec<ExtensionListEntry>,
+}
+
+impl From<Vec<gestalt_runtime::DiscoveredExtensionPackage>> for ExtensionsListReport {
+    fn from(extensions: Vec<gestalt_runtime::DiscoveredExtensionPackage>) -> Self {
+        Self {
+            extensions: extensions
+                .into_iter()
+                .map(|ext| ExtensionListEntry {
+                    id: ext.package.descriptor.id,
+                    version: ext.package.descriptor.version,
+                    enabled: ext.enabled,
+                    manifest_path: ext.manifest_path.to_string_lossy().to_string(),
+                })
+                .collect(),
+        }
+    }
 }
 
 impl CliReport for ExtensionsListReport {
@@ -1893,10 +1917,10 @@ impl CliReport for ExtensionsListReport {
                 let status = if ext.enabled { "ENABLED" } else { "DISABLED" };
                 lines.push(format!(
                     "- {} (v{}) [{}] - {}",
-                    ext.manifest.id,
-                    ext.manifest.version,
+                    ext.id,
+                    ext.version,
                     status,
-                    ext.manifest_path.to_string_lossy()
+                    ext.manifest_path
                 ));
             }
         }
@@ -1906,7 +1930,7 @@ impl CliReport for ExtensionsListReport {
 
 #[derive(Serialize)]
 pub struct ExtensionInspectReport {
-    pub manifest: gestalt_runtime::ExtensionManifest,
+    pub manifest: gestalt_runtime::extension::ExtensionManifestV2,
 }
 
 impl CliReport for ExtensionInspectReport {

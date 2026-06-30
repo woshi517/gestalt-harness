@@ -6,20 +6,12 @@ use std::sync::Arc;
 
 use crate::config::RuntimeConfig;
 use crate::error::{Result, RuntimeError};
-use crate::registry::RuntimeRegistry;
+use crate::registry::RuntimeRegistryBuilder;
 use crate::runtime::AgentRuntime;
 
 use crate::composition_hooks::CompositionHooks;
 use crate::event_bus::RuntimeEventBus;
-use crate::extension::GestaltExtension;
-use crate::manifest::ExtensionManifest;
-
-#[derive(Clone)]
-pub struct PendingProcessExtension {
-    pub manifest: ExtensionManifest,
-    pub manifest_hash: String,
-    pub is_trusted: bool,
-}
+use crate::extension::RuntimeModule;
 
 #[derive(Clone)]
 pub struct AgentRuntimeBuilder {
@@ -32,11 +24,10 @@ pub struct AgentRuntimeBuilder {
     pub trace_sink: Option<Arc<dyn TraceSink>>,
     pub config: RuntimeConfig,
     pub hooks: HookRegistry,
-    pub registry: RuntimeRegistry,
+    pub registry: RuntimeRegistryBuilder,
     pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
-    pub extensions: Vec<Arc<dyn GestaltExtension>>,
+    pub runtime_modules: Vec<Arc<dyn RuntimeModule>>,
     pub extension_packages: Vec<crate::extension::ResolvedExtensionPackage>,
-    pub pending_process_extensions: Vec<PendingProcessExtension>,
     pub extension_manager: Option<Arc<crate::extension::ExtensionManager>>,
     pub event_bus: RuntimeEventBus,
     #[cfg(feature = "mcp")]
@@ -62,11 +53,10 @@ impl AgentRuntimeBuilder {
             trace_sink: None,
             config: RuntimeConfig::default(),
             hooks: HookRegistry::default(),
-            registry: RuntimeRegistry::new(),
+            registry: RuntimeRegistryBuilder::new(),
             composition_hooks: None,
-            extensions: Vec::new(),
+            runtime_modules: Vec::new(),
             extension_packages: Vec::new(),
-            pending_process_extensions: Vec::new(),
             extension_manager: None,
             event_bus: RuntimeEventBus::new(),
             #[cfg(feature = "mcp")]
@@ -88,13 +78,8 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    pub fn extension(mut self, extension: Arc<dyn GestaltExtension>) -> Self {
-        self.extensions.push(extension);
-        self
-    }
-
-    pub fn extensions(mut self, extensions: Vec<Arc<dyn GestaltExtension>>) -> Self {
-        self.extensions.extend(extensions);
+    pub fn runtime_module(mut self, module: Arc<dyn RuntimeModule>) -> Self {
+        self.runtime_modules.push(module);
         self
     }
 
@@ -103,21 +88,6 @@ impl AgentRuntimeBuilder {
         package: crate::extension::ResolvedExtensionPackage,
     ) -> Self {
         self.extension_packages.push(package);
-        self
-    }
-
-    pub fn process_extension(
-        mut self,
-        manifest: ExtensionManifest,
-        manifest_hash: String,
-        is_trusted: bool,
-    ) -> Self {
-        self.pending_process_extensions
-            .push(PendingProcessExtension {
-                manifest,
-                manifest_hash,
-                is_trusted,
-            });
         self
     }
 
@@ -180,30 +150,6 @@ impl AgentRuntimeBuilder {
     }
 
     pub fn build(self) -> Result<AgentRuntime> {
-        if !self.pending_process_extensions.is_empty() {
-            return Err(RuntimeError::Builder(
-                "external process extensions require AgentRuntimeBuilder::build_async()"
-                    .to_string(),
-            ));
-        }
-        self.build_inner()
-    }
-
-    pub async fn build_async(mut self) -> Result<AgentRuntime> {
-        let pending = std::mem::take(&mut self.pending_process_extensions);
-        for pending_ext in pending {
-            self.event_bus
-                .publish(crate::event_bus::RuntimeEvent::ExtensionDiscovered {
-                    extension_id: pending_ext.manifest.id.clone(),
-                    manifest_path: String::new(),
-                    manifest_hash: pending_ext.manifest_hash.clone(),
-                });
-            let mut package =
-                crate::extension::ResolvedExtensionPackage::from_v1_manifest(pending_ext.manifest)?;
-            package.manifest_hash = Some(pending_ext.manifest_hash);
-            package.apply_trust_decision(pending_ext.is_trusted);
-            self.extension_packages.push(package);
-        }
         self.build_inner()
     }
 
@@ -241,16 +187,19 @@ impl AgentRuntimeBuilder {
             &self.config.trusted_extension_ids,
         );
 
-        for ext in &self.extensions {
-            let name = ext.name().to_string();
+        for module in &self.runtime_modules {
+            let name = module.id().to_string();
             if self.registry.extensions.contains(&name) {
                 return Err(RuntimeError::Registry(format!(
                     "Duplicate extension name: {}",
                     name
                 )));
             }
-            ext.register(&mut self.registry).map_err(|e| {
-                RuntimeError::Extension(format!("Extension '{}' failed to register: {}", name, e))
+            module.register(&mut self.registry).map_err(|e| {
+                RuntimeError::Extension(format!(
+                    "Runtime module '{}' failed to register: {}",
+                    name, e
+                ))
             })?;
             self.registry.register_extension(name)?;
         }
@@ -553,11 +502,9 @@ impl AgentRuntimeBuilder {
             .ok_or_else(|| RuntimeError::Builder("Missing approval provider".to_string()))?;
 
         let user_hooks = self.composition_hooks.take();
-        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
-            Arc::new(crate::composition_hooks::ComposedCompositionHooks {
-                user_hooks,
-                extensions: self.extensions.clone(),
-            });
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> = Arc::new(
+            crate::composition_hooks::ComposedCompositionHooks { user_hooks },
+        );
 
         let registry_snapshot = self.registry.snapshot();
 
@@ -578,7 +525,6 @@ impl AgentRuntimeBuilder {
             mcp_registry,
             #[cfg(feature = "mcp")]
             mcp_discovery_state,
-            self.extensions.clone(),
         );
 
         if let Some(extension_manager) = self.extension_manager {

@@ -46,12 +46,11 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 * **Rust API Target:** `gestalt_runtime::control::contract::ApprovalControlV1`
 * **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
 
-## 7. Extensions V2 Compatibility (EXT-001–EXT-005)
+## 7. Extension Packages & Components (V2-only) (EXT-001–EXT-005)
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/product-neutral-extension-architecture.md](../feature-spec/product-neutral-extension-architecture.md)
 * **Implementation Plan:** [H4A](../plans/v0.1-hardening/H4A-extension-v2-only-cleanup.md), [H4B](../plans/v0.1-hardening/H4B-extension-activation-trust-and-generation.md)
-* **JSON Schema:** `docs/schemas/extension-manifest.schema.json`
-* **Enforcing Tests:** `crates/gestalt-runtime/tests/extension_tests.rs` (pending)
+* **Enforcing Tests:** `crates/gestalt-runtime/tests/extension_manifest_v2_tests.rs`, `crates/gestalt-runtime/tests/lifecycle_protocol_v2_tests.rs`, `crates/gestalt-runtime/tests/runtime_builder_tests.rs`
 
 ## 8. Stable CLI Automation (CLI-001–CLI-004)
 * **Status:** 🔴 **Unpublished (Envelope Implemented, Inventory Blocked)**

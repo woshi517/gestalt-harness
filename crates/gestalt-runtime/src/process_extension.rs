@@ -11,15 +11,12 @@ use tokio::sync::{mpsc, oneshot};
 use crate::config::{ExtensionLimitsConfig, ExtensionTimeoutsConfig};
 use crate::error::{Result, RuntimeError};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
-use crate::extension::GestaltExtension;
 use crate::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 use crate::lifecycle::InitializeRequestV2;
-use crate::manifest::{Capabilities, ExtensionManifest, ToolDeclaration};
-use crate::registry::RuntimeRegistry;
+use crate::extension::ExtensionRuntimeComponent;
 
 pub struct ProcessExtensionBroker {
-    manifest: ExtensionManifest,
-    pub(crate) grants: Option<crate::extension::ExtensionGrantConfig>,
+    component_id: String,
     pub(crate) event_bus: RuntimeEventBus,
     tx: mpsc::Sender<(
         JsonRpcRequest,
@@ -28,10 +25,9 @@ pub struct ProcessExtensionBroker {
     child: Arc<Mutex<Option<Child>>>,
     timeouts: ExtensionTimeoutsConfig,
     _limits: ExtensionLimitsConfig,
-    host_allow_network: bool,
     is_trusted: bool,
     negotiated_version: Arc<Mutex<String>>,
-    negotiated_capabilities: Arc<Mutex<Capabilities>>,
+    supports_cancellation: Arc<Mutex<bool>>,
     pending_requests:
         Arc<Mutex<HashMap<String, oneshot::Sender<std::result::Result<JsonRpcResponse, String>>>>>,
 }
@@ -48,11 +44,10 @@ impl ProcessExtensionBroker {
             .unwrap_or_default()
     }
 
-    pub fn negotiated_capabilities(&self) -> Capabilities {
-        self.negotiated_capabilities
+    pub fn supports_cancellation(&self) -> bool {
+        self.supports_cancellation
             .try_lock()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+            .is_ok_and(|g| *g)
     }
 }
 
@@ -138,41 +133,43 @@ fn validate_jsonrpc_response(
 
 impl ProcessExtensionBroker {
     pub async fn spawn(
-        manifest: ExtensionManifest,
+        component: ExtensionRuntimeComponent,
         event_bus: RuntimeEventBus,
         timeouts: ExtensionTimeoutsConfig,
         limits: ExtensionLimitsConfig,
         is_trusted: bool,
     ) -> Result<Self> {
-        Self::spawn_with_grants(
-            manifest, None, None, event_bus, timeouts, limits, true, is_trusted,
-        )
-        .await
+        Self::spawn_with_component(component, event_bus, timeouts, limits, is_trusted).await
     }
 
-    pub async fn spawn_with_grants(
-        manifest: ExtensionManifest,
-        grants: Option<crate::extension::ExtensionGrantConfig>,
-        package_source_root: Option<std::path::PathBuf>,
+    pub async fn spawn_with_component(
+        component: ExtensionRuntimeComponent,
         event_bus: RuntimeEventBus,
         timeouts: ExtensionTimeoutsConfig,
         limits: ExtensionLimitsConfig,
-        host_allow_network: bool,
         is_trusted: bool,
     ) -> Result<Self> {
-        let extension_id = manifest.id.clone();
+        if component.kind != crate::extension::ComponentKind::GestaltLifecycle {
+            return Err(RuntimeError::Extension(format!(
+                "Process broker only supports lifecycle components, got '{}'",
+                component.id.canonical_id()
+            )));
+        }
 
+        let extension_id = component.id.canonical_id();
+        let entrypoint = crate::manifest::Entrypoint {
+            command: component.entrypoint_command.clone(),
+            args: component.entrypoint_args.clone(),
+        };
         let shell_allowed = crate::permissions::check_shell_permission_effective(
-            &manifest.permissions,
-            grants.as_ref(),
+            &component.permissions,
+            Some(&component.grants),
             &event_bus,
-            &manifest.id,
+            &extension_id,
         )
         .is_ok();
 
-        if let Err(reason) =
-            crate::manifest::validate_shell_entrypoint(&manifest.entrypoint, shell_allowed)
-        {
+        if let Err(reason) = crate::manifest::validate_shell_entrypoint(&entrypoint, shell_allowed) {
             event_bus.publish(RuntimeEvent::ExtensionRejected {
                 extension_id: extension_id.clone(),
                 reason: reason.clone(),
@@ -180,24 +177,22 @@ impl ProcessExtensionBroker {
             return Err(RuntimeError::Extension(reason));
         }
 
-        let mut cmd = if let Some(ref source_root) = package_source_root {
-            let resolved_cmd_path =
-                if std::path::Path::new(&manifest.entrypoint.command).is_absolute() {
-                    std::path::PathBuf::from(&manifest.entrypoint.command)
-                } else {
-                    source_root.join(&manifest.entrypoint.command)
-                };
+        let mut cmd = if let Some(ref source_root) = component.package_source_root {
+            let resolved_cmd_path = if std::path::Path::new(&component.entrypoint_command).is_absolute() {
+                std::path::PathBuf::from(&component.entrypoint_command)
+            } else {
+                source_root.join(&component.entrypoint_command)
+            };
             let mut c = Command::new(resolved_cmd_path);
             c.current_dir(source_root);
             c
         } else {
-            Command::new(&manifest.entrypoint.command)
+            Command::new(&component.entrypoint_command)
         };
 
-        cmd.args(&manifest.entrypoint.args);
+        cmd.args(&component.entrypoint_args);
         cmd.env_clear();
 
-        // Inherit only safe/non-sensitive env variables from parent
         let safe_envs = [
             "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
             "TMPDIR", "TEMP", "TMP",
@@ -249,7 +244,6 @@ impl ProcessExtensionBroker {
         let extension_id_clone = extension_id.clone();
         let event_bus_clone = event_bus.clone();
 
-        // Spawn stderr drainer task
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr);
             let mut line = String::new();
@@ -268,11 +262,9 @@ impl ProcessExtensionBroker {
         let pending_requests: Arc<
             Mutex<HashMap<String, oneshot::Sender<std::result::Result<JsonRpcResponse, String>>>>,
         > = Arc::new(Mutex::new(HashMap::new()));
-
         let pending_requests_clone1 = pending_requests.clone();
         let limits_for_writer = limits.clone();
 
-        // Spawn stdin writer task
         tokio::spawn(async move {
             let mut stdin = stdin;
             let max_pending = limits_for_writer.max_pending_requests.unwrap_or(16);
@@ -314,7 +306,6 @@ impl ProcessExtensionBroker {
         let event_bus_clone2 = event_bus.clone();
         let limits_clone = limits.clone();
 
-        // Spawn stdout reader task
         tokio::spawn(async move {
             let mut stdout_reader = BufReader::new(stdout);
             let mut line = String::new();
@@ -348,43 +339,44 @@ impl ProcessExtensionBroker {
                                     ),
                                 });
                             }
-                            Ok(val) => {
-                                match validate_jsonrpc_response(&val) {
-                                    Ok((id_str, resp)) => {
-                                        let mut lock = pending_requests_clone2.lock().await;
-                                        if let Some(tx) = lock.remove(&id_str) {
-                                            let _ = tx.send(Ok(resp));
-                                        } else {
-                                            protocol_errors += 1;
-                                            event_bus_clone2.publish(RuntimeEvent::ExtensionError {
-                                                extension_id: extension_id_clone2.clone(),
-                                                message: format!("ExtensionProtocolError: Unknown response ID: {}", id_str),
-                                            });
-                                        }
-                                    }
-                                    Err(err_msg) => {
+                            Ok(val) => match validate_jsonrpc_response(&val) {
+                                Ok((id_str, resp)) => {
+                                    let mut lock = pending_requests_clone2.lock().await;
+                                    if let Some(tx) = lock.remove(&id_str) {
+                                        let _ = tx.send(Ok(resp));
+                                    } else {
                                         protocol_errors += 1;
                                         event_bus_clone2.publish(RuntimeEvent::ExtensionError {
                                             extension_id: extension_id_clone2.clone(),
-                                            message: format!("ExtensionProtocolError: {}", err_msg),
+                                            message: format!(
+                                                "ExtensionProtocolError: Unknown response ID: {}",
+                                                id_str
+                                            ),
                                         });
-                                        if let Some(id_val) = val.get("id") {
-                                            let id_str = match id_val {
-                                                serde_json::Value::String(s) => s.clone(),
-                                                serde_json::Value::Number(n) => n.to_string(),
-                                                _ => id_val.to_string(),
-                                            };
-                                            let mut lock = pending_requests_clone2.lock().await;
-                                            if let Some(tx) = lock.remove(&id_str) {
-                                                let _ = tx.send(Err(format!(
-                                                    "ExtensionProtocolError: {}",
-                                                    err_msg
-                                                )));
-                                            }
+                                    }
+                                }
+                                Err(err_msg) => {
+                                    protocol_errors += 1;
+                                    event_bus_clone2.publish(RuntimeEvent::ExtensionError {
+                                        extension_id: extension_id_clone2.clone(),
+                                        message: format!("ExtensionProtocolError: {}", err_msg),
+                                    });
+                                    if let Some(id_val) = val.get("id") {
+                                        let id_str = match id_val {
+                                            serde_json::Value::String(s) => s.clone(),
+                                            serde_json::Value::Number(n) => n.to_string(),
+                                            _ => id_val.to_string(),
+                                        };
+                                        let mut lock = pending_requests_clone2.lock().await;
+                                        if let Some(tx) = lock.remove(&id_str) {
+                                            let _ = tx.send(Err(format!(
+                                                "ExtensionProtocolError: {}",
+                                                err_msg
+                                            )));
                                         }
                                     }
                                 }
-                            }
+                            },
                         }
                         line.clear();
                         if protocol_errors >= max_errors {
@@ -417,129 +409,83 @@ impl ProcessExtensionBroker {
         });
 
         let negotiated_version = Arc::new(Mutex::new(String::new()));
-        let negotiated_capabilities = Arc::new(Mutex::new(Capabilities::default()));
+        let supports_cancellation = Arc::new(Mutex::new(false));
 
         let broker = Self {
-            manifest: manifest.clone(),
-            grants,
+            component_id: extension_id.clone(),
             event_bus: event_bus.clone(),
             tx,
             child: child_arc,
             timeouts,
             _limits: limits,
-            host_allow_network,
             is_trusted,
             negotiated_version: negotiated_version.clone(),
-            negotiated_capabilities: negotiated_capabilities.clone(),
+            supports_cancellation: supports_cancellation.clone(),
             pending_requests: pending_requests.clone(),
         };
 
-        // Initialize handshake
-        let manifest_proto = manifest.protocol_version.as_deref().unwrap_or("1.0");
-        let init_params = if manifest_proto == "2.0" {
-            serde_json::to_value(InitializeRequestV2 {
-                supported_versions: vec!["2.0".to_string()],
-            })
-            .unwrap_or_else(|_| serde_json::json!({ "supported_versions": ["2.0"] }))
-        } else {
-            serde_json::json!({
-                "capabilities": manifest.capabilities,
-                "version": manifest.protocol_version.clone().unwrap_or_else(|| "1.0".to_string())
-            })
-        };
+        let init_res = broker
+            .call(
+                "initialize",
+                Some(serde_json::to_value(InitializeRequestV2 {
+                    supported_versions: vec!["2.0".to_string()],
+                })
+                .unwrap_or_else(|_| serde_json::json!({ "supported_versions": ["2.0"] }))),
+            )
+            .await;
 
-        let init_res = broker.call("initialize", Some(init_params)).await;
-        let (negotiated_ver, negotiated_caps) = match init_res {
-            Ok(val) => {
-                let ver = if manifest_proto == "2.0" {
-                    val.get("negotiated_version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string()
-                } else {
-                    val.get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("1.0")
-                        .to_string()
-                };
-                let caps = if manifest_proto == "2.0" {
-                    manifest.capabilities.clone()
-                } else if let Some(caps_val) = val.get("capabilities") {
-                    serde_json::from_value::<Capabilities>(caps_val.clone())
-                        .unwrap_or_else(|_| manifest.capabilities.clone())
-                } else {
-                    manifest.capabilities.clone()
-                };
-                (ver, caps)
-            }
-            Err(e) => {
+        let init = match init_res {
+            Ok(val) => match serde_json::from_value::<crate::lifecycle::InitializeResponseV2>(val)
+            {
+                Ok(init) => init,
+                Err(err) => {
+                    broker.shutdown().await;
+                    event_bus.publish(RuntimeEvent::ExtensionRejected {
+                        extension_id: extension_id.clone(),
+                        reason: format!("invalid initialize response: {err}"),
+                    });
+                    return Err(RuntimeError::Extension(format!(
+                        "invalid initialize response: {err}"
+                    )));
+                }
+            },
+            Err(err) => {
                 broker.shutdown().await;
                 event_bus.publish(RuntimeEvent::ExtensionRejected {
                     extension_id: extension_id.clone(),
-                    reason: format!("Initialization failed: {}", e),
+                    reason: format!("Initialization failed: {}", err),
                 });
                 return Err(RuntimeError::Extension(format!(
                     "Initialization failed: {}",
-                    e
+                    err
                 )));
             }
         };
 
-        if manifest_proto == "2.0" {
-            if negotiated_ver != "2.0" {
-                broker.shutdown().await;
-                event_bus.publish(RuntimeEvent::ExtensionRejected {
-                    extension_id: extension_id.clone(),
-                    reason: format!(
-                        "No mutually supported protocol version (manifest: {}, extension negotiated: {})",
-                        manifest_proto, negotiated_ver
-                    ),
-                });
-                return Err(RuntimeError::Extension(
-                    "No mutually supported protocol version".to_string(),
-                ));
-            }
-        } else if manifest_proto == "1.1" {
-            if negotiated_ver != "1.1" && negotiated_ver != "1.0" {
-                broker.shutdown().await;
-                event_bus.publish(RuntimeEvent::ExtensionRejected {
-                    extension_id: extension_id.clone(),
-                    reason: format!("No mutually supported protocol version (manifest: {}, extension negotiated: {})", manifest_proto, negotiated_ver),
-                });
-                return Err(RuntimeError::Extension(
-                    "No mutually supported protocol version".to_string(),
-                ));
-            }
-        } else if manifest_proto == "1.0" {
-            if negotiated_ver != "1.0" {
-                broker.shutdown().await;
-                event_bus.publish(RuntimeEvent::ExtensionRejected {
-                    extension_id: extension_id.clone(),
-                    reason: format!("No mutually supported protocol version (manifest: {}, extension negotiated: {})", manifest_proto, negotiated_ver),
-                });
-                return Err(RuntimeError::Extension(
-                    "No mutually supported protocol version".to_string(),
-                ));
-            }
-        } else {
+        if init.negotiated_version != "2.0" {
             broker.shutdown().await;
             event_bus.publish(RuntimeEvent::ExtensionRejected {
                 extension_id: extension_id.clone(),
-                reason: format!("Unsupported manifest protocol version: {}", manifest_proto),
+                reason: format!(
+                    "No mutually supported protocol version (manifest: 2.0, extension negotiated: {})",
+                    init.negotiated_version
+                ),
             });
             return Err(RuntimeError::Extension(
-                "Unsupported manifest protocol version".to_string(),
+                "No mutually supported protocol version".to_string(),
             ));
         }
 
         {
             let mut nv = negotiated_version.lock().await;
-            *nv = negotiated_ver;
-            let mut nc = negotiated_capabilities.lock().await;
-            *nc = negotiated_caps;
+            *nv = init.negotiated_version;
+            let mut nc = supports_cancellation.lock().await;
+            *nc = init.supports_cancellation;
         }
 
-        event_bus.publish(RuntimeEvent::ExtensionLoaded { extension_id });
+        event_bus.publish(RuntimeEvent::ExtensionLoaded {
+            extension_id: extension_id.clone(),
+        });
 
         Ok(broker)
     }
@@ -557,7 +503,7 @@ impl ProcessExtensionBroker {
         );
 
         self.event_bus.publish(RuntimeEvent::RpcRequest {
-            extension_id: self.manifest.id.clone(),
+            extension_id: self.component_id.clone(),
             method: method.to_string(),
             request_id: request_id.clone(),
         });
@@ -565,7 +511,7 @@ impl ProcessExtensionBroker {
         let (resp_tx, resp_rx) = oneshot::channel();
         if self.tx.send((req, resp_tx)).await.is_err() {
             self.event_bus.publish(RuntimeEvent::RpcResponse {
-                extension_id: self.manifest.id.clone(),
+                extension_id: self.component_id.clone(),
                 method: method.to_string(),
                 request_id: request_id.clone(),
                 success: false,
@@ -582,16 +528,13 @@ impl ProcessExtensionBroker {
         };
         let timeout_dur = Duration::from_millis(timeout_ms);
 
-        let supports_cancel = {
-            let caps = self.negotiated_capabilities.lock().await;
-            caps.supports_cancellation
-        };
+        let supports_cancel = self.supports_cancellation();
 
         let result = tokio::time::timeout(timeout_dur, resp_rx).await;
         match result {
             Ok(Ok(Ok(response))) => {
                 self.event_bus.publish(RuntimeEvent::RpcResponse {
-                    extension_id: self.manifest.id.clone(),
+                    extension_id: self.component_id.clone(),
                     method: method.to_string(),
                     request_id: request_id.clone(),
                     success: response.error.is_none(),
@@ -604,7 +547,7 @@ impl ProcessExtensionBroker {
             }
             Ok(Ok(Err(e))) => {
                 self.event_bus.publish(RuntimeEvent::RpcResponse {
-                    extension_id: self.manifest.id.clone(),
+                    extension_id: self.component_id.clone(),
                     method: method.to_string(),
                     request_id: request_id.clone(),
                     success: false,
@@ -613,7 +556,7 @@ impl ProcessExtensionBroker {
             }
             Ok(Err(_)) => {
                 self.event_bus.publish(RuntimeEvent::RpcResponse {
-                    extension_id: self.manifest.id.clone(),
+                    extension_id: self.component_id.clone(),
                     method: method.to_string(),
                     request_id: request_id.clone(),
                     success: false,
@@ -626,7 +569,7 @@ impl ProcessExtensionBroker {
             }
             Err(_) => {
                 self.event_bus.publish(RuntimeEvent::RpcResponse {
-                    extension_id: self.manifest.id.clone(),
+                    extension_id: self.component_id.clone(),
                     method: method.to_string(),
                     request_id: request_id.clone(),
                     success: false,
@@ -660,409 +603,17 @@ impl ProcessExtensionBroker {
                 tokio::time::timeout(Duration::from_millis(shutdown_timeout), child.wait()).await
             {
                 self.event_bus.publish(RuntimeEvent::ProcessExited {
-                    extension_id: self.manifest.id.clone(),
+                    extension_id: self.component_id.clone(),
                     exit_code: status.ok().and_then(|s| s.code()),
                 });
             } else {
                 let _ = child.kill().await;
                 let status = child.wait().await;
                 self.event_bus.publish(RuntimeEvent::ProcessExited {
-                    extension_id: self.manifest.id.clone(),
+                    extension_id: self.component_id.clone(),
                     exit_code: status.ok().and_then(|s| s.code()),
                 });
             }
         }
-    }
-}
-
-fn check_input_permissions(
-    manifest: &ExtensionManifest,
-    grants: Option<&crate::extension::ExtensionGrantConfig>,
-    input: &serde_json::Value,
-    workspace_root: &std::path::Path,
-    host_allow_network: bool,
-    event_bus: &RuntimeEventBus,
-) -> std::result::Result<(), gestalt_core::error::ToolError> {
-    match input {
-        serde_json::Value::Object(map) => {
-            for (k, v) in map {
-                let key_lower = k.to_lowercase();
-                if let serde_json::Value::String(s) = v {
-                    if key_lower.contains("path")
-                        || key_lower.contains("file")
-                        || key_lower.contains("dir")
-                        || key_lower.contains("dest")
-                        || key_lower.contains("src")
-                        || key_lower.contains("target")
-                        || key_lower.contains("output")
-                    {
-                        let is_write = key_lower.contains("write")
-                            || key_lower.contains("dest")
-                            || key_lower.contains("output")
-                            || key_lower.contains("target");
-                        let p = std::path::Path::new(s);
-                        if let Err(e) = crate::permissions::check_path_permission_effective(
-                            &manifest.permissions,
-                            grants,
-                            workspace_root,
-                            p,
-                            is_write,
-                            event_bus,
-                            &manifest.id,
-                        ) {
-                            return Err(gestalt_core::error::ToolError::PathNotAllowed(e));
-                        }
-                    }
-                    if key_lower.contains("url")
-                        || key_lower.contains("host")
-                        || key_lower.contains("uri")
-                        || key_lower.contains("address")
-                    {
-                        let host = if let Ok(url) = url::Url::parse(s) {
-                            url.host_str().unwrap_or(s).to_string()
-                        } else {
-                            s.clone()
-                        };
-                        if let Err(e) = crate::permissions::check_network_permission_effective(
-                            &manifest.permissions,
-                            grants,
-                            host_allow_network,
-                            &host,
-                            event_bus,
-                            &manifest.id,
-                        ) {
-                            return Err(gestalt_core::error::ToolError::NetworkDenied(e));
-                        }
-                    }
-                } else {
-                    check_input_permissions(
-                        manifest,
-                        grants,
-                        v,
-                        workspace_root,
-                        host_allow_network,
-                        event_bus,
-                    )?;
-                }
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            for v in arr {
-                check_input_permissions(
-                    manifest,
-                    grants,
-                    v,
-                    workspace_root,
-                    host_allow_network,
-                    event_bus,
-                )?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-pub struct ProcessBackedTool {
-    broker: Arc<ProcessExtensionBroker>,
-    name: String,
-    description: String,
-    schema: gestalt_core::tool::ToolSchema,
-    risk: gestalt_core::tool::RiskLevel,
-    /// Manifest declaration for this tool. We retain it so the
-    /// trust/provenance-aware descriptor builder can be used at
-    /// `descriptor()` time. Keeping the original declaration also
-    /// preserves the extension-declared `risk` and any trust
-    /// annotations the manifest provides, so policy decisions and
-    /// trace metadata stay consistent with what the extension
-    /// shipped.
-    tool_decl: ToolDeclaration,
-}
-
-#[async_trait::async_trait]
-impl gestalt_core::tool::Tool for ProcessBackedTool {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn description(&self) -> &str {
-        &self.description
-    }
-
-    fn schema(&self) -> gestalt_core::tool::ToolSchema {
-        self.schema.clone()
-    }
-
-    fn risk(&self, _input: &serde_json::Value) -> gestalt_core::tool::RiskLevel {
-        self.risk
-    }
-
-    fn descriptor(&self) -> gestalt_core::tool_descriptor::ToolDescriptor {
-        crate::extension_trust::build_extension_tool_descriptor(
-            &self.broker.manifest,
-            &self.tool_decl,
-            self.broker.is_trusted(),
-        )
-    }
-
-    async fn execute(
-        &self,
-        input: serde_json::Value,
-        ctx: &gestalt_core::tool::ToolContext,
-    ) -> std::result::Result<gestalt_core::tool::ToolOutput, gestalt_core::error::ToolError> {
-        let workspace_root = ctx
-            .workspace_root
-            .as_deref()
-            .unwrap_or_else(|| std::path::Path::new("."));
-
-        if !self.broker.manifest.capabilities.tools {
-            return Err(gestalt_core::error::ToolError::Denied(
-                "Tools capability is not enabled in manifest".to_string(),
-            ));
-        }
-
-        check_input_permissions(
-            &self.broker.manifest,
-            self.broker.grants.as_ref(),
-            &input,
-            workspace_root,
-            self.broker.host_allow_network,
-            &self.broker.event_bus,
-        )?;
-
-        let res = self
-            .broker
-            .call(
-                "tools/call",
-                Some(serde_json::json!({
-                    "name": self.name.clone(),
-                    "input": input
-                })),
-            )
-            .await
-            .map_err(|e| {
-                gestalt_core::error::ToolError::ExecutionFailed(std::io::Error::other(e))
-            })?;
-
-        if let Some(artifacts_val) = res.get("artifacts").and_then(|v| v.as_array()) {
-            if !artifacts_val.is_empty() {
-                let art = &artifacts_val[0];
-                let path = art.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                let mime_type = art
-                    .get("mime_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("text/plain");
-                let size_bytes =
-                    usize::try_from(art.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0))
-                        .unwrap_or(usize::MAX);
-
-                return Ok(gestalt_core::tool::ToolOutput::Artifact {
-                    path: std::path::PathBuf::from(path),
-                    mime_type: mime_type.to_string(),
-                    size_bytes,
-                });
-            }
-        }
-
-        let content = if let Some(content_str) = res.get("content").and_then(|v| v.as_str()) {
-            content_str.to_string()
-        } else {
-            res.to_string()
-        };
-
-        Ok(gestalt_core::tool::ToolOutput::Text { content })
-    }
-}
-
-pub struct ProcessBackedContextContributor {
-    broker: Arc<ProcessExtensionBroker>,
-    name: String,
-    stability: gestalt_core::ContextStability,
-}
-
-#[async_trait::async_trait]
-impl crate::context::ContextContributor for ProcessBackedContextContributor {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn stability(&self) -> gestalt_core::ContextStability {
-        self.stability
-    }
-
-    async fn contribute(
-        &self,
-        workspace_root: &std::path::Path,
-    ) -> Result<gestalt_core::message::Message> {
-        if !self.broker.manifest.capabilities.context {
-            return Err(RuntimeError::Extension(
-                "Context capability is not enabled in manifest".to_string(),
-            ));
-        }
-
-        if let Err(e) = crate::permissions::check_path_permission_effective(
-            &self.broker.manifest.permissions,
-            self.broker.grants.as_ref(),
-            workspace_root,
-            workspace_root,
-            false,
-            &self.broker.event_bus,
-            &self.broker.manifest.id,
-        ) {
-            return Err(RuntimeError::Extension(e));
-        }
-
-        let res = self
-            .broker
-            .call(
-                "context/inject",
-                Some(serde_json::json!({
-                    "name": self.name.clone()
-                })),
-            )
-            .await
-            .map_err(RuntimeError::Extension)?;
-
-        let content = if let Some(items_val) = res.get("items").and_then(|v| v.as_array()) {
-            let mut combined_content = String::new();
-            for item in items_val {
-                let mut trust = item
-                    .get("trust")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("untrusted");
-                let mut priority = item
-                    .get("priority")
-                    .and_then(|p| p.as_str())
-                    .unwrap_or("medium");
-                let item_content = item.get("content").and_then(|c| c.as_str()).unwrap_or("");
-
-                let is_broker_trusted = self.broker.is_trusted();
-                if !is_broker_trusted {
-                    if trust == "trusted" {
-                        eprintln!(
-                            "Warning: Context contribution from untrusted extension '{}' claimed trusted status. Downgrading to untrusted.",
-                            self.broker.manifest.id
-                        );
-                        trust = "untrusted";
-                    }
-                    if priority == "critical" {
-                        eprintln!(
-                            "Warning: Context contribution from untrusted extension '{}' claimed critical priority. Downgrading to high.",
-                            self.broker.manifest.id
-                        );
-                        priority = "high";
-                    }
-                }
-
-                let _ = (trust, priority); // keep compiler happy for unused warnings
-
-                if !combined_content.is_empty() {
-                    combined_content.push('\n');
-                }
-                combined_content.push_str(item_content);
-            }
-            combined_content
-        } else {
-            res.get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        };
-
-        Ok(gestalt_core::message::Message::System { content })
-    }
-}
-
-pub struct ProcessExtension {
-    pub manifest: ExtensionManifest,
-    pub broker: Arc<ProcessExtensionBroker>,
-    extension_identity: String,
-}
-
-impl ProcessExtension {
-    pub fn new(manifest: ExtensionManifest, broker: Arc<ProcessExtensionBroker>) -> Self {
-        let instance_id = manifest.id.clone();
-        let extension_identity = format!("{}@{}", manifest.id, instance_id);
-        Self {
-            manifest,
-            broker,
-            extension_identity,
-        }
-    }
-}
-
-impl GestaltExtension for ProcessExtension {
-    #[allow(clippy::misnamed_getters)]
-    fn name(&self) -> &str {
-        &self.extension_identity
-    }
-
-    fn as_process_extension(&self) -> Option<&crate::process_extension::ProcessExtension> {
-        Some(self)
-    }
-
-    fn register(&self, registry: &mut RuntimeRegistry) -> Result<()> {
-        let extension_id = self.extension_identity.clone();
-
-        for tool in &self.manifest.tools {
-            let schema = tool.input_schema.clone();
-            let tool_schema: gestalt_core::tool::ToolSchema =
-                serde_json::from_value(serde_json::json!({
-                    "name": tool.name.clone(),
-                    "description": tool.description.clone(),
-                    "input_schema": schema
-                }))
-                .unwrap();
-
-            let risk = match tool.risk.as_deref() {
-                Some("low") => gestalt_core::tool::RiskLevel::Low,
-                Some("medium") => gestalt_core::tool::RiskLevel::Medium,
-                Some("high") => gestalt_core::tool::RiskLevel::High,
-                Some("critical") => gestalt_core::tool::RiskLevel::Critical,
-                _ => gestalt_core::tool::RiskLevel::High, // default to high for safety
-            };
-
-            let wrapped_tool = Arc::new(ProcessBackedTool {
-                broker: self.broker.clone(),
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                schema: tool_schema.clone(),
-                risk,
-                tool_decl: tool.clone(),
-            });
-
-            registry.register_executable_tool(
-                tool.name.clone(),
-                tool_schema,
-                wrapped_tool,
-                Some(extension_id.clone()),
-            )?;
-        }
-
-        for injector in &self.manifest.context_injectors {
-            let stability = injector.stability.ok_or_else(|| {
-                RuntimeError::Extension(format!(
-                    "Context injector '{}' must declare stability",
-                    injector.name
-                ))
-            })?;
-            let contributor = Arc::new(ProcessBackedContextContributor {
-                broker: self.broker.clone(),
-                name: injector.name.clone(),
-                stability,
-            });
-
-            registry.register_executable_context_contributor(
-                injector.name.clone(),
-                contributor,
-                Some(extension_id.clone()),
-            )?;
-        }
-
-        for hook in &self.manifest.hooks {
-            registry.register_hook(hook.name.clone())?;
-        }
-
-        Ok(())
     }
 }

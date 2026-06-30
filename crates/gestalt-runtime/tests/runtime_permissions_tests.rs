@@ -1,41 +1,20 @@
 use gestalt_runtime::{
-    check_network_permission, check_path_permission, check_shell_permission, Capabilities,
-    Entrypoint, ExtensionManifest, Permissions, RuntimeEventBus,
+    check_network_permission, check_path_permission, check_shell_permission,
+    Permissions, RuntimeEventBus,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-fn dummy_manifest() -> ExtensionManifest {
-    ExtensionManifest {
-        id: "test-ext".to_string(),
-        name: "Test Extension".to_string(),
-        version: "0.1.0".to_string(),
-        manifest_version: None,
-        protocol_version: None,
-        runtime: "stdio".to_string(),
-        entrypoint: Entrypoint {
-            command: "echo".to_string(),
-            args: vec![],
-        },
-        capabilities: Capabilities {
-            tools: true,
-            hooks: false,
-            context: false,
-            ..Default::default()
-        },
-        permissions: Permissions {
-            allow_network: vec!["github.com".to_string()],
-            allow_workspace_read: true,
-            allow_workspace_write: false,
-            allow_shell: false,
-            allow_all_paths: false,
-            allowed_paths: vec!["/tmp/test-allowed-path".to_string()],
-        },
-        tools: vec![],
-        hooks: vec![],
-        context_injectors: vec![],
+fn dummy_permissions() -> Permissions {
+    Permissions {
+        allow_network: vec!["github.com".to_string()],
+        allow_workspace_read: true,
+        allow_workspace_write: false,
+        allow_shell: false,
+        allow_all_paths: false,
+        allowed_paths: vec!["/tmp/test-allowed-path".to_string()],
     }
 }
 
@@ -53,13 +32,14 @@ fn temp_workspace() -> std::path::PathBuf {
 
 #[test]
 fn test_permissions_paths() {
-    let manifest = dummy_manifest();
+    let manifest = dummy_permissions();
     let event_bus = RuntimeEventBus::new();
     let workspace = Path::new("/workspace");
 
     // Path inside workspace read
     let res = check_path_permission(
         &manifest,
+        "test-ext",
         workspace,
         Path::new("/workspace/src/lib.rs"),
         false,
@@ -70,6 +50,7 @@ fn test_permissions_paths() {
     // Path inside workspace write (denied)
     let res = check_path_permission(
         &manifest,
+        "test-ext",
         workspace,
         Path::new("/workspace/src/lib.rs"),
         true,
@@ -80,6 +61,7 @@ fn test_permissions_paths() {
     // Allowed path outside workspace
     let res = check_path_permission(
         &manifest,
+        "test-ext",
         workspace,
         Path::new("/tmp/test-allowed-path/file.txt"),
         false,
@@ -90,6 +72,7 @@ fn test_permissions_paths() {
     // Denied path outside workspace
     let res = check_path_permission(
         &manifest,
+        "test-ext",
         workspace,
         Path::new("/etc/passwd"),
         false,
@@ -100,8 +83,8 @@ fn test_permissions_paths() {
 
 #[test]
 fn test_permissions_reject_nonexistent_traversal_outside_workspace() {
-    let mut manifest = dummy_manifest();
-    manifest.permissions.allow_workspace_write = true;
+    let mut manifest = dummy_permissions();
+    manifest.allow_workspace_write = true;
     let event_bus = RuntimeEventBus::new();
     let workspace = temp_workspace();
     let outside = workspace
@@ -111,6 +94,7 @@ fn test_permissions_reject_nonexistent_traversal_outside_workspace() {
 
     let res = check_path_permission(
         &manifest,
+        "test-ext",
         &workspace,
         Path::new("../outside-target/new-file.txt"),
         true,
@@ -131,8 +115,8 @@ fn test_permissions_reject_nonexistent_traversal_outside_workspace() {
 #[cfg(unix)]
 #[test]
 fn test_permissions_reject_symlink_escape_for_nonexistent_target() {
-    let mut manifest = dummy_manifest();
-    manifest.permissions.allow_workspace_write = true;
+    let mut manifest = dummy_permissions();
+    manifest.allow_workspace_write = true;
     let event_bus = RuntimeEventBus::new();
     let workspace = temp_workspace();
     let outside = workspace
@@ -149,6 +133,7 @@ fn test_permissions_reject_symlink_escape_for_nonexistent_target() {
 
     let res = check_path_permission(
         &manifest,
+        "test-ext",
         &workspace,
         Path::new("linked-outside/../escaped.txt"),
         true,
@@ -162,36 +147,36 @@ fn test_permissions_reject_symlink_escape_for_nonexistent_target() {
 
 #[test]
 fn test_permissions_network() {
-    let manifest = dummy_manifest();
+    let manifest = dummy_permissions();
     let event_bus = RuntimeEventBus::new();
 
     // Allowed host
-    let res = check_network_permission(&manifest, "github.com", &event_bus);
+    let res = check_network_permission(&manifest, "test-ext", "github.com", &event_bus);
     assert!(res.is_ok());
 
     // Denied host
-    let res = check_network_permission(&manifest, "google.com", &event_bus);
+    let res = check_network_permission(&manifest, "test-ext", "google.com", &event_bus);
     assert!(res.is_err());
 }
 
 #[test]
 fn test_permissions_shell() {
-    let mut manifest = dummy_manifest();
+    let mut manifest = dummy_permissions();
     let event_bus = RuntimeEventBus::new();
 
     // Denied shell
-    let res = check_shell_permission(&manifest, &event_bus);
+    let res = check_shell_permission(&manifest, "test-ext", &event_bus);
     assert!(res.is_err());
 
     // Allowed shell
-    manifest.permissions.allow_shell = true;
-    let res = check_shell_permission(&manifest, &event_bus);
+    manifest.allow_shell = true;
+    let res = check_shell_permission(&manifest, "test-ext", &event_bus);
     assert!(res.is_ok());
 }
 
 #[test]
 fn test_permissions_effective_shell() {
-    let mut manifest = dummy_manifest().permissions;
+    let mut manifest = dummy_permissions();
     let mut grant = gestalt_runtime::extension::ExtensionGrantConfig::default();
     let event_bus = RuntimeEventBus::new();
 
@@ -231,7 +216,7 @@ fn test_permissions_effective_shell() {
 
 #[test]
 fn test_permissions_effective_network_wildcard() {
-    let mut manifest = dummy_manifest().permissions;
+    let mut manifest = dummy_permissions();
     let mut grant = gestalt_runtime::extension::ExtensionGrantConfig::default();
     let event_bus = RuntimeEventBus::new();
 
@@ -300,7 +285,7 @@ fn gestalt_network_check(
 
 #[test]
 fn test_permissions_effective_paths_intersection() {
-    let mut manifest = dummy_manifest().permissions;
+    let mut manifest = dummy_permissions();
     let mut grant = gestalt_runtime::extension::ExtensionGrantConfig::default();
     let event_bus = RuntimeEventBus::new();
     let workspace = Path::new("/workspace");

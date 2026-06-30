@@ -1,3 +1,5 @@
+#![cfg(feature = "mcp")]
+
 use std::collections::HashMap;
 
 use gestalt_runtime::extension::{

@@ -15,8 +15,6 @@ pub const PROTOCOL_V2_METHODS: &[&str] = &[
 pub fn negotiate_protocol_version(supported_versions: &[String]) -> Option<String> {
     if supported_versions.iter().any(|version| version == "2.0") {
         Some("2.0".to_string())
-    } else if supported_versions.iter().any(|version| version == "1.0") {
-        Some("1.0".to_string())
     } else {
         None
     }

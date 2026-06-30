@@ -63,7 +63,7 @@ impl LifecycleClient for ProcessLifecycleClient {
         }
         Ok(InitializeResponseV2 {
             negotiated_version,
-            supports_cancellation: broker.negotiated_capabilities().supports_cancellation,
+            supports_cancellation: broker.supports_cancellation(),
         })
     }
 

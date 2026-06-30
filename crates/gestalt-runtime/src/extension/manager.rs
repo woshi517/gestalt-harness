@@ -5,11 +5,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::config::{ExtensionLimitsConfig, ExtensionTimeoutsConfig};
 use crate::error::{Result, RuntimeError};
 use crate::event_bus::RuntimeEventBus;
-use crate::manifest::ExtensionManifest;
-use crate::process_extension::{ProcessExtension, ProcessExtensionBroker};
 
 use super::{
     ComponentInstanceId, ComponentKind, ExtensionInstanceHealth, ExtensionInstanceHealthStatus,
@@ -445,82 +442,6 @@ impl ExtensionManager {
         by_instance.into_values().collect()
     }
 
-    pub async fn launch_legacy_process_extension(
-        &self,
-        manifest: ExtensionManifest,
-        timeouts: ExtensionTimeoutsConfig,
-        limits: ExtensionLimitsConfig,
-        is_trusted: bool,
-    ) -> Result<Arc<ProcessExtension>> {
-        let component = ExtensionRuntimeComponent {
-            id: ComponentInstanceId::new(&manifest.id, "default", "legacy-process"),
-            kind: ComponentKind::LegacyProcess,
-            optional: false,
-            supports_cancellation: manifest.capabilities.supports_cancellation,
-            entrypoint_command: manifest.entrypoint.command.clone(),
-            entrypoint_args: manifest.entrypoint.args.clone(),
-            config: serde_json::Value::Null,
-            grants_fingerprint: fingerprint_json(&manifest.permissions),
-            trust: if is_trusted {
-                crate::extension_trust::ExtensionTrust::BuiltIn
-            } else {
-                crate::extension_trust::ExtensionTrust::Untrusted
-            },
-            protocol_fingerprint: manifest.protocol_version.clone(),
-            package_version: manifest.version.clone(),
-            manifest_hash: None,
-            executable_hash: None,
-            dependency_lock_hash: None,
-            permissions: manifest.permissions.clone(),
-            grants: crate::extension::ExtensionGrantConfig {
-                workspace_read: true,
-                workspace_write: true,
-                shell: true,
-                network: vec!["*".to_string()],
-                allowed_paths: vec![std::path::PathBuf::from("*")],
-            },
-            package_source_root: None,
-        };
-        let reuse_key = component.reuse_key();
-        if let Some(existing) = self
-            .process_instances
-            .read()
-            .ok()
-            .and_then(|instances| instances.get(&reuse_key).cloned())
-        {
-            if existing.state() == ExtensionProcessState::Ready {
-                if let Some(broker) = existing.broker() {
-                    return Ok(Arc::new(ProcessExtension::new(manifest, broker)));
-                }
-            }
-        }
-
-        let broker = Arc::new(
-            ProcessExtensionBroker::spawn_with_grants(
-                manifest.clone(),
-                Some(component.grants.clone()),
-                None,
-                self.event_bus.clone(),
-                timeouts,
-                limits,
-                self.host_context.allow_network,
-                is_trusted,
-            )
-            .await?,
-        );
-        let process = Arc::new(ExtensionProcessInstance::with_broker(
-            component.id.canonical_id(),
-            broker.clone(),
-        ));
-        process.transition_to(ExtensionProcessState::Ready);
-        let mut instances = self
-            .process_instances
-            .write()
-            .map_err(|_| RuntimeError::Extension("process instance lock poisoned".to_string()))?;
-        instances.insert(reuse_key, process);
-        Ok(Arc::new(ProcessExtension::new(manifest, broker)))
-    }
-
     pub fn acquire_lease(self: &Arc<Self>) -> crate::activation::RuntimeSnapshotLease {
         let snapshot = self.active_snapshot();
         let gen = snapshot.generation;
@@ -627,13 +548,4 @@ impl ExtensionManager {
             }
         }
     }
-}
-
-fn fingerprint_json<T: serde::Serialize>(value: &T) -> String {
-    let mut hasher = Sha256::new();
-    match serde_json::to_vec(value) {
-        Ok(serialized) => hasher.update(serialized),
-        Err(err) => hasher.update(err.to_string().as_bytes()),
-    }
-    format!("{:x}", hasher.finalize())
 }

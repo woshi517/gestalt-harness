@@ -30,7 +30,7 @@ pub use package::{
     ResolvedExtensionPackage,
 };
 pub use process_instance::{ExtensionProcessInstance, ExtensionProcessState, InFlightCallGuard};
-pub use runtime_module::{GestaltExtension, RuntimeModule};
+pub use runtime_module::RuntimeModule;
 pub use runtime_snapshot::{
     ExtensionInstanceHealth, ExtensionInstanceHealthStatus, RuntimeExtensionSnapshot,
     RuntimeGeneration,

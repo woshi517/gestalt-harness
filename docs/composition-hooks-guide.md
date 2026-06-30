@@ -250,43 +250,15 @@ This decoupling ensures the core agent loop is not blocked by hook observation.
 ```rust
 pub struct ComposedCompositionHooks {
     pub user_hooks: Option<Arc<dyn CompositionHooks>>,
-    pub extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
 }
 ```
 
-Composes user-defined hooks with extension-provided hooks. Execution order:
+Composes user-defined hooks only. Execution order:
 
-1. **User hooks** run first (if present). If they return anything other than `Continue`, the result short-circuits and extension hooks are skipped.
-2. **Extension hooks** run in order. Each extension that has a `HookDeclaration` matching the lifecycle point receives an RPC call via `pe.broker.call("hooks/call", params)`.
-3. The `params` payload includes:
-   - `name`: the hook declaration name
-   - `lifecycle_point`: e.g. `"before_context_build"`
-   - `context`: the full context struct serialized to JSON
-4. The RPC response is parsed via `parse_hook_outcome(val)` which supports `"continue"`, `{ "type": "block", "reason": "..." }`, `{ "type": "add_context", "message": ... }`, and `{ "type": "annotate", "metadata": ... }`.
-5. Extension hooks accumulate: if any extension returns `Block`, `AddContext`, or `Annotate`, that outcome wins (last writer wins for `AddContext`/`Annotate`; `Block` short-circuits).
-
-The extension parameters are structured as:
-
-```rust
-serde_json::json!({
-    "name": hook_decl.name,
-    "lifecycle_point": "before_context_build",
-    "context": {
-        "session_id": "...",
-        "history": [...],        // only present in context hooks
-        "packet": {...},         // only in after_context_build
-        "tool_name": "...",      // only in before_tool_policy / after_tool_result
-        "tool_input": {...},     // only in before_tool_policy
-        "result": {...},         // only in after_tool_result
-        "turn_index": 0,         // only in prepare_next_turn
-        "current_model": "...",  // only in prepare_next_turn
-        "current_provider": "...", // only in prepare_next_turn
-        "event": {...},          // only in on_event
-    }
-})
-```
-
-`on_event` is fire-and-forget: extension errors are silently ignored (`let _ = pe.broker.call(...)`).
+1. **User hooks** run first (if present). If they return anything other than
+   `Continue`, the result short-circuits.
+2. There is no extension-provided hook bridge in H4A. Lifecycle components use
+   `RuntimeModule` registration and the typed V2 lifecycle protocol instead.
 
 ---
 

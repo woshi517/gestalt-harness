@@ -39,7 +39,8 @@ Environment isolation is a built-in property of the process extension broker, no
 
 ## How Permissions Are Declared
 
-Permissions are declared in the `[permissions]` section of `gestalt.extension.toml`:
+Permissions are declared in each component's `[permissions]` section inside
+`gestalt.extension.toml`:
 
 ```toml
 [permissions]
@@ -57,46 +58,54 @@ Every field defaults to the most restrictive value: no network, no filesystem ac
 
 Permissions are checked at three distinct layers:
 
-### 1. Manifest Validation Time (`manifest.rs`)
+### 1. Manifest Validation Time (`extension/package.rs`)
 
-When an extension manifest is loaded and validated via `ExtensionManifest::validate()`, the runtime checks:
+When a V2 package manifest is loaded and validated via
+`ExtensionManifestV2::validate()`, the runtime checks:
 
-- `id` and `name` must be non-empty
-- `runtime` must equal `"stdio"` (the only supported runtime in MVP)
-- `entrypoint.command` must be non-empty
-- If `allow_shell` is `false`, the entrypoint command must not contain shell metacharacters or name a known shell binary (see [Shell Command Validation](#shell-command-validation))
-- If tools/hooks/context injectors are declared, their corresponding `capabilities.*` field must be `true`
+- `manifest_version` is exactly `2`
+- package ID, name, and version are non-empty
+- component IDs are unique
+- lifecycle, command-tool, and MCP server components have entrypoints
+- client-product components have descriptors
+- command-tool components include their required tool metadata
+- shell entrypoints are rejected when `allow_shell` is `false`
 
 ### 2. Broker Spawn Time (`process_extension.rs`)
 
-Before spawning the extension's child process, the broker:
+Before spawning a process-backed lifecycle component, the broker:
 
-- Calls `cmd.env_clear()` and re-adds only safe environment variables
-- Validates the entrypoint again against `allow_shell`
-- The spawn itself is gated — if the entrypoint violates shell permissions during manifest validation, the extension is rejected before the process starts
+- clears the child environment with `cmd.env_clear()`
+- re-adds only a small safe allowlist of host variables
+- validates the entrypoint again against shell permissions
 
-### 3. Tool Execution Time (`process_extension.rs`)
+If the entrypoint violates shell permissions, the component is rejected before
+the process starts.
 
-Every tool invocation goes through `check_input_permissions()` which recursively walks the JSON input looking for path-like and network-like keys:
+### 3. Component Execution Time
 
-- **Filesystem keys**: `path`, `file`, `dir`, `dest`, `src`, `target`, `output` — triggers `check_path_permission()`
-- **Network keys**: `url`, `host`, `uri`, `address` — triggers `check_network_permission()`
-- **Shell**: the broker's `tools/call` handler calls `check_shell_permission()` before executing shell commands
+Command-tool execution paths recursively scan JSON input for path-like and
+network-like keys before dispatch:
 
-#### The three check functions (in `permissions.rs`):
+- **Filesystem keys:** `path`, `file`, `dir`, `dest`, `src`, `target`, `output`
+- **Network keys:** `url`, `host`, `uri`, `address`
+- **Shell:** command execution checks `check_shell_permission()` before invoking a shell
 
-**`check_path_permission(manifest, workspace_root, path, write, event_bus)`**
+The three permission helpers in `permissions.rs` now take `Permissions` plus an
+`extension_id`:
+
+**`check_path_permission(&Permissions, extension_id, workspace_root, path, write, event_bus)`**
 1. If `allow_all_paths` → OK
-2. If the resolved path (falling back to canonicalizing the closest existing ancestor for nonexistent paths) lies inside the workspace root → check `allow_workspace_read` (read) or `allow_workspace_write` (write)
-3. Otherwise, check `allowed_paths` list
+2. If the resolved path lies inside the workspace root → check `allow_workspace_read` or `allow_workspace_write`
+3. Otherwise, check `allowed_paths`
 4. Publishes `RuntimeEvent::PermissionDecision`
 
-**`check_network_permission(manifest, host, event_bus)`**
+**`check_network_permission(&Permissions, extension_id, host, event_bus)`**
 1. Iterates `allow_network` looking for `"*"` or exact hostname match
 2. Publishes `RuntimeEvent::PermissionDecision`
 
-**`check_shell_permission(manifest, event_bus)`**
-1. Checks `allow_shell` boolean
+**`check_shell_permission(&Permissions, extension_id, event_bus)`**
+1. Checks `allow_shell`
 2. Publishes `RuntimeEvent::PermissionDecision`
 
 ### Read vs Write Intent Detection
@@ -105,18 +114,24 @@ When `check_input_permissions` encounters a file-system-like key, it infers writ
 
 ## Input Argument Scanning
 
-The `check_input_permissions` function in `process_extension.rs` performs a recursive scan of the tool's JSON input:
+Command-tool input scanning is recursive:
 
 ```
 serde_json::Value::Object(map)  → iterate key-value pairs
 serde_json::Value::Array(arr)   → recurse into each element
 ```
 
-For each key whose lowercase form contains a path-like substring — `path`, `file`, `dir`, `dest`, `src`, `target`, `output` — the string value is treated as a filesystem path and passed to `check_path_permission`. If the key also contains `write`, `dest`, `output`, or `target`, the intent is flagged as write.
+For each key whose lowercase form contains a path-like substring, the string
+value is treated as a filesystem path and passed to `check_path_permission()`.
+If the key also signals write intent, the write path is checked instead of the
+read path.
 
-For each key whose lowercase form contains a network-like substring — `url`, `host`, `uri`, `address` — the string value is parsed as a URL (via `url::Url::parse`) and the host portion is passed to `check_network_permission`.
+For each key whose lowercase form contains a network-like substring, the string
+value is parsed as a URL and the host portion is passed to
+`check_network_permission()`.
 
-Keys whose values are objects or arrays are recursed into. Non-string values for matched keys are skipped (e.g., a key named "path" whose value is an object rather than a string).
+Keys whose values are objects or arrays are recursed into. Non-string values for
+matched keys are skipped.
 
 This works for both top-level parameters and nested structures within `input_schema`.
 
@@ -298,4 +313,3 @@ Users control which skills load via `gestalt.json` under `skills`:
 To deactivate a skill for a single run, pass `--no-skill <name>` (or omit it from `--skill`). To deactivate permanently, remove it from the discovery path or the config.
 
 **Session deactivation.** In chat mode, `/skill off <name>` records the skill name with a `!` prefix in `CliOverrides::skills` (e.g., `!pdf-processing`). The config loader interprets `!`-prefixed entries as removals from the active set. This mechanism is session-local and does not mutate workspace config.
-
