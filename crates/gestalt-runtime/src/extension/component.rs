@@ -1,6 +1,4 @@
-use crate::manifest::{
-    Entrypoint, Permissions,
-};
+use crate::manifest::{Entrypoint, Permissions};
 
 use super::ComponentInstanceId;
 use super::ExtensionGrantConfig;

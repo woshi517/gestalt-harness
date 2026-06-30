@@ -154,7 +154,12 @@ fn discovery_discovers_v2_packages_in_deterministic_order() {
     let explicit_file = root.path().join("explicit-file.toml");
     write_manifest_file(
         &explicit_file,
-        v2_manifest("explicit-file", "Explicit File", "python", &["-m", "example"]),
+        v2_manifest(
+            "explicit-file",
+            "Explicit File",
+            "python",
+            &["-m", "example"],
+        ),
     );
 
     let discovery = ExtensionDiscovery::new(workspace, Some(global));
@@ -293,7 +298,10 @@ args = [{args_toml}]
 
 fn write_v2_extension(dir: &Path, id: &str, name: &str) {
     fs::create_dir_all(dir).unwrap();
-    write_manifest_file(&dir.join("gestalt.extension.toml"), v2_manifest(id, name, "python", &["-m", "example"]));
+    write_manifest_file(
+        &dir.join("gestalt.extension.toml"),
+        v2_manifest(id, name, "python", &["-m", "example"]),
+    );
 }
 
 fn write_manifest_file(path: &Path, content: String) {

@@ -67,7 +67,10 @@ impl ExtensionDiscovery {
                 ))
             })?;
             let package = parse_package_manifest(&content).map_err(|err| {
-                RuntimeError::Extension(format!("Invalid project manifest {:?}: {}", manifest_file, err))
+                RuntimeError::Extension(format!(
+                    "Invalid project manifest {:?}: {}",
+                    manifest_file, err
+                ))
             })?;
             if seen_ids.insert(package.descriptor.id.clone()) {
                 let source_root = manifest_file
@@ -96,13 +99,15 @@ impl ExtensionDiscovery {
                     ))
                 })?;
                 let package = parse_package_manifest(&content).map_err(|err| {
-                    RuntimeError::Extension(format!("Invalid global manifest {:?}: {}", manifest_file, err))
+                    RuntimeError::Extension(format!(
+                        "Invalid global manifest {:?}: {}",
+                        manifest_file, err
+                    ))
                 })?;
                 if seen_ids.insert(package.descriptor.id.clone()) {
-                    let source_root = manifest_file.parent().map_or_else(
-                        || self.workspace_root.clone(),
-                        |path| path.to_path_buf(),
-                    );
+                    let source_root = manifest_file
+                        .parent()
+                        .map_or_else(|| self.workspace_root.clone(), |path| path.to_path_buf());
                     let manifest_hash = compute_content_hash(&content);
                     let mut package = package;
                     package.source_root = Some(source_root.clone());
@@ -185,7 +190,9 @@ fn parse_package_manifest(content: &str) -> std::result::Result<ResolvedExtensio
     #[cfg(not(feature = "toml-config"))]
     {
         let _ = content;
-        return Err("feature 'toml-config' is not enabled for extension manifest parsing".to_string());
+        return Err(
+            "feature 'toml-config' is not enabled for extension manifest parsing".to_string(),
+        );
     }
 
     let manifest = ExtensionManifestV2::parse(content)?;

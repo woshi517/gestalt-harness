@@ -1,6 +1,6 @@
 use gestalt_runtime::{
-    check_network_permission, check_path_permission, check_shell_permission,
-    Permissions, RuntimeEventBus,
+    check_network_permission, check_path_permission, check_shell_permission, Permissions,
+    RuntimeEventBus,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};

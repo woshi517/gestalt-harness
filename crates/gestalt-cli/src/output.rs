@@ -1940,10 +1940,7 @@ impl CliReport for ExtensionsListReport {
                 let status = if ext.enabled { "ENABLED" } else { "DISABLED" };
                 lines.push(format!(
                     "- {} (v{}) [{}] - {}",
-                    ext.id,
-                    ext.version,
-                    status,
-                    ext.manifest_path
+                    ext.id, ext.version, status, ext.manifest_path
                 ));
             }
         }

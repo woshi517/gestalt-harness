@@ -11,9 +11,9 @@ use tokio::sync::{mpsc, oneshot};
 use crate::config::{ExtensionLimitsConfig, ExtensionTimeoutsConfig};
 use crate::error::{Result, RuntimeError};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
+use crate::extension::ExtensionRuntimeComponent;
 use crate::jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 use crate::lifecycle::InitializeRequestV2;
-use crate::extension::ExtensionRuntimeComponent;
 
 pub struct ProcessExtensionBroker {
     component_id: String,
@@ -45,9 +45,7 @@ impl ProcessExtensionBroker {
     }
 
     pub fn supports_cancellation(&self) -> bool {
-        self.supports_cancellation
-            .try_lock()
-            .is_ok_and(|g| *g)
+        self.supports_cancellation.try_lock().is_ok_and(|g| *g)
     }
 }
 
@@ -169,7 +167,8 @@ impl ProcessExtensionBroker {
         )
         .is_ok();
 
-        if let Err(reason) = crate::manifest::validate_shell_entrypoint(&entrypoint, shell_allowed) {
+        if let Err(reason) = crate::manifest::validate_shell_entrypoint(&entrypoint, shell_allowed)
+        {
             event_bus.publish(RuntimeEvent::ExtensionRejected {
                 extension_id: extension_id.clone(),
                 reason: reason.clone(),
@@ -178,11 +177,12 @@ impl ProcessExtensionBroker {
         }
 
         let mut cmd = if let Some(ref source_root) = component.package_source_root {
-            let resolved_cmd_path = if std::path::Path::new(&component.entrypoint_command).is_absolute() {
-                std::path::PathBuf::from(&component.entrypoint_command)
-            } else {
-                source_root.join(&component.entrypoint_command)
-            };
+            let resolved_cmd_path =
+                if std::path::Path::new(&component.entrypoint_command).is_absolute() {
+                    std::path::PathBuf::from(&component.entrypoint_command)
+                } else {
+                    source_root.join(&component.entrypoint_command)
+                };
             let mut c = Command::new(resolved_cmd_path);
             c.current_dir(source_root);
             c
@@ -427,28 +427,31 @@ impl ProcessExtensionBroker {
         let init_res = broker
             .call(
                 "initialize",
-                Some(serde_json::to_value(InitializeRequestV2 {
-                    supported_versions: vec!["2.0".to_string()],
-                })
-                .unwrap_or_else(|_| serde_json::json!({ "supported_versions": ["2.0"] }))),
+                Some(
+                    serde_json::to_value(InitializeRequestV2 {
+                        supported_versions: vec!["2.0".to_string()],
+                    })
+                    .unwrap_or_else(|_| serde_json::json!({ "supported_versions": ["2.0"] })),
+                ),
             )
             .await;
 
         let init = match init_res {
-            Ok(val) => match serde_json::from_value::<crate::lifecycle::InitializeResponseV2>(val)
-            {
-                Ok(init) => init,
-                Err(err) => {
-                    broker.shutdown().await;
-                    event_bus.publish(RuntimeEvent::ExtensionRejected {
-                        extension_id: extension_id.clone(),
-                        reason: format!("invalid initialize response: {err}"),
-                    });
-                    return Err(RuntimeError::Extension(format!(
-                        "invalid initialize response: {err}"
-                    )));
+            Ok(val) => {
+                match serde_json::from_value::<crate::lifecycle::InitializeResponseV2>(val) {
+                    Ok(init) => init,
+                    Err(err) => {
+                        broker.shutdown().await;
+                        event_bus.publish(RuntimeEvent::ExtensionRejected {
+                            extension_id: extension_id.clone(),
+                            reason: format!("invalid initialize response: {err}"),
+                        });
+                        return Err(RuntimeError::Extension(format!(
+                            "invalid initialize response: {err}"
+                        )));
+                    }
                 }
-            },
+            }
             Err(err) => {
                 broker.shutdown().await;
                 event_bus.publish(RuntimeEvent::ExtensionRejected {
