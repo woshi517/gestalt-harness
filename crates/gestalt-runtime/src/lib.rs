@@ -120,7 +120,7 @@ pub use discovery::{DiscoveredExtensionPackage, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};
 pub use extension::RuntimeModule;
-pub use extension_trust::ExtensionTrust;
+pub use extension_trust::{ExtensionTrust, TrustedExtensionPin};
 pub use inspect::{
     compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
 };

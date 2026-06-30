@@ -152,6 +152,7 @@ async fn test_host_owns_workspace_and_generation_lineage() {
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
             workspace_root: std::path::PathBuf::from("/test/host/workspace"),
+            trusted_extension_pins: Vec::new(),
             ..Default::default()
         });
     let host = Arc::new(gestalt_runtime::RuntimeHost::new(
@@ -187,6 +188,7 @@ async fn test_per_session_override_cannot_mutate_critical_inputs() {
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
             workspace_root: std::path::PathBuf::from("/test/host/workspace"),
+            trusted_extension_pins: Vec::new(),
             ..Default::default()
         });
     let host = Arc::new(gestalt_runtime::RuntimeHost::new(
@@ -263,6 +265,7 @@ async fn runtime_host_initialization_activates_configured_packages() {
         .config(RuntimeConfig {
             workspace_root: workspace_root.clone(),
             trusted_extension_ids: vec![package.descriptor.id.clone()],
+            trusted_extension_pins: Vec::new(),
             ..Default::default()
         })
         .extension_package(package);
@@ -312,6 +315,7 @@ async fn reload_rediscovers_added_removed_and_changed_packages() {
     let builder = test_builder(workspace_root.clone()).config(RuntimeConfig {
         workspace_root: workspace_root.clone(),
         trusted_extension_ids: vec!["alpha".to_string(), "beta".to_string()],
+        trusted_extension_pins: Vec::new(),
         ..Default::default()
     });
     let host = Arc::new(runtime_host_with_discovery(builder, workspace_root.clone()));
@@ -368,6 +372,7 @@ fn test_builder(workspace_root: PathBuf) -> AgentRuntimeBuilder {
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
             workspace_root,
+            trusted_extension_pins: Vec::new(),
             ..Default::default()
         })
 }

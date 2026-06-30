@@ -298,6 +298,7 @@ async fn run_session_invokes_all_pinned_lifecycle_capabilities() {
                 enabled: false,
                 ..Default::default()
             }),
+            trusted_extension_pins: Vec::new(),
             ..Default::default()
         })
         .build()

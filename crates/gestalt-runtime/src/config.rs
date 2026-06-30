@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
+use crate::extension_trust::TrustedExtensionPin;
+
 #[cfg(feature = "skills")]
 pub use crate::skills::SkillDescriptor;
 
@@ -51,6 +53,10 @@ pub struct RuntimeConfig {
     /// `ExtensionDeclared` regardless of manifest claims.
     #[serde(default)]
     pub trusted_extension_ids: Vec<String>,
+    /// Hash-aware trust pins derived from the active extension discovery set.
+    /// Runtime trust decisions must use these pins instead of ID-only lookups.
+    #[serde(default)]
+    pub trusted_extension_pins: Vec<TrustedExtensionPin>,
     /// Discovered skill descriptors available at runtime startup.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub discovered_skills: Vec<SkillDescriptor>,
@@ -139,6 +145,7 @@ impl Default for RuntimeConfig {
             enabled_host_features: Vec::new(),
             tool_profile: None,
             trusted_extension_ids: Vec::new(),
+            trusted_extension_pins: Vec::new(),
             discovered_skills: Vec::new(),
             active_skills: Vec::new(),
             mcp_servers: HashMap::new(),

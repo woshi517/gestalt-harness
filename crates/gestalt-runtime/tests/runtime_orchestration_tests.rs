@@ -303,6 +303,7 @@ async fn test_orchestration_steering_concurrent() {
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
             max_turns: 3,
+            trusted_extension_pins: Vec::new(),
             ..config_without_context_management()
         });
 
