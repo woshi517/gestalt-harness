@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 use crate::error::{Result, RuntimeError};
-use crate::manifest::{Entrypoint, ExtensionManifest};
+use crate::manifest::Entrypoint;
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -190,51 +190,6 @@ impl ResolvedExtensionPackage {
         self
     }
 
-    pub fn from_v1_manifest(manifest: ExtensionManifest) -> Result<Self> {
-        manifest
-            .validate(true)
-            .map_err(|err| RuntimeError::Extension(err.clone()))?;
-
-        let descriptor = ExtensionPackageDescriptor {
-            id: manifest.id.clone(),
-            name: manifest.name.clone(),
-            version: manifest.version.clone(),
-        };
-        let instance_id = manifest.id.clone();
-        let component = ResolvedExtensionComponent {
-            id: ComponentInstanceId::new(&manifest.id, &instance_id, "legacy"),
-            kind: ComponentKind::LegacyProcess,
-            optional: false,
-            supports_cancellation: manifest.capabilities.supports_cancellation,
-            entrypoint: manifest.entrypoint.clone(),
-            descriptor: None,
-            config: serde_json::Value::Null,
-            grants: ExtensionGrantConfig::default(),
-            tools: manifest.tools.clone(),
-            hooks: manifest.hooks.clone(),
-            context_injectors: manifest.context_injectors.clone(),
-            permissions: manifest.permissions.clone(),
-            protocol_version: manifest.protocol_version.clone(),
-            description: None,
-            input_schema: None,
-            risk: None,
-            read_only: false,
-            idempotent: false,
-            package_source_root: None,
-        };
-
-        Ok(Self {
-            descriptor,
-            instance_id,
-            source_root: None,
-            manifest_hash: None,
-            trust: crate::extension_trust::ExtensionTrust::Untrusted,
-            effective_config: serde_json::Value::Null,
-            effective_grants: ExtensionGrantConfig::default(),
-            components: vec![component],
-        })
-    }
-
     pub fn from_v2_manifest(
         manifest: ExtensionManifestV2,
         instance_id: impl Into<String>,
@@ -261,9 +216,6 @@ impl ResolvedExtensionPackage {
                     descriptor: component.descriptor,
                     config: serde_json::Value::Null,
                     grants: ExtensionGrantConfig::default(),
-                    tools: Vec::new(),
-                    hooks: Vec::new(),
-                    context_injectors: Vec::new(),
                     permissions: component_perms,
                     protocol_version: None,
                     description: component.description,
@@ -397,10 +349,7 @@ pub fn apply_trust_decisions(packages: &mut [ResolvedExtensionPackage], trusted_
 fn requires_entrypoint(kind: &ComponentKind) -> bool {
     matches!(
         kind,
-        ComponentKind::LegacyProcess
-            | ComponentKind::GestaltLifecycle
-            | ComponentKind::CommandTool
-            | ComponentKind::McpServer
+        ComponentKind::GestaltLifecycle | ComponentKind::CommandTool | ComponentKind::McpServer
     )
 }
 
@@ -476,12 +425,6 @@ pub fn compute_complete_fingerprint(
             hasher.update(fingerprint_json(&component.grants).as_bytes());
             hasher.update(b":");
             hasher.update(fingerprint_json(&component.permissions).as_bytes());
-            hasher.update(b":");
-            hasher.update(fingerprint_json(&component.tools).as_bytes());
-            hasher.update(b":");
-            hasher.update(fingerprint_json(&component.hooks).as_bytes());
-            hasher.update(b":");
-            hasher.update(fingerprint_json(&component.context_injectors).as_bytes());
             hasher.update(b":");
             hasher.update(fingerprint_json(&component.descriptor).as_bytes());
             hasher.update(b":");

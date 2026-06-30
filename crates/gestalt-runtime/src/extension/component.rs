@@ -1,5 +1,5 @@
 use crate::manifest::{
-    ContextInjectorDeclaration, Entrypoint, HookDeclaration, Permissions, ToolDeclaration,
+    Entrypoint, Permissions,
 };
 
 use super::ComponentInstanceId;
@@ -8,7 +8,6 @@ use super::ExtensionGrantConfig;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ComponentKind {
-    LegacyProcess,
     GestaltLifecycle,
     CommandTool,
     McpServer,
@@ -50,9 +49,6 @@ pub struct ResolvedExtensionComponent {
     pub descriptor: Option<String>,
     pub config: serde_json::Value,
     pub grants: ExtensionGrantConfig,
-    pub tools: Vec<ToolDeclaration>,
-    pub hooks: Vec<HookDeclaration>,
-    pub context_injectors: Vec<ContextInjectorDeclaration>,
     pub permissions: Permissions,
     pub protocol_version: Option<String>,
     pub description: Option<String>,

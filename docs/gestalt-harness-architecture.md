@@ -195,18 +195,17 @@ See [ADR-023](adrs/ADR-023-runtime-composition-layer.md) for the full rationale.
 
 #### 4.4.1 Process-Backed Extensions
 
-Extensions are standalone executables spawned as child processes, communicating over newline-delimited JSON-RPC 2.0 via stdin/stdout. This allows extensions to be written in any language.
+Process-backed lifecycle components are standalone executables spawned as child
+processes. They communicate over newline-delimited JSON-RPC 2.0 via
+stdin/stdout and implement the typed V2 lifecycle protocol.
 
 **Key types:**
-- **`ProcessExtensionBroker`** — manages one child process: spawn (with environment isolation), JSON-RPC handshake, request/response dispatch (30s timeout), and shutdown (kill-on-drop).
-- **`ProcessBackedTool`** — wraps a broker, implementing the core `Tool` trait. Before executing, it scans tool input JSON for path-like and network-like keys and enforces manifest permissions.
-- **`ProcessBackedContextContributor`** — wraps a broker, implementing `ContextContributor` to inject context via the `context/inject` RPC.
-- **`ProcessExtension`** — implements `GestaltExtension`, bridges manifest-declared tools/hooks/context-injectors into the registry.
+- **`ProcessExtensionBroker`** — manages one child process: spawn with environment isolation, V2 handshake, request/response dispatch, and shutdown.
+- **`ExtensionRuntimeComponent`** — resolved V2 package component with entrypoint, permissions, and trust metadata.
+- **`ExtensionManifestV2`** — package manifest with `package`, `components`, and per-component permissions.
 
-**Extension Manifest (`gestalt.extension.toml`):**
-- Declares tools, hooks, and context injectors with schemas and risk levels.
-- Declares capabilities (tools, hooks, context as booleans).
-- Declares permissions: filesystem paths (allow_workspace_read/write, allowed_paths, allow_all_paths), network hosts (allow_network with wildcard), and shell access (allow_shell).
+Command tools and MCP servers are also V2 package components. They are not
+bridged through a legacy extension adapter.
 
 **Extension Discovery:**
 - Three-tier lookup: explicit CLI paths → project-local (`.gestalt/extensions/`) → global (`~/.config/gestalt/extensions/`).
@@ -246,7 +245,8 @@ Fail-closed: errors in `before_tool_policy` result in policy denial. Context add
 
 The `Snapshot` assembly strategy (see [ADR-026](adrs/ADR-026-cache-aware-prompt-assembly.md)) classifies each context patch by `ContextStability`. Stable patches (`SessionStatic`, `ActivationStatic`) are placed in a cacheable prefix before the provider cache breakpoint; dynamic and ephemeral patches follow in an uncached tail. This preserves provider prompt-cache hit rates across turns.
 
-Hooks are chained via `ComposedCompositionHooks` which runs user-registered hooks first, then extension hooks.
+Hooks are chained via `ComposedCompositionHooks`, which currently wraps user
+hooks only.
 
 #### 4.4.3 Tool Composition
 
@@ -260,13 +260,22 @@ Hooks are chained via `ComposedCompositionHooks` which runs user-registered hook
 
 #### 4.4.5 Deferred Knowledge Source Capabilities
 
-To align with the project's extension-first architecture, the following knowledge-management capabilities are deferred from the v0.1 core and will be implemented as process-backed extensions:
+To align with the project's component-first architecture, the following
+knowledge-management capabilities are deferred from the v0.1 core and will be
+implemented as V2 package components:
 
-1. **Document Extraction & Ingestion** (formerly `gestalt-docs`): Ingestion of Markdown, HTML, and PDF files. This capability will integrate via [ProcessBackedTool](../crates/gestalt-runtime/src/process_extension.rs) (for ad-hoc extraction commands) and [ProcessBackedContextContributor](../crates/gestalt-runtime/src/process_extension.rs) (to inject files into the context compiler).
-2. **Lexical Workspace Search Index** (formerly `gestalt-index`): A BM25/ripgrep search index. This capability will integrate as a standard tool registered via [ProcessBackedTool](../crates/gestalt-runtime/src/process_extension.rs).
-3. **Memory Proposal & Deduplication** (formerly `gestalt-memory`): Synthesizing memory updates at session end. This capability will hook into the runtime using [CompositionHooks](../crates/gestalt-runtime/src/composition_hooks.rs) (specifically the `prepare_next_turn` or custom finalization hooks).
+1. **Document Extraction & Ingestion** (formerly `gestalt-docs`): Ingestion of
+   Markdown, HTML, and PDF files. Implement as a `command-tool` or
+   `gestalt-lifecycle` component depending on whether the behavior is a direct
+   executable or a typed lifecycle integration.
+2. **Lexical Workspace Search Index** (formerly `gestalt-index`): A
+   BM25/ripgrep search index. Implement as a `command-tool` component.
+3. **Memory Proposal & Deduplication** (formerly `gestalt-memory`):
+   synthesizing memory updates at session end. Implement via
+   `CompositionHooks` or a `gestalt-lifecycle` component.
 
-For details on building and declaring these capabilities, see the [Extension Development Guide](extension-development-guide.md), [Extension Manifest Schema](extension-manifest-schema.md), and [Composition Hooks Guide](composition-hooks-guide.md).
+For details on building and declaring these capabilities, see the [Extension
+Development Guide](extension-development-guide.md), [Extension Manifest Schema](extension-manifest-schema.md), and [Composition Hooks Guide](composition-hooks-guide.md).
 
 ---
 
@@ -1863,7 +1872,7 @@ A strict-pass failure emits `AgentEvent::ToolCallValidationFailed` and short-cir
 
 #### 9.8.4 Extension Trust Builder
 
-Extension tools (`ProcessBackedTool::descriptor()`) go through `extension_trust::build_extension_tool_descriptor` which:
+Resolved V2 components go through `extension_trust::build_extension_tool_descriptor` which:
 
 - Records `read_only` / `idempotent` annotations from the manifest.
 - Promotes the descriptor to `BuiltInTrusted` **only when** the extension ID is in the harness-side allow-list (`is_trusted_extension_id` / `set_trusted_extension_ids`).
@@ -2713,7 +2722,7 @@ sequenceDiagram
 
     Loop ->> Registry: execute("mcp:brave:web_search", args)
     Registry ->> Bridge: route to brave client
-    Bridge ->> Server: tools/call { name, arguments }
+    Bridge ->> Server: MCP CallTool { name, arguments }
     Server -->> Bridge: CallToolResult { content, isError }
     Bridge -->> Registry: ToolExecutionResult
     Registry -->> Loop: ToolExecutionResult

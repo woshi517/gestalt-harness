@@ -1,23 +1,15 @@
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
-use crate::manifest::ExtensionManifest;
 use std::path::{Component, Path, PathBuf};
 
 pub fn check_path_permission(
-    manifest: &ExtensionManifest,
+    permissions: &crate::manifest::Permissions,
+    extension_id: &str,
     workspace_root: &Path,
     path: &Path,
     write: bool,
     event_bus: &RuntimeEventBus,
 ) -> std::result::Result<(), String> {
-    check_path_permission_effective(
-        &manifest.permissions,
-        None,
-        workspace_root,
-        path,
-        write,
-        event_bus,
-        &manifest.id,
-    )
+    check_path_permission_effective(permissions, None, workspace_root, path, write, event_bus, extension_id)
 }
 
 pub fn check_path_permission_effective(
@@ -205,18 +197,12 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 pub fn check_network_permission(
-    manifest: &ExtensionManifest,
+    permissions: &crate::manifest::Permissions,
+    extension_id: &str,
     host: &str,
     event_bus: &RuntimeEventBus,
 ) -> std::result::Result<(), String> {
-    check_network_permission_effective(
-        &manifest.permissions,
-        None,
-        true,
-        host,
-        event_bus,
-        &manifest.id,
-    )
+    check_network_permission_effective(permissions, None, true, host, event_bus, extension_id)
 }
 
 pub fn check_network_permission_effective(
@@ -272,10 +258,11 @@ pub fn check_network_permission_effective(
 }
 
 pub fn check_shell_permission(
-    manifest: &ExtensionManifest,
+    permissions: &crate::manifest::Permissions,
+    extension_id: &str,
     event_bus: &RuntimeEventBus,
 ) -> std::result::Result<(), String> {
-    check_shell_permission_effective(&manifest.permissions, None, event_bus, &manifest.id)
+    check_shell_permission_effective(permissions, None, event_bus, extension_id)
 }
 
 pub fn check_shell_permission_effective(

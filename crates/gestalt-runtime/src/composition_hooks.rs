@@ -1,7 +1,6 @@
 use crate::context::ContextContributor;
 use crate::error::Result;
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
-use crate::extension::GestaltExtension;
 use crate::lifecycle::{
     ContextProviderRequest, ContextProviderResponse, EventObserverRequest, ExternalVerifierReport,
     ExternalVerifierRequest, LifecycleCapabilityKind, LifecycleClient, LifecycleInvokeRequestV2,
@@ -18,7 +17,6 @@ use gestalt_core::{
 };
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HookOutcome {
@@ -499,102 +497,6 @@ pub enum HookRequest {
     },
 }
 
-fn parse_hook_outcome(val: serde_json::Value) -> HookOutcome {
-    #[derive(serde::Deserialize)]
-    #[serde(tag = "type", rename_all = "snake_case")]
-    enum Helper {
-        Continue,
-        Block {
-            reason: String,
-        },
-        AddContext {
-            message: Message,
-        },
-        Annotate {
-            metadata: serde_json::Value,
-        },
-        SwitchModel {
-            model: String,
-            provider: Option<String>,
-            variant: Option<String>,
-        },
-    }
-
-    if let Ok(helper) = serde_json::from_value::<Helper>(val.clone()) {
-        return match helper {
-            Helper::Continue => HookOutcome::Continue,
-            Helper::Block { reason } => HookOutcome::Block { reason },
-            Helper::AddContext { message } => HookOutcome::AddContext { message },
-            Helper::Annotate { metadata } => HookOutcome::Annotate { metadata },
-            Helper::SwitchModel {
-                model,
-                provider,
-                variant,
-            } => HookOutcome::SwitchModel {
-                model,
-                provider,
-                variant,
-            },
-        };
-    }
-
-    if let Some(s) = val.as_str() {
-        if s == "continue" {
-            return HookOutcome::Continue;
-        }
-    }
-    if let Some(obj) = val.as_object() {
-        if let Some(t) = obj.get("type").and_then(|v| v.as_str()) {
-            match t {
-                "block" => {
-                    let reason = obj
-                        .get("reason")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Blocked by hook")
-                        .to_string();
-                    return HookOutcome::Block { reason };
-                }
-                "add_context" => {
-                    if let Some(msg_val) = obj.get("message") {
-                        if let Ok(message) = serde_json::from_value(msg_val.clone()) {
-                            return HookOutcome::AddContext { message };
-                        }
-                    }
-                }
-                "annotate" => {
-                    let metadata = obj
-                        .get("metadata")
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null);
-                    return HookOutcome::Annotate { metadata };
-                }
-                "switch_model" => {
-                    let model = obj
-                        .get("model")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let provider = obj
-                        .get("provider")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    let variant = obj
-                        .get("variant")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    return HookOutcome::SwitchModel {
-                        model,
-                        provider,
-                        variant,
-                    };
-                }
-                _ => {}
-            }
-        }
-    }
-    HookOutcome::Continue
-}
-
 fn apply_outcome(
     outcome: HookOutcome,
     patch_store: &Arc<Mutex<Vec<crate::context::ContextPatch>>>,
@@ -623,466 +525,50 @@ fn apply_outcome(
     }
 }
 
-async fn call_hook_with_policy(
-    pe: &crate::process_extension::ProcessExtension,
-    hook_decl: &crate::manifest::HookDeclaration,
-    params: serde_json::Value,
-    default_mode: &str,
-) -> Result<std::result::Result<HookOutcome, String>> {
-    let timeout_ms = hook_decl
-        .timeout_ms
-        .unwrap_or(match hook_decl.lifecycle_point.as_str() {
-            "before_tool_policy" => 3000,
-            _ => 5000,
-        });
-    let timeout_dur = Duration::from_millis(timeout_ms);
-    let call_fut = pe.broker.call("hooks/call", Some(params));
-
-    let res = match tokio::time::timeout(timeout_dur, call_fut).await {
-        Ok(Ok(val)) => Ok(parse_hook_outcome(val)),
-        Ok(Err(e)) => Err(e),
-        Err(_) => Err("Request timed out".to_string()),
-    };
-
-    match res {
-        Ok(outcome) => Ok(Ok(outcome)),
-        Err(e) => {
-            let mode = hook_decl.failure_mode.as_deref().unwrap_or(default_mode);
-            match mode {
-                "stop_session" => Err(crate::error::RuntimeError::Extension(
-                    "Session stopped by hook failure".to_string(),
-                )),
-                "closed" => {
-                    if hook_decl.lifecycle_point == "before_tool_policy"
-                        || hook_decl.lifecycle_point == "prepare_next_turn"
-                    {
-                        Ok(Ok(HookOutcome::Block {
-                            reason: format!("Hook '{}' failed: {}", hook_decl.name, e),
-                        }))
-                    } else {
-                        Err(crate::error::RuntimeError::Extension(format!(
-                            "Hook '{}' failed closed: {}",
-                            hook_decl.name, e
-                        )))
-                    }
-                }
-                "open" => {
-                    eprintln!("Warning: Hook '{}' failed (open): {}", hook_decl.name, e);
-                    pe.broker.event_bus.publish(RuntimeEvent::HookFailed {
-                        hook_name: hook_decl.name.clone(),
-                        lifecycle_point: hook_decl.lifecycle_point.clone(),
-                        error: e.clone(),
-                    });
-                    Ok(Err(e))
-                }
-                _ => {
-                    eprintln!(
-                        "Warning: Hook '{}' failed (unknown failure mode: {}): {}",
-                        hook_decl.name, mode, e
-                    );
-                    pe.broker.event_bus.publish(RuntimeEvent::HookFailed {
-                        hook_name: hook_decl.name.clone(),
-                        lifecycle_point: hook_decl.lifecycle_point.clone(),
-                        error: e.clone(),
-                    });
-                    Ok(Err(e))
-                }
-            }
-        }
-    }
-}
-
 pub struct ComposedCompositionHooks {
     pub user_hooks: Option<Arc<dyn CompositionHooks>>,
-    pub extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
 }
 
 #[async_trait]
 impl CompositionHooks for ComposedCompositionHooks {
     async fn before_context_build(&self, context: &BeforeContextBuildCtx) -> Result<HookOutcome> {
-        let mut outcomes = Vec::new();
-
-        if let Some(ref user) = self.user_hooks {
-            let res = user.before_context_build(context).await?;
-            match res {
-                HookOutcome::Continue => {}
-                HookOutcome::Block { .. } => return Ok(res),
-                _ => outcomes.push(res),
-            }
-        }
-
-        for ext in &self.extensions {
-            if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe
-                    .manifest
-                    .hooks
-                    .iter()
-                    .find(|h| h.lifecycle_point == "before_context_build")
-                {
-                    let request = HookRequest::BeforeContextBuild {
-                        session_id: context.session_id.clone(),
-                        history: context.history.clone(),
-                    };
-                    let params = serde_json::json!({
-                        "name": hook_decl.name.clone(),
-                        "lifecycle_point": "before_context_build",
-                        "payload": request,
-                        "context": {
-                            "session_id": context.session_id.clone(),
-                            "history": context.history.clone(),
-                        }
-                    });
-                    if let Ok(outcome) =
-                        call_hook_with_policy(pe, hook_decl, params, "open").await?
-                    {
-                        let outcome = match outcome {
-                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata }),
-                            },
-                            other => other,
-                        };
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::Continue => {}
-                            _ => outcomes.push(outcome),
-                        }
-                    }
-                }
-            }
-        }
-
-        if outcomes.is_empty() {
-            Ok(HookOutcome::Continue)
-        } else if outcomes.len() == 1 {
-            Ok(outcomes.remove(0))
-        } else {
-            Ok(HookOutcome::Aggregated(outcomes))
+        match &self.user_hooks {
+            Some(user) => user.before_context_build(context).await,
+            None => Ok(HookOutcome::Continue),
         }
     }
 
     async fn after_context_build(&self, context: &AfterContextBuildCtx) -> Result<HookOutcome> {
-        let mut outcomes = Vec::new();
-
-        if let Some(ref user) = self.user_hooks {
-            let res = user.after_context_build(context).await?;
-            match res {
-                HookOutcome::Continue => {}
-                HookOutcome::Block { .. } => return Ok(res),
-                _ => outcomes.push(res),
-            }
-        }
-
-        for ext in &self.extensions {
-            if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe
-                    .manifest
-                    .hooks
-                    .iter()
-                    .find(|h| h.lifecycle_point == "after_context_build")
-                {
-                    let request = HookRequest::AfterContextBuild {
-                        session_id: context.session_id.clone(),
-                        history: context.history.clone(),
-                        packet: context.packet.clone(),
-                    };
-                    let params = serde_json::json!({
-                        "name": hook_decl.name.clone(),
-                        "lifecycle_point": "after_context_build",
-                        "payload": request,
-                        "context": {
-                            "session_id": context.session_id.clone(),
-                            "history": context.history.clone(),
-                            "packet": context.packet.clone(),
-                        }
-                    });
-                    if let Ok(outcome) =
-                        call_hook_with_policy(pe, hook_decl, params, "open").await?
-                    {
-                        let outcome = match outcome {
-                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata }),
-                            },
-                            other => other,
-                        };
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::Continue => {}
-                            _ => outcomes.push(outcome),
-                        }
-                    }
-                }
-            }
-        }
-
-        if outcomes.is_empty() {
-            Ok(HookOutcome::Continue)
-        } else if outcomes.len() == 1 {
-            Ok(outcomes.remove(0))
-        } else {
-            Ok(HookOutcome::Aggregated(outcomes))
+        match &self.user_hooks {
+            Some(user) => user.after_context_build(context).await,
+            None => Ok(HookOutcome::Continue),
         }
     }
 
     async fn before_tool_policy(&self, context: &BeforeToolPolicyCtx) -> Result<HookOutcome> {
-        let mut outcomes = Vec::new();
-
-        if let Some(ref user) = self.user_hooks {
-            let res = user.before_tool_policy(context).await?;
-            match res {
-                HookOutcome::Continue => {}
-                HookOutcome::Block { .. } => return Ok(res),
-                _ => outcomes.push(res),
-            }
-        }
-
-        for ext in &self.extensions {
-            if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe
-                    .manifest
-                    .hooks
-                    .iter()
-                    .find(|h| h.lifecycle_point == "before_tool_policy")
-                {
-                    let request = HookRequest::BeforeToolPolicy {
-                        session_id: context.session_id.clone(),
-                        tool_name: context.tool_name.clone(),
-                        tool_input: context.tool_input.clone(),
-                    };
-                    let params = serde_json::json!({
-                        "name": hook_decl.name.clone(),
-                        "lifecycle_point": "before_tool_policy",
-                        "payload": request,
-                        "context": {
-                            "session_id": context.session_id.clone(),
-                            "tool_name": context.tool_name.clone(),
-                            "tool_input": context.tool_input.clone(),
-                        }
-                    });
-                    if let Ok(outcome) =
-                        call_hook_with_policy(pe, hook_decl, params, "closed").await?
-                    {
-                        let outcome = match outcome {
-                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata }),
-                            },
-                            other => other,
-                        };
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::Continue => {}
-                            _ => outcomes.push(outcome),
-                        }
-                    }
-                }
-            }
-        }
-
-        if outcomes.is_empty() {
-            Ok(HookOutcome::Continue)
-        } else if outcomes.len() == 1 {
-            Ok(outcomes.remove(0))
-        } else {
-            Ok(HookOutcome::Aggregated(outcomes))
+        match &self.user_hooks {
+            Some(user) => user.before_tool_policy(context).await,
+            None => Ok(HookOutcome::Continue),
         }
     }
 
     async fn after_tool_result(&self, context: &AfterToolResultCtx) -> Result<HookOutcome> {
-        let mut outcomes = Vec::new();
-
-        if let Some(ref user) = self.user_hooks {
-            let res = user.after_tool_result(context).await?;
-            match res {
-                HookOutcome::Continue => {}
-                HookOutcome::Block { .. } => return Ok(res),
-                _ => outcomes.push(res),
-            }
-        }
-
-        for ext in &self.extensions {
-            if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe
-                    .manifest
-                    .hooks
-                    .iter()
-                    .find(|h| h.lifecycle_point == "after_tool_result")
-                {
-                    let request = HookRequest::AfterToolResult {
-                        session_id: context.session_id.clone(),
-                        tool_name: context.tool_name.clone(),
-                        result: context.result.clone(),
-                    };
-                    let params = serde_json::json!({
-                        "name": hook_decl.name.clone(),
-                        "lifecycle_point": "after_tool_result",
-                        "payload": request,
-                        "context": {
-                            "session_id": context.session_id.clone(),
-                            "tool_name": context.tool_name.clone(),
-                            "result": context.result.clone(),
-                        }
-                    });
-                    if let Ok(outcome) =
-                        call_hook_with_policy(pe, hook_decl, params, "open").await?
-                    {
-                        let outcome = match outcome {
-                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata }),
-                            },
-                            other => other,
-                        };
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::Continue => {}
-                            _ => outcomes.push(outcome),
-                        }
-                    }
-                }
-            }
-        }
-
-        if outcomes.is_empty() {
-            Ok(HookOutcome::Continue)
-        } else if outcomes.len() == 1 {
-            Ok(outcomes.remove(0))
-        } else {
-            Ok(HookOutcome::Aggregated(outcomes))
+        match &self.user_hooks {
+            Some(user) => user.after_tool_result(context).await,
+            None => Ok(HookOutcome::Continue),
         }
     }
 
     async fn prepare_next_turn(&self, context: &PrepareNextTurnCtx) -> Result<HookOutcome> {
-        let mut outcomes = Vec::new();
-        let mut current_model = None;
-        let mut current_provider = None;
-
-        if let Some(ref user) = self.user_hooks {
-            let res = user.prepare_next_turn(context).await?;
-            match res {
-                HookOutcome::Continue => {}
-                HookOutcome::Block { .. } => return Ok(res),
-                HookOutcome::SwitchModel {
-                    ref model,
-                    ref provider,
-                    ..
-                } => {
-                    current_model = Some(model.clone());
-                    current_provider = provider.clone();
-                    outcomes.push(res);
-                }
-                _ => outcomes.push(res),
-            }
-        }
-
-        for ext in &self.extensions {
-            if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe
-                    .manifest
-                    .hooks
-                    .iter()
-                    .find(|h| h.lifecycle_point == "prepare_next_turn")
-                {
-                    let request = HookRequest::PrepareNextTurn {
-                        session_id: context.session_id.clone(),
-                        history: context.history.clone(),
-                        turn_index: context.turn_index,
-                        current_model: context.current_model.clone(),
-                        current_provider: context.current_provider.clone(),
-                    };
-                    let params = serde_json::json!({
-                        "name": hook_decl.name.clone(),
-                        "lifecycle_point": "prepare_next_turn",
-                        "payload": request,
-                        "context": {
-                            "session_id": context.session_id.clone(),
-                            "history": context.history.clone(),
-                            "turn_index": context.turn_index,
-                            "current_model": context.current_model.clone(),
-                            "current_provider": context.current_provider.clone(),
-                        }
-                    });
-                    if let Ok(outcome) =
-                        call_hook_with_policy(pe, hook_decl, params, "open").await?
-                    {
-                        let outcome = match outcome {
-                            HookOutcome::Annotate { metadata } => HookOutcome::Annotate {
-                                metadata: serde_json::json!({ pe.name(): metadata }),
-                            },
-                            other => other,
-                        };
-                        match outcome {
-                            HookOutcome::Block { .. } => return Ok(outcome),
-                            HookOutcome::SwitchModel {
-                                model,
-                                provider,
-                                variant,
-                            } => {
-                                if let Some(ref existing_model) = current_model {
-                                    if existing_model != &model
-                                        || current_provider.as_ref() != provider.as_ref()
-                                    {
-                                        let msg = format!(
-                                            "Conflict: SwitchModel requested by extension '{}' for model='{}', provider='{:?}' conflicts with previous override model='{}', provider='{:?}'",
-                                            pe.name(), model, provider, existing_model, current_provider
-                                        );
-                                        eprintln!("Warning: {}", msg);
-                                        pe.broker
-                                            .event_bus
-                                            .publish(RuntimeEvent::RuntimeError { message: msg });
-                                    }
-                                }
-                                current_model = Some(model.clone());
-                                current_provider = provider.clone();
-                                outcomes.push(HookOutcome::SwitchModel {
-                                    model,
-                                    provider,
-                                    variant,
-                                });
-                            }
-                            HookOutcome::Continue => {}
-                            _ => outcomes.push(outcome),
-                        }
-                    }
-                }
-            }
-        }
-
-        if outcomes.is_empty() {
-            Ok(HookOutcome::Continue)
-        } else if outcomes.len() == 1 {
-            Ok(outcomes.remove(0))
-        } else {
-            Ok(HookOutcome::Aggregated(outcomes))
+        match &self.user_hooks {
+            Some(user) => user.prepare_next_turn(context).await,
+            None => Ok(HookOutcome::Continue),
         }
     }
 
     async fn on_event(&self, context: &OnEventCtx) -> Result<()> {
-        if let Some(ref user) = self.user_hooks {
+        if let Some(user) = &self.user_hooks {
             user.on_event(context).await?;
-        }
-
-        for ext in &self.extensions {
-            if let Some(pe) = ext.as_process_extension() {
-                if let Some(hook_decl) = pe
-                    .manifest
-                    .hooks
-                    .iter()
-                    .find(|h| h.lifecycle_point == "on_event")
-                {
-                    let request = HookRequest::OnEvent {
-                        session_id: context.session_id.clone(),
-                        event: context.event.clone(),
-                    };
-                    let params = serde_json::json!({
-                        "name": hook_decl.name.clone(),
-                        "lifecycle_point": "on_event",
-                        "payload": request,
-                        "context": {
-                            "session_id": context.session_id.clone(),
-                            "event": context.event.clone(),
-                        }
-                    });
-                    let _ = pe.broker.call("hooks/call", Some(params)).await;
-                }
-            }
         }
         Ok(())
     }

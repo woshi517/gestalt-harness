@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
@@ -48,16 +47,15 @@ fn registry_snapshot_is_not_changed_by_later_builder_mutation() {
 fn runtime_extension_snapshot_pins_generation_fingerprint_and_catalog() {
     let registry_snapshot = registry_with_one_tool().snapshot();
     let catalog = Arc::new(EmptyToolCatalog);
-    let mcp_registry = Arc::new(gestalt_runtime::McpRegistry::new(
-        std::env::current_dir().unwrap(),
-        HashMap::new(),
-    ));
-
     let snapshot = RuntimeExtensionSnapshot::from_registry_snapshot(
         RuntimeGeneration(7),
         registry_snapshot.clone(),
         catalog,
-        mcp_registry,
+        #[cfg(feature = "mcp")]
+        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+            std::path::PathBuf::from("."),
+            std::collections::HashMap::new(),
+        )),
     );
 
     assert_eq!(snapshot.generation, RuntimeGeneration(7));

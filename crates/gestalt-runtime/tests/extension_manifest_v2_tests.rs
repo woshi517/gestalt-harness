@@ -1,15 +1,14 @@
-#![allow(deprecated)]
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use gestalt_runtime::{
     extension::{
         compute_complete_fingerprint, ComponentKind, ExtensionManifestV2,
         ExtensionPackageDescriptor, ResolvedExtensionPackage,
     },
-    ExtensionDiscovery, ExtensionManifest,
+    ExtensionDiscovery, ExtensionTrust,
 };
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const V2_MANIFEST: &str = r#"
 manifest_version = 2
@@ -95,56 +94,6 @@ kind = "command-tool"
 }
 
 #[test]
-fn current_v1_manifest_normalizes_to_required_legacy_component() {
-    let manifest = ExtensionManifest::parse(
-        r#"
-id = "legacy-ext"
-name = "Legacy Extension"
-version = "1.0.0"
-manifest_version = "1"
-protocol_version = "1.0"
-runtime = "stdio"
-
-[entrypoint]
-command = "python"
-args = ["-m", "legacy"]
-
-[capabilities]
-tools = true
-hooks = true
-context = true
-
-[[tools]]
-name = "legacy_tool"
-description = "legacy tool"
-input_schema = { type = "object" }
-
-[[hooks]]
-name = "legacy_hook"
-lifecycle_point = "before_tool_policy"
-
-[[context_injectors]]
-name = "legacy_context"
-stability = "turn_dynamic"
-"#,
-    )
-    .unwrap();
-
-    let package = ResolvedExtensionPackage::from_v1_manifest(manifest).unwrap();
-
-    assert_eq!(package.descriptor.id, "legacy-ext");
-    assert_eq!(package.components.len(), 1);
-    let component = &package.components[0];
-    assert_eq!(component.kind, ComponentKind::LegacyProcess);
-    assert_eq!(component.id.component_id, "legacy");
-    assert!(!component.optional);
-    assert_eq!(component.tools.len(), 1);
-    assert_eq!(component.hooks.len(), 1);
-    assert_eq!(component.context_injectors.len(), 1);
-    assert_eq!(component.entrypoint.command, "python");
-}
-
-#[test]
 fn package_and_component_canonical_ids_include_instance_scope() {
     let manifest = ExtensionManifestV2::parse(V2_MANIFEST).unwrap();
     let package = ResolvedExtensionPackage::from_v2_manifest(manifest, "review-primary").unwrap();
@@ -172,70 +121,74 @@ fn reserved_package_namespaces_remain_rejected() {
 }
 
 #[test]
-fn discovery_exposes_package_inventory_for_v1_and_v2_manifests() {
+fn discovery_discovers_v2_packages_in_deterministic_order() {
     let root = TempTree::new("gestalt-runtime-package-discovery");
     let workspace = root.path().join("workspace");
     let global = root.path().join("global");
-    write_v1_extension(
-        &workspace.join(".gestalt/extensions/01-v1"),
-        "legacy-package",
-        "Legacy Package",
+
+    write_v2_extension(
+        &workspace.join(".gestalt/extensions/02-project-b"),
+        "project-b",
+        "Project B",
     );
     write_v2_extension(
-        &global.join("extensions/01-v2"),
-        "com.example.v2",
-        "V2 Package",
+        &workspace.join(".gestalt/extensions/01-project-a"),
+        "project-a",
+        "Project A",
+    );
+    write_v2_extension(
+        &global.join("extensions/01-global-a"),
+        "global-a",
+        "Global A",
+    );
+    write_v2_extension(
+        &global.join("extensions/02-global-duplicate-project"),
+        "project-a",
+        "Duplicate Project A",
+    );
+    write_v2_extension(
+        &root.path().join("explicit-dir"),
+        "explicit-dir",
+        "Explicit Dir",
+    );
+    let explicit_file = root.path().join("explicit-file.toml");
+    write_manifest_file(
+        &explicit_file,
+        v2_manifest("explicit-file", "Explicit File", "python", &["-m", "example"]),
     );
 
     let discovery = ExtensionDiscovery::new(workspace, Some(global));
-    let packages = discovery.discover_packages(&[]).unwrap();
-    let ids = packages
+    let discovered = discovery
+        .discover_packages(&[root.path().join("explicit-dir"), explicit_file.clone()])
+        .unwrap();
+    let ids = discovered
         .iter()
-        .map(|package| package.package.descriptor.id.as_str())
+        .map(|ext| ext.package.descriptor.id.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(ids, ["legacy-package", "com.example.v2"]);
     assert_eq!(
-        packages[0].package.components[0].kind,
-        ComponentKind::LegacyProcess
+        ids,
+        [
+            "explicit-dir",
+            "explicit-file",
+            "project-a",
+            "project-b",
+            "global-a"
+        ]
     );
-    assert_eq!(
-        packages[1].package.components[0].kind,
-        ComponentKind::GestaltLifecycle
-    );
-    assert!(packages.iter().all(|package| package.enabled));
+    assert!(discovered.iter().all(|ext| ext.enabled));
+    assert_eq!(discovered[1].manifest_path, explicit_file);
 }
 
 #[test]
-fn package_fingerprint_changes_for_non_file_entrypoint_arguments() {
-    let left = legacy_package("python", &["-m", "review.lifecycle"], false);
-    let right = legacy_package("python", &["-m", "review.other"], false);
-
-    let left_fp = compute_complete_fingerprint("registry-a", &[left]);
-    let right_fp = compute_complete_fingerprint("registry-a", &[right]);
-
-    assert_ne!(left_fp, right_fp);
-}
-
-#[test]
-fn package_fingerprint_changes_with_cancellation_declaration() {
-    let left = legacy_package("python", &["-m", "review.lifecycle"], false);
-    let right = legacy_package("python", &["-m", "review.lifecycle"], true);
-
-    let left_fp = compute_complete_fingerprint("registry-a", &[left]);
-    let right_fp = compute_complete_fingerprint("registry-a", &[right]);
-
-    assert_ne!(left_fp, right_fp);
-}
-
-fn write_v1_extension(dir: &Path, id: &str, name: &str) {
-    fs::create_dir_all(dir).unwrap();
-    fs::write(
-        dir.join("gestalt.extension.toml"),
-        format!(
-            r#"
-id = "{id}"
-name = "{name}"
+fn discovery_rejects_v1_explicit_manifests() {
+    let root = TempTree::new("gestalt-runtime-package-discovery-v1");
+    let explicit = root.path().join("legacy.toml");
+    write_manifest_file(
+        &explicit,
+        r#"
+id = "legacy-package"
+name = "Legacy Package"
 version = "1.0.0"
 manifest_version = "1"
 protocol_version = "1.0"
@@ -247,17 +200,76 @@ args = ["-m", "legacy"]
 
 [capabilities]
 "#
-        ),
-    )
-    .unwrap();
+        .to_string(),
+    );
+
+    let discovery = ExtensionDiscovery::new(root.path().join("workspace"), None);
+    let err = discovery.discover_packages(&[explicit]).unwrap_err();
+    assert!(err.to_string().contains("manifest_version"));
 }
 
-fn write_v2_extension(dir: &Path, id: &str, name: &str) {
-    fs::create_dir_all(dir).unwrap();
-    fs::write(
-        dir.join("gestalt.extension.toml"),
-        format!(
-            r#"
+#[test]
+fn package_fingerprint_changes_for_entrypoint_args() {
+    let left = v2_package("python", &["-m", "review.lifecycle"], "primary");
+    let right = v2_package("python", &["-m", "review.other"], "primary");
+
+    let left_fp = compute_complete_fingerprint("registry-a", &[left]);
+    let right_fp = compute_complete_fingerprint("registry-a", &[right]);
+
+    assert_ne!(left_fp, right_fp);
+}
+
+#[test]
+fn allow_untrusted_package_remains_untrusted() {
+    let manifest = ExtensionManifestV2::parse(
+        r#"
+manifest_version = 2
+
+[package]
+id = "trust-regression"
+name = "Trust Regression"
+version = "1.0.0"
+
+[[components]]
+id = "lifecycle"
+kind = "gestalt-lifecycle"
+
+[components.entrypoint]
+command = "python3"
+args = ["-c", "print('noop')"]
+"#,
+    )
+    .unwrap();
+
+    let mut package = ResolvedExtensionPackage::from_v2_manifest(manifest, "instance-a").unwrap();
+    package.manifest_hash =
+        Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string());
+
+    let component = package.to_runtime_component("lifecycle").unwrap();
+
+    assert_eq!(package.trust, ExtensionTrust::Untrusted);
+    assert_eq!(component.trust, ExtensionTrust::Untrusted);
+}
+
+fn v2_package(command: &str, args: &[&str], instance_id: &str) -> ResolvedExtensionPackage {
+    let manifest = ExtensionManifestV2::parse(&v2_manifest(
+        "legacy-package",
+        "Legacy Package",
+        command,
+        args,
+    ))
+    .unwrap();
+    ResolvedExtensionPackage::from_v2_manifest(manifest, instance_id).unwrap()
+}
+
+fn v2_manifest(id: &str, name: &str, command: &str, args: &[&str]) -> String {
+    let args_toml = args
+        .iter()
+        .map(|arg| format!("\"{arg}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        r#"
 manifest_version = 2
 
 [package]
@@ -273,52 +285,22 @@ id = "lifecycle"
 kind = "gestalt-lifecycle"
 
 [components.entrypoint]
-command = "python"
-args = ["-m", "lifecycle"]
-"#
-        ),
-    )
-    .unwrap();
-}
-
-fn legacy_package(
-    command: &str,
-    args: &[&str],
-    supports_cancellation: bool,
-) -> ResolvedExtensionPackage {
-    let args_toml = args
-        .iter()
-        .map(|arg| format!("\"{arg}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let manifest = ExtensionManifest::parse(&format!(
-        r#"
-id = "legacy-package"
-name = "Legacy Package"
-version = "1.0.0"
-manifest_version = "1"
-protocol_version = "1.0"
-runtime = "stdio"
-
-[entrypoint]
 command = "{command}"
 args = [{args_toml}]
-
-[capabilities]
-tools = true
-hooks = true
-context = true
-supports_cancellation = {supports_cancellation}
-
-[[tools]]
-name = "search"
-description = "Search"
-input_schema = {{ type = "object" }}
 "#
-    ))
-    .unwrap();
+    )
+}
 
-    ResolvedExtensionPackage::from_v1_manifest(manifest).unwrap()
+fn write_v2_extension(dir: &Path, id: &str, name: &str) {
+    fs::create_dir_all(dir).unwrap();
+    write_manifest_file(&dir.join("gestalt.extension.toml"), v2_manifest(id, name, "python", &["-m", "example"]));
+}
+
+fn write_manifest_file(path: &Path, content: String) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(path, content).unwrap();
 }
 
 struct TempTree {

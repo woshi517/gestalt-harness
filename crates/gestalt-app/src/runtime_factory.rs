@@ -82,18 +82,18 @@ pub async fn build_app_runtime(
 
     let mut trusted_extension_ids: Vec<String> = Vec::new();
 
-    if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
+    if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
         for ext in &discovered {
-            if config.extensions.disabled.contains(&ext.manifest.id) {
+            if config.extensions.disabled.contains(&ext.package.descriptor.id) {
                 continue;
             }
 
             let mut is_trusted = false;
             for trusted_entry in &config.extensions.trusted {
-                if trusted_entry == &ext.manifest.id {
+                if trusted_entry == &ext.package.descriptor.id {
                     is_trusted = true;
                     break;
-                } else if trusted_entry.starts_with(&format!("{}:", ext.manifest.id)) {
+                } else if trusted_entry.starts_with(&format!("{}:", ext.package.descriptor.id)) {
                     let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
                     if parts.len() == 2 {
                         let expected_hash = parts[1];
@@ -105,8 +105,8 @@ pub async fn build_app_runtime(
                 }
             }
 
-            if is_trusted && !trusted_extension_ids.contains(&ext.manifest.id) {
-                trusted_extension_ids.push(ext.manifest.id.clone());
+            if is_trusted && !trusted_extension_ids.contains(&ext.package.descriptor.id) {
+                trusted_extension_ids.push(ext.package.descriptor.id.clone());
             }
         }
     }
@@ -453,7 +453,7 @@ pub async fn build_app_runtime(
         builder = builder.trace_sink(sink);
     }
 
-    builder.build_async().await.map_err(|e| match e {
+    builder.build().map_err(|e| match e {
         gestalt_runtime::RuntimeError::Harness(he) => he,
         other => HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
             field: "runtime".to_string(),
@@ -555,17 +555,17 @@ pub fn disable_extension(
 
 pub fn validate_extension(
     path: &std::path::Path,
-) -> Result<gestalt_runtime::ExtensionManifest, Box<dyn std::error::Error>> {
+) -> Result<gestalt_runtime::extension::ExtensionManifestV2, Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
-    let manifest = gestalt_runtime::ExtensionManifest::parse(&content)?;
-    manifest.validate(true)?;
+    let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&content)?;
+    manifest.validate()?;
     Ok(manifest)
 }
 
 pub fn inspect_extension(
     overrides: &crate::config::CliOverrides,
     id: &str,
-) -> Result<Option<gestalt_runtime::ExtensionManifest>, Box<dyn std::error::Error>> {
+) -> Result<Option<gestalt_runtime::extension::ExtensionManifestV2>, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
     let explicit_loads: Vec<std::path::PathBuf> = config
         .extensions
@@ -576,10 +576,11 @@ pub fn inspect_extension(
     let global_dir = global_config_dir().map(|d| d.join("gestalt"));
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
-    let discovered = discovery.discover_all(&explicit_loads)?;
+    let discovered = discovery.discover_packages(&explicit_loads)?;
     for ext in discovered {
-        if ext.manifest.id == id {
-            return Ok(Some(ext.manifest));
+        if ext.package.descriptor.id == id {
+            let content = std::fs::read_to_string(&ext.manifest_path)?;
+            return Ok(Some(gestalt_runtime::extension::ExtensionManifestV2::parse(&content)?));
         }
     }
     Ok(None)
@@ -587,7 +588,7 @@ pub fn inspect_extension(
 
 pub fn list_extensions(
     overrides: &crate::config::CliOverrides,
-) -> Result<Vec<gestalt_runtime::DiscoveredExtension>, Box<dyn std::error::Error>> {
+) -> Result<Vec<gestalt_runtime::DiscoveredExtensionPackage>, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
     let explicit_loads: Vec<std::path::PathBuf> = config
         .extensions
@@ -598,9 +599,9 @@ pub fn list_extensions(
     let global_dir = global_config_dir().map(|d| d.join("gestalt"));
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
-    let mut discovered = discovery.discover_all(&explicit_loads)?;
+    let mut discovered = discovery.discover_packages(&explicit_loads)?;
     for ext in &mut discovered {
-        if config.extensions.disabled.contains(&ext.manifest.id) {
+        if config.extensions.disabled.contains(&ext.package.descriptor.id) {
             ext.enabled = false;
         }
     }
@@ -639,54 +640,65 @@ pub fn runtime_doctor(
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
 
-    if let Ok(discovered) = discovery.discover_all(&explicit_loads) {
+    if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
         checks.push(format!("Discovered {} extension(s).", discovered.len()));
         let mut seen_ids = std::collections::HashMap::new();
         for ext in discovered {
             let manifest_path_str = ext.manifest_path.to_string_lossy().to_string();
 
-            if let Err(e) = ext.manifest.validate(true) {
+            if let Err(e) = ext.package.descriptor.validate() {
                 checks.push(format!(
                     "ERROR: Manifest validation failed for '{}' at {}: {}",
-                    ext.manifest.id, manifest_path_str, e
+                    ext.package.descriptor.id, manifest_path_str, e
                 ));
             } else {
-                checks.push(format!("OK: '{}' manifest is valid.", ext.manifest.id));
+                checks.push(format!(
+                    "OK: '{}' manifest is valid.",
+                    ext.package.descriptor.id
+                ));
             }
 
-            if let Some(prev_path) =
-                seen_ids.insert(ext.manifest.id.clone(), manifest_path_str.clone())
+            if let Some(prev_path) = seen_ids
+                .insert(ext.package.descriptor.id.clone(), manifest_path_str.clone())
             {
                 checks.push(format!(
                     "ERROR: Duplicate extension ID '{}' found at {} and {}.",
-                    ext.manifest.id, prev_path, manifest_path_str
+                    ext.package.descriptor.id, prev_path, manifest_path_str
                 ));
             }
 
-            let cmd = &ext.manifest.entrypoint.command;
-            let path_exists = std::path::Path::new(cmd).exists();
-            if !path_exists && !cmd.contains('/') {
-                checks.push(format!(
-                    "INFO: '{}' uses system command '{}'. Ensure it is in PATH.",
-                    ext.manifest.id, cmd
-                ));
-            } else if !path_exists {
-                checks.push(format!(
-                    "WARNING: Command path '{}' for extension '{}' does not exist.",
-                    cmd, ext.manifest.id
-                ));
-            } else {
-                checks.push(format!("OK: Command path '{}' exists.", cmd));
-            }
+            for component in &ext.package.components {
+                let cmd = &component.entrypoint.command;
+                let path_exists = std::path::Path::new(cmd).exists();
+                if !path_exists && !cmd.contains('/') {
+                    checks.push(format!(
+                        "INFO: '{}' component '{}' uses system command '{}'. Ensure it is in PATH.",
+                        ext.package.descriptor.id, component.id.component_id, cmd
+                    ));
+                } else if !path_exists {
+                    checks.push(format!(
+                        "WARNING: Command path '{}' for extension '{}' component '{}' does not exist.",
+                        cmd, ext.package.descriptor.id, component.id.component_id
+                    ));
+                } else {
+                    checks.push(format!(
+                        "OK: Command path '{}' exists for component '{}'.",
+                        cmd, component.id.component_id
+                    ));
+                }
 
-            if ext.manifest.permissions.allow_shell {
-                checks.push(format!("WARNING: Extension '{}' requests shell execution permission. Use with caution.", ext.manifest.id));
-            }
-            if ext.manifest.permissions.allow_all_paths {
-                checks.push(format!(
-                    "WARNING: Extension '{}' requests access to all files. Use with caution.",
-                    ext.manifest.id
-                ));
+                if component.permissions.allow_shell {
+                    checks.push(format!(
+                        "WARNING: Extension '{}' component '{}' requests shell execution permission. Use with caution.",
+                        ext.package.descriptor.id, component.id.component_id
+                    ));
+                }
+                if component.permissions.allow_all_paths {
+                    checks.push(format!(
+                        "WARNING: Extension '{}' component '{}' requests access to all files. Use with caution.",
+                        ext.package.descriptor.id, component.id.component_id
+                    ));
+                }
             }
         }
     } else {

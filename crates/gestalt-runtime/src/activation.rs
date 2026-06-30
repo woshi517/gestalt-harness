@@ -420,7 +420,6 @@ impl ExtensionActivationPipeline {
         #[cfg(feature = "mcp")]
         let mut mcp_server_names: std::collections::HashSet<String> =
             std::collections::HashSet::new();
-        let mut context_source_ids = std::collections::HashSet::new();
         let mut lifecycle_capability_ids = std::collections::HashSet::new();
         let mut skill_ids = std::collections::HashSet::new();
         let mut client_descriptor_ids = std::collections::HashSet::new();
@@ -456,24 +455,6 @@ impl ExtensionActivationPipeline {
                                 "Duplicate canonical tool ID collision: {}",
                                 canonical_id
                             )));
-                        }
-                    }
-                    crate::extension::ComponentKind::LegacyProcess => {
-                        for tool in &component.tools {
-                            if !tool_runtime_names.insert(tool.name.clone()) {
-                                return Err(crate::error::RuntimeError::Extension(format!(
-                                    "Duplicate tool runtime name collision: {}",
-                                    tool.name
-                                )));
-                            }
-                        }
-                        for injector in &component.context_injectors {
-                            if !context_source_ids.insert(injector.name.clone()) {
-                                return Err(crate::error::RuntimeError::Extension(format!(
-                                    "Duplicate context contributor name collision: {}",
-                                    injector.name
-                                )));
-                            }
                         }
                     }
                     #[cfg(feature = "mcp")]
@@ -629,82 +610,6 @@ impl ExtensionActivationPipeline {
                             tool,
                             Some(extension_identity.clone()),
                         )?;
-                    }
-                    crate::extension::ComponentKind::LegacyProcess => {
-                        let process = if let Some(ManagedExtensionResource::Process {
-                            process: p,
-                            ..
-                        }) = reused_resource
-                        {
-                            reused.push(ManagedExtensionResource::Process {
-                                reuse_key: reuse_key.clone(),
-                                process: p.clone(),
-                            });
-                            p
-                        } else {
-                            let launch_result = manager
-                                .launch_process(&runtime_component, &self.host_context)
-                                .await;
-                            match launch_result {
-                                Ok(p) => {
-                                    newly_started.push(ManagedExtensionResource::Process {
-                                        reuse_key: reuse_key.clone(),
-                                        process: p.clone(),
-                                    });
-                                    p
-                                }
-                                Err(e) => {
-                                    if component.optional {
-                                        diagnostics.push(ActivationDiagnostic {
-                                            component_id: component.id.clone(),
-                                            severity: DiagnosticSeverity::Warning,
-                                            message: format!("Optional legacy process component failed to launch: {}", e),
-                                        });
-                                        continue;
-                                    } else {
-                                        for res in &newly_started {
-                                            if let ManagedExtensionResource::Process {
-                                                process: p,
-                                                ..
-                                            } = res
-                                            {
-                                                p.transition_to(crate::extension::ExtensionProcessState::Stopping);
-                                                p.shutdown().await;
-                                            }
-                                        }
-                                        return Err(e);
-                                    }
-                                }
-                            }
-                        };
-
-                        if let Some(broker) = process.broker() {
-                            let process_ext =
-                                Arc::new(crate::process_extension::ProcessExtension::new(
-                                    crate::manifest::ExtensionManifest {
-                                        id: component.id.package_id.clone(),
-                                        name: component.id.canonical_id(),
-                                        version: package.descriptor.version.clone(),
-                                        manifest_version: Some("1".to_string()),
-                                        protocol_version: component.protocol_version.clone(),
-                                        runtime: "stdio".to_string(),
-                                        entrypoint: component.entrypoint.clone(),
-                                        capabilities: crate::manifest::Capabilities {
-                                            tools: !component.tools.is_empty(),
-                                            hooks: !component.hooks.is_empty(),
-                                            context: !component.context_injectors.is_empty(),
-                                            supports_cancellation: component.supports_cancellation,
-                                        },
-                                        permissions: component.permissions.clone(),
-                                        tools: component.tools.clone(),
-                                        hooks: component.hooks.clone(),
-                                        context_injectors: component.context_injectors.clone(),
-                                    },
-                                    broker,
-                                ));
-                            use crate::extension::GestaltExtension;
-                            process_ext.register(&mut registry_builder)?;
-                        }
                     }
                     crate::extension::ComponentKind::GestaltLifecycle => {
                         let client: Arc<dyn crate::lifecycle::LifecycleClient> =

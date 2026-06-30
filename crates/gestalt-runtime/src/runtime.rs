@@ -29,7 +29,7 @@ use crate::composition_hooks::{
 use crate::context::{ContextContributor, RuntimeContextPipeline};
 use crate::event_bus::{RuntimeEvent, RuntimeEventBus};
 use crate::policy::RuntimePolicyEngine;
-use crate::registry::{RuntimeRegistry, RuntimeRegistrySnapshot};
+use crate::registry::{RuntimeRegistryBuilder, RuntimeRegistrySnapshot};
 use std::sync::Mutex;
 
 pub struct UserInput {
@@ -48,7 +48,7 @@ pub struct AgentRuntime {
     pub approval: Arc<dyn ApprovalProvider>,
     pub trace_sink: Option<Arc<dyn TraceSink>>,
     pub config: RuntimeConfig,
-    pub registry: RuntimeRegistry,
+    pub registry: RuntimeRegistryBuilder,
     pub registry_snapshot: RuntimeRegistrySnapshot,
     pub extension_snapshot: Arc<crate::extension::RuntimeExtensionSnapshot>,
     pub extension_manager: Arc<crate::extension::ExtensionManager>,
@@ -65,7 +65,6 @@ pub struct AgentRuntime {
     #[cfg(feature = "mcp")]
     pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp::McpDiscoveryState>>,
     steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
-    pub extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
 }
 
@@ -80,7 +79,7 @@ impl AgentRuntime {
         trace_sink: Option<Arc<dyn TraceSink>>,
         config: RuntimeConfig,
         hooks: gestalt_core::HookRegistry,
-        registry: RuntimeRegistry,
+        registry: RuntimeRegistryBuilder,
         registry_snapshot: RuntimeRegistrySnapshot,
         composition_hooks: Option<Arc<dyn CompositionHooks>>,
         event_bus: RuntimeEventBus,
@@ -88,7 +87,6 @@ impl AgentRuntime {
         #[cfg(feature = "mcp")] mcp_discovery_state: Arc<
             std::sync::Mutex<crate::mcp::McpDiscoveryState>,
         >,
-        extensions: Vec<Arc<dyn crate::extension::GestaltExtension>>,
     ) -> Self {
         let mut extension_snapshot =
             crate::extension::RuntimeExtensionSnapshot::from_registry_snapshot(
@@ -152,7 +150,6 @@ impl AgentRuntime {
             #[cfg(feature = "mcp")]
             mcp_discovery_state,
             steering_queue: Arc::new(crate::session_queue::InMemorySteeringQueue::new()),
-            extensions,
             workspace_context_snapshot: None,
         }
     }
@@ -324,11 +321,11 @@ impl AgentRuntime {
         let snapshot_lease = self.extension_manager.acquire_lease();
         let active_extension_snapshot = snapshot_lease.snapshot.clone();
         let pinned_tools = active_extension_snapshot.tool_catalog();
-        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
-            Arc::new(crate::composition_hooks::ComposedCompositionHooks {
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> = Arc::new(
+            crate::composition_hooks::ComposedCompositionHooks {
                 user_hooks: self.composition_hooks.clone(),
-                extensions: self.extensions.clone(),
-            });
+            },
+        );
         let lifecycle_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
             Arc::new(crate::composition_hooks::LifecycleCompositionHooks::new(
                 composed_hooks,
@@ -349,9 +346,7 @@ impl AgentRuntime {
         let mut maybe_trace_worker = None;
         let mut maybe_trace_tx = None;
 
-        if self.composition_hooks.is_some()
-            || !self.extensions.is_empty()
-            || !active_extension_snapshot.lifecycle_clients.is_empty()
+        if self.composition_hooks.is_some() || !active_extension_snapshot.lifecycle_clients.is_empty()
         {
             let block_reason = Arc::new(Mutex::new(None));
             maybe_block_reason = Some(block_reason.clone());
@@ -633,21 +628,13 @@ impl AgentRuntime {
             self.config.text_verbosity.as_ref(),
         ));
 
-        let mut negotiated_fingerprints = Vec::new();
-        for ext in &self.extensions {
-            if let Some(pe) = ext.as_process_extension() {
-                let negotiated_version = pe.broker.negotiated_version();
-                let negotiated_caps = pe.broker.negotiated_capabilities();
-                let caps_json = serde_json::to_string(&negotiated_caps).unwrap_or_default();
-                negotiated_fingerprints.push(format!(
-                    "{}:{}:{}:{}",
-                    pe.manifest.id,
-                    pe.manifest.protocol_version.as_deref().unwrap_or(""),
-                    negotiated_version,
-                    caps_json
-                ));
-            }
-        }
+        let mut negotiated_fingerprints = active_extension_snapshot
+            .negotiated_protocol
+            .iter()
+            .map(|(component_id, negotiated_version)| {
+                format!("{}:{}", component_id, negotiated_version)
+            })
+            .collect::<Vec<_>>();
         let negotiated_protocol_fingerprint = if negotiated_fingerprints.is_empty() {
             None
         } else {

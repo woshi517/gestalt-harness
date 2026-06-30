@@ -3,7 +3,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::error::{Result, RuntimeError};
-use crate::manifest::{Capabilities, Entrypoint, ExtensionManifest};
 use crate::process_extension::ProcessExtensionBroker;
 
 use super::{ExtensionProcessInstance, ExtensionRuntimeComponent};
@@ -44,46 +43,6 @@ impl ExtensionLauncher for LocalProcessLauncher {
         component: &ExtensionRuntimeComponent,
         host_context: &HostLaunchContext,
     ) -> Result<Arc<ExtensionProcessInstance>> {
-        let manifest = ExtensionManifest {
-            id: component.id.package_id.clone(),
-            name: component.id.canonical_id(),
-            version: component.package_version.clone(),
-            manifest_version: Some("1".to_string()),
-            protocol_version: match component.kind {
-                super::ComponentKind::GestaltLifecycle => Some(
-                    component
-                        .protocol_fingerprint
-                        .clone()
-                        .unwrap_or_else(|| "2.0".to_string()),
-                ),
-                _ => component.protocol_fingerprint.clone(),
-            },
-            runtime: "stdio".to_string(),
-            entrypoint: Entrypoint {
-                command: component.entrypoint_command.clone(),
-                args: component.entrypoint_args.clone(),
-            },
-            capabilities: match component.kind {
-                super::ComponentKind::CommandTool => Capabilities {
-                    tools: true,
-                    ..Default::default()
-                },
-                super::ComponentKind::LegacyProcess | super::ComponentKind::GestaltLifecycle => {
-                    Capabilities {
-                        tools: true,
-                        hooks: true,
-                        context: true,
-                        supports_cancellation: component.supports_cancellation,
-                    }
-                }
-                _ => Capabilities::default(),
-            },
-            permissions: component.permissions.clone(),
-            tools: Vec::new(),
-            hooks: Vec::new(),
-            context_injectors: Vec::new(),
-        };
-
         let timeouts = crate::config::ExtensionTimeoutsConfig {
             initialize_ms: Some(host_context.timeout_initialize_ms),
             hook_ms: Some(host_context.timeout_hook_ms),
@@ -98,14 +57,11 @@ impl ExtensionLauncher for LocalProcessLauncher {
         };
 
         let broker = Arc::new(
-            ProcessExtensionBroker::spawn_with_grants(
-                manifest,
-                Some(component.grants.clone()),
-                component.package_source_root.clone(),
+            ProcessExtensionBroker::spawn_with_component(
+                component.clone(),
                 host_context.event_bus.clone(),
                 timeouts,
                 limits,
-                host_context.allow_network,
                 component.trust.is_trusted(),
             )
             .await?,

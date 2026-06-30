@@ -1,16 +1,6 @@
 use crate::error::{Result, RuntimeError};
 use crate::extension::{ExtensionManifestV2, ResolvedExtensionPackage};
-use crate::manifest::ExtensionManifest;
-use serde::Serialize;
 use std::path::PathBuf;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DiscoveredExtension {
-    pub manifest_path: PathBuf,
-    pub manifest: ExtensionManifest,
-    pub manifest_hash: String,
-    pub enabled: bool,
-}
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredExtensionPackage {
@@ -32,119 +22,6 @@ impl ExtensionDiscovery {
             workspace_root,
             global_dir,
         }
-    }
-
-    pub fn discover_all(&self, explicit_paths: &[PathBuf]) -> Result<Vec<DiscoveredExtension>> {
-        let mut discovered = Vec::new();
-        let mut seen_ids = std::collections::HashSet::new();
-
-        // 1. Explicit CLI loads
-        for path in explicit_paths {
-            let (manifest_path, content) = if path.is_dir() {
-                let p = path.join("gestalt.extension.toml");
-                (p.clone(), std::fs::read_to_string(&p))
-            } else {
-                (path.clone(), std::fs::read_to_string(path))
-            };
-
-            let content = content.map_err(|e| {
-                RuntimeError::Extension(format!(
-                    "Failed to read explicit manifest at {:?}: {}",
-                    path, e
-                ))
-            })?;
-
-            let manifest = ExtensionManifest::parse(&content).map_err(|e| {
-                RuntimeError::Extension(format!("Invalid explicit manifest: {}", e))
-            })?;
-            manifest.validate(true).map_err(|e| {
-                RuntimeError::Extension(format!("Validation failed for explicit manifest: {}", e))
-            })?;
-
-            if seen_ids.insert(manifest.id.clone()) {
-                let hash = compute_content_hash(&content);
-                discovered.push(DiscoveredExtension {
-                    manifest_path,
-                    manifest,
-                    manifest_hash: hash,
-                    enabled: true,
-                });
-            }
-        }
-
-        // 2. Project local `.gestalt/extensions`
-        let project_ext_dir = self.workspace_root.join(".gestalt/extensions");
-        if project_ext_dir.exists() && project_ext_dir.is_dir() {
-            let mut entries = Vec::new();
-            if let Ok(rd) = std::fs::read_dir(&project_ext_dir) {
-                for entry in rd.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        let manifest_file = path.join("gestalt.extension.toml");
-                        if manifest_file.exists() && manifest_file.is_file() {
-                            entries.push(manifest_file);
-                        }
-                    }
-                }
-            }
-            // Deterministic ordering by path string alphabetically
-            entries.sort();
-            for manifest_file in entries {
-                if let Ok(content) = std::fs::read_to_string(&manifest_file) {
-                    if let Ok(manifest) = ExtensionManifest::parse(&content) {
-                        if manifest.validate(true).is_ok() && seen_ids.insert(manifest.id.clone()) {
-                            let hash = compute_content_hash(&content);
-                            discovered.push(DiscoveredExtension {
-                                manifest_path: manifest_file,
-                                manifest,
-                                manifest_hash: hash,
-                                enabled: true,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. User global config dir extensions
-        if let Some(ref gdir) = self.global_dir {
-            let global_ext_dir = gdir.join("extensions");
-            if global_ext_dir.exists() && global_ext_dir.is_dir() {
-                let mut entries = Vec::new();
-                if let Ok(rd) = std::fs::read_dir(&global_ext_dir) {
-                    for entry in rd.flatten() {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            let manifest_file = path.join("gestalt.extension.toml");
-                            if manifest_file.exists() && manifest_file.is_file() {
-                                entries.push(manifest_file);
-                            }
-                        }
-                    }
-                }
-                // Deterministic ordering
-                entries.sort();
-                for manifest_file in entries {
-                    if let Ok(content) = std::fs::read_to_string(&manifest_file) {
-                        if let Ok(manifest) = ExtensionManifest::parse(&content) {
-                            if manifest.validate(true).is_ok()
-                                && seen_ids.insert(manifest.id.clone())
-                            {
-                                let hash = compute_content_hash(&content);
-                                discovered.push(DiscoveredExtension {
-                                    manifest_path: manifest_file,
-                                    manifest,
-                                    manifest_hash: hash,
-                                    enabled: true,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(discovered)
     }
 
     pub fn discover_packages(
@@ -183,50 +60,60 @@ impl ExtensionDiscovery {
         }
 
         for manifest_file in self.project_manifest_paths() {
-            if let Ok(content) = std::fs::read_to_string(&manifest_file) {
-                if let Ok(package) = parse_package_manifest(&content) {
-                    if seen_ids.insert(package.descriptor.id.clone()) {
-                        let source_root = manifest_file
-                            .parent()
-                            .map_or_else(|| self.workspace_root.clone(), |path| path.to_path_buf());
-                        let manifest_hash = compute_content_hash(&content);
-                        let mut package = package;
-                        package.source_root = Some(source_root.clone());
-                        package.manifest_hash = Some(manifest_hash.clone());
-                        discovered.push(DiscoveredExtensionPackage {
-                            manifest_path: manifest_file,
-                            source_root,
-                            package,
-                            manifest_hash,
-                            enabled: true,
-                        });
-                    }
-                }
+            let content = std::fs::read_to_string(&manifest_file).map_err(|err| {
+                RuntimeError::Extension(format!(
+                    "Failed to read project manifest at {:?}: {}",
+                    manifest_file, err
+                ))
+            })?;
+            let package = parse_package_manifest(&content).map_err(|err| {
+                RuntimeError::Extension(format!("Invalid project manifest {:?}: {}", manifest_file, err))
+            })?;
+            if seen_ids.insert(package.descriptor.id.clone()) {
+                let source_root = manifest_file
+                    .parent()
+                    .map_or_else(|| self.workspace_root.clone(), |path| path.to_path_buf());
+                let manifest_hash = compute_content_hash(&content);
+                let mut package = package;
+                package.source_root = Some(source_root.clone());
+                package.manifest_hash = Some(manifest_hash.clone());
+                discovered.push(DiscoveredExtensionPackage {
+                    manifest_path: manifest_file,
+                    source_root,
+                    package,
+                    manifest_hash,
+                    enabled: true,
+                });
             }
         }
 
         if let Some(ref gdir) = self.global_dir {
             for manifest_file in collect_extension_manifest_paths(gdir.join("extensions")) {
-                if let Ok(content) = std::fs::read_to_string(&manifest_file) {
-                    if let Ok(package) = parse_package_manifest(&content) {
-                        if seen_ids.insert(package.descriptor.id.clone()) {
-                            let source_root = manifest_file.parent().map_or_else(
-                                || self.workspace_root.clone(),
-                                |path| path.to_path_buf(),
-                            );
-                            let manifest_hash = compute_content_hash(&content);
-                            let mut package = package;
-                            package.source_root = Some(source_root.clone());
-                            package.manifest_hash = Some(manifest_hash.clone());
-                            discovered.push(DiscoveredExtensionPackage {
-                                manifest_path: manifest_file,
-                                source_root,
-                                package,
-                                manifest_hash,
-                                enabled: true,
-                            });
-                        }
-                    }
+                let content = std::fs::read_to_string(&manifest_file).map_err(|err| {
+                    RuntimeError::Extension(format!(
+                        "Failed to read global manifest at {:?}: {}",
+                        manifest_file, err
+                    ))
+                })?;
+                let package = parse_package_manifest(&content).map_err(|err| {
+                    RuntimeError::Extension(format!("Invalid global manifest {:?}: {}", manifest_file, err))
+                })?;
+                if seen_ids.insert(package.descriptor.id.clone()) {
+                    let source_root = manifest_file.parent().map_or_else(
+                        || self.workspace_root.clone(),
+                        |path| path.to_path_buf(),
+                    );
+                    let manifest_hash = compute_content_hash(&content);
+                    let mut package = package;
+                    package.source_root = Some(source_root.clone());
+                    package.manifest_hash = Some(manifest_hash.clone());
+                    discovered.push(DiscoveredExtensionPackage {
+                        manifest_path: manifest_file,
+                        source_root,
+                        package,
+                        manifest_hash,
+                        enabled: true,
+                    });
                 }
             }
         }
@@ -277,32 +164,33 @@ fn collect_extension_manifest_paths(extension_dir: PathBuf) -> Vec<PathBuf> {
 }
 
 fn parse_package_manifest(content: &str) -> std::result::Result<ResolvedExtensionPackage, String> {
-    if is_manifest_v2(content)? {
-        let manifest = ExtensionManifestV2::parse(content)?;
-        ResolvedExtensionPackage::from_v2_manifest(manifest.clone(), manifest.package.id)
-            .map_err(|err| err.to_string())
-    } else {
-        let manifest = ExtensionManifest::parse(content)?;
-        ResolvedExtensionPackage::from_v1_manifest(manifest).map_err(|err| err.to_string())
-    }
-}
-
-fn is_manifest_v2(content: &str) -> std::result::Result<bool, String> {
     #[cfg(feature = "toml-config")]
     {
         let value = content
             .parse::<toml::Value>()
             .map_err(|err| format!("TOML parse error: {}", err))?;
-        Ok(value
-            .get("manifest_version")
-            .and_then(toml::Value::as_integer)
-            == Some(2))
+        let Some(manifest_version_value) = value.get("manifest_version") else {
+            return Err("missing required manifest_version = 2".to_string());
+        };
+        let Some(manifest_version) = manifest_version_value.as_integer() else {
+            return Err("manifest_version must be an integer".to_string());
+        };
+        if manifest_version != 2 {
+            return Err(format!(
+                "unsupported manifest_version {}; only manifest_version = 2 is supported",
+                manifest_version
+            ));
+        }
     }
     #[cfg(not(feature = "toml-config"))]
     {
         let _ = content;
-        Err("feature 'toml' is not enabled for extension manifest parsing".to_string())
+        return Err("feature 'toml-config' is not enabled for extension manifest parsing".to_string());
     }
+
+    let manifest = ExtensionManifestV2::parse(content)?;
+    ResolvedExtensionPackage::from_v2_manifest(manifest.clone(), manifest.package.id)
+        .map_err(|err| err.to_string())
 }
 
 pub struct DiscoverySource {

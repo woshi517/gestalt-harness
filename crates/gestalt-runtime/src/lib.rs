@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 pub mod activation;
 pub mod artifact_store;
 pub mod builder;
@@ -21,7 +19,7 @@ pub mod manifest;
 pub mod orchestration;
 pub mod permissions;
 pub mod policy;
-pub mod process_extension;
+mod process_extension;
 pub mod registry;
 pub mod runtime;
 pub mod session_queue;
@@ -118,15 +116,15 @@ pub use context::report::{
 };
 pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
 pub use control::{HostControl, ReloadExtensionsReport, ReloadExtensionsRequest, RuntimeControl};
-pub use discovery::{DiscoveredExtension, DiscoveredExtensionPackage, ExtensionDiscovery};
+pub use discovery::{DiscoveredExtensionPackage, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};
-pub use extension::GestaltExtension;
-pub use extension_trust::{build_extension_tool_descriptor, ExtensionTrust};
+pub use extension::RuntimeModule;
+pub use extension_trust::ExtensionTrust;
 pub use inspect::{
     compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
 };
-pub use manifest::{Capabilities, Entrypoint, ExtensionManifest, Permissions};
+pub use manifest::{Entrypoint, Permissions};
 #[cfg(feature = "mcp")]
 pub use mcp::McpBackedTool;
 #[cfg(feature = "mcp")]
@@ -140,13 +138,10 @@ pub use permissions::{
     check_path_permission_effective, check_shell_permission, check_shell_permission_effective,
 };
 pub use policy::RuntimePolicyEngine;
-pub use process_extension::{
-    ProcessBackedContextContributor, ProcessBackedTool, ProcessExtension, ProcessExtensionBroker,
-};
 pub use registry::{
     compute_schema_hash, compute_tool_schema_hash, ProviderFactory, ProviderMetadata,
-    RuntimeFingerprint, RuntimeRegistry, RuntimeRegistryBuilder, RuntimeRegistrySnapshot,
-    ToolMetadata, ToolRegistrationSnapshot,
+    RuntimeFingerprint, RuntimeRegistryBuilder, RuntimeRegistrySnapshot, ToolMetadata,
+    ToolRegistrationSnapshot,
 };
 pub use runtime::{AgentRuntime, UserInput};
 pub use session_queue::InMemorySteeringQueue;

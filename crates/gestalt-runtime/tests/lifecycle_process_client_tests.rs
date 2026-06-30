@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
@@ -51,6 +50,7 @@ async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process(
         environment: std::collections::HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
+        #[cfg(feature = "mcp")]
         mcp_servers: std::collections::HashMap::new(),
     };
     let client = ProcessLifecycleClient::new(manager.clone(), component.clone(), host_context);
@@ -123,6 +123,7 @@ async fn process_lifecycle_client_reuses_processes_and_respects_draining_state()
         environment: std::collections::HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
+        #[cfg(feature = "mcp")]
         mcp_servers: std::collections::HashMap::new(),
     };
     let first =
@@ -148,15 +149,15 @@ async fn process_lifecycle_client_reuses_processes_and_respects_draining_state()
 fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
     let registry = RuntimeRegistryBuilder::new().snapshot();
     let catalog = Arc::new(EmptyToolCatalog);
-    let mcp = Arc::new(gestalt_runtime::McpRegistry::new(
-        std::env::current_dir().unwrap(),
-        HashMap::new(),
-    ));
     RuntimeExtensionSnapshot::from_registry_snapshot(
         RuntimeGeneration(generation),
         registry,
         catalog,
-        mcp,
+        #[cfg(feature = "mcp")]
+        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+            std::path::PathBuf::from("."),
+            std::collections::HashMap::new(),
+        )),
     )
 }
 
@@ -181,9 +182,9 @@ while True:
     if method == "initialize":
         versions = params.get("supported_versions")
         if versions is not None:
-            result = {"negotiated_version": "2.0"}
+            result = {"negotiated_version": "2.0", "supports_cancellation": True}
         else:
-            result = {"version": "1.0", "capabilities": {}}
+            result = {"negotiated_version": "2.0", "supports_cancellation": True}
     elif method == "capabilities/describe":
         result = [{
             "component_id": "component:com.example.lifecycle:primary:lifecycle",

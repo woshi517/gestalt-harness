@@ -11,7 +11,7 @@ use gestalt_runtime::extension::{
     RuntimeExtensionSnapshot, RuntimeGeneration,
 };
 use gestalt_runtime::{
-    activation::HostLaunchContext, ExtensionManifest, RuntimeEventBus, RuntimeRegistryBuilder,
+    activation::HostLaunchContext, RuntimeEventBus, RuntimeRegistryBuilder,
 };
 use serde_json::json;
 
@@ -171,7 +171,8 @@ async fn extension_manager_reuses_ready_processes_and_tracks_health() {
         environment: HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
-        mcp_servers: std::collections::HashMap::new(),
+        #[cfg(feature = "mcp")]
+        mcp_servers: HashMap::new(),
     };
 
     let first = manager
@@ -213,31 +214,6 @@ async fn extension_manager_reuses_ready_processes_and_tracks_health() {
 }
 
 #[tokio::test]
-async fn legacy_process_extensions_reuse_manager_owned_broker_instances() {
-    let manifest = mock_extension_manifest();
-    let manager = manager_with_snapshot(snapshot_with_generation(0));
-
-    let first = manager
-        .launch_legacy_process_extension(
-            manifest.clone(),
-            Default::default(),
-            Default::default(),
-            true,
-        )
-        .await
-        .unwrap();
-    let second = manager
-        .launch_legacy_process_extension(manifest, Default::default(), Default::default(), true)
-        .await
-        .unwrap();
-
-    assert_eq!(manager.process_instances().len(), 1);
-    assert!(Arc::ptr_eq(&first.broker, &second.broker));
-
-    manager.shutdown_all().await.unwrap();
-}
-
-#[tokio::test]
 async fn replaced_same_id_resource_drains_after_old_lease_drops() {
     let host_context = HostLaunchContext {
         event_bus: RuntimeEventBus::new(),
@@ -255,7 +231,8 @@ async fn replaced_same_id_resource_drains_after_old_lease_drops() {
         environment: HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
-        mcp_servers: std::collections::HashMap::new(),
+        #[cfg(feature = "mcp")]
+        mcp_servers: HashMap::new(),
     };
 
     let old_component = runtime_component("com.example.review", "review-primary", "lifecycle");
@@ -332,15 +309,15 @@ fn manager_with_snapshot(snapshot: RuntimeExtensionSnapshot) -> ExtensionManager
 fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
     let registry = RuntimeRegistryBuilder::new().snapshot();
     let catalog = Arc::new(EmptyToolCatalog);
-    let mcp = Arc::new(gestalt_runtime::McpRegistry::new(
-        std::env::current_dir().unwrap(),
-        HashMap::new(),
-    ));
     RuntimeExtensionSnapshot::from_registry_snapshot(
         RuntimeGeneration(generation),
         registry,
         catalog,
-        mcp,
+        #[cfg(feature = "mcp")]
+        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+            std::path::PathBuf::from("."),
+            HashMap::new(),
+        )),
     )
 }
 
@@ -395,18 +372,6 @@ fn runtime_component(
         grants: gestalt_runtime::extension::ExtensionGrantConfig::default(),
         package_source_root: None,
     }
-}
-
-fn mock_extension_manifest() -> ExtensionManifest {
-    let manifest_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/gestalt.extension.toml");
-    let content = std::fs::read_to_string(manifest_path).unwrap();
-    let mut manifest = ExtensionManifest::parse(&content).unwrap();
-    manifest.entrypoint.command = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/extensions/mock-ext/mock_ext.sh")
-        .to_string_lossy()
-        .into_owned();
-    manifest
 }
 
 #[derive(Default)]

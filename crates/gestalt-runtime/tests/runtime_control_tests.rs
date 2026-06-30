@@ -385,17 +385,15 @@ fn runtime_host_with_discovery(
             Vec::new(),
         ));
     let registry_snapshot = builder.registry.snapshot();
-    let mcp_registry = builder.mcp_registry.clone().unwrap_or_else(|| {
-        Arc::new(gestalt_runtime::McpRegistry::new(
-            workspace_root.clone(),
-            std::collections::HashMap::new(),
-        ))
-    });
     let extension_snapshot = RuntimeExtensionSnapshot::from_registry_snapshot(
         gestalt_runtime::extension::RuntimeGeneration(0),
         registry_snapshot,
         builder.tools.clone().unwrap(),
-        mcp_registry,
+        #[cfg(feature = "mcp")]
+        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+            workspace_root.clone(),
+            std::collections::HashMap::new(),
+        )),
     );
     let extension_manager = Arc::new(ExtensionManager::new(
         Arc::new(extension_snapshot),
