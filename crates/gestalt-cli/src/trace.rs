@@ -3,7 +3,9 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 
 use gestalt_core::event::PolicyStatus;
-use gestalt_runtime::{aggregate_costs, analyze_tool_metrics, read_trace, TraceEvent as AgentEvent};
+use gestalt_runtime::{
+    aggregate_costs, analyze_tool_metrics, read_trace, TraceEvent as AgentEvent,
+};
 
 use crate::output::{
     PolicyOutcomesSummary, ReplayReport, TraceAnalyzeReport, TraceInspectReport,

@@ -230,11 +230,13 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
         let line = line.map_err(|e| gestalt_core::TraceError::ReadFailed {
             reason: e.to_string(),
         })?;
-        let Some(envelope) = gestalt_runtime::parse_trace_envelope_line(&line, 0).map_err(
-            |err| gestalt_core::TraceError::ReadFailed {
-                reason: err.to_string(),
-            },
-        )? else {
+        let Some(envelope) =
+            gestalt_runtime::parse_trace_envelope_line(&line, 0).map_err(|err| {
+                gestalt_core::TraceError::ReadFailed {
+                    reason: err.to_string(),
+                }
+            })?
+        else {
             continue;
         };
 

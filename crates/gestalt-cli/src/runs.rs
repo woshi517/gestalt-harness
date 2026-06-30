@@ -100,9 +100,9 @@ pub fn tail_run(
 }
 
 fn print_tailed_line(line: &str, format: crate::output::OutputFormat) -> Result<(), HarnessError> {
-    let Some(envelope) = gestalt_runtime::parse_trace_envelope_line(line, 0).map_err(|err| {
-        HarnessError::Trace(err)
-    })? else {
+    let Some(envelope) = gestalt_runtime::parse_trace_envelope_line(line, 0)
+        .map_err(|err| HarnessError::Trace(err))?
+    else {
         return Ok(());
     };
 

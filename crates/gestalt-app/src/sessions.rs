@@ -10,13 +10,13 @@ use gestalt_core::{
     WorkspaceSnapshotter,
 };
 use gestalt_runtime::default_registry;
+use gestalt_runtime::TraceEvent as AgentEvent;
 use gestalt_runtime::{
     aggregate_costs, read_prompt_snapshot,
     resume::ResumeAnalyzer,
     run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
     write_cost_report, write_summary, JsonlTraceSink,
 };
-use gestalt_runtime::TraceEvent as AgentEvent;
 
 use crate::{
     config::EffectiveConfig,
@@ -69,8 +69,7 @@ pub fn list_sessions(
                     if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
                         let mut first_msg = None;
                         for env in envelopes {
-                            if let AgentEvent::UserMessage { content } = env.event
-                            {
+                            if let AgentEvent::UserMessage { content } = env.event {
                                 let trimmed = content.trim();
                                 if !trimmed.is_empty() {
                                     let mut t = trimmed.chars().take(30).collect::<String>();
@@ -477,9 +476,7 @@ pub async fn run_session_action(
                 .map_err(gestalt_core::HarnessError::Trace)?;
             let mut target_checkpoint = None;
             for env in &envelopes {
-                if matches!(env.event, AgentEvent::Checkpoint { .. })
-                    && env.seq == target_seq
-                {
+                if matches!(env.event, AgentEvent::Checkpoint { .. }) && env.seq == target_seq {
                     target_checkpoint = Some(env);
                     break;
                 }

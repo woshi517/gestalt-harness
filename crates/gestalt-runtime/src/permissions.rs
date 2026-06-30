@@ -9,7 +9,15 @@ pub fn check_path_permission(
     write: bool,
     event_bus: &RuntimeEventBus,
 ) -> std::result::Result<(), String> {
-    check_path_permission_effective(permissions, None, workspace_root, path, write, event_bus, extension_id)
+    check_path_permission_effective(
+        permissions,
+        None,
+        workspace_root,
+        path,
+        write,
+        event_bus,
+        extension_id,
+    )
 }
 
 pub fn check_path_permission_effective(

@@ -321,11 +321,10 @@ impl AgentRuntime {
         let snapshot_lease = self.extension_manager.acquire_lease();
         let active_extension_snapshot = snapshot_lease.snapshot.clone();
         let pinned_tools = active_extension_snapshot.tool_catalog();
-        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> = Arc::new(
-            crate::composition_hooks::ComposedCompositionHooks {
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
+            Arc::new(crate::composition_hooks::ComposedCompositionHooks {
                 user_hooks: self.composition_hooks.clone(),
-            },
-        );
+            });
         let lifecycle_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
             Arc::new(crate::composition_hooks::LifecycleCompositionHooks::new(
                 composed_hooks,
@@ -346,7 +345,8 @@ impl AgentRuntime {
         let mut maybe_trace_worker = None;
         let mut maybe_trace_tx = None;
 
-        if self.composition_hooks.is_some() || !active_extension_snapshot.lifecycle_clients.is_empty()
+        if self.composition_hooks.is_some()
+            || !active_extension_snapshot.lifecycle_clients.is_empty()
         {
             let block_reason = Arc::new(Mutex::new(None));
             maybe_block_reason = Some(block_reason.clone());
