@@ -337,11 +337,21 @@ pub fn resolve_configured_instances(
     Ok(resolved)
 }
 
-pub fn apply_trust_decisions(packages: &mut [ResolvedExtensionPackage], trusted_ids: &[String]) {
+pub fn apply_trust_decisions(
+    packages: &mut [ResolvedExtensionPackage],
+    trusted_ids: &[String],
+    trusted_pins: &[crate::extension_trust::TrustedExtensionPin],
+) {
     for package in packages {
-        let trusted = trusted_ids
-            .iter()
-            .any(|trusted_id| trusted_id == &package.descriptor.id);
+        let trusted = if trusted_pins.is_empty() {
+            trusted_ids
+                .iter()
+                .any(|trusted_id| trusted_id == &package.descriptor.id)
+        } else {
+            trusted_pins.iter().any(|trusted_pin| {
+                trusted_pin.matches(&package.descriptor.id, package.manifest_hash.as_deref())
+            })
+        };
         package.apply_trust_decision(trusted);
     }
 }
@@ -481,4 +491,75 @@ fn fingerprint_json<T: serde::Serialize>(value: &T) -> String {
         Err(err) => hasher.update(err.to_string().as_bytes()),
     }
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_package(manifest_hash: &str) -> ResolvedExtensionPackage {
+        let manifest = ExtensionManifestV2 {
+            manifest_version: 2,
+            package: ExtensionPackageDescriptor {
+                id: "alpha-ext".to_string(),
+                name: "Alpha".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            compatibility: ExtensionCompatibility::default(),
+            components: vec![ExtensionComponentDescriptor {
+                id: "skill".to_string(),
+                kind: ComponentKind::Skill,
+                optional: false,
+                entrypoint: None,
+                descriptor: None,
+                description: None,
+                input_schema: None,
+                risk: None,
+                read_only: None,
+                idempotent: None,
+                permissions: None,
+            }],
+        };
+
+        let mut package = ResolvedExtensionPackage::from_v2_manifest(manifest, "instance-1")
+            .expect("manifest should resolve");
+        package.manifest_hash = Some(manifest_hash.to_string());
+        package
+    }
+
+    #[test]
+    fn trust_pins_require_the_current_manifest_hash() {
+        let mut package = test_package("hash-a");
+
+        apply_trust_decisions(
+            std::slice::from_mut(&mut package),
+            &[],
+            &[crate::extension_trust::TrustedExtensionPin::new(
+                "alpha-ext",
+                Some("hash-a".to_string()),
+            )],
+        );
+
+        assert_eq!(
+            package.trust,
+            crate::extension_trust::ExtensionTrust::IntegrityTrusted {
+                manifest_hash: "hash-a".to_string(),
+            }
+        );
+
+        let mut changed = test_package("hash-b");
+        apply_trust_decisions(
+            std::slice::from_mut(&mut changed),
+            &[],
+            &[crate::extension_trust::TrustedExtensionPin::new(
+                "alpha-ext",
+                Some("hash-a".to_string()),
+            )],
+        );
+
+        assert_eq!(
+            changed.trust,
+            crate::extension_trust::ExtensionTrust::Untrusted
+        );
+    }
 }

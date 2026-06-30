@@ -10,9 +10,7 @@ use gestalt_runtime::extension::{
     ExtensionRuntimeComponent, NoopExtensionLauncher, ResolvedExtensionPackage,
     RuntimeExtensionSnapshot, RuntimeGeneration,
 };
-use gestalt_runtime::{
-    activation::HostLaunchContext, RuntimeEventBus, RuntimeRegistryBuilder,
-};
+use gestalt_runtime::{activation::HostLaunchContext, RuntimeEventBus, RuntimeRegistryBuilder};
 use serde_json::json;
 
 struct EmptyToolCatalog;
@@ -161,6 +159,7 @@ async fn extension_manager_reuses_ready_processes_and_tracks_health() {
         allow_network: false,
         effective_permissions: None,
         trusted_extension_ids: vec![],
+        trusted_extension_pins: vec![],
         timeout_initialize_ms: 10000,
         timeout_hook_ms: 5000,
         timeout_context_ms: 15000,
@@ -221,6 +220,7 @@ async fn replaced_same_id_resource_drains_after_old_lease_drops() {
         allow_network: false,
         effective_permissions: None,
         trusted_extension_ids: vec![],
+        trusted_extension_pins: vec![],
         timeout_initialize_ms: 10000,
         timeout_hook_ms: 5000,
         timeout_context_ms: 15000,

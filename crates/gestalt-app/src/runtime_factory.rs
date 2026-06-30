@@ -3,7 +3,7 @@ use crate::config::{
 };
 use gestalt_core::error::HarnessError;
 use gestalt_core::tool::ToolCatalog;
-use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
+use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig, TrustedExtensionPin};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -81,32 +81,27 @@ pub async fn build_app_runtime(
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
 
     let mut trusted_extension_ids: Vec<String> = Vec::new();
+    let mut trusted_extension_pins: Vec<TrustedExtensionPin> = Vec::new();
 
     if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
         for ext in &discovered {
-            if config.extensions.disabled.contains(&ext.package.descriptor.id) {
+            if config
+                .extensions
+                .disabled
+                .contains(&ext.package.descriptor.id)
+            {
                 continue;
             }
 
-            let mut is_trusted = false;
             for trusted_entry in &config.extensions.trusted {
-                if trusted_entry == &ext.package.descriptor.id {
-                    is_trusted = true;
-                    break;
-                } else if trusted_entry.starts_with(&format!("{}:", ext.package.descriptor.id)) {
-                    let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
-                    if parts.len() == 2 {
-                        let expected_hash = parts[1];
-                        if expected_hash == ext.manifest_hash {
-                            is_trusted = true;
-                        }
+                if let Some(pin) = trusted_pin_from_entry(trusted_entry, ext) {
+                    if !trusted_extension_ids.contains(&pin.package_id) {
+                        trusted_extension_ids.push(pin.package_id.clone());
                     }
-                    break;
+                    if !trusted_extension_pins.contains(&pin) {
+                        trusted_extension_pins.push(pin);
+                    }
                 }
-            }
-
-            if is_trusted && !trusted_extension_ids.contains(&ext.package.descriptor.id) {
-                trusted_extension_ids.push(ext.package.descriptor.id.clone());
             }
         }
     }
@@ -236,6 +231,7 @@ pub async fn build_app_runtime(
         enabled_host_features,
         tool_profile: None,
         trusted_extension_ids,
+        trusted_extension_pins,
         discovered_skills: discovered_skills.clone(),
         active_skills: active_skills.clone(),
         mcp_servers,
@@ -385,27 +381,16 @@ pub async fn build_app_runtime(
                 continue;
             }
 
-            let mut is_trusted_by_config = false;
-            for trusted_entry in &config.extensions.trusted {
-                if trusted_entry == &ext.package.descriptor.id {
-                    is_trusted_by_config = true;
-                    break;
-                } else if trusted_entry.starts_with(&format!("{}:", ext.package.descriptor.id)) {
-                    let parts: Vec<&str> = trusted_entry.splitn(2, ':').collect();
-                    if parts.len() == 2 {
-                        let expected_hash = parts[1];
-                        if expected_hash == ext.manifest_hash {
-                            is_trusted_by_config = true;
-                        }
-                    }
-                    break;
-                }
-            }
+            let is_trusted_by_config = config
+                .extensions
+                .trusted
+                .iter()
+                .any(|trusted_entry| trusted_pin_from_entry(trusted_entry, &ext).is_some());
 
             if !is_trusted_by_config && !config.extensions.allow_untrusted {
                 builder.event_bus.publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
                     extension_id: ext.package.descriptor.id.clone(),
-                    reason: "Untrusted extension ignored. Enable it by adding its ID/hash to 'extensions.trusted' in gestalt.json or setting 'extensions.allow_untrusted' to true.".to_string(),
+                    reason: "Untrusted extension ignored. Pin it with 'extensions.trusted' using an exact ID/hash pair or set 'extensions.allow_untrusted' to true.".to_string(),
                 });
                 continue;
             }
@@ -473,6 +458,22 @@ pub async fn build_app_runtime_with_report(
     let runtime =
         build_app_runtime(config, api_key, interaction, approval_override, trace_sink).await?;
     Ok(ServiceReportV1::new(runtime))
+}
+
+fn trusted_pin_from_entry(
+    trusted_entry: &str,
+    ext: &gestalt_runtime::DiscoveredExtensionPackage,
+) -> Option<TrustedExtensionPin> {
+    let pin =
+        TrustedExtensionPin::from_config_entry(trusted_entry, Some(ext.manifest_hash.as_ref()));
+    if pin.package_id != ext.package.descriptor.id {
+        return None;
+    }
+
+    match pin.manifest_hash.as_deref() {
+        Some(pin_hash) if pin_hash == ext.manifest_hash.as_str() => Some(pin),
+        _ => None,
+    }
 }
 
 fn convert_extension_instances(
@@ -580,7 +581,9 @@ pub fn inspect_extension(
     for ext in discovered {
         if ext.package.descriptor.id == id {
             let content = std::fs::read_to_string(&ext.manifest_path)?;
-            return Ok(Some(gestalt_runtime::extension::ExtensionManifestV2::parse(&content)?));
+            return Ok(Some(
+                gestalt_runtime::extension::ExtensionManifestV2::parse(&content)?,
+            ));
         }
     }
     Ok(None)
@@ -601,7 +604,11 @@ pub fn list_extensions(
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
     let mut discovered = discovery.discover_packages(&explicit_loads)?;
     for ext in &mut discovered {
-        if config.extensions.disabled.contains(&ext.package.descriptor.id) {
+        if config
+            .extensions
+            .disabled
+            .contains(&ext.package.descriptor.id)
+        {
             ext.enabled = false;
         }
     }
@@ -658,8 +665,8 @@ pub fn runtime_doctor(
                 ));
             }
 
-            if let Some(prev_path) = seen_ids
-                .insert(ext.package.descriptor.id.clone(), manifest_path_str.clone())
+            if let Some(prev_path) =
+                seen_ids.insert(ext.package.descriptor.id.clone(), manifest_path_str.clone())
             {
                 checks.push(format!(
                     "ERROR: Duplicate extension ID '{}' found at {} and {}.",

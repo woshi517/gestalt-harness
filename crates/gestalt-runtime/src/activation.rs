@@ -52,6 +52,7 @@ pub struct HostLaunchContext {
     pub package_source_root: Option<PathBuf>,
     pub extension_instances:
         std::collections::BTreeMap<String, crate::extension::ExtensionInstanceConfig>,
+    pub trusted_extension_pins: Vec<crate::extension_trust::TrustedExtensionPin>,
     #[cfg(feature = "mcp")]
     pub mcp_servers: std::collections::HashMap<String, crate::mcp::McpServerConfig>,
 }
@@ -72,7 +73,8 @@ impl std::fmt::Debug for HostLaunchContext {
             .field("max_pending_requests", &self.max_pending_requests)
             .field("environment", &self.environment)
             .field("package_source_root", &self.package_source_root)
-            .field("extension_instances", &self.extension_instances);
+            .field("extension_instances", &self.extension_instances)
+            .field("trusted_extension_pins", &self.trusted_extension_pins);
         #[cfg(feature = "mcp")]
         {
             s.field("mcp_servers", &self.mcp_servers);
@@ -114,6 +116,7 @@ impl HostLaunchContext {
             environment: config.environment.clone(),
             package_source_root: None,
             extension_instances: config.extension_instances.clone(),
+            trusted_extension_pins: config.trusted_extension_pins.clone(),
             #[cfg(feature = "mcp")]
             mcp_servers: config.mcp_servers.clone(),
         }
@@ -344,6 +347,7 @@ impl ExtensionActivationPipeline {
         crate::extension::apply_trust_decisions(
             &mut discovered,
             &self.host_context.trusted_extension_ids,
+            &self.host_context.trusted_extension_pins,
         );
 
         // 2. Resolve configured instances or targeted instance

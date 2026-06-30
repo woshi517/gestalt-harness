@@ -101,7 +101,11 @@ impl RuntimeHost {
 
         if !builder.extension_packages.is_empty() {
             let mut packages = builder.extension_packages.clone();
-            crate::extension::apply_trust_decisions(&mut packages, &config.trusted_extension_ids);
+            crate::extension::apply_trust_decisions(
+                &mut packages,
+                &config.trusted_extension_ids,
+                &config.trusted_extension_pins,
+            );
             let pipeline = crate::activation::ExtensionActivationPipeline {
                 discovery: Arc::new(crate::activation::StaticExtensionSource::new(packages)),
                 launcher: Arc::new(crate::extension::LocalProcessLauncher),
@@ -196,6 +200,7 @@ impl crate::control::HostControl for RuntimeHost {
             config.extension_instances = self.config.extension_instances.clone();
             config.mcp_servers = self.config.mcp_servers.clone();
             config.trusted_extension_ids = self.config.trusted_extension_ids.clone();
+            config.trusted_extension_pins = self.config.trusted_extension_pins.clone();
             config.extension_timeouts = self.config.extension_timeouts.clone();
             config.extension_limits = self.config.extension_limits.clone();
             session_builder = session_builder.config(config);
@@ -327,6 +332,7 @@ impl crate::control::RuntimeControl for RuntimeHost {
         crate::extension::apply_trust_decisions(
             &mut discovered,
             &self.config.trusted_extension_ids,
+            &self.config.trusted_extension_pins,
         );
         let pipeline = crate::activation::ExtensionActivationPipeline {
             discovery: Arc::new(crate::activation::StaticExtensionSource::new(discovered)),

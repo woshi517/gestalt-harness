@@ -185,6 +185,7 @@ impl AgentRuntimeBuilder {
         crate::extension::apply_trust_decisions(
             &mut resolved_extension_packages,
             &self.config.trusted_extension_ids,
+            &self.config.trusted_extension_pins,
         );
 
         for module in &self.runtime_modules {
@@ -502,9 +503,8 @@ impl AgentRuntimeBuilder {
             .ok_or_else(|| RuntimeError::Builder("Missing approval provider".to_string()))?;
 
         let user_hooks = self.composition_hooks.take();
-        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> = Arc::new(
-            crate::composition_hooks::ComposedCompositionHooks { user_hooks },
-        );
+        let composed_hooks: Arc<dyn crate::composition_hooks::CompositionHooks> =
+            Arc::new(crate::composition_hooks::ComposedCompositionHooks { user_hooks });
 
         let registry_snapshot = self.registry.snapshot();
 
