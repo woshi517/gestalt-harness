@@ -28,8 +28,6 @@
     "context_window_override": 120000,
     "reserved_output_tokens": 8000,
     "safety_margin_tokens": 2048,
-    "workspace_file": ".gestalt/workspace.md",
-    "memory_file": ".gestalt/memory.md",
     "workspace": {
       "enabled": true,
       "path": ".gestalt/workspace.md",

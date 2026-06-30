@@ -1,7 +1,7 @@
 use crate::auth::{delete_keychain_secret, set_keychain_secret};
 use crate::config::{
-    global_config_path, legacy_global_config_path, mutate_workspace_config_file,
-    write_workspace_config_file, EffectiveConfig, ProfileConfig, ProviderConfig, WorkspaceConfig,
+    global_config_path, mutate_workspace_config_file, write_workspace_config_file, EffectiveConfig,
+    ProfileConfig, ProviderConfig, WorkspaceConfig,
 };
 use crate::reports::{ConnectReport, DisconnectReport};
 use gestalt_core::{ApiFormat, ConfigError, HarnessError};
@@ -244,19 +244,14 @@ pub fn disconnect_provider(
     }
 
     let global_path = global_config_path();
-    let legacy_global_path = legacy_global_config_path();
-    if !global_path.exists() && !legacy_global_path.exists() {
+    if !global_path.exists() {
         return Err(HarnessError::Config(ConfigError::InvalidValue {
             field: "global_config".to_string(),
             reason: "global configuration file does not exist".to_string(),
         }));
     }
 
-    let mut ws_cfg = if global_path.exists() {
-        WorkspaceConfig::from_file(&global_path)?
-    } else {
-        WorkspaceConfig::from_file(&legacy_global_path)?
-    };
+    let mut ws_cfg = WorkspaceConfig::from_file(&global_path)?;
     ws_cfg.providers.remove(provider);
 
     let mut profile_removed = None;

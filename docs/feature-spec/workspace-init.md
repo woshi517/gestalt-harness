@@ -163,7 +163,7 @@ This feature must:
 15. Make `status` informational and `doctor` configuration-aware.
 16. Keep all file I/O outside `gestalt-core`.
 17. Avoid modifications to the sacred turn loop unless strictly required.
-18. Maintain backward compatibility with existing `workspace_file` and `memory_file` configuration.
+18. Reject removed `workspace_file` and `memory_file` aliases.
 
 ---
 
@@ -711,25 +711,10 @@ Example:
 
 If required and missing, runtime initialization must fail before the first provider call.
 
-## 5.5 Backward compatibility
+## 5.5 Compatibility
 
-Continue accepting:
-
-```json
-{
-  "context": {
-    "workspace_file": ".gestalt/workspace.md",
-    "memory_file": ".gestalt/memory.md"
-  }
-}
-```
-
-Legacy fields map to:
-
-```text
-workspace_file → context.workspace.path
-memory_file    → context.memory.path
-```
+Pre-hardening context path aliases are unsupported. Use
+`context.workspace.path` and `context.memory.path`.
 
 Legacy behavior defaults:
 
@@ -1916,8 +1901,7 @@ The feature is complete when all of the following are true:
 * [ ] Context source hashes and token estimates are traceable.
 * [ ] `status` distinguishes loaded, missing, disabled, and invalid states.
 * [ ] `doctor` is configuration-aware.
-* [ ] Legacy `workspace_file` and `memory_file` fields continue working.
-* [ ] New structured configuration takes precedence over legacy fields.
+* [ ] Removed context path aliases are rejected.
 * [ ] Memory writes require an approved proposal.
 * [ ] Memory writes use base-hash conflict detection.
 * [ ] Memory persistence is atomic.

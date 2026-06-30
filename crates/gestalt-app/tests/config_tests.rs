@@ -95,28 +95,21 @@ fn test_config_precedence_and_sources() {
     fs::create_dir_all(&global_config_dir).unwrap();
 
     let workspace_dir = temp_dir.join("workspace");
-    let workspace_config_dir = workspace_dir.join(".gestalt");
-    fs::create_dir_all(&workspace_config_dir).unwrap();
+    fs::create_dir_all(&workspace_dir).unwrap();
 
     // Set XDG_CONFIG_HOME to temp_dir so dirs::config_dir() points to temp_dir
     let _xdg_guard = TestEnvGuard::set_xdg_config_home(&temp_dir);
 
-    // Write global config.toml - defines [tools] but NOT [context]
-    let global_toml = r"
-[tools]
-bash_timeout_secs = 99
-max_output_tokens = 5000
-";
-    fs::write(global_config_dir.join("config.toml"), global_toml).unwrap();
-
-    // Write workspace config.toml - defines [context] and overrides parts of [tools]
-    let workspace_toml = r#"[tools]
-sandbox_type = "docker"
-
-[context]
-max_context_window = 60000
-"#;
-    fs::write(workspace_config_dir.join("config.toml"), workspace_toml).unwrap();
+    fs::write(
+        global_config_dir.join("gestalt.json"),
+        r#"{"version":1,"tools":{"bash_timeout_secs":99,"max_output_tokens":5000}}"#,
+    )
+    .unwrap();
+    fs::write(
+        workspace_dir.join("gestalt.json"),
+        r#"{"version":1,"tools":{"sandbox_type":"docker"},"context":{"max_context_window":60000}}"#,
+    )
+    .unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(workspace_dir.clone()),
@@ -145,10 +138,20 @@ max_context_window = 60000
     let bash_timeout = explanation.get("tools.bash_timeout_secs").unwrap();
     assert_eq!(bash_timeout.value, serde_json::json!(99));
     assert_eq!(bash_timeout.source, "Global Config File");
+    assert_eq!(bash_timeout.winning_layer, "global");
+    assert!(bash_timeout
+        .source_location
+        .as_deref()
+        .is_some_and(|path| path.ends_with("gestalt/gestalt.json")));
+    assert!(!bash_timeout.defaulted);
+    assert!(bash_timeout.overridden);
+    assert!(!bash_timeout.redacted);
 
     let sandbox_type = explanation.get("tools.sandbox_type").unwrap();
     assert_eq!(sandbox_type.value, serde_json::json!("docker"));
     assert_eq!(sandbox_type.source, "Workspace Config File");
+    assert_eq!(sandbox_type.winning_layer, "workspace");
+    assert!(sandbox_type.overridden);
 
     let max_context = explanation.get("context.max_context_window").unwrap();
     assert_eq!(max_context.value, serde_json::json!(60000));
@@ -157,8 +160,37 @@ max_context_window = 60000
     let reserved_tokens = explanation.get("context.reserved_output_tokens").unwrap();
     assert_eq!(reserved_tokens.value, serde_json::json!(4096));
     assert_eq!(reserved_tokens.source, "Default");
+    assert_eq!(reserved_tokens.winning_layer, "default");
+    assert!(reserved_tokens.defaulted);
 
     let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn legacy_config_is_rejected_without_parsing() {
+    let _guard = lock_env();
+    let temp_dir = std::env::temp_dir().join(format!("gestalt-legacy-{}", uuid::Uuid::new_v4()));
+    let _env = TestEnvGuard::set_xdg_config_home(&temp_dir);
+    let workspace = temp_dir.join("workspace");
+    fs::create_dir_all(workspace.join(".gestalt")).unwrap();
+    fs::write(
+        workspace.join(".gestalt/config.toml"),
+        vec![b'x'; 1024 * 1024],
+    )
+    .unwrap();
+
+    let error = load_effective_config(&CliOverrides {
+        workspace: Some(workspace),
+        ..CliOverrides::default()
+    })
+    .expect_err("legacy config must fail before parsing");
+
+    assert!(matches!(
+        error,
+        gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::UnsupportedLegacyConfig { .. }
+        )
+    ));
 }
 
 #[test]
@@ -228,17 +260,12 @@ fn test_provider_model_cli_overrides_beat_profile() {
 fn test_policy_monotonicity_enforcement() {
     let _guard = lock_env();
     use gestalt_app::config::WorkspaceConfig;
-    let global_toml = r#"
-[policies.paths]
-allow_read = ["/a", "/b"]
-"#;
-    let workspace_toml = r#"
-[policies.paths]
-allow_read = ["/a", "/c"]
-"#;
-
-    let global: WorkspaceConfig = toml::from_str(global_toml).unwrap();
-    let workspace: WorkspaceConfig = toml::from_str(workspace_toml).unwrap();
+    let global: WorkspaceConfig =
+        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"allow_read":["/a","/b"]}}}"#)
+            .unwrap();
+    let workspace: WorkspaceConfig =
+        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"allow_read":["/a","/c"]}}}"#)
+            .unwrap();
 
     let merge_res = global.merge(workspace);
     assert!(merge_res.is_err());
@@ -255,17 +282,12 @@ allow_read = ["/a", "/c"]
 fn test_policy_deny_union_merge() {
     let _guard = lock_env();
     use gestalt_app::config::WorkspaceConfig;
-    let global_toml = r#"
-[policies.paths]
-deny_read = ["/secret1"]
-"#;
-    let workspace_toml = r#"
-[policies.paths]
-deny_read = ["/secret2"]
-"#;
-
-    let global: WorkspaceConfig = toml::from_str(global_toml).unwrap();
-    let workspace: WorkspaceConfig = toml::from_str(workspace_toml).unwrap();
+    let global: WorkspaceConfig =
+        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"deny_read":["/secret1"]}}}"#)
+            .unwrap();
+    let workspace: WorkspaceConfig =
+        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"deny_read":["/secret2"]}}}"#)
+            .unwrap();
 
     let merged = global.merge(workspace).expect("merge succeeds");
     let paths = merged.policies.unwrap().paths;
@@ -452,16 +474,12 @@ fn test_structured_config_validation_and_precedence() {
     let unique_id = uuid::Uuid::new_v4().to_string();
     let temp_dir = std::env::temp_dir().join(format!("gestalt_test_{}", unique_id));
     let workspace_dir = temp_dir.join("workspace");
-    let workspace_config_dir = workspace_dir.join(".gestalt");
-    fs::create_dir_all(&workspace_config_dir).unwrap();
-
-    // 1. Structured overrides legacy
-    let workspace_toml = r#"[context]
-workspace_file = ".gestalt/legacy_workspace.md"
-[context.workspace]
-path = ".gestalt/structured_workspace.md"
-"#;
-    fs::write(workspace_config_dir.join("config.toml"), workspace_toml).unwrap();
+    fs::create_dir_all(&workspace_dir).unwrap();
+    fs::write(
+        workspace_dir.join("gestalt.json"),
+        r#"{"version":1,"context":{"workspace":{"path":".gestalt/structured_workspace.md"}}}"#,
+    )
+    .unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(workspace_dir.clone()),
@@ -480,30 +498,11 @@ path = ".gestalt/structured_workspace.md"
         &PathBuf::from(".gestalt/structured_workspace.md")
     );
 
-    // 2. Legacy falls back correctly
-    let workspace_toml2 = r#"[context]
-workspace_file = ".gestalt/legacy_workspace.md"
-"#;
-    fs::write(workspace_config_dir.join("config.toml"), workspace_toml2).unwrap();
-    let config2 = load_effective_config(&overrides).expect("load config");
-    assert_eq!(
-        config2
-            .context
-            .workspace
-            .as_ref()
-            .unwrap()
-            .path
-            .as_ref()
-            .unwrap(),
-        &PathBuf::from(".gestalt/legacy_workspace.md")
-    );
-
-    // 3. Validation error: enabled=false + required=true
-    let workspace_toml3 = r"[context.workspace]
-enabled = false
-required = true
-";
-    fs::write(workspace_config_dir.join("config.toml"), workspace_toml3).unwrap();
+    fs::write(
+        workspace_dir.join("gestalt.json"),
+        r#"{"version":1,"context":{"workspace":{"enabled":false,"required":true}}}"#,
+    )
+    .unwrap();
     let config3 = load_effective_config(&overrides);
     assert!(
         config3.is_err(),
@@ -521,8 +520,7 @@ fn test_reasoning_and_thinking_validation() {
     let unique_id = uuid::Uuid::new_v4().to_string();
     let temp_dir = std::env::temp_dir().join(format!("gestalt_test_val_{}", unique_id));
     let workspace_dir = temp_dir.join("workspace");
-    let workspace_config_dir = workspace_dir.join(".gestalt");
-    fs::create_dir_all(&workspace_config_dir).unwrap();
+    fs::create_dir_all(&workspace_dir).unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(workspace_dir.clone()),
@@ -530,30 +528,26 @@ fn test_reasoning_and_thinking_validation() {
     };
 
     // 1. gpt-4o-mini (reasoning = false) with reasoning_effort should fail
-    let toml_reasoning = r#"
-[defaults]
-model = "gpt-4o-mini"
-provider = "openai"
-[providers.openai.options]
-reasoning_effort = "high"
-"#;
-    fs::write(workspace_config_dir.join("config.toml"), toml_reasoning).unwrap();
-    let res = load_effective_config(&overrides);
+    let invalid_reasoning = r#"{
+      "version":1,
+      "defaults":{"model":"gpt-4o-mini","provider":"openai"},
+      "providers":{"openai":{"models":{"gpt-4o-mini":{"options":{"reasoning_effort":"high"}}}}}
+    }"#;
+    fs::write(workspace_dir.join("gestalt.json"), invalid_reasoning).unwrap();
+    let res = load_effective_config(&overrides).and_then(|config| config.resolve_provider());
     assert!(
         res.is_err(),
         "reasoning_effort on non-reasoning model must fail"
     );
 
     // 2. claude-3-5-sonnet (reasoning = false) with thinking should fail
-    let toml_thinking = r#"
-[defaults]
-model = "claude-3-5-sonnet"
-provider = "anthropic"
-[providers.anthropic.options.thinking]
-budget_tokens = 1024
-"#;
-    fs::write(workspace_config_dir.join("config.toml"), toml_thinking).unwrap();
-    let res2 = load_effective_config(&overrides);
+    let invalid_thinking = r#"{
+      "version":1,
+      "defaults":{"model":"claude-3-5-sonnet","provider":"anthropic"},
+      "providers":{"anthropic":{"models":{"claude-3-5-sonnet":{"options":{"thinking":{"type":"enabled","budget_tokens":1024}}}}}}
+    }"#;
+    fs::write(workspace_dir.join("gestalt.json"), invalid_thinking).unwrap();
+    let res2 = load_effective_config(&overrides).and_then(|config| config.resolve_provider());
     assert!(
         res2.is_err(),
         "thinking on non-reasoning Anthropic model must fail"

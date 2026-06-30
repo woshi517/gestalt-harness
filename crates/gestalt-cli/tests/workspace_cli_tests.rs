@@ -136,8 +136,10 @@ fn test_global_only_config_reports_global_json_path() {
 
     let temp_root = create_temp_workspace();
     let global_dir = temp_root.join("global");
-    fs::create_dir_all(&global_dir).unwrap();
     let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", &global_dir);
+    let global_config_path = global_dir.join("gestalt/gestalt.json");
+    fs::create_dir_all(global_config_path.parent().unwrap()).unwrap();
+    fs::write(&global_config_path, r#"{"version":1}"#).unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(temp_root.clone()),
@@ -145,7 +147,6 @@ fn test_global_only_config_reports_global_json_path() {
     };
 
     let info = info_workspace(&overrides).unwrap();
-    let global_config_path = global_dir.join("gestalt/gestalt.json");
     assert_eq!(info.config_path, global_config_path);
 
     let policy_report = validate_policy(&overrides).unwrap();
@@ -156,7 +157,7 @@ fn test_global_only_config_reports_global_json_path() {
 }
 
 #[test]
-fn test_legacy_workspace_reports_legacy_config_path() {
+fn test_legacy_workspace_config_is_rejected() {
     let _guard = ENV_MUTEX.lock().unwrap();
 
     let temp_root = create_temp_workspace();
@@ -180,8 +181,21 @@ profile = "openai"
         ..CliOverrides::default()
     };
 
-    let info = info_workspace(&overrides).unwrap();
-    assert_eq!(info.config_path, gestalt_dir.join("config.toml"));
+    let init_error = init_workspace(&temp_root, true).unwrap_err();
+    assert!(matches!(
+        init_error,
+        gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::UnsupportedLegacyConfig { .. }
+        )
+    ));
+
+    let err = info_workspace(&overrides).unwrap_err();
+    assert!(matches!(
+        err,
+        gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::UnsupportedLegacyConfig { .. }
+        )
+    ));
 
     let _ = fs::remove_dir_all(&temp_root);
 }
@@ -251,11 +265,16 @@ async fn test_doctor_workspace() {
     let report_missing = doctor_workspace(&overrides).await.unwrap();
     assert_eq!(report_missing.missing_files, vec!["memory.md".to_string()]);
 
-    // Test with malformed policies.toml
+    // Legacy policy files are rejected before their contents are parsed.
     fs::write(temp_root.join(".gestalt/policies.toml"), "invalid = [toml").unwrap();
-    let report_malformed = doctor_workspace(&overrides).await.unwrap();
-    assert!(!report_malformed.policies_valid);
-    assert!(report_malformed.policies_error.is_some());
+    let legacy_error = doctor_workspace(&overrides).await.unwrap_err();
+    assert!(matches!(
+        legacy_error,
+        gestalt_core::HarnessError::Config(
+            gestalt_core::ConfigError::UnsupportedLegacyConfig { .. }
+        )
+    ));
+    fs::remove_file(temp_root.join(".gestalt/policies.toml")).unwrap();
 
     // Test with malformed gestalt.json (invalid-config branch in status and doctor)
     fs::write(temp_root.join("gestalt.json"), "invalid = [json").unwrap();

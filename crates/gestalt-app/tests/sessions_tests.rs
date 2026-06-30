@@ -246,25 +246,15 @@ async fn test_sessions_successful_resume_and_branch() {
     let runs_dir = temp_root.join(".gestalt/runs");
     fs::create_dir_all(&runs_dir).unwrap();
 
-    let policies_toml = r#"
-[policy]
-mode = "yolo"
-"#;
-    fs::write(temp_root.join(".gestalt/policies.toml"), policies_toml).unwrap();
-
-    let config_toml = r#"
-[defaults]
-profile = "mock-profile"
-provider = "mock-provider"
-model = "mock-model"
-mode = "yolo"
-max_turns = 1
-
-[profiles.mock-profile]
-provider = "mock-provider"
-model = "mock-model"
-"#;
-    fs::write(temp_root.join(".gestalt/config.toml"), config_toml).unwrap();
+    fs::write(
+        temp_root.join("gestalt.json"),
+        r#"{
+          "version":1,
+          "defaults":{"profile":"mock-profile","provider":"mock-provider","model":"mock-model","mode":"yolo","max_turns":1},
+          "profiles":{"mock-profile":{"provider":"mock-provider","model":"mock-model"}}
+        }"#,
+    )
+    .unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(temp_root.clone()),

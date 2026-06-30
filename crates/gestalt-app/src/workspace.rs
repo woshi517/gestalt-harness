@@ -33,45 +33,6 @@ use crate::reports::WorkspaceSnapshotReport;
 use crate::reports::WorkspaceStatusReport;
 use crate::reports::{WorkspaceInfoReport, WorkspaceInitReport};
 
-#[allow(dead_code)]
-const DEFAULT_CONFIG: &str = r#"[defaults]
-profile = "default"
-mode = "confirm"
-max_turns = 50
-
-[profiles.default]
-provider = "openrouter"
-model = "openrouter/free"
-
-[tools]
-bash_timeout_secs = 60
-max_output_tokens = 4000
-sandbox_type = "none"
-
-[context]
-max_context_window = 120000
-reserved_output_tokens = 8000
-
-[observe]
-run_log_dir = ".gestalt/runs"
-log_format = "jsonl"
-"#;
-
-#[allow(dead_code)]
-const DEFAULT_POLICIES: &str = r#"[paths]
-allow_read  = [".", "sources/", "docs/", "src/"]
-allow_write = ["docs/", ".gestalt/"]
-deny_write  = [".git/", "secrets/", ".env", "*.key"]
-
-[tools.bash]
-default      = "confirm"
-yolo_allow   = ["ls", "cat", "grep", "rg", "find"]
-always_deny  = ["dd", "mkfs", "fdisk"]
-
-[network]
-default = "confirm"
-"#;
-
 const DEFAULT_WORKSPACE_MD: &str = r"# Workspace
 
 Describe the purpose, architecture, and technology stack of this workspace here.
@@ -85,6 +46,7 @@ const DEFAULT_MEMORY_MD: &str = r"# Memory
 ";
 
 pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, HarnessError> {
+    crate::config::reject_legacy_config(root)?;
     let gestalt_dir = root.join(".gestalt");
     let config_path = root.join("gestalt.json");
     let workspace_md = gestalt_dir.join("workspace.md");
@@ -94,12 +56,6 @@ pub fn init_workspace(root: &Path, force: bool) -> Result<WorkspaceInitReport, H
     let mut existing = Vec::new();
     if config_path.exists() {
         existing.push("gestalt.json");
-    }
-    if root.join(".gestalt/config.toml").exists() {
-        existing.push(".gestalt/config.toml");
-    }
-    if root.join(".gestalt/policies.toml").exists() {
-        existing.push(".gestalt/policies.toml");
     }
     if workspace_md.exists() {
         existing.push(".gestalt/workspace.md");
@@ -188,11 +144,7 @@ pub async fn status_workspace(
                 .or_else(|| Some("confirm".to_string()));
 
             // Check files presence
-            let gestalt_dir = workspace_root.join(".gestalt");
-            if !workspace_root.join("gestalt.json").exists()
-                && !gestalt_dir.join("config.toml").exists()
-                && !gestalt_dir.join("policies.toml").exists()
-            {
+            if !workspace_root.join("gestalt.json").exists() {
                 warnings.push("gestalt.json is missing".to_string());
             }
 
@@ -228,16 +180,6 @@ pub async fn status_workspace(
                         warnings.push(format!("memory file error: {}", err));
                     }
                 }
-            }
-
-            if config.context.workspace_file.is_some() {
-                warnings.push("context.workspace_file is deprecated. Please migrate to context.workspace.path".to_string());
-            }
-            if config.context.memory_file.is_some() {
-                warnings.push(
-                    "context.memory_file is deprecated. Please migrate to context.memory.path"
-                        .to_string(),
-                );
             }
 
             // Count runs

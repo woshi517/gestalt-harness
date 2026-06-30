@@ -36,8 +36,6 @@ fn fixture_directories_exist() {
 fn minimal_workspace_fixture_exists() {
     let workspace = Path::new("../../tests/fixtures/workspaces/minimal/.gestalt");
     assert!(Path::new("../../tests/fixtures/workspaces/minimal/gestalt.json").exists());
-    assert!(workspace.join("config.toml").exists());
-    assert!(workspace.join("policies.toml").exists());
     assert!(workspace.join("workspace.md").exists());
     assert!(workspace.join("memory.md").exists());
 

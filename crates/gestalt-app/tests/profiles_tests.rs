@@ -40,15 +40,12 @@ fn test_profiles_management() {
 
     let config_dir = temp_dir.join("gestalt");
     fs::create_dir_all(&config_dir).unwrap();
-    let initial_toml = r#"
-[defaults]
-profile = "openai"
-
-[profiles.openai]
-provider = "openai"
-model = "gpt-4o"
-"#;
-    fs::write(config_dir.join("config.toml"), initial_toml).unwrap();
+    let initial_json = r#"{
+      "version":1,
+      "defaults":{"profile":"openai"},
+      "profiles":{"openai":{"provider":"openai","model":"gpt-4o"}}
+    }"#;
+    fs::write(config_dir.join("gestalt.json"), initial_json).unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(temp_dir.clone()),
@@ -95,34 +92,23 @@ fn test_profiles_use_workspace_config() {
 
     let global_dir = temp_dir.join("global");
     let workspace_dir = temp_dir.join("workspace");
-    let ws_gestalt_dir = workspace_dir.join(".gestalt");
     fs::create_dir_all(&global_dir).unwrap();
-    fs::create_dir_all(&ws_gestalt_dir).unwrap();
+    fs::create_dir_all(&workspace_dir).unwrap();
 
     let _xdg_guard = EnvVarGuard::set("XDG_CONFIG_HOME", &global_dir);
 
     // Write initial workspace config
-    let initial_toml = r#"
-[defaults]
-profile = "openai"
-provider = "openai"
-model = "gpt-4o"
-
-[profiles.openai]
-provider = "openai"
-model = "gpt-4o"
-"#;
-    let legacy_ws_config_path = ws_gestalt_dir.join("config.toml");
-    fs::write(&legacy_ws_config_path, initial_toml).unwrap();
+    let ws_config_path = workspace_dir.join("gestalt.json");
     fs::write(
-        ws_gestalt_dir.join("policies.toml"),
-        r#"
-[paths]
-allow_write = ["docs/", ".gestalt/"]
-"#,
+        &ws_config_path,
+        r#"{
+          "version":1,
+          "defaults":{"profile":"openai","provider":"openai","model":"gpt-4o"},
+          "profiles":{"openai":{"provider":"openai","model":"gpt-4o"}},
+          "policies":{"paths":{"allow_write":["docs/",".gestalt/"]}}
+        }"#,
     )
     .unwrap();
-    let ws_config_path = workspace_dir.join("gestalt.json");
 
     let overrides = CliOverrides {
         workspace: Some(workspace_dir.clone()),
@@ -144,11 +130,9 @@ allow_write = ["docs/", ".gestalt/"]
         Some(vec!["docs/".to_string(), ".gestalt/".to_string()])
     );
 
-    // Verify it updated the workspace config without mutating the global bootstrap file
+    // Verify it updated only the workspace config.
     let global_config_path = global_dir.join("gestalt/gestalt.json");
-    assert!(global_config_path.exists());
-    let global_content = fs::read_to_string(&global_config_path).unwrap();
-    assert!(!global_content.contains("\"profile\": \"anthropic\""));
+    assert!(!global_config_path.exists());
 
     let ws_content = fs::read_to_string(&ws_config_path).unwrap();
     assert!(ws_content.contains("\"profile\": \"anthropic\""));

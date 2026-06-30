@@ -1,4 +1,4 @@
-use gestalt_core::error::HarnessError;
+use gestalt_core::error::{ConfigError, HarnessError};
 use std::{fs, path::PathBuf};
 
 use crate::auth::resolve_auth;
@@ -10,11 +10,16 @@ pub async fn diagnose_workspace(
     overrides: &CliOverrides,
     live: bool,
 ) -> Result<GlobalDoctorReport, HarnessError> {
-    let config_res = load_effective_config(overrides);
+    let config_res = match load_effective_config(overrides) {
+        Err(err @ HarnessError::Config(ConfigError::UnsupportedLegacyConfig { .. })) => {
+            return Err(err);
+        }
+        result => result,
+    };
     let mut config_valid = true;
     let mut config_error = None;
-    let mut policies_valid = true;
-    let mut policies_error = None;
+    let policies_valid = true;
+    let policies_error = None;
     let mut missing_files = Vec::new();
     let mut auth_summary = std::collections::HashMap::new();
 
@@ -22,8 +27,6 @@ pub async fn diagnose_workspace(
         .workspace
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-
-    let gestalt_dir = workspace_root.join(".gestalt");
 
     // 1. Config syntax check
     let config = match config_res {
@@ -53,20 +56,8 @@ pub async fn diagnose_workspace(
         }
     };
 
-    // 2. Policies syntax check
-    let policies_path = gestalt_dir.join("policies.toml");
-    if policies_path.exists() {
-        if let Err(err) = gestalt_runtime::PolicyConfig::from_file(&policies_path) {
-            policies_valid = false;
-            policies_error = Some(err.to_string());
-        }
-    }
-
-    // 3. Required files check
-    if !workspace_root.join("gestalt.json").exists()
-        && !gestalt_dir.join("config.toml").exists()
-        && !policies_path.exists()
-    {
+    // 2. Required files check
+    if !workspace_root.join("gestalt.json").exists() {
         missing_files.push("gestalt.json".to_string());
     }
 
@@ -122,7 +113,7 @@ pub async fn diagnose_workspace(
         }
     }
 
-    // 4. Provider auth/live checks
+    // 3. Provider auth/live checks
     let providers = crate::providers::list_providers(&config);
     for provider in &providers {
         let status = match resolve_auth(&config, provider) {
@@ -147,7 +138,7 @@ pub async fn diagnose_workspace(
         auth_summary.insert(provider.clone(), status);
     }
 
-    // 5. Writability test
+    // 4. Writability test
     let run_log_dir = config.run_log_dir();
     let run_dir_exists = run_log_dir.exists();
     let run_dir_writable = if run_dir_exists {
@@ -206,7 +197,7 @@ pub async fn diagnose_workspace(
         }
     }
 
-    // 6. Selected model check
+    // 5. Selected model check
     let selected_model = config.selected_model();
     let mut model_valid = true;
     let mut model_error = None;

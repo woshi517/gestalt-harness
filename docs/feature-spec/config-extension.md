@@ -899,14 +899,14 @@ Rules:
 ### Proposed shape
 
 ```json
-{  
-  "context": {  
-    "context_window_override": null,  
-    "reserved_output_tokens": 8192,  
-    "safety_margin_tokens": 2048,  
-    "workspace_file": ".gestalt/workspace.md",  
-    "memory_file": ".gestalt/memory.md"  
-  }  
+{
+  "context": {
+    "context_window_override": null,
+    "reserved_output_tokens": 8192,
+    "safety_margin_tokens": 2048,
+    "workspace": {"path": ".gestalt/workspace.md"},
+    "memory": {"path": ".gestalt/memory.md"}
+  }
 }
 ```
 
@@ -1009,13 +1009,7 @@ Preferred v0.1 representation:
 }
 ```
 
-Migration aliases may accept:
-
-yolo_allow      → allow  
-always_confirm  → confirm  
-always_deny     → deny
-
-for config version 1, with deprecation warnings.
+Pre-hardening policy aliases are rejected as unknown fields.
 
 ### Deterministic precedence
 
@@ -1969,16 +1963,7 @@ If both exist in one scope, startup fails with an ambiguity error rather than gu
 The following alias strategy is superseded by ADR-031. Stable config version 1
 does not accept pre-hardening aliases.
 
-Examples:
-
-max_context_window → context_window_override  
-yolo_allow         → allow  
-always_confirm     → confirm  
-always_deny        → deny
-
-The effective config renderer always prints canonical names.
-
-Deprecations are emitted once per config source.
+The effective config renderer prints only canonical names.
 
 ## 12. Deterministic fingerprints
 
@@ -2070,8 +2055,8 @@ This enables replay diagnostics without logging secrets.
   "context": {  
     "reserved_output_tokens": 8192,  
     "safety_margin_tokens": 2048,  
-    "workspace_file": ".gestalt/workspace.md",  
-    "memory_file": ".gestalt/memory.md"  
+    "workspace": {"path": ".gestalt/workspace.md"},
+    "memory": {"path": ".gestalt/memory.md"}
   },  
 ​  
   "tools": {  

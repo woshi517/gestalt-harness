@@ -1,29 +1,22 @@
 use crate::output::{PolicyExplainReport, PolicyTestReport, PolicyValidateReport};
 use gestalt_app::config::{
-    global_config_path, legacy_global_config_path, legacy_workspace_policies_path,
-    load_effective_config, workspace_config_path, CliOverrides,
+    global_config_path, load_effective_config, workspace_config_path, CliOverrides,
 };
 use gestalt_core::policy::{PolicyEngine, PolicyRequest};
 use gestalt_core::ToolCatalog;
 use gestalt_core::{tool::RiskLevel, HarnessError};
-use gestalt_runtime::{MinimalPolicyEngine, PolicyConfig};
+use gestalt_runtime::MinimalPolicyEngine;
 use serde_json::Value;
 
 pub fn validate_policy(overrides: &CliOverrides) -> Result<PolicyValidateReport, HarnessError> {
     let config = load_effective_config(overrides)?;
     let workspace_json = workspace_config_path(&config.workspace_root);
-    let legacy_workspace_policies = legacy_workspace_policies_path(&config.workspace_root);
     let global_json = global_config_path();
-    let legacy_global = legacy_global_config_path();
 
     let policy_path = if workspace_json.exists() {
         workspace_json
-    } else if legacy_workspace_policies.exists() {
-        legacy_workspace_policies
     } else if global_json.exists() {
         global_json
-    } else if legacy_global.exists() {
-        legacy_global
     } else {
         workspace_json
     };
@@ -36,26 +29,11 @@ pub fn validate_policy(overrides: &CliOverrides) -> Result<PolicyValidateReport,
         });
     }
 
-    if policy_path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-        return Ok(PolicyValidateReport {
-            path: policy_path,
-            valid: true,
-            error: None,
-        });
-    }
-
-    match PolicyConfig::from_file(&policy_path) {
-        Ok(_) => Ok(PolicyValidateReport {
-            path: policy_path,
-            valid: true,
-            error: None,
-        }),
-        Err(err) => Ok(PolicyValidateReport {
-            path: policy_path,
-            valid: false,
-            error: Some(err.to_string()),
-        }),
-    }
+    Ok(PolicyValidateReport {
+        path: policy_path,
+        valid: true,
+        error: None,
+    })
 }
 
 fn get_tool_risk(tool_name: &str, input: &Value) -> RiskLevel {

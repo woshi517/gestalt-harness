@@ -1936,7 +1936,7 @@ pub struct PolicyRequest {
 pub struct PolicyDecision {
     pub status: PolicyStatus,
     pub reason: Option<String>,
-    pub policy_source: String, // e.g. "gestalt.json:policies.bash.always_confirm"
+    pub policy_source: String, // e.g. "gestalt.json:policies.bash.confirm"
 }
 
 impl PolicyDecision {

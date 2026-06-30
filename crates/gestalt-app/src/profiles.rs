@@ -140,12 +140,7 @@ pub fn use_profile(
     }
 
     let workspace_path = workspace_config_path(&config.workspace_root);
-    let legacy_workspace_path = config.workspace_root.join(".gestalt/config.toml");
-    let legacy_workspace_policies = config.workspace_root.join(".gestalt/policies.toml");
-    let file_path = if workspace_path.exists()
-        || legacy_workspace_path.exists()
-        || legacy_workspace_policies.exists()
-    {
+    let file_path = if workspace_path.exists() {
         workspace_path
     } else {
         global_config_path()

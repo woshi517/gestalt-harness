@@ -95,10 +95,12 @@ impl Provider for MockProvider {
 }
 
 fn copy_minimal_workspace(dest: &std::path::Path) {
-    let src = std::path::Path::new("../../tests/fixtures/workspaces/minimal");
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/workspaces/minimal");
     let src_gestalt = src.join(".gestalt");
     let dest_gestalt = dest.join(".gestalt");
     std::fs::create_dir_all(&dest_gestalt).unwrap();
+    std::fs::copy(src.join("gestalt.json"), dest.join("gestalt.json")).unwrap();
 
     for entry in std::fs::read_dir(&src_gestalt).unwrap() {
         let entry = entry.unwrap();
@@ -123,42 +125,30 @@ async fn test_cli_smoke_prompt_source() {
     let temp_dir = std::env::temp_dir().join(format!("gestalt-cli-smoke-{}", uuid::Uuid::new_v4()));
     copy_minimal_workspace(&temp_dir);
 
-    let gestalt_dir = temp_dir.join(".gestalt");
-
-    // Overwrite config.toml in the copied workspace to use our mock provider
-    let config_toml = r#"
-[defaults]
-profile = "mock-profile"
-provider = "mock-provider"
-model = "mock-model"
-mode = "confirm"
-max_turns = 1
-
-[profiles.mock-profile]
-provider = "mock-provider"
-model = "mock-model"
-"#;
-    std::fs::write(gestalt_dir.join("config.toml"), config_toml).unwrap();
-
-    // 1. With policies.toml prompt override -> prompt_source should be "override"
-    let policies_toml = r#"
-[paths]
-allow_read  = [".", "sources/", "docs/", "src/"]
-allow_write = ["docs/", ".gestalt/"]
-deny_write  = [".git/", "secrets/", ".env", "*.key"]
-
-[tools.bash]
-default      = "confirm"
-yolo_allow   = ["ls", "cat", "grep", "rg", "find"]
-always_deny  = ["dd", "mkfs", "fdisk"]
-
-[network]
-default = "confirm"
-
-[prompt]
-override = "Smoke test override prompt"
-"#;
-    std::fs::write(gestalt_dir.join("policies.toml"), policies_toml).unwrap();
+    let config_path = temp_dir.join("gestalt.json");
+    let mut config_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    config_json["defaults"] = serde_json::json!({
+        "profile": "mock-profile",
+        "provider": "mock-provider",
+        "model": "mock-model",
+        "mode": "confirm",
+        "max_turns": 1
+    });
+    config_json["profiles"] = serde_json::json!({
+        "mock-profile": {
+            "provider": "mock-provider",
+            "model": "mock-model"
+        }
+    });
+    config_json["prompt"] = serde_json::json!({
+        "override": "Smoke test override prompt"
+    });
+    std::fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
 
     let config = validate_workspace_config(&CliOverrides {
         workspace: Some(temp_dir.clone()),
@@ -203,22 +193,13 @@ override = "Smoke test override prompt"
         "Should record prompt_source as override in trace"
     );
 
-    // 2. Remove override from policies.toml -> prompt_source should be "default"
-    let policies_toml_no_override = r#"
-[paths]
-allow_read  = [".", "sources/", "docs/", "src/"]
-allow_write = ["docs/", ".gestalt/"]
-deny_write  = [".git/", "secrets/", ".env", "*.key"]
-
-[tools.bash]
-default      = "confirm"
-yolo_allow   = ["ls", "cat", "grep", "rg", "find"]
-always_deny  = ["dd", "mkfs", "fdisk"]
-
-[network]
-default = "confirm"
-"#;
-    std::fs::write(gestalt_dir.join("policies.toml"), policies_toml_no_override).unwrap();
+    // 2. Remove the prompt override -> prompt_source should be "default"
+    config_json.as_object_mut().unwrap().remove("prompt");
+    std::fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
 
     let config2 = validate_workspace_config(&CliOverrides {
         workspace: Some(temp_dir.clone()),
@@ -282,37 +263,27 @@ async fn test_cli_smoke_custom_provider_via_profile() {
     ));
     copy_minimal_workspace(&temp_dir);
 
-    let gestalt_dir = temp_dir.join(".gestalt");
-
     // Configure a custom profile pointing to our custom mock provider connection
-    let config_toml = r#"
-[defaults]
-profile = "custom-profile"
-
-[profiles.custom-profile]
-provider = "custom-mock"
-
-[providers.custom-mock]
-kind = "custom-mock-provider"
-default_model = "mock-model"
-"#;
-    std::fs::write(gestalt_dir.join("config.toml"), config_toml).unwrap();
-
-    let policies_toml = r#"
-[paths]
-allow_read  = [".", "sources/", "docs/", "src/"]
-allow_write = ["docs/", ".gestalt/"]
-deny_write  = [".git/", "secrets/", ".env", "*.key"]
-
-[tools.bash]
-default      = "confirm"
-yolo_allow   = ["ls", "cat", "grep", "rg", "find"]
-always_deny  = ["dd", "mkfs", "fdisk"]
-
-[network]
-default = "confirm"
-"#;
-    std::fs::write(gestalt_dir.join("policies.toml"), policies_toml).unwrap();
+    let config_path = temp_dir.join("gestalt.json");
+    let mut config_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    config_json["defaults"]["profile"] = serde_json::json!("custom-profile");
+    config_json["profiles"] = serde_json::json!({
+        "custom-profile": {
+            "provider": "custom-mock"
+        }
+    });
+    config_json["providers"] = serde_json::json!({
+        "custom-mock": {
+            "protocol": "custom-mock-provider",
+            "default_model": "mock-model"
+        }
+    });
+    std::fs::write(
+        config_path,
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
 
     let config = validate_workspace_config(&CliOverrides {
         workspace: Some(temp_dir.clone()),

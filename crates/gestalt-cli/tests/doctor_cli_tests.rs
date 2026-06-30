@@ -25,23 +25,17 @@ async fn test_doctor_diagnostics() {
     let gestalt_dir = temp_root.join(".gestalt");
     fs::create_dir_all(&gestalt_dir).unwrap();
 
-    // 1. Write config.toml with an invalid selected model and a custom provider
-    let config_toml = r#"
-[defaults]
-provider = "custom-prov"
-model = "custom-prov/non-existent-model"
-
-[providers.custom-prov]
-id = "custom-prov"
-display_name = "Custom Provider"
-protocol = "openai"
-base_url = "https://api.custom.com/v1"
-api_key_env = "CUSTOM_API_KEY"
-"#;
-    fs::write(gestalt_dir.join("config.toml"), config_toml).unwrap();
+    fs::write(
+        temp_root.join("gestalt.json"),
+        r#"{
+          "version":1,
+          "defaults":{"provider":"custom-prov","model":"custom-prov/non-existent-model"},
+          "providers":{"custom-prov":{"id":"custom-prov","display_name":"Custom Provider","protocol":"openai","base_url":"https://api.custom.com/v1","api_key_env":"CUSTOM_API_KEY"}}
+        }"#,
+    )
+    .unwrap();
     fs::write(gestalt_dir.join("workspace.md"), "# Workspace\n").unwrap();
     fs::write(gestalt_dir.join("memory.md"), "# Memory\n").unwrap();
-    fs::write(gestalt_dir.join("policies.toml"), "# Policies\n").unwrap();
 
     let overrides = CliOverrides {
         workspace: Some(temp_root.clone()),

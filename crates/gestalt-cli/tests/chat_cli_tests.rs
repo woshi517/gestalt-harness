@@ -18,7 +18,9 @@ fn create_temp_workspace() -> PathBuf {
 }
 
 fn copy_minimal_workspace(dest: &std::path::Path) {
-    let src = std::path::Path::new("tests/fixtures/workspaces/minimal");
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/workspaces/minimal");
+    fs::copy(src.join("gestalt.json"), dest.join("gestalt.json")).unwrap();
     let src_gestalt = src.join(".gestalt");
     let dest_gestalt = dest.join(".gestalt");
     fs::create_dir_all(&dest_gestalt).unwrap();
@@ -29,20 +31,6 @@ fn copy_minimal_workspace(dest: &std::path::Path) {
             let name = entry.file_name();
             fs::copy(src_gestalt.join(&name), dest_gestalt.join(&name)).unwrap();
         }
-    } else {
-        let config_toml = r#"
-[defaults]
-provider = "dummy-openai"
-mode = "yolo"
-max_turns = 1
-
-[providers.dummy-openai]
-kind = "openai-compatible"
-default_model = "mock-model"
-base_url = "http://127.0.0.1:9999/v1"
-"#;
-        fs::write(dest_gestalt.join("config.toml"), config_toml).unwrap();
-        fs::write(dest_gestalt.join("policies.toml"), "[policies]\n").unwrap();
     }
 }
 

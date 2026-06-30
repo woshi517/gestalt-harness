@@ -19,8 +19,8 @@
   "context": {
     "max_context_window": 120000,
     "reserved_output_tokens": 8000,
-    "workspace_file": ".gestalt/workspace.md",
-    "memory_file": ".gestalt/memory.md"
+    "workspace": {"path": ".gestalt/workspace.md"},
+    "memory": {"path": ".gestalt/memory.md"}
   },
   "observe": {
     "run_log_dir": ".gestalt/runs",
@@ -34,8 +34,8 @@
     },
     "bash": {
       "default": "confirm",
-      "yolo_allow": ["ls", "cat", "grep", "rg", "find"],
-      "always_deny": ["dd", "mkfs", "fdisk"]
+      "allow": ["ls", "cat", "grep", "rg", "find"],
+      "deny": ["dd", "mkfs", "fdisk"]
     },
     "network": {
       "default": "confirm"

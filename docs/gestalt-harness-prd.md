@@ -997,8 +997,8 @@ The global file is created automatically on first config-aware CLI use (`{"versi
   "context": {
     "max_context_window": 120000,
     "reserved_output_tokens": 8000,
-    "workspace_file": ".gestalt/workspace.md",
-    "memory_file": ".gestalt/memory.md"
+    "workspace": {"path": ".gestalt/workspace.md"},
+    "memory": {"path": ".gestalt/memory.md"}
   },
   "observe": {
     "run_log_dir": ".gestalt/runs",
@@ -1017,9 +1017,9 @@ The global file is created automatically on first config-aware CLI use (`{"versi
     },
     "bash": {
       "default": "confirm",
-      "yolo_allow": ["cargo test", "cargo check", "cargo build", "ls", "grep", "rg", "find", "cat"],
-      "always_confirm": ["rm", "sudo", "docker", "git push", "git reset", "ssh", "curl", "wget"],
-      "always_deny": ["dd", "mkfs", "fdisk", "chmod 777"]
+      "allow": ["cargo test", "cargo check", "cargo build", "ls", "grep", "rg", "find", "cat"],
+      "confirm": ["rm", "sudo", "docker", "git push", "git reset", "ssh", "curl", "wget"],
+      "deny": ["dd", "mkfs", "fdisk", "chmod 777"]
     },
     "network": {
       "default": "confirm",
@@ -1096,11 +1096,11 @@ The policy rules live in the `policies` key of `gestalt.json`:
   },
   "bash": {
     "default": "confirm",
-    "yolo_allow": ["cargo test", "cargo check", "cargo build",
+    "allow": ["cargo test", "cargo check", "cargo build",
                     "ls", "grep", "rg", "find", "cat"],
-    "always_confirm": ["rm", "sudo", "docker", "git push",
+    "confirm": ["rm", "sudo", "docker", "git push",
                        "git reset", "ssh", "curl", "wget"],
-    "always_deny": ["dd", "mkfs", "fdisk", "chmod 777"]
+    "deny": ["dd", "mkfs", "fdisk", "chmod 777"]
   },
   "network": {
     "default": "confirm",
