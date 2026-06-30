@@ -153,8 +153,8 @@ pub async fn explain_context(
             pipeline_version: packet.pipeline_version,
             prompt_source: packet.prompt_source,
             system_prompt: Some(system_prompt_str),
-            sources: packet.sources,
-            omissions: packet.omissions,
+            sources: packet.sources.iter().map(Into::into).collect(),
+            omissions: packet.omissions.iter().map(Into::into).collect(),
         })
     } else if let Some(run_id_or_path) = run_id_or_path {
         let run_dir = crate::runs::resolve_run_path(&config, run_id_or_path)?;
@@ -175,18 +175,22 @@ pub async fn explain_context(
                 sources,
                 omissions,
                 prompt_source,
-            } = &envelope.event
+            } = envelope.event.clone().into()
             {
                 return Ok(ContextExplainReport {
                     prompt: None,
                     run_id: Some(run_id_or_path.to_string()),
-                    token_estimate: *token_estimate,
+                    token_estimate,
                     packet_hash: packet_hash.clone().unwrap_or_default(),
                     pipeline_version: packet_id.clone(),
-                    prompt_source: prompt_source.clone(),
+                    prompt_source,
                     system_prompt: None,
-                    sources: sources.clone().unwrap_or_default(),
-                    omissions: omissions.clone().unwrap_or_default(),
+                    sources: sources.unwrap_or_default().iter().map(Into::into).collect(),
+                    omissions: omissions
+                        .unwrap_or_default()
+                        .iter()
+                        .map(Into::into)
+                        .collect(),
                 });
             }
         }

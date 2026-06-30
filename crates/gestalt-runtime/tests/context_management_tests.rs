@@ -3,16 +3,16 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "trace")]
 use gestalt_core::context::StateUpdate;
 use gestalt_core::{
-    context::{HistoryRange, TokenBudget},
+    context::{ContextSourceRef, HistoryRange, TokenBudget},
     event::{AgentEvent, StopReason},
     message::{ContentBlock, Message},
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
-    ContextAssembler, ContextPipeline, MessageId, SessionMessage,
+    ContextAssembler, ContextPipeline, ContextStability, MessageId, SessionMessage,
 };
 #[cfg(feature = "trace")]
 use gestalt_runtime::CompactionCheckpoint;
 use gestalt_runtime::ContextMessageAssembler;
-use gestalt_runtime::RuntimeContextPipeline;
+use gestalt_runtime::{ContextPatch, RuntimeContextPipeline};
 
 fn runtime_pipeline() -> RuntimeContextPipeline {
     RuntimeContextPipeline {
@@ -89,6 +89,59 @@ fn provider_capabilities() -> &'static ProviderCapabilities {
     };
 
     &CAP
+}
+
+#[tokio::test]
+async fn prepare_context_captures_dynamic_contribution_for_replay() {
+    let pipeline = runtime_pipeline();
+    pipeline
+        .patch_store
+        .lock()
+        .unwrap()
+        .push(ContextPatch::new_with_metadata(
+            Message::System {
+                content: "dynamic context".to_string(),
+            },
+            ContextStability::TurnDynamic,
+            Some(ContextSourceRef {
+                kind: "extension".to_string(),
+                path_or_label: "dynamic".to_string(),
+                trust: "untrusted".to_string(),
+                token_estimate: 2,
+                included: true,
+                authority: None,
+            }),
+            Vec::new(),
+        ));
+    let artifacts = temp_artifact_dir("context-report");
+    let prepared = pipeline
+        .prepare_context(gestalt_core::ContextPreparationRequest {
+            history: &canonical_history(vec![Message::User {
+                content: vec![ContentBlock::Text {
+                    text: "request".to_string(),
+                }],
+                metadata: None,
+            }]),
+            context_state: &gestalt_core::ContextProjectionState::default(),
+            token_budget: &budget(300, 32, 16),
+            provider: &ThresholdProvider,
+            request_template: &request_template(),
+            model: "test-model",
+            session_id: "session-1",
+            run_id: "run-1",
+            turn_id: 0,
+            policy: &policy(),
+            artifacts_dir: Some(&artifacts),
+            tool_retention: &retention_snapshot(),
+            emit: &mut |_| Ok(()),
+        })
+        .await
+        .expect("prepare context");
+    let report =
+        gestalt_runtime::load_context_build_report(&prepared.packet.packet_hash, &artifacts)
+            .expect("load context report");
+
+    assert!(report.replay_contribution("extension:dynamic").is_ok());
 }
 
 #[derive(Clone)]
@@ -623,6 +676,10 @@ async fn prepare_context_compacts_history_and_persists_artifacts() {
     assert!(artifact_names
         .iter()
         .any(|name| name.starts_with("projection_manifest_")));
+    assert!(artifact_names
+        .iter()
+        .any(|name| name.starts_with("context_report_")));
+    assert!(packet.manifest.context_report_ref.is_some());
 
     let checkpoint_ref = packet
         .manifest
@@ -715,6 +772,7 @@ async fn active_checkpoint_survives_noop_preparation() {
         },
     ]);
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-1".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -805,6 +863,7 @@ async fn resume_resolves_checkpoint_from_parent_run() {
         },
     ]);
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-1".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -906,6 +965,7 @@ async fn continue_after_compaction_reuses_checkpoint() {
         },
     ]);
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-1".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -1049,6 +1109,7 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
     ]);
 
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-legacy".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -1145,6 +1206,7 @@ async fn checkpoint_artifact_path_rejects_parent_dir_escape() {
     ]);
 
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-path-escape".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -1231,6 +1293,7 @@ async fn missing_checkpoint_run_directory_is_an_error() {
     ]);
 
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-missing-run".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -1335,6 +1398,7 @@ async fn second_compaction_maps_projected_range_to_canonical_range() {
         },
     ]);
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-1".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -1456,6 +1520,7 @@ async fn second_checkpoint_hash_matches_actual_canonical_source() {
         },
     ]);
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-1".to_string(),
         history_range: HistoryRange::new(0, 2),
         history_range_hash: {
@@ -1636,6 +1701,7 @@ async fn cleared_result_reference_is_removed_when_source_disappears() {
         },
     ]);
     let checkpoint = CompactionCheckpoint {
+        v: 1,
         checkpoint_id: "cp-1".to_string(),
         history_range: HistoryRange::new(0, 3),
         history_range_hash: "hash".to_string(),

@@ -8,6 +8,7 @@ pub type ProjectionManifest = gestalt_core::context::ProjectionManifest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompactionCheckpoint {
+    pub v: u32,
     pub checkpoint_id: String,
     pub history_range: HistoryRange,
     pub history_range_hash: String,
@@ -61,6 +62,7 @@ mod tests {
     #[test]
     fn checkpoint_render_should_include_summary_without_trace() {
         let checkpoint = CompactionCheckpoint {
+            v: 1,
             checkpoint_id: "checkpoint-1".to_string(),
             history_range: HistoryRange { start: 0, end: 1 },
             history_range_hash: String::new(),

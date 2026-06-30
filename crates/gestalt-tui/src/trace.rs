@@ -3,8 +3,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 
 use gestalt_core::event::PolicyStatus;
-use gestalt_core::AgentEvent;
-use gestalt_runtime::{aggregate_costs, analyze_tool_metrics, read_trace};
+use gestalt_runtime::{aggregate_costs, analyze_tool_metrics, read_trace, TraceEvent as AgentEvent};
 
 use crate::output::{
     PolicyOutcomesSummary, ReplayReport, TraceAnalyzeReport, TraceInspectReport,
@@ -311,11 +310,12 @@ pub fn validate_trace(
             continue;
         }
 
-        let envelope = match serde_json::from_str::<gestalt_runtime::EventEnvelope>(&line) {
-            Ok(env) => env,
+        let envelope = match gestalt_runtime::parse_trace_envelope_line(&line, line_num) {
+            Ok(Some(env)) => env,
+            Ok(None) => continue,
             Err(e) => {
                 valid = false;
-                errors.push(format!("Line {line_num}: invalid JSON: {e}"));
+                errors.push(format!("Line {line_num}: {e}"));
                 continue;
             }
         };

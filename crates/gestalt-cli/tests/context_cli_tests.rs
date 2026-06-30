@@ -169,7 +169,7 @@ async fn test_context_explain_prompt_budget_behavior() {
     assert!(
         omissions.iter().any(|o| o.kind == "memory"
             && o.path_or_label == "mem_id:unpin1"
-            && o.reason == "budget_exhausted"),
+            && o.reason_code == "budget_exhausted"),
         "Omissions should report the unpinned memory being budget-exhausted: {:?}",
         omissions
     );

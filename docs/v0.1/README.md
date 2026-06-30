@@ -20,10 +20,10 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 
 ## 3. Context Diagnostics (CTX-001–CTX-004)
 * **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Specification:** [feature-spec/context-projection-hardening.md](../feature-spec/context-projection-hardening.md)
-* **Implementation Plan:** [H2B](./H2B-context-diagnostics-and-determinism.md)
-* **Rust API Target:** `gestalt_core::context::ContextPacket`
-* **Enforcing Tests:** `crates/gestalt-core/tests/context_tests.rs` (pending)
+* **Proposed Contract:** [context-build-report.md](./context-build-report.md)
+* **Implementation Plan:** [H2B](../plans/v0.1-hardening/H2B-context-diagnostics-and-determinism.md)
+* **Rust API Target:** `gestalt_runtime::ContextBuildReportV1`
+* **Enforcing Tests:** [context_report_contract_tests.rs](../../crates/gestalt-runtime/tests/context_report_contract_tests.rs)
 
 ## 4. Trace & Run Manifests (EVT-001–EVT-005)
 * **Status:** 🔴 **Unpublished (Under Development)**

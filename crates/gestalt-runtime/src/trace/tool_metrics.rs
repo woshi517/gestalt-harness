@@ -3,11 +3,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::read_trace;
-use gestalt_core::{
-    event::{AgentEvent, PolicyStatus},
-    model::ModelInfo,
-    TraceError,
-};
+use crate::TraceEvent as AgentEvent;
+use gestalt_core::{event::PolicyStatus, model::ModelInfo, TraceError};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolMetricsReport {

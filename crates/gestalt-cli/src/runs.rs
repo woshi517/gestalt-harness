@@ -100,24 +100,25 @@ pub fn tail_run(
 }
 
 fn print_tailed_line(line: &str, format: crate::output::OutputFormat) -> Result<(), HarnessError> {
-    let envelope = serde_json::from_str::<gestalt_runtime::EventEnvelope>(line).map_err(|err| {
-        HarnessError::Trace(gestalt_core::TraceError::InvalidFormat {
-            line: 0,
-            reason: err.to_string(),
-        })
-    })?;
+    let Some(envelope) = gestalt_runtime::parse_trace_envelope_line(line, 0).map_err(|err| {
+        HarnessError::Trace(err)
+    })? else {
+        return Ok(());
+    };
 
     match format {
         crate::output::OutputFormat::Json => {
+            let data = gestalt_runtime::ClientEventRecordV1::from(&envelope);
             let wrapped = crate::output::JsonEnvelope {
-                schema_version: 1,
+                schema_version: gestalt_runtime::CLIENT_EVENT_SCHEMA_VERSION,
                 kind: "runs.tail.event".to_string(),
-                data: envelope,
+                data,
             };
             println!("{}", serde_json::to_string(&wrapped).unwrap_or_default());
         }
         crate::output::OutputFormat::Text => {
-            if let Some(rendered) = crate::output::render_event(&envelope.event) {
+            let core_event: gestalt_core::AgentEvent = envelope.event.clone().into();
+            if let Some(rendered) = crate::output::render_event(&core_event) {
                 println!("{rendered}");
             }
         }

@@ -1,8 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+
+pub const RUN_MANIFEST_SCHEMA_VERSION: u32 = 1;
 
 pub const PROMPT_SNAPSHOT_RELATIVE_PATH: &str = "artifacts/prompt-snapshot.json";
 
@@ -84,7 +87,27 @@ impl RunManifest {
 
     pub fn load_from(path: &Path) -> std::io::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let manifest = serde_json::from_str(&content)?;
+        let value: Value = serde_json::from_str(&content)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        let version = value.get("v").and_then(Value::as_u64).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "missing run manifest schema version",
+            )
+        })?;
+
+        if version != u64::from(RUN_MANIFEST_SCHEMA_VERSION) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "unsupported run manifest schema version {version} (expected {})",
+                    RUN_MANIFEST_SCHEMA_VERSION
+                ),
+            ));
+        }
+
+        let manifest = serde_json::from_value(value)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
         Ok(manifest)
     }
 }

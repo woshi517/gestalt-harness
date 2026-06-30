@@ -134,8 +134,8 @@ pub struct ContextExplainReport {
     pub pipeline_version: String,
     pub prompt_source: Option<String>,
     pub system_prompt: Option<String>,
-    pub sources: Vec<gestalt_core::context::ContextSourceRef>,
-    pub omissions: Vec<gestalt_core::context::ContextOmission>,
+    pub sources: Vec<gestalt_runtime::ContextSourceReportV1>,
+    pub omissions: Vec<gestalt_runtime::ContextOmissionReportV1>,
 }
 
 #[derive(Serialize, Debug, Clone)]

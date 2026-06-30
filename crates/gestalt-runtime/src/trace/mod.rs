@@ -2,6 +2,7 @@
 //!
 pub mod context_artifacts;
 pub mod evaluator;
+pub mod event;
 pub mod fixture;
 pub mod golden;
 pub mod resume;
@@ -13,11 +14,14 @@ pub use context_artifacts::{
     MessageMetadataRef, ProjectionManifest,
 };
 pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
+pub use event::{is_known_kind, TraceEvent};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
 pub use golden::{GoldenTrace, GoldenTraceRunner};
 pub use resume::{RecoveryStatus, ResumeAnalysis, ResumeAnalyzer};
 pub use run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 pub use tool_metrics::{analyze_tool_metrics, ToolMetricsReport};
+
+type AgentEvent = TraceEvent;
 
 use std::{
     fs::{self, File},
@@ -28,11 +32,14 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use gestalt_core::{
-    model::ModelInfo, trace::TraceSink, AgentEvent, PromptSnapshot, RunResult, StopReason,
-    TraceError,
+    event::AgentEvent as CoreAgentEvent, model::ModelInfo, trace::TraceSink, PromptSnapshot,
+    RunResult, StopReason, TraceError,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+pub const TRACE_EVENT_SCHEMA_VERSION: u32 = 1;
+pub const CLIENT_EVENT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventEnvelope {
@@ -43,12 +50,39 @@ pub struct EventEnvelope {
     pub turn_id: usize,
     pub seq: u64,
     pub ts: DateTime<Utc>,
-    pub event: AgentEvent,
+    pub event: TraceEvent,
     pub redacted: bool,
     #[serde(default)]
     pub workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
     #[serde(default)]
     pub snapshot_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientEventRecordV1 {
+    pub v: u32,
+    pub session_id: String,
+    pub run_id: String,
+    pub turn_id: usize,
+    pub seq: u64,
+    pub ts: DateTime<Utc>,
+    pub event: TraceEvent,
+    pub redacted: bool,
+}
+
+impl From<&EventEnvelope> for ClientEventRecordV1 {
+    fn from(envelope: &EventEnvelope) -> Self {
+        Self {
+            v: envelope.v,
+            session_id: envelope.session_id.clone(),
+            run_id: envelope.run_id.clone(),
+            turn_id: envelope.turn_id,
+            seq: envelope.seq,
+            ts: envelope.ts,
+            event: envelope.event.clone(),
+            redacted: envelope.redacted,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,7 +186,9 @@ impl TraceSink for JsonlTraceSink {
         Some(&self.artifacts_dir)
     }
 
-    fn emit(&self, event: AgentEvent) -> Result<(), TraceError> {
+    fn emit(&self, event: CoreAgentEvent) -> Result<(), TraceError> {
+        use gestalt_core::event::AgentEvent;
+
         let mut state = self
             .state
             .lock()
@@ -175,7 +211,7 @@ impl TraceSink for JsonlTraceSink {
             turn_id: state.turn_id,
             seq: state.seq,
             ts: Utc::now(),
-            event,
+            event: TraceEvent::from(event),
             redacted,
             workspace_snapshot: state.workspace_snapshot.clone(),
             snapshot_id,
@@ -263,16 +299,65 @@ pub fn read_trace(path: impl AsRef<Path>) -> Result<Vec<EventEnvelope>, TraceErr
 
     for (index, line) in reader.lines().enumerate() {
         let line = line.map_err(TraceError::WriteFailed)?;
-        let envelope = serde_json::from_str::<EventEnvelope>(&line).map_err(|err| {
-            TraceError::InvalidFormat {
-                line: index + 1,
-                reason: err.to_string(),
-            }
-        })?;
+        let Some(envelope) = parse_trace_envelope_line(&line, index + 1)? else {
+            continue;
+        };
         events.push(envelope);
     }
 
     Ok(events)
+}
+
+pub fn parse_trace_envelope_line(
+    line: &str,
+    line_number: usize,
+) -> Result<Option<EventEnvelope>, TraceError> {
+    let value: Value = serde_json::from_str(line).map_err(|err| TraceError::InvalidFormat {
+        line: line_number,
+        reason: err.to_string(),
+    })?;
+
+    let version =
+        value
+            .get("v")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| TraceError::InvalidFormat {
+                line: line_number,
+                reason: "missing or invalid trace schema version".to_string(),
+            })?;
+
+    if version != u64::from(TRACE_EVENT_SCHEMA_VERSION) {
+        return Err(TraceError::InvalidFormat {
+            line: line_number,
+            reason: format!(
+                "unsupported trace schema version {version} (expected {})",
+                TRACE_EVENT_SCHEMA_VERSION
+            ),
+        });
+    }
+
+    let Some(kind) = value
+        .get("event")
+        .and_then(|event| event.get("type"))
+        .and_then(Value::as_str)
+    else {
+        return Err(TraceError::InvalidFormat {
+            line: line_number,
+            reason: "missing trace event kind".to_string(),
+        });
+    };
+
+    if !is_known_kind(kind) {
+        eprintln!("Warning: skipping unknown trace event kind '{kind}' at line {line_number}");
+        return Ok(None);
+    }
+
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|err| TraceError::InvalidFormat {
+            line: line_number,
+            reason: err.to_string(),
+        })
 }
 
 #[allow(clippy::format_push_string)]
@@ -669,7 +754,9 @@ fn collect_trace_paths(path: &Path) -> Result<Vec<PathBuf>, TraceError> {
     Ok(traces)
 }
 
-fn redact_event(event: &AgentEvent) -> (AgentEvent, bool) {
+fn redact_event(event: &CoreAgentEvent) -> (CoreAgentEvent, bool) {
+    use gestalt_core::event::AgentEvent;
+
     match event {
         AgentEvent::UserMessage { content } => {
             let (content, redacted) = redact_string(content);
@@ -876,7 +963,7 @@ fn redact_value(value: &Value) -> (Value, bool) {
     }
 }
 
-fn redact_string(input: &str) -> (String, bool) {
+pub(crate) fn redact_string(input: &str) -> (String, bool) {
     let mut changed = false;
     let redacted = input
         .split_whitespace()

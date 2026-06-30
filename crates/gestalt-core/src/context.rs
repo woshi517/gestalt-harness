@@ -459,8 +459,9 @@ pub struct ProjectionMessageMetadata {
     pub hash: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionManifest {
+    pub v: u32,
     pub manifest_id: String,
     pub session_id: SessionId,
     pub run_id: String,
@@ -480,6 +481,30 @@ pub struct ProjectionManifest {
     pub messages_metadata: Vec<ProjectionMessageMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retention_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_report_ref: Option<String>,
+}
+
+impl Default for ProjectionManifest {
+    fn default() -> Self {
+        Self {
+            v: 1,
+            manifest_id: String::new(),
+            session_id: SessionId::default(),
+            run_id: String::default(),
+            turn_id: 0,
+            timestamp: chrono::Utc::now(),
+            policy: ContextManagementPolicy::default(),
+            token_estimate: 0,
+            stable_prefix_hash: None,
+            checkpoint_ref: None,
+            cleared_results: Vec::new(),
+            omitted_messages: Vec::new(),
+            messages_metadata: Vec::new(),
+            retention_fingerprint: None,
+            context_report_ref: None,
+        }
+    }
 }
 
 pub struct ContextPreparationRequest<'a> {
@@ -576,6 +601,7 @@ pub trait ContextPipeline: Send + Sync {
         Ok(PreparedContext {
             packet: self.build_packet(request.history, request.token_budget),
             manifest: ProjectionManifest {
+                v: 1,
                 manifest_id: format!("manifest-{}-{}", request.session_id, request.turn_id),
                 session_id: request.session_id.to_string(),
                 run_id: request.run_id.to_string(),
@@ -594,6 +620,7 @@ pub trait ContextPipeline: Send + Sync {
                 omitted_messages: Vec::new(),
                 messages_metadata: Vec::new(),
                 retention_fingerprint: Some(request.tool_retention.fingerprint.clone()),
+                context_report_ref: None,
             },
             state_delta: ContextStateDelta::default(),
         })

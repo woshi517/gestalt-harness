@@ -109,6 +109,13 @@ pub use composition_hooks::{
 };
 pub use config::RuntimeConfig;
 pub use context::projection::{CompactionCheckpoint, MessageMetadataRef, ProjectionManifest};
+pub use context::report::{
+    load_context_build_report, persist_context_build_report, CapturedContributionV1,
+    ContextBuildReportInputV1, ContextBuildReportV1, ContextOmissionReportV1,
+    ContextPersistenceDiagnosticV1, ContextPressureV1, ContextSourceReportV1,
+    CONTEXT_BUILD_REPORT_SCHEMA_VERSION, MAX_CAPTURED_CONTRIBUTIONS_BYTES,
+    MAX_CAPTURED_CONTRIBUTION_BYTES,
+};
 pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
 pub use control::{HostControl, ReloadExtensionsReport, ReloadExtensionsRequest, RuntimeControl};
 pub use discovery::{DiscoveredExtension, DiscoveredExtensionPackage, ExtensionDiscovery};

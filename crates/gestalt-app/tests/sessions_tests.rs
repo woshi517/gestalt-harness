@@ -5,6 +5,7 @@ use gestalt_app::sessions::{history_session, inspect_session, list_sessions, run
 use gestalt_runtime::run_manifest::{
     CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
 };
+use gestalt_runtime::TraceEvent;
 use std::fs;
 use std::path::PathBuf;
 
@@ -171,7 +172,7 @@ async fn test_sessions_list_inspect_history() {
 
 #[tokio::test]
 async fn test_sessions_successful_resume_and_branch() {
-    use gestalt_core::event::AgentEvent;
+    use gestalt_core::event::AgentEvent as CoreAgentEvent;
     use gestalt_core::message::{ContentBlock, Message};
     use gestalt_core::provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest};
     use gestalt_core::ToolCatalog;
@@ -226,7 +227,7 @@ async fn test_sessions_successful_resume_and_branch() {
             &self,
             _request: ProviderRequest,
         ) -> Result<EventStream, gestalt_core::HarnessError> {
-            let events = vec![AgentEvent::Stop {
+            let events = vec![CoreAgentEvent::Stop {
                 reason: gestalt_core::event::StopReason::EndTurn,
             }];
             let stream =
@@ -420,7 +421,7 @@ model = "mock-model"
             turn_id: 1,
             seq: 2,
             ts: chrono::Utc::now(),
-            event: AgentEvent::Checkpoint {
+            event: TraceEvent::Checkpoint {
                 history: vec![history_msg.clone()],
                 context_state: Box::new(gestalt_core::ContextProjectionState::default()),
                 token_budget: gestalt_core::context::TokenBudget::default(),
@@ -466,7 +467,7 @@ model = "mock-model"
     for line in new_trace_content.lines() {
         if let Ok(env) = serde_json::from_str::<gestalt_runtime::EventEnvelope>(line) {
             match env.event {
-                AgentEvent::Checkpoint { history, .. } => {
+                TraceEvent::Checkpoint { history, .. } => {
                     for msg in history {
                         if let Message::Assistant { content } = msg.message {
                             for block in content {
@@ -479,8 +480,8 @@ model = "mock-model"
                         }
                     }
                 }
-                AgentEvent::PromptSnapshotLoaded { .. } => saw_loaded_snapshot = true,
-                AgentEvent::PromptSnapshotReused { .. } => saw_reused_snapshot = true,
+                TraceEvent::PromptSnapshotLoaded { .. } => saw_loaded_snapshot = true,
+                TraceEvent::PromptSnapshotReused { .. } => saw_reused_snapshot = true,
                 _ => {}
             }
         }
@@ -525,7 +526,7 @@ model = "mock-model"
     let mut found_checkpoint = false;
     for line in branch_trace_content.lines() {
         if let Ok(env) = serde_json::from_str::<gestalt_runtime::EventEnvelope>(line) {
-            if let AgentEvent::Checkpoint { history, .. } = env.event {
+            if let TraceEvent::Checkpoint { history, .. } = env.event {
                 found_checkpoint = true;
                 assert_eq!(
                     history.len(),
