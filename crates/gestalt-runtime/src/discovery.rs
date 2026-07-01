@@ -1,5 +1,7 @@
 use crate::error::{Result, RuntimeError};
-use crate::extension::{ExtensionManifestV2, ResolvedExtensionPackage};
+#[cfg(feature = "toml-config")]
+use crate::extension::ExtensionManifestV2;
+use crate::extension::ResolvedExtensionPackage;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -190,14 +192,15 @@ fn parse_package_manifest(content: &str) -> std::result::Result<ResolvedExtensio
     #[cfg(not(feature = "toml-config"))]
     {
         let _ = content;
-        return Err(
-            "feature 'toml-config' is not enabled for extension manifest parsing".to_string(),
-        );
+        Err("feature 'toml-config' is not enabled for extension manifest parsing".to_string())
     }
 
-    let manifest = ExtensionManifestV2::parse(content)?;
-    ResolvedExtensionPackage::from_v2_manifest(manifest.clone(), manifest.package.id)
-        .map_err(|err| err.to_string())
+    #[cfg(feature = "toml-config")]
+    {
+        let manifest = ExtensionManifestV2::parse(content)?;
+        ResolvedExtensionPackage::from_v2_manifest(manifest.clone(), manifest.package.id)
+            .map_err(|err| err.to_string())
+    }
 }
 
 pub struct DiscoverySource {

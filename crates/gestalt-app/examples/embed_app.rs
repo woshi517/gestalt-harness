@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         value: _runtime,
         diagnostics: _diagnostics,
         ..
-    } = build_app_runtime_with_report(&config, None, None, None, None).await?;
+    } = build_app_runtime_with_report(&config, None, None, None, None).await;
     let _ = run_prompt(
         &config,
         "hello from embed_app",

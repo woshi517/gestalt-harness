@@ -7,7 +7,7 @@ use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig, TrustedE
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::reports::ServiceReportV1;
+use crate::reports::{AppDiagnosticV1, DiagnosticSeverityV1, ServiceReportV1};
 
 #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
 pub async fn build_app_runtime(
@@ -18,9 +18,6 @@ pub async fn build_app_runtime(
     trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
 ) -> Result<AgentRuntime, HarnessError> {
     let resolved_provider = config.resolve_provider()?;
-    for warning in &resolved_provider.warnings {
-        let _ = &warning.message;
-    }
     let resolver = crate::auth::build_credential_resolver(api_key, interaction);
     let lookup_id = resolved_provider
         .protocol
@@ -454,10 +451,48 @@ pub async fn build_app_runtime_with_report(
     interaction: Option<Arc<dyn crate::InteractionProvider>>,
     approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
     trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
-) -> Result<ServiceReportV1<AgentRuntime>, HarnessError> {
-    let runtime =
-        build_app_runtime(config, api_key, interaction, approval_override, trace_sink).await?;
-    Ok(ServiceReportV1::new(runtime))
+) -> ServiceReportV1<AgentRuntime> {
+    let resolved = match config.resolve_provider() {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            return ServiceReportV1::failure(crate::reports::AppErrorProjectionV1 {
+                code: "provider_resolution".to_string(),
+                message: error.to_string(),
+                retryable: false,
+                details: None,
+            });
+        }
+    };
+    let diagnostics = resolved
+        .warnings
+        .into_iter()
+        .map(|warning| AppDiagnosticV1 {
+            severity: DiagnosticSeverityV1::Warning,
+            code: "provider_resolution".to_string(),
+            message: warning.message,
+            correlation_id: None,
+            details: None,
+        })
+        .collect();
+    match build_app_runtime(config, api_key, interaction, approval_override, trace_sink).await {
+        Ok(runtime) => ServiceReportV1 {
+            value: Some(runtime),
+            diagnostics,
+            error: None,
+            correlation_id: None,
+        },
+        Err(error) => ServiceReportV1 {
+            value: None,
+            diagnostics,
+            error: Some(crate::reports::AppErrorProjectionV1 {
+                code: "runtime_construction".to_string(),
+                message: error.to_string(),
+                retryable: false,
+                details: None,
+            }),
+            correlation_id: None,
+        },
+    }
 }
 
 fn trusted_pin_from_entry(

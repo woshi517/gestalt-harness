@@ -31,6 +31,16 @@ impl InMemorySteeringQueue {
             capacity,
         }
     }
+
+    pub fn active_with_capacity(capacity: usize) -> Self {
+        let queue = Self::with_capacity(capacity);
+        queue
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .lifecycle = QueueLifecycle::Active;
+        queue
+    }
 }
 
 impl Default for InMemorySteeringQueue {
