@@ -2,10 +2,10 @@
 
 use gestalt_app::config::{load_effective_config, CliOverrides};
 use gestalt_app::sessions::{history_session, inspect_session, list_sessions, run_session_action};
-use gestalt_runtime::run_manifest::{
+use gestalt_runtime::unstable::run_manifest::{
     CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
 };
-use gestalt_runtime::TraceEvent;
+use gestalt_runtime::unstable::TraceEvent;
 use std::fs;
 use std::path::PathBuf;
 
@@ -236,7 +236,7 @@ async fn test_sessions_successful_resume_and_branch() {
         }
     }
 
-    let _ = gestalt_runtime::model_registry::register(
+    let _ = gestalt_runtime::unstable::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -269,7 +269,7 @@ async fn test_sessions_successful_resume_and_branch() {
     let run_root_dir = runs_dir.join(format!("20260602T100000Z-{}", run_root_id));
     fs::create_dir_all(&run_root_dir).unwrap();
 
-    let tool_registry = gestalt_runtime::default_registry().unwrap();
+    let tool_registry = gestalt_runtime::unstable::default_registry().unwrap();
     let tool_names: Vec<String> = tool_registry
         .schemas()
         .iter()
@@ -284,18 +284,20 @@ async fn test_sessions_successful_resume_and_branch() {
     // Fingerprint matching what run_session_action generates
     let fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
-        tool_schema_hash: gestalt_runtime::run_manifest::compute_tool_schema_hash(
+        tool_schema_hash: gestalt_runtime::unstable::run_manifest::compute_tool_schema_hash(
             &tool_registry.schemas(),
         ),
         policy_fingerprint: serde_json::to_string(&config.policies)
-            .map(|content| gestalt_runtime::run_manifest::compute_policy_fingerprint(&content))
+            .map(|content| {
+                gestalt_runtime::unstable::run_manifest::compute_policy_fingerprint(&content)
+            })
             .unwrap(),
         hook_contract_hash: {
             let hook_names = vec![
                 "VerificationToolHook".to_string(),
                 "EvaluatorHook".to_string(),
             ];
-            gestalt_runtime::run_manifest::compute_hook_contract_hash(&hook_names)
+            gestalt_runtime::unstable::run_manifest::compute_hook_contract_hash(&hook_names)
         },
         execution_mode: "Yolo".to_string(),
         skill_fingerprint: None,
@@ -389,13 +391,14 @@ async fn test_sessions_successful_resume_and_branch() {
         0,
     );
     let prompt_snapshot_path =
-        run_root_dir.join(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
-    gestalt_runtime::write_prompt_snapshot(&prompt_snapshot_path, &prompt_snapshot).unwrap();
+        run_root_dir.join(gestalt_runtime::unstable::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+    gestalt_runtime::unstable::write_prompt_snapshot(&prompt_snapshot_path, &prompt_snapshot)
+        .unwrap();
 
     let mut manifest_root = manifest_root;
     manifest_root.prompt_snapshot_hash = Some(prompt_snapshot.snapshot_hash.clone());
     manifest_root.prompt_snapshot_path =
-        Some(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
+        Some(gestalt_runtime::unstable::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
     manifest_root
         .save_to(&run_root_dir.join("run.json"))
         .unwrap();
@@ -404,7 +407,7 @@ async fn test_sessions_successful_resume_and_branch() {
     let trace_data = format!(
         "{}\n{}\n",
         r#"{"v":1,"session_id":"session-resume-test","run_id":"run-root","turn_id":1,"seq":1,"ts":"2026-06-02T10:00:00Z","event":{"type":"checkpoint","history":[],"token_budget":{"model_limit":100,"reserved_output":10,"used_system":0,"used_history":0,"used_sources":0,"used_tools":0,"used_memory":0,"minimum_turn_budget":16}},"redacted":false}"#,
-        serde_json::to_string(&gestalt_runtime::EventEnvelope {
+        serde_json::to_string(&gestalt_runtime::unstable::EventEnvelope {
             v: 1,
             session_id: session_id.clone(),
             run_id: run_root_id.clone(),
@@ -455,7 +458,7 @@ async fn test_sessions_successful_resume_and_branch() {
     let mut saw_loaded_snapshot = false;
     let mut saw_reused_snapshot = false;
     for line in new_trace_content.lines() {
-        if let Ok(env) = serde_json::from_str::<gestalt_runtime::EventEnvelope>(line) {
+        if let Ok(env) = serde_json::from_str::<gestalt_runtime::unstable::EventEnvelope>(line) {
             match env.event {
                 TraceEvent::Checkpoint { history, .. } => {
                     for msg in history {
@@ -515,7 +518,7 @@ async fn test_sessions_successful_resume_and_branch() {
     let branch_trace_content = fs::read_to_string(branch_run_path.join("trace.jsonl")).unwrap();
     let mut found_checkpoint = false;
     for line in branch_trace_content.lines() {
-        if let Ok(env) = serde_json::from_str::<gestalt_runtime::EventEnvelope>(line) {
+        if let Ok(env) = serde_json::from_str::<gestalt_runtime::unstable::EventEnvelope>(line) {
             if let TraceEvent::Checkpoint { history, .. } = env.event {
                 found_checkpoint = true;
                 assert_eq!(

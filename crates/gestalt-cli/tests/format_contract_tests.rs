@@ -303,7 +303,7 @@ fn test_models_search_report_contract() {
 
 #[test]
 fn test_runtime_inspect_report_contract() {
-    let inspect = gestalt_runtime::RuntimeInspect {
+    let inspect = gestalt_runtime::unstable::RuntimeInspect {
         runtime_generation: 0,
         runtime_fingerprint: Some("runtimehash123".to_string()),
         provider_name: "anthropic".to_string(),
@@ -311,7 +311,7 @@ fn test_runtime_inspect_report_contract() {
         execution_mode: "Confirm".to_string(),
         max_turns: 15,
         context_pipeline_version: "pipeline-v1".to_string(),
-        tools: vec![gestalt_runtime::ToolInspectInfo {
+        tools: vec![gestalt_runtime::unstable::ToolInspectInfo {
             name: "bash".to_string(),
             schema_hash: "abc123hash".to_string(),
             backend: None,

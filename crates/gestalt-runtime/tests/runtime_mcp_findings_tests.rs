@@ -4,9 +4,11 @@ use gestalt_core::{
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
     tool::ToolCatalog,
 };
-use gestalt_runtime::ContextMessageAssembler;
-use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent};
-use gestalt_runtime::{McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime::unstable::ContextMessageAssembler;
+use gestalt_runtime::unstable::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent};
+use gestalt_runtime::unstable::{
+    McpConnectionState, McpLifecycleMode, McpServerConfig, McpTransportConfig,
+};
 use std::sync::Arc;
 
 struct DummyContextPipeline;
@@ -142,7 +144,7 @@ async fn test_findings_lazy_servers_stay_disconnected() {
     assert_eq!(state.connection_state, McpConnectionState::Disconnected);
 
     // Call run_prompt to verify prompt execution does NOT eagerly connect lazy servers
-    let input = gestalt_runtime::UserInput {
+    let input = gestalt_runtime::unstable::UserInput {
         prompt: "hello".to_string(),
         session_id: None,
         cancel_token: gestalt_core::cancel::CancelToken::new(),
@@ -217,7 +219,7 @@ async fn test_findings_duplicate_tool_names_scoping() {
         .unwrap();
 
     // Build the raw catalog (without planner) to get unfiltered MCP tools
-    let raw_catalog = gestalt_runtime::tool_catalog::ComposedToolCatalog::new(
+    let raw_catalog = gestalt_runtime::unstable::tool_catalog::ComposedToolCatalog::new(
         Arc::new(DummyToolCatalog),
         std::collections::BTreeMap::new(),
     )
@@ -236,8 +238,8 @@ async fn test_findings_duplicate_tool_names_scoping() {
     assert!(has_b);
 
     // Build the planner helper
-    let planner = gestalt_runtime::tool_catalog_planner::ToolCatalogPlanner::new(
-        gestalt_runtime::tool_catalog_planner::ToolProfile::All,
+    let planner = gestalt_runtime::unstable::tool_catalog_planner::ToolCatalogPlanner::new(
+        gestalt_runtime::unstable::tool_catalog_planner::ToolProfile::All,
     )
     .with_mcp(
         Some(1),

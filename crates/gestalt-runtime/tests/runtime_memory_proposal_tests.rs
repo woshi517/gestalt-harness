@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use gestalt_core::event::AgentEvent;
-use gestalt_runtime::event_bus::RuntimeEventBus;
-use gestalt_runtime::workspace_context::{
+use gestalt_runtime::unstable::event_bus::RuntimeEventBus;
+use gestalt_runtime::unstable::workspace_context::{
     apply_memory_proposal, select_memory_entries, MemoryContextConfig, MemoryEntry,
     MemoryOperation, MemoryProposal, MemoryProposalDecision, MemorySelectionStrategy,
     MemoryWriteMode, WorkspaceContextError,
@@ -79,7 +79,7 @@ async fn test_memory_proposal_lifecycle() {
     // Check events emitted
     let mut events = Vec::new();
     while let Ok(event) = receiver.try_recv() {
-        if let gestalt_runtime::event_bus::RuntimeEvent::Agent {
+        if let gestalt_runtime::unstable::event_bus::RuntimeEvent::Agent {
             event: agent_ev, ..
         } = &*event
         {
@@ -113,7 +113,7 @@ async fn test_memory_proposal_lifecycle() {
     // Check conflict event emitted
     let mut events_conflict = Vec::new();
     while let Ok(event) = receiver.try_recv() {
-        if let gestalt_runtime::event_bus::RuntimeEvent::Agent {
+        if let gestalt_runtime::unstable::event_bus::RuntimeEvent::Agent {
             event: agent_ev, ..
         } = &*event
         {
@@ -159,7 +159,7 @@ async fn test_memory_proposal_lifecycle() {
     // Decision recorded rejected
     let mut events_reject = Vec::new();
     while let Ok(event) = receiver.try_recv() {
-        if let gestalt_runtime::event_bus::RuntimeEvent::Agent {
+        if let gestalt_runtime::unstable::event_bus::RuntimeEvent::Agent {
             event: agent_ev, ..
         } = &*event
         {

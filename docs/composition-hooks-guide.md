@@ -1,5 +1,9 @@
 # Composition Hooks Guide
 
+> Composition hooks are an experimental runtime implementation surface in
+> v0.1. They are available under `gestalt_runtime::unstable` and carry no
+> compatibility guarantee.
+
 ## Overview
 
 `CompositionHooks` is the primary extension point for intercepting and modifying the agent lifecycle loop at runtime. Unlike core hooks (`ContextHook`, `ToolHook`, `TraceHook`), which operate at the level of the pure `AgentLoop`, composition hooks operate at the **runtime composition layer** — they have access to session context, tool inputs and results, and can inject context messages, block execution, or observe events.
@@ -20,7 +24,7 @@ pub trait CompositionHooks: Send + Sync {
 }
 ```
 
-All six methods are `async` and return `gestalt_runtime::error::Result`. The first five return a `HookOutcome`; `on_event` is a fire-and-forget observer that returns `Result<()>`.
+All six methods are `async` and return `gestalt_runtime::unstable::Result`. The first five return a `HookOutcome`; `on_event` is a fire-and-forget observer that returns `Result<()>`.
 
 ---
 
@@ -266,10 +270,11 @@ Composes user-defined hooks only. Execution order:
 
 ```rust
 use std::sync::Arc;
-use gestalt_runtime::composition_hooks::{
+use gestalt_runtime::unstable::composition_hooks::{
     CompositionHooks, BeforeContextBuildCtx, AfterContextBuildCtx,
     BeforeToolPolicyCtx, AfterToolResultCtx, OnEventCtx, HookOutcome,
 };
+use gestalt_runtime::api::v1::AgentRuntimeBuilder;
 
 struct SafetyHook {
     blocked_tools: Vec<String>,
@@ -280,21 +285,21 @@ impl CompositionHooks for SafetyHook {
     async fn before_context_build(
         &self,
         _context: &BeforeContextBuildCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn after_context_build(
         &self,
         _context: &AfterContextBuildCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn before_tool_policy(
         &self,
         context: &BeforeToolPolicyCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         if self.blocked_tools.contains(&context.tool_name) {
             return Ok(HookOutcome::Block {
                 reason: format!("Tool '{}' is blocked by safety policy", context.tool_name),
@@ -306,11 +311,11 @@ impl CompositionHooks for SafetyHook {
     async fn after_tool_result(
         &self,
         _context: &AfterToolResultCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
-    async fn on_event(&self, _context: &OnEventCtx) -> gestalt_runtime::error::Result<()> {
+    async fn on_event(&self, _context: &OnEventCtx) -> gestalt_runtime::unstable::Result<()> {
         Ok(())
     }
 }

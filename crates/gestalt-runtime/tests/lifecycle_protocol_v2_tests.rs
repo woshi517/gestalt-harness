@@ -1,4 +1,4 @@
-use gestalt_runtime::lifecycle::protocol::{
+use gestalt_runtime::unstable::lifecycle::protocol::{
     negotiate_protocol_version, PROTOCOL_V2_METHODS, PROTOCOL_V2_METHOD_CANCEL,
     PROTOCOL_V2_METHOD_DESCRIBE_CAPABILITIES, PROTOCOL_V2_METHOD_INITIALIZE,
     PROTOCOL_V2_METHOD_INVOKE, PROTOCOL_V2_METHOD_SHUTDOWN,

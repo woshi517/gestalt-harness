@@ -1,7 +1,7 @@
 use gestalt_app::config::{ConfigSourceInfo, EffectiveConfig, SecretString};
 pub use gestalt_app::reports::*;
 use gestalt_core::model::ModelInfo;
-use gestalt_runtime::CostReport;
+use gestalt_runtime::unstable::CostReport;
 use serde::{ser::SerializeMap, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -1043,7 +1043,7 @@ impl CliReport for TraceValidateReport {
 #[derive(Debug, Clone, Serialize)]
 pub struct TraceAnalyzeReport {
     pub path: PathBuf,
-    pub tools_metrics: gestalt_runtime::ToolMetricsReport,
+    pub tools_metrics: gestalt_runtime::unstable::ToolMetricsReport,
 }
 
 impl CliReport for TraceAnalyzeReport {
@@ -1782,7 +1782,7 @@ impl CliReport for ModelsSearchReport {
 
 #[derive(Serialize)]
 pub struct RuntimeInspectReport {
-    pub inspect: gestalt_runtime::RuntimeInspect,
+    pub inspect: gestalt_runtime::unstable::RuntimeInspect,
 }
 
 impl CliReport for RuntimeInspectReport {
@@ -1947,8 +1947,8 @@ pub struct ExtensionsListReport {
     pub extensions: Vec<ExtensionListEntry>,
 }
 
-impl From<Vec<gestalt_runtime::DiscoveredExtensionPackage>> for ExtensionsListReport {
-    fn from(extensions: Vec<gestalt_runtime::DiscoveredExtensionPackage>) -> Self {
+impl From<Vec<gestalt_runtime::unstable::DiscoveredExtensionPackage>> for ExtensionsListReport {
+    fn from(extensions: Vec<gestalt_runtime::unstable::DiscoveredExtensionPackage>) -> Self {
         Self {
             extensions: extensions
                 .into_iter()
@@ -1989,7 +1989,7 @@ impl CliReport for ExtensionsListReport {
 
 #[derive(Serialize)]
 pub struct ExtensionInspectReport {
-    pub manifest: gestalt_runtime::extension::ExtensionManifestV2,
+    pub manifest: gestalt_runtime::unstable::extension::ExtensionManifestV2,
 }
 
 impl CliReport for ExtensionInspectReport {
@@ -2025,7 +2025,7 @@ impl CliReport for ExtensionActionReport {
 
 #[derive(Serialize)]
 pub struct RuntimeEventsReport {
-    pub events: Vec<gestalt_runtime::RuntimeEvent>,
+    pub events: Vec<gestalt_runtime::unstable::RuntimeEvent>,
 }
 
 impl CliReport for RuntimeEventsReport {

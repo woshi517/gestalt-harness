@@ -3,7 +3,9 @@ use crate::config::{
 };
 use gestalt_core::error::HarnessError;
 use gestalt_core::tool::ToolCatalog;
-use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig, TrustedExtensionPin};
+use gestalt_runtime::unstable::{
+    AgentRuntime, AgentRuntimeBuilder, AgentRuntimeBuilderExt, RuntimeConfig, TrustedExtensionPin,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -23,7 +25,7 @@ pub async fn build_app_runtime(
         .protocol
         .as_deref()
         .unwrap_or_else(|| resolved_provider.provider_name());
-    let provider = gestalt_runtime::get_by_api_format_with_resolver(
+    let provider = gestalt_runtime::unstable::get_by_api_format_with_resolver(
         lookup_id,
         resolved_provider.api_format(),
         resolved_provider.provider_json(),
@@ -32,7 +34,7 @@ pub async fn build_app_runtime(
     )?;
     let provider_default_model = provider.default_model().to_string();
 
-    let tools = Arc::new(gestalt_runtime::default_registry()?);
+    let tools = Arc::new(gestalt_runtime::unstable::default_registry()?);
     let mode = config.selected_mode()?;
     let max_turns = config.max_turns();
     let tool_names: Vec<String> = tools
@@ -74,8 +76,10 @@ pub async fn build_app_runtime(
         .collect();
 
     let global_dir = global_config_dir().map(|d| d.join("gestalt"));
-    let discovery =
-        gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
+    let discovery = gestalt_runtime::unstable::ExtensionDiscovery::new(
+        config.workspace_root.clone(),
+        global_dir,
+    );
 
     let mut trusted_extension_pins: Vec<TrustedExtensionPin> = Vec::new();
 
@@ -130,8 +134,8 @@ pub async fn build_app_runtime(
         };
         let trusted = matches!(
             desc.trust_level,
-            gestalt_runtime::SkillTrustLevel::Explicit
-                | gestalt_runtime::SkillTrustLevel::Workspace
+            gestalt_runtime::unstable::SkillTrustLevel::Explicit
+                | gestalt_runtime::unstable::SkillTrustLevel::Workspace
         ) || trusted_names.contains(name.as_str());
         if !trusted {
             return Err(HarnessError::Config(
@@ -239,14 +243,14 @@ pub async fn build_app_runtime(
             .text_verbosity
             .map(to_core_text_verbosity),
         metadata,
-        extension_timeouts: gestalt_runtime::config::ExtensionTimeoutsConfig {
+        extension_timeouts: gestalt_runtime::unstable::config::ExtensionTimeoutsConfig {
             initialize_ms: config.extensions.timeouts.initialize_ms,
             hook_ms: config.extensions.timeouts.hook_ms,
             context_ms: config.extensions.timeouts.context_ms,
             tool_ms: config.extensions.timeouts.tool_ms,
             shutdown_ms: config.extensions.timeouts.shutdown_ms,
         },
-        extension_limits: gestalt_runtime::config::ExtensionLimitsConfig {
+        extension_limits: gestalt_runtime::unstable::config::ExtensionLimitsConfig {
             max_message_bytes: config.extensions.limits.max_message_bytes,
             max_pending_requests: config.extensions.limits.max_pending_requests,
             max_protocol_errors: config.extensions.limits.max_protocol_errors,
@@ -255,19 +259,21 @@ pub async fn build_app_runtime(
         effective_config_fingerprint: Some(config.compute_fingerprint()),
     };
 
-    let mut verifier_registry = gestalt_runtime::VerifierRegistry::new();
-    verifier_registry.register(Box::new(gestalt_runtime::FileExistsVerifier));
-    verifier_registry.register(Box::new(gestalt_runtime::NoSecretsVerifier));
-    verifier_registry.register(Box::new(gestalt_runtime::PatchAppliesVerifier));
-    verifier_registry.register(Box::new(gestalt_runtime::MarkdownStructureVerifier));
-    verifier_registry.register(Box::new(gestalt_runtime::CommandVerifier::new(
+    let mut verifier_registry = gestalt_runtime::unstable::VerifierRegistry::new();
+    verifier_registry.register(Box::new(gestalt_runtime::unstable::FileExistsVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::unstable::NoSecretsVerifier));
+    verifier_registry.register(Box::new(gestalt_runtime::unstable::PatchAppliesVerifier));
+    verifier_registry.register(Box::new(
+        gestalt_runtime::unstable::MarkdownStructureVerifier,
+    ));
+    verifier_registry.register(Box::new(gestalt_runtime::unstable::CommandVerifier::new(
         "echo 'Command verified'",
     )));
 
-    let verification_hook = Arc::new(gestalt_runtime::VerificationToolHook::new(
+    let verification_hook = Arc::new(gestalt_runtime::unstable::VerificationToolHook::new(
         verifier_registry,
     ));
-    let evaluator = Arc::new(gestalt_runtime::evaluator::NoopTraceEvaluator);
+    let evaluator = Arc::new(gestalt_runtime::unstable::evaluator::NoopTraceEvaluator);
 
     let mut core_hooks = gestalt_core::HookRegistry::new();
     core_hooks.register_tool_hook(verification_hook);
@@ -275,11 +281,10 @@ pub async fn build_app_runtime(
     if let Some(ref sink) = trace_sink {
         let sink_clone = sink.clone();
         let evaluator_hook = Arc::new(
-            gestalt_runtime::evaluator::EvaluatorHook::new(evaluator, None).with_flush_trigger(
-                Arc::new(move || {
+            gestalt_runtime::unstable::evaluator::EvaluatorHook::new(evaluator, None)
+                .with_flush_trigger(Arc::new(move || {
                     let _ = sink_clone.flush();
-                }),
-            ),
+                })),
         );
         core_hooks.register_session_hook(evaluator_hook);
     }
@@ -297,10 +302,10 @@ pub async fn build_app_runtime(
     let memory_cfg = config.context.memory.clone().unwrap_or_default();
 
     let (ws_contrib, mem_contrib, ws_snapshot) =
-        gestalt_runtime::workspace_context::load_and_snapshot_workspace_context(
+        gestalt_runtime::unstable::workspace_context::load_and_snapshot_workspace_context(
             &config.workspace_root,
             Some(policy.clone() as Arc<dyn gestalt_core::policy::PolicyEngine>),
-            &builder.event_bus,
+            builder.runtime_event_bus(),
             &workspace_cfg,
             &memory_cfg,
         )
@@ -316,7 +321,7 @@ pub async fn build_app_runtime(
 
     if let Some(contrib) = ws_contrib {
         builder
-            .registry
+            .runtime_registry_mut()
             .register_context_contributor(
                 "00_workspace_instructions".to_string(),
                 Arc::new(contrib),
@@ -333,7 +338,7 @@ pub async fn build_app_runtime(
 
     if let Some(contrib) = mem_contrib {
         builder
-            .registry
+            .runtime_registry_mut()
             .register_context_contributor("01_markdown_memory".to_string(), Arc::new(contrib))
             .map_err(|e| {
                 gestalt_core::error::HarnessError::Config(
@@ -353,14 +358,14 @@ pub async fn build_app_runtime(
 
     // Publish skill discovery events
     for skill in &discovered_skills {
-        builder
-            .event_bus
-            .publish(gestalt_runtime::RuntimeEvent::SkillDiscovered {
+        builder.runtime_event_bus().publish(
+            gestalt_runtime::unstable::RuntimeEvent::SkillDiscovered {
                 skill_name: skill.name.clone(),
                 manifest_hash: skill.manifest_hash.clone(),
                 source: format!("{:?}", skill.source),
                 trust_level: format!("{:?}", skill.trust_level),
-            });
+            },
+        );
     }
 
     if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
@@ -380,7 +385,7 @@ pub async fn build_app_runtime(
                 .any(|trusted_entry| trusted_pin_from_entry(trusted_entry, &ext).is_some());
 
             if !is_trusted_by_config && !config.extensions.allow_untrusted {
-                builder.event_bus.publish(gestalt_runtime::RuntimeEvent::ExtensionRejected {
+                builder.runtime_event_bus().publish(gestalt_runtime::unstable::RuntimeEvent::ExtensionRejected {
                     extension_id: ext.package.descriptor.id.clone(),
                     reason: "Untrusted extension ignored. Pin it with 'extensions.trusted' using an exact ID/hash pair or set 'extensions.allow_untrusted' to true.".to_string(),
                 });
@@ -396,34 +401,36 @@ pub async fn build_app_runtime(
     for schema in &tool_schemas {
         if let Some(name) = schema.get("name").and_then(|v| v.as_str()) {
             let _ = builder
-                .registry
+                .runtime_registry_mut()
                 .register_tool(name.to_string(), schema.clone());
         }
     }
 
     // Register verifiers in registry
     let _ = builder
-        .registry
+        .runtime_registry_mut()
         .register_verifier("FileExistsVerifier".to_string());
     let _ = builder
-        .registry
+        .runtime_registry_mut()
         .register_verifier("NoSecretsVerifier".to_string());
     let _ = builder
-        .registry
+        .runtime_registry_mut()
         .register_verifier("PatchAppliesVerifier".to_string());
     let _ = builder
-        .registry
+        .runtime_registry_mut()
         .register_verifier("MarkdownStructureVerifier".to_string());
     let _ = builder
-        .registry
+        .runtime_registry_mut()
         .register_verifier("CommandVerifier".to_string());
 
     // Register hooks in registry
     let _ = builder
-        .registry
+        .runtime_registry_mut()
         .register_hook("VerificationToolHook".to_string());
     if trace_sink.is_some() {
-        let _ = builder.registry.register_hook("EvaluatorHook".to_string());
+        let _ = builder
+            .runtime_registry_mut()
+            .register_hook("EvaluatorHook".to_string());
     }
 
     if let Some(sink) = trace_sink {
@@ -431,7 +438,7 @@ pub async fn build_app_runtime(
     }
 
     builder.build().map_err(|e| match e {
-        gestalt_runtime::RuntimeError::Harness(he) => he,
+        gestalt_runtime::unstable::RuntimeError::Harness(he) => he,
         other => HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
             field: "runtime".to_string(),
             reason: other.to_string(),
@@ -486,7 +493,7 @@ pub async fn build_app_runtime_with_report(
 
 fn trusted_pin_from_entry(
     trusted_entry: &str,
-    ext: &gestalt_runtime::DiscoveredExtensionPackage,
+    ext: &gestalt_runtime::unstable::DiscoveredExtensionPackage,
 ) -> Option<TrustedExtensionPin> {
     let pin = TrustedExtensionPin::from_config_entry(trusted_entry, None);
     if pin.package_id != ext.package.descriptor.id {
@@ -501,18 +508,18 @@ fn trusted_pin_from_entry(
 
 fn convert_extension_instances(
     instances: &BTreeMap<String, crate::config::ExtensionInstanceConfig>,
-) -> BTreeMap<String, gestalt_runtime::extension::ExtensionInstanceConfig> {
+) -> BTreeMap<String, gestalt_runtime::unstable::extension::ExtensionInstanceConfig> {
     instances
         .iter()
         .map(|(id, instance)| {
             (
                 id.clone(),
-                gestalt_runtime::extension::ExtensionInstanceConfig {
+                gestalt_runtime::unstable::extension::ExtensionInstanceConfig {
                     package: instance.package.clone(),
                     enabled: instance.enabled,
                     components: instance.components.clone(),
                     config: instance.config.clone(),
-                    grants: gestalt_runtime::extension::ExtensionGrantConfig {
+                    grants: gestalt_runtime::unstable::extension::ExtensionGrantConfig {
                         workspace_read: instance.grants.workspace_read,
                         workspace_write: instance.grants.workspace_write,
                         shell: instance.grants.shell,
@@ -529,7 +536,7 @@ fn convert_extension_instances(
 pub async fn inspect_runtime(
     overrides: &crate::config::CliOverrides,
     api_key: Option<String>,
-) -> Result<gestalt_runtime::RuntimeInspect, Box<dyn std::error::Error>> {
+) -> Result<gestalt_runtime::unstable::RuntimeInspect, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
     let runtime = build_app_runtime(
         &config,
@@ -579,9 +586,9 @@ pub fn disable_extension(
 
 pub fn validate_extension(
     path: &std::path::Path,
-) -> Result<gestalt_runtime::extension::ExtensionManifestV2, Box<dyn std::error::Error>> {
+) -> Result<gestalt_runtime::unstable::extension::ExtensionManifestV2, Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
-    let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&content)?;
+    let manifest = gestalt_runtime::unstable::extension::ExtensionManifestV2::parse(&content)?;
     manifest.validate()?;
     Ok(manifest)
 }
@@ -589,7 +596,10 @@ pub fn validate_extension(
 pub fn inspect_extension(
     overrides: &crate::config::CliOverrides,
     id: &str,
-) -> Result<Option<gestalt_runtime::extension::ExtensionManifestV2>, Box<dyn std::error::Error>> {
+) -> Result<
+    Option<gestalt_runtime::unstable::extension::ExtensionManifestV2>,
+    Box<dyn std::error::Error>,
+> {
     let config = crate::config::load_effective_config(overrides)?;
     let explicit_loads: Vec<std::path::PathBuf> = config
         .extensions
@@ -598,14 +608,16 @@ pub fn inspect_extension(
         .map(|s| std::path::PathBuf::from(s))
         .collect();
     let global_dir = global_config_dir().map(|d| d.join("gestalt"));
-    let discovery =
-        gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
+    let discovery = gestalt_runtime::unstable::ExtensionDiscovery::new(
+        config.workspace_root.clone(),
+        global_dir,
+    );
     let discovered = discovery.discover_packages(&explicit_loads)?;
     for ext in discovered {
         if ext.package.descriptor.id == id {
             let content = std::fs::read_to_string(&ext.manifest_path)?;
             return Ok(Some(
-                gestalt_runtime::extension::ExtensionManifestV2::parse(&content)?,
+                gestalt_runtime::unstable::extension::ExtensionManifestV2::parse(&content)?,
             ));
         }
     }
@@ -614,7 +626,8 @@ pub fn inspect_extension(
 
 pub fn list_extensions(
     overrides: &crate::config::CliOverrides,
-) -> Result<Vec<gestalt_runtime::DiscoveredExtensionPackage>, Box<dyn std::error::Error>> {
+) -> Result<Vec<gestalt_runtime::unstable::DiscoveredExtensionPackage>, Box<dyn std::error::Error>>
+{
     let config = crate::config::load_effective_config(overrides)?;
     let explicit_loads: Vec<std::path::PathBuf> = config
         .extensions
@@ -623,8 +636,10 @@ pub fn list_extensions(
         .map(|s| std::path::PathBuf::from(s))
         .collect();
     let global_dir = global_config_dir().map(|d| d.join("gestalt"));
-    let discovery =
-        gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
+    let discovery = gestalt_runtime::unstable::ExtensionDiscovery::new(
+        config.workspace_root.clone(),
+        global_dir,
+    );
     let mut discovered = discovery.discover_packages(&explicit_loads)?;
     for ext in &mut discovered {
         if config
@@ -641,7 +656,7 @@ pub fn list_extensions(
 pub async fn get_runtime_events(
     overrides: &crate::config::CliOverrides,
     api_key: Option<String>,
-) -> Result<Vec<gestalt_runtime::RuntimeEvent>, Box<dyn std::error::Error>> {
+) -> Result<Vec<gestalt_runtime::unstable::RuntimeEvent>, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
     let runtime = build_app_runtime(
         &config,
@@ -667,8 +682,10 @@ pub fn runtime_doctor(
         .map(|s| std::path::PathBuf::from(s))
         .collect();
     let global_dir = global_config_dir().map(|d| d.join("gestalt"));
-    let discovery =
-        gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
+    let discovery = gestalt_runtime::unstable::ExtensionDiscovery::new(
+        config.workspace_root.clone(),
+        global_dir,
+    );
 
     if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
         checks.push(format!("Discovered {} extension(s).", discovered.len()));
@@ -740,7 +757,9 @@ pub fn runtime_doctor(
 
 // === Skill surface ===
 
-pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_runtime::SkillDiscovery {
+pub fn build_skill_discovery(
+    config: &EffectiveConfig,
+) -> gestalt_runtime::unstable::SkillDiscovery {
     let global_dir = if std::env::var_os("GESTALT_NO_GLOBAL_SKILLS").is_some() {
         None
     } else {
@@ -751,7 +770,11 @@ pub fn build_skill_discovery(config: &EffectiveConfig) -> gestalt_runtime::Skill
     } else {
         dirs::home_dir()
     };
-    gestalt_runtime::SkillDiscovery::new(config.workspace_root.clone(), global_dir, home_dir)
+    gestalt_runtime::unstable::SkillDiscovery::new(
+        config.workspace_root.clone(),
+        global_dir,
+        home_dir,
+    )
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -784,7 +807,7 @@ pub fn list_skills(
 pub fn inspect_skill(
     overrides: &crate::config::CliOverrides,
     name: &str,
-) -> Result<Option<gestalt_runtime::SkillDescriptor>, Box<dyn std::error::Error>> {
+) -> Result<Option<gestalt_runtime::unstable::SkillDescriptor>, Box<dyn std::error::Error>> {
     let config = crate::config::load_effective_config(overrides)?;
     let explicit: Vec<std::path::PathBuf> = config
         .skills
@@ -805,14 +828,14 @@ pub fn inspect_skill(
 #[allow(clippy::missing_errors_doc)]
 pub fn validate_skill(
     path: &std::path::Path,
-) -> Result<gestalt_runtime::skill_manifest::SkillManifest, Box<dyn std::error::Error>> {
+) -> Result<gestalt_runtime::unstable::skill_manifest::SkillManifest, Box<dyn std::error::Error>> {
     let manifest_path = if path.is_dir() {
         path.join("SKILL.md")
     } else {
         path.to_path_buf()
     };
     let raw = std::fs::read_to_string(&manifest_path)?;
-    let file = gestalt_runtime::skill_manifest::SkillManifest::parse(&raw)?;
+    let file = gestalt_runtime::unstable::skill_manifest::SkillManifest::parse(&raw)?;
     let dir_name = manifest_path
         .parent()
         .and_then(|p| p.file_name())
@@ -851,8 +874,8 @@ pub fn validate_skill_activation(config: &EffectiveConfig, name: &str) -> SkillV
         Some(desc) => {
             let trusted = matches!(
                 desc.trust_level,
-                gestalt_runtime::SkillTrustLevel::Explicit
-                    | gestalt_runtime::SkillTrustLevel::Workspace
+                gestalt_runtime::unstable::SkillTrustLevel::Explicit
+                    | gestalt_runtime::unstable::SkillTrustLevel::Workspace
             ) || trust_list.contains(&desc.name);
             if trusted {
                 SkillValidation::Ok {
@@ -873,7 +896,7 @@ pub fn validate_skill_activation(config: &EffectiveConfig, name: &str) -> SkillV
 pub enum SkillValidation {
     /// Skill was found and trusted.
     Ok {
-        descriptor: Box<gestalt_runtime::SkillDescriptor>,
+        descriptor: Box<gestalt_runtime::unstable::SkillDescriptor>,
     },
     /// Skill name was not present in the discovered set.
     Unknown { name: String },
@@ -882,7 +905,7 @@ pub enum SkillValidation {
     /// `skills.trusted`).
     Untrusted {
         name: String,
-        trust_level: gestalt_runtime::SkillTrustLevel,
+        trust_level: gestalt_runtime::unstable::SkillTrustLevel,
     },
 }
 

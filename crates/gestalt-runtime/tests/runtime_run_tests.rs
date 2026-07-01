@@ -16,8 +16,8 @@ use gestalt_core::{
     session::{Session, SessionConfig},
     tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
-use gestalt_runtime::ContextMessageAssembler;
-use gestalt_runtime::{
+use gestalt_runtime::unstable::ContextMessageAssembler;
+use gestalt_runtime::unstable::{
     AfterContextBuildCtx, AgentRuntimeBuilder, CompositionHooks, ContextPatch, HookOutcome,
     RuntimeConfig, RuntimeContextHookAdapter, RuntimeContextPipeline, RuntimeEventBus, UserInput,
 };
@@ -37,43 +37,43 @@ struct NoopCompositionHooks;
 impl CompositionHooks for NoopCompositionHooks {
     async fn before_context_build(
         &self,
-        _context: &gestalt_runtime::BeforeContextBuildCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+        _context: &gestalt_runtime::unstable::BeforeContextBuildCtx,
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn after_context_build(
         &self,
         _context: &AfterContextBuildCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn before_tool_policy(
         &self,
-        _context: &gestalt_runtime::BeforeToolPolicyCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+        _context: &gestalt_runtime::unstable::BeforeToolPolicyCtx,
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn after_tool_result(
         &self,
-        _context: &gestalt_runtime::AfterToolResultCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+        _context: &gestalt_runtime::unstable::AfterToolResultCtx,
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn prepare_next_turn(
         &self,
-        _context: &gestalt_runtime::PrepareNextTurnCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+        _context: &gestalt_runtime::unstable::PrepareNextTurnCtx,
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn on_event(
         &self,
-        _context: &gestalt_runtime::OnEventCtx,
-    ) -> gestalt_runtime::Result<()> {
+        _context: &gestalt_runtime::unstable::OnEventCtx,
+    ) -> gestalt_runtime::unstable::Result<()> {
         Ok(())
     }
 }
@@ -86,36 +86,36 @@ async fn test_prepare_next_turn_switch_model() {
     impl CompositionHooks for SwitchModelCompositionHooks {
         async fn before_context_build(
             &self,
-            _context: &gestalt_runtime::BeforeContextBuildCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::BeforeContextBuildCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn after_context_build(
             &self,
             _context: &AfterContextBuildCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn before_tool_policy(
             &self,
-            _context: &gestalt_runtime::BeforeToolPolicyCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::BeforeToolPolicyCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn after_tool_result(
             &self,
-            _context: &gestalt_runtime::AfterToolResultCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::AfterToolResultCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn prepare_next_turn(
             &self,
-            _context: &gestalt_runtime::PrepareNextTurnCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::PrepareNextTurnCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::SwitchModel {
                 model: "cheaper-model".to_string(),
                 provider: None,
@@ -125,8 +125,8 @@ async fn test_prepare_next_turn_switch_model() {
 
         async fn on_event(
             &self,
-            _context: &gestalt_runtime::OnEventCtx,
-        ) -> gestalt_runtime::Result<()> {
+            _context: &gestalt_runtime::unstable::OnEventCtx,
+        ) -> gestalt_runtime::unstable::Result<()> {
             Ok(())
         }
     }
@@ -467,36 +467,36 @@ async fn test_prepare_next_turn_block_stops_session() {
     impl CompositionHooks for BlockCompositionHooks {
         async fn before_context_build(
             &self,
-            _context: &gestalt_runtime::BeforeContextBuildCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::BeforeContextBuildCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn after_context_build(
             &self,
             _context: &AfterContextBuildCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn before_tool_policy(
             &self,
-            _context: &gestalt_runtime::BeforeToolPolicyCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::BeforeToolPolicyCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn after_tool_result(
             &self,
-            _context: &gestalt_runtime::AfterToolResultCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::AfterToolResultCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Continue)
         }
 
         async fn prepare_next_turn(
             &self,
-            _context: &gestalt_runtime::PrepareNextTurnCtx,
-        ) -> gestalt_runtime::Result<HookOutcome> {
+            _context: &gestalt_runtime::unstable::PrepareNextTurnCtx,
+        ) -> gestalt_runtime::unstable::Result<HookOutcome> {
             Ok(HookOutcome::Block {
                 reason: "policy escalation blocked".to_string(),
             })
@@ -504,8 +504,8 @@ async fn test_prepare_next_turn_block_stops_session() {
 
         async fn on_event(
             &self,
-            _context: &gestalt_runtime::OnEventCtx,
-        ) -> gestalt_runtime::Result<()> {
+            _context: &gestalt_runtime::unstable::OnEventCtx,
+        ) -> gestalt_runtime::unstable::Result<()> {
             Ok(())
         }
     }
@@ -754,7 +754,7 @@ impl PolicyEngine for MockPolicyEngine {
     }
 }
 
-fn build_test_runtime() -> gestalt_runtime::runtime::AgentRuntime {
+fn build_test_runtime() -> gestalt_runtime::unstable::runtime::AgentRuntime {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
@@ -994,7 +994,7 @@ async fn test_runtime_context_hook_persists_prompt_snapshot() {
     ));
 
     let persisted =
-        gestalt_runtime::read_prompt_snapshot(artifact_dir.join("prompt-snapshot.json"))
+        gestalt_runtime::unstable::read_prompt_snapshot(artifact_dir.join("prompt-snapshot.json"))
             .expect("prompt snapshot persisted");
     assert_eq!(persisted.snapshot_hash, snapshot.snapshot_hash);
 
@@ -1136,7 +1136,7 @@ impl Provider for NoopProvider {
     ) -> Result<usize, gestalt_core::error::HarnessError> {
         Ok(messages
             .iter()
-            .map(gestalt_runtime::estimate_message_tokens)
+            .map(gestalt_runtime::unstable::estimate_message_tokens)
             .sum())
     }
 
@@ -1191,7 +1191,7 @@ impl Provider for OverheadProvider {
     ) -> Result<usize, gestalt_core::error::HarnessError> {
         Ok(messages
             .iter()
-            .map(gestalt_runtime::estimate_message_tokens)
+            .map(gestalt_runtime::unstable::estimate_message_tokens)
             .sum())
     }
 
@@ -1202,7 +1202,7 @@ impl Provider for OverheadProvider {
         let base: usize = request
             .messages
             .iter()
-            .map(gestalt_runtime::estimate_message_tokens)
+            .map(gestalt_runtime::unstable::estimate_message_tokens)
             .sum();
         Ok(base.saturating_add(request.tools.len().saturating_mul(512)))
     }

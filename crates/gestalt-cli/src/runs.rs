@@ -100,7 +100,7 @@ pub fn tail_run(
 }
 
 fn print_tailed_line(line: &str, format: crate::output::OutputFormat) -> Result<(), HarnessError> {
-    let Some(envelope) = gestalt_runtime::parse_trace_envelope_line(line, 0)
+    let Some(envelope) = gestalt_runtime::unstable::parse_trace_envelope_line(line, 0)
         .map_err(|err| HarnessError::Trace(err))?
     else {
         return Ok(());
@@ -108,9 +108,9 @@ fn print_tailed_line(line: &str, format: crate::output::OutputFormat) -> Result<
 
     match format {
         crate::output::OutputFormat::Json => {
-            let data = gestalt_runtime::ClientEventRecordV1::from(&envelope);
+            let data = gestalt_runtime::unstable::ClientEventRecordV1::from(&envelope);
             let wrapped = crate::output::JsonEnvelope {
-                schema_version: gestalt_runtime::CLIENT_EVENT_SCHEMA_VERSION,
+                schema_version: gestalt_runtime::unstable::CLIENT_EVENT_SCHEMA_VERSION,
                 kind: "runs.tail.event".to_string(),
                 data,
             };

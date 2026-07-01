@@ -6,7 +6,7 @@ use std::time::Duration;
 use gestalt_core::{
     approval::ApprovalDecision, cancel::CancelToken, error::HarnessError, event::AgentEvent,
 };
-use gestalt_runtime::run_manifest::RunManifest;
+use gestalt_runtime::unstable::run_manifest::RunManifest;
 
 use crate::config::EffectiveConfig;
 use crate::output::CliReport;

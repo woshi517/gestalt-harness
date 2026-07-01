@@ -325,7 +325,7 @@ fn test_runs_additional_patch_requirements() {
 
 #[test]
 fn test_runs_descendant_aware_prune_and_delete() {
-    use gestalt_runtime::run_manifest::{
+    use gestalt_runtime::unstable::run_manifest::{
         CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
     };
 

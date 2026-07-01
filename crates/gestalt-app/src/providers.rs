@@ -3,7 +3,7 @@ use gestalt_core::HarnessError;
 use crate::{auth::resolve_auth, config::EffectiveConfig, reports::ProviderDoctorResult};
 
 pub fn list_providers(config: &EffectiveConfig) -> Vec<String> {
-    let mut providers = gestalt_runtime::registered();
+    let mut providers = gestalt_runtime::unstable::registered();
     let builtins = vec![
         "openrouter".to_string(),
         "ollama".to_string(),

@@ -10,7 +10,7 @@ use gestalt_core::{
     session::{ExecutionMode, Session, SessionConfig},
     tool::{Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
-use gestalt_runtime::{
+use gestalt_runtime::unstable::{
     extension::RuntimeGeneration,
     lifecycle::{
         CapabilityDataScope, CapabilityDescriptorV2, CapabilityFailureMode, ContextProviderPlan,
@@ -169,14 +169,16 @@ impl LifecycleClient for RecordingLifecycleClient {
     async fn initialize(
         &self,
         _request: InitializeRequestV2,
-    ) -> gestalt_runtime::Result<InitializeResponseV2> {
+    ) -> gestalt_runtime::unstable::Result<InitializeResponseV2> {
         Ok(InitializeResponseV2 {
             negotiated_version: "2.0".to_string(),
             supports_cancellation: true,
         })
     }
 
-    async fn describe_capabilities(&self) -> gestalt_runtime::Result<Vec<CapabilityDescriptorV2>> {
+    async fn describe_capabilities(
+        &self,
+    ) -> gestalt_runtime::unstable::Result<Vec<CapabilityDescriptorV2>> {
         Ok(vec![
             CapabilityDescriptorV2 {
                 component_id: "component:com.example.lifecycle:primary:lifecycle".to_string(),
@@ -224,30 +226,30 @@ impl LifecycleClient for RecordingLifecycleClient {
     async fn invoke(
         &self,
         request: LifecycleInvokeRequestV2,
-    ) -> gestalt_runtime::Result<LifecycleInvokeResponseV2> {
+    ) -> gestalt_runtime::unstable::Result<LifecycleInvokeResponseV2> {
         self.calls.lock().unwrap().push(request.capability.clone());
 
         let payload = match request.capability {
-            LifecycleCapabilityKind::ContextProvider => {
-                serde_json::to_value(gestalt_runtime::lifecycle::ContextProviderResponse {
+            LifecycleCapabilityKind::ContextProvider => serde_json::to_value(
+                gestalt_runtime::unstable::lifecycle::ContextProviderResponse {
                     messages: vec![Message::System {
                         content: "lifecycle context".to_string(),
                     }],
-                })
-                .unwrap()
-            }
+                },
+            )
+            .unwrap(),
             LifecycleCapabilityKind::PolicyGuard => serde_json::to_value(PolicyDecision::allowed(
                 Some("lifecycle allowed".to_string()),
             ))
             .unwrap(),
-            LifecycleCapabilityKind::Verifier => {
-                serde_json::to_value(gestalt_runtime::lifecycle::ExternalVerifierReport {
+            LifecycleCapabilityKind::Verifier => serde_json::to_value(
+                gestalt_runtime::unstable::lifecycle::ExternalVerifierReport {
                     component_id: request.component_id,
                     passed: true,
                     message: Some("verified".to_string()),
-                })
-                .unwrap()
-            }
+                },
+            )
+            .unwrap(),
             LifecycleCapabilityKind::TurnRouter => {
                 serde_json::to_value(TurnRouteDecision::Continue).unwrap()
             }
@@ -257,7 +259,7 @@ impl LifecycleClient for RecordingLifecycleClient {
         Ok(LifecycleInvokeResponseV2 { payload })
     }
 
-    async fn shutdown(&self) -> gestalt_runtime::Result<()> {
+    async fn shutdown(&self) -> gestalt_runtime::unstable::Result<()> {
         Ok(())
     }
 }
@@ -285,9 +287,9 @@ async fn run_session_invokes_all_pinned_lifecycle_capabilities() {
         .tools(Arc::new(TestToolCatalog {
             tool: Arc::new(TestTool),
         }))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(AllowAllPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
@@ -305,7 +307,8 @@ async fn run_session_invokes_all_pinned_lifecycle_capabilities() {
     let component_id = "component:com.example.lifecycle:primary:lifecycle".to_string();
     let mut snapshot = runtime.extension_manager.active_snapshot().as_ref().clone();
     snapshot.generation = RuntimeGeneration(1);
-    snapshot.fingerprint = gestalt_runtime::registry::RuntimeFingerprint("test-fingerprint".into());
+    snapshot.fingerprint =
+        gestalt_runtime::unstable::registry::RuntimeFingerprint("test-fingerprint".into());
     snapshot.context_plan = Arc::new(ContextProviderPlan::new(vec![
         ContextProviderRegistration {
             descriptor: TypedCapabilityDescriptor {

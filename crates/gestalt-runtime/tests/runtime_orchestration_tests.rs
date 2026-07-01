@@ -7,8 +7,8 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{Tool, ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::control::HostControl;
-use gestalt_runtime::{
+use gestalt_runtime::unstable::control::HostControl;
+use gestalt_runtime::unstable::{
     AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, InMemoryArtifactStore,
     OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig, RuntimeEvent,
 };
@@ -101,9 +101,9 @@ impl ContextPipeline for MockContextPipeline {
     }
 
     fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
-        Some(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        Some(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
     }
 }
 
@@ -133,7 +133,7 @@ impl Orchestrator for TwoStepOrchestrator {
         &self,
         handle: Arc<dyn AgentRuntimeHandle>,
         task: OrchestrationTask,
-    ) -> Result<OrchestrationResult, gestalt_runtime::error::RuntimeError> {
+    ) -> Result<OrchestrationResult, gestalt_runtime::unstable::error::RuntimeError> {
         // Step 1: Spawn session 1, execute it, save artifact
         let session_1 = handle.spawn_session("writer-session", None).await?;
         let result_1 = handle.send_message(&session_1, &task.prompt).await?;

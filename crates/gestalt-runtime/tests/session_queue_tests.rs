@@ -1,7 +1,7 @@
 use gestalt_core::session_queue::{
     MessageSource, QueueAck, QueueLifecycle, QueuedSessionMessage, SteeringQueue,
 };
-use gestalt_runtime::InMemorySteeringQueue;
+use gestalt_runtime::unstable::InMemorySteeringQueue;
 
 #[tokio::test]
 async fn test_in_memory_steering_queue_fifo_and_len() {

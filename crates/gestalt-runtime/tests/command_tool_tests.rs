@@ -8,8 +8,10 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
-use gestalt_runtime::extension::{CommandTool, ExtensionManifestV2, ResolvedExtensionPackage};
-use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig};
+use gestalt_runtime::unstable::extension::{
+    CommandTool, ExtensionManifestV2, ResolvedExtensionPackage,
+};
+use gestalt_runtime::unstable::{AgentRuntimeBuilder, RuntimeConfig};
 
 struct EmptyToolCatalog;
 
@@ -90,7 +92,7 @@ async fn command_tool_returns_structured_json() {
     let tool = CommandTool::from_component(
         &package.components[0],
         std::path::PathBuf::from("."),
-        gestalt_runtime::event_bus::RuntimeEventBus::new(),
+        gestalt_runtime::unstable::event_bus::RuntimeEventBus::new(),
     )
     .unwrap();
 
@@ -117,7 +119,7 @@ async fn command_tool_invalid_json_output_is_execution_error() {
     let tool = CommandTool::from_component(
         &package.components[0],
         std::path::PathBuf::from("."),
-        gestalt_runtime::event_bus::RuntimeEventBus::new(),
+        gestalt_runtime::unstable::event_bus::RuntimeEventBus::new(),
     )
     .unwrap();
 
@@ -134,9 +136,9 @@ fn builder_registers_command_tool_components_as_tools() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())
@@ -156,9 +158,9 @@ fn builder_keeps_same_component_names_unique_across_instances() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())
@@ -235,7 +237,7 @@ allow_shell = true
 "#
     ))
     .unwrap();
-    let grants = gestalt_runtime::extension::ExtensionGrantConfig {
+    let grants = gestalt_runtime::unstable::extension::ExtensionGrantConfig {
         shell: true,
         ..Default::default()
     };

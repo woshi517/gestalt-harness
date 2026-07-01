@@ -2,11 +2,11 @@
 
 use std::collections::HashMap;
 
-use gestalt_runtime::extension::{
+use gestalt_runtime::unstable::extension::{
     merge_mcp_server_configs, package_mcp_server_name, package_mcp_servers, ExtensionManifestV2,
     ResolvedExtensionPackage,
 };
-use gestalt_runtime::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
+use gestalt_runtime::unstable::{McpLifecycleMode, McpServerConfig, McpTransportConfig};
 
 #[test]
 fn package_mcp_component_normalizes_to_canonical_server_name() {

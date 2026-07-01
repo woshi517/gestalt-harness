@@ -7,8 +7,8 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::control::RuntimeControl;
-use gestalt_runtime::{AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig};
+use gestalt_runtime::unstable::control::RuntimeControl;
+use gestalt_runtime::unstable::{AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig};
 
 struct EmptyToolCatalog;
 
@@ -133,13 +133,13 @@ async fn reload_unknown_instance_is_an_error() {
     assert!(err.to_string().contains("Unknown instance ID"));
 }
 
-fn runtime() -> gestalt_runtime::AgentRuntime {
+fn runtime() -> gestalt_runtime::unstable::AgentRuntime {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())

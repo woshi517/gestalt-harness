@@ -1,12 +1,14 @@
 use gestalt_core::ContextStability;
-use gestalt_runtime::{compute_schema_hash, compute_tool_schema_hash, RuntimeRegistryBuilder};
+use gestalt_runtime::unstable::{
+    compute_schema_hash, compute_tool_schema_hash, RuntimeRegistryBuilder,
+};
 use serde_json::json;
 use std::sync::Arc;
 
 struct DummyContributor;
 
 #[async_trait::async_trait]
-impl gestalt_runtime::ContextContributor for DummyContributor {
+impl gestalt_runtime::unstable::ContextContributor for DummyContributor {
     fn name(&self) -> &str {
         "dummy"
     }
@@ -18,7 +20,7 @@ impl gestalt_runtime::ContextContributor for DummyContributor {
     async fn contribute(
         &self,
         _workspace_root: &std::path::Path,
-    ) -> Result<gestalt_core::message::Message, gestalt_runtime::RuntimeError> {
+    ) -> Result<gestalt_core::message::Message, gestalt_runtime::unstable::RuntimeError> {
         Ok(gestalt_core::message::Message::System {
             content: "dummy".to_string(),
         })
@@ -73,7 +75,7 @@ fn test_context_contributor_stability_is_recorded() {
 #[test]
 fn test_composed_tool_catalog_sorting_and_conflicts() {
     use gestalt_core::tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema};
-    use gestalt_runtime::ComposedToolCatalog;
+    use gestalt_runtime::unstable::ComposedToolCatalog;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 

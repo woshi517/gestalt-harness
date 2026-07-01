@@ -1,5 +1,5 @@
-use gestalt_runtime::extension::ExtensionsConfig;
-use gestalt_runtime::extension::{
+use gestalt_runtime::unstable::extension::ExtensionsConfig;
+use gestalt_runtime::unstable::extension::{
     resolve_configured_instances, ExtensionManifestV2, ResolvedExtensionPackage,
 };
 

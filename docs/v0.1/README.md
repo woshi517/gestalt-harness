@@ -3,7 +3,8 @@
 This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No contract is considered published until its corresponding implementation passes all conformance tests.
 
 The complete current classification is in the
-[contract inventory](./contract-inventory.md).
+[contract inventory](./contract-inventory.md). The deliberate Rust boundary is
+documented in [runtime-api.md](./runtime-api.md).
 
 ---
 
@@ -11,7 +12,7 @@ The complete current classification is in the
 * **Status:** 🔴 **Unpublished (Remaining Approval/Artifact/API Gates)**
 * **Specification:** [embedding-control.md](./embedding-control.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md), [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
-* **Rust API Target:** `gestalt_runtime::control::{RuntimeBackedControlHost, contract::RuntimeControlV1}`
+* **Rust API Target:** `gestalt_runtime::api::v1::{RuntimeBackedControlHost, RuntimeControlV1}`
 * **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs), [runtime_control_real_run.rs](../../crates/gestalt-runtime/tests/runtime_control_real_run.rs)
 * **Test Support:** `InMemoryControlHost` and `MockControlHost` are conformance-only implementations.
 
@@ -26,7 +27,7 @@ The complete current classification is in the
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Contract:** [context-build-report.md](./context-build-report.md)
 * **Implementation Plan:** [H2B](../plans/v0.1-hardening/H2B-context-diagnostics-and-determinism.md)
-* **Rust API Target:** `gestalt_runtime::ContextBuildReportV1`
+* **Rust API Target:** `gestalt_runtime::unstable::ContextBuildReportV1`
 * **Enforcing Tests:** [context_report_contract_tests.rs](../../crates/gestalt-runtime/tests/context_report_contract_tests.rs)
 
 ## 4. Configuration (CFG-001–CFG-005)
@@ -40,14 +41,14 @@ The complete current classification is in the
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#34-events-remain-the-ground-truth)
 * **Implementation Plan:** [H2A](../plans/v0.1-hardening/H2A-event-trace-replay-contracts.md)
-* **Rust API Target:** `gestalt_runtime::{EventEnvelope, ClientEventRecordV1}`
+* **Rust API Target:** `gestalt_runtime::unstable::{EventEnvelope, ClientEventRecordV1}`
 * **Enforcing Tests:** [trace_contract_tests.rs](../../crates/gestalt-runtime/tests/trace_contract_tests.rs), [sessions_tests.rs](../../crates/gestalt-app/tests/sessions_tests.rs)
 
 ## 6. Policy & Approval (POL-001–POL-004)
 * **Status:** 🔴 **Unpublished (Runtime Integration Required)**
 * **Specification:** [policy-approval.md](./policy-approval.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md)
-* **Rust API Target:** `gestalt_runtime::control::contract::ApprovalControlV1`
+* **Rust API Target:** `gestalt_runtime::api::v1::ApprovalControlV1`
 * **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
 
 ## 7. Extension Packages & Components (V2-only) (EXT-001–EXT-005)

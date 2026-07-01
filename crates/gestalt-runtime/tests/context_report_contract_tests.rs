@@ -1,6 +1,6 @@
 use gestalt_core::context::{ContextOmission, ContextPacket, ContextSourceRef};
 use gestalt_core::{DurabilityMode, TraceError};
-use gestalt_runtime::{
+use gestalt_runtime::unstable::{
     load_context_build_report, persist_context_build_report, CapturedContributionV1,
     ContextBuildReportInputV1, ContextBuildReportV1,
 };

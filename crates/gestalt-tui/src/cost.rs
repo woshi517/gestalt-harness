@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use gestalt_core::TraceError;
-use gestalt_runtime::ModelCatalog;
-use gestalt_runtime::{aggregate_costs, CostReport};
+use gestalt_runtime::unstable::ModelCatalog;
+use gestalt_runtime::unstable::{aggregate_costs, CostReport};
 
 pub fn calculate_cost(path: &Path) -> Result<CostReport, TraceError> {
     let catalog = ModelCatalog::new();
