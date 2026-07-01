@@ -1,0 +1,18 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: "snapshot_string(&error_json(\"PROVIDER_ERROR\", \"model catalog unavailable\",\ntrue))"
+---
+{
+  "data": null,
+  "error": {
+    "code": "PROVIDER_ERROR",
+    "correlation_id": null,
+    "details": null,
+    "message": "model catalog unavailable",
+    "retryable": true
+  },
+  "kind": "error",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}

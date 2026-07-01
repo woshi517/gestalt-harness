@@ -1,0 +1,24 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "decision": {
+      "policy_source": "default allow",
+      "reason": "allowlisted command",
+      "status": "allowed"
+    },
+    "input": {
+      "command": "echo hello"
+    },
+    "mode": "confirm",
+    "risk": "Low",
+    "tool": "bash"
+  },
+  "error": null,
+  "kind": "policy.explain",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

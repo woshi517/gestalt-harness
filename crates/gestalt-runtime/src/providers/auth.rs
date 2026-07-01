@@ -188,8 +188,13 @@ pub fn provider_auth_config(
     } else if let Some(auth_ref) = config.get("auth_ref").and_then(Value::as_str) {
         if let Some(key) = auth_ref.strip_prefix("keychain:") {
             ConfiguredCredential::Keychain(key.to_string())
-        } else if let Some(key) = auth_ref.strip_prefix("secret:") {
-            ConfiguredCredential::Keychain(key.to_string())
+        } else if auth_ref.strip_prefix("secret:").is_some() {
+            return Err(HarnessError::Config(
+                gestalt_core::ConfigError::InvalidValue {
+                    field: format!("providers.{provider_id}.auth_ref"),
+                    reason: "legacy secret: syntax is not supported; use keychain:".to_string(),
+                },
+            ));
         } else {
             ConfiguredCredential::Keychain(auth_ref.to_string())
         }

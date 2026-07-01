@@ -1,0 +1,18 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: "snapshot_string(&error_json(\"PROVIDER_NOT_FOUND\",\n\"provider 'missing' not found\", false))"
+---
+{
+  "data": null,
+  "error": {
+    "code": "PROVIDER_NOT_FOUND",
+    "correlation_id": null,
+    "details": null,
+    "message": "provider 'missing' not found",
+    "retryable": false
+  },
+  "kind": "error",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}

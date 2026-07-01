@@ -298,7 +298,7 @@ fn test_policy_deny_union_merge() {
 }
 
 #[test]
-fn test_extension_instances_parse_without_dropping_legacy_fields() {
+fn test_extension_instances_parse_with_snake_case_grants() {
     let _guard = lock_env();
     use gestalt_app::config::WorkspaceConfig;
 
@@ -313,22 +313,22 @@ fn test_extension_instances_parse_without_dropping_legacy_fields() {
     "instances": {
       "review-primary": {
         "package": "com.example.review",
-        "enabled": true,
-        "components": {
-          "lifecycle": true,
-          "client-metadata": false
-        },
-        "config": {
-          "policySet": "default"
-        },
-        "grants": {
-          "workspaceRead": true,
-          "workspaceWrite": false,
+      "enabled": true,
+      "components": {
+        "lifecycle": true,
+        "client-metadata": false
+      },
+      "config": {
+        "policySet": "default"
+      },
+      "grants": {
+          "workspace_read": true,
+          "workspace_write": false,
           "network": ["api.example.com"]
-        }
       }
     }
   }
+}
 }
 "#;
 
@@ -348,6 +348,142 @@ fn test_extension_instances_parse_without_dropping_legacy_fields() {
     assert!(instance.grants.workspace_read);
     assert!(!instance.grants.workspace_write);
     assert_eq!(instance.grants.network, ["api.example.com"]);
+}
+
+#[test]
+fn legacy_extension_grant_aliases_are_rejected() {
+    let _guard = lock_env();
+    use gestalt_app::config::WorkspaceConfig;
+
+    let json = r#"
+{
+  "version": 1,
+  "extensions": {
+    "instances": {
+      "review-primary": {
+        "package": "com.example.review",
+        "grants": {
+          "workspaceRead": true
+        }
+      }
+    }
+  }
+}
+"#;
+
+    assert!(serde_json::from_str::<WorkspaceConfig>(json).is_err());
+}
+
+#[test]
+fn legacy_secret_auth_ref_is_rejected() {
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
+
+    let unique_id = uuid::Uuid::new_v4().to_string();
+    let temp_dir = std::env::temp_dir().join(format!("gestalt_test_secret_{}", unique_id));
+    let workspace_dir = temp_dir.join("workspace");
+    fs::create_dir_all(&workspace_dir).unwrap();
+    fs::write(
+        workspace_dir.join("gestalt.json"),
+        r#"{
+          "version": 1,
+          "providers": {
+            "openai": {
+              "auth_ref": "secret:provider/openai"
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let error = load_effective_config(&CliOverrides {
+        workspace: Some(workspace_dir.clone()),
+        ..CliOverrides::default()
+    })
+    .expect_err("legacy secret auth_ref must be rejected");
+
+    assert!(error
+        .to_string()
+        .contains("legacy secret: syntax is not supported"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn provider_kind_is_rejected_as_unknown() {
+    let _guard = lock_env();
+    use gestalt_app::config::WorkspaceConfig;
+
+    let json = r#"
+{
+  "version": 1,
+  "providers": {
+    "openai": {
+      "kind": "openai"
+    }
+  }
+}
+"#;
+
+    assert!(serde_json::from_str::<WorkspaceConfig>(json).is_err());
+}
+
+#[test]
+fn explain_config_reports_leaf_provenance_and_redacts_secrets() {
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
+
+    let unique_id = uuid::Uuid::new_v4().to_string();
+    let temp_dir = std::env::temp_dir().join(format!("gestalt_test_explain_{}", unique_id));
+    let global_config_dir = temp_dir.join("gestalt");
+    let workspace_dir = temp_dir.join("workspace");
+    fs::create_dir_all(&global_config_dir).unwrap();
+    fs::create_dir_all(&workspace_dir).unwrap();
+    let _xdg_guard = TestEnvGuard::set_xdg_config_home(&temp_dir);
+    fs::write(
+        global_config_dir.join("gestalt.json"),
+        r#"{
+          "version": 1,
+          "providers": {
+            "openai": {
+              "base_url": "https://global.example/v1"
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+    fs::write(
+        workspace_dir.join("gestalt.json"),
+        r#"{
+          "version": 1,
+          "providers": {
+            "openai": {
+              "auth_ref": "keychain:gestalt/openai"
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let explanation = explain_config(&CliOverrides {
+        workspace: Some(workspace_dir.clone()),
+        ..CliOverrides::default()
+    })
+    .expect("explain config");
+
+    let auth_ref = explanation
+        .get("providers.openai.auth_ref")
+        .expect("auth_ref entry");
+    assert_eq!(auth_ref.winning_layer, "workspace");
+    assert!(auth_ref.redacted);
+    assert_eq!(auth_ref.value, serde_json::json!("[REDACTED]"));
+    assert_eq!(
+        explanation["providers.openai.base_url"].winning_layer,
+        "global"
+    );
+    assert_eq!(explanation["providers.openai.id"].winning_layer, "default");
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }
 
 #[test]

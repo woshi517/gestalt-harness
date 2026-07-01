@@ -1,0 +1,18 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: "snapshot_string(&error_json(\"TOOL_ERROR\", \"tool catalog unavailable\", true))"
+---
+{
+  "data": null,
+  "error": {
+    "code": "TOOL_ERROR",
+    "correlation_id": null,
+    "details": null,
+    "message": "tool catalog unavailable",
+    "retryable": true
+  },
+  "kind": "error",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}

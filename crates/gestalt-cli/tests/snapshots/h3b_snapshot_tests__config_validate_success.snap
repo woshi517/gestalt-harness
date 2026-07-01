@@ -1,0 +1,14 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "workspace_root": "/workspace"
+  },
+  "error": null,
+  "kind": "config.validate",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

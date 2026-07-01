@@ -1,0 +1,18 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: "snapshot_string(&error_json(\"CONFIG_ERROR\",\n\"workspace configuration is invalid\", false))"
+---
+{
+  "data": null,
+  "error": {
+    "code": "CONFIG_ERROR",
+    "correlation_id": null,
+    "details": null,
+    "message": "workspace configuration is invalid",
+    "retryable": false
+  },
+  "kind": "error",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}

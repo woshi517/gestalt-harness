@@ -21,9 +21,16 @@ fn version_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema
 }
 
 pub fn is_json_output() -> bool {
-    let args: Vec<String> = std::env::args().collect();
-    for i in 0..args.len() {
-        if (args[i] == "--format" || args[i] == "-f") && i + 1 < args.len() && args[i + 1] == "json"
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--format" || arg == "-f" {
+            return args.next().is_some_and(|value| value == "json");
+        }
+        if matches!(
+            arg.strip_prefix("--format=")
+                .or_else(|| arg.strip_prefix("-f=")),
+            Some("json")
+        ) || arg == "-fjson"
         {
             return true;
         }
@@ -182,9 +189,6 @@ pub struct ProviderConfig {
     pub capabilities: Option<ProviderCapabilitiesConfig>,
     #[serde(default)]
     pub models: HashMap<String, ModelDefinitionConfig>,
-    #[serde(default, skip_serializing)]
-    #[schemars(skip)]
-    pub kind: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -311,15 +315,15 @@ pub struct ExtensionInstanceConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ExtensionGrantConfig {
-    #[serde(default, alias = "workspaceRead")]
+    #[serde(default)]
     pub workspace_read: bool,
-    #[serde(default, alias = "workspaceWrite")]
+    #[serde(default)]
     pub workspace_write: bool,
     #[serde(default)]
     pub shell: bool,
     #[serde(default)]
     pub network: Vec<String>,
-    #[serde(default, alias = "allowedPaths")]
+    #[serde(default)]
     pub allowed_paths: Vec<std::path::PathBuf>,
 }
 
@@ -1219,9 +1223,6 @@ fn merge_provider_config(mut base: ProviderConfig, overlay: ProviderConfig) -> P
     if overlay.models_endpoint.is_some() {
         base.models_endpoint = overlay.models_endpoint;
     }
-    if overlay.kind.is_some() {
-        base.kind = overlay.kind;
-    }
 
     if overlay.api_key.is_some() || overlay.api_key_env.is_some() || overlay.auth_ref.is_some() {
         base.api_key = None;
@@ -1437,6 +1438,14 @@ fn validate_config_layer(config: &WorkspaceConfig) -> Result<(), HarnessError> {
                     specified.join(" and ")
                 ),
             }));
+        }
+        if let Some(auth_ref) = provider.auth_ref.as_deref() {
+            if auth_ref.starts_with("secret:") {
+                return Err(HarnessError::Config(ConfigError::InvalidValue {
+                    field: format!("providers.{}.auth_ref", name),
+                    reason: "legacy secret: syntax is not supported; use keychain:".to_string(),
+                }));
+            }
         }
     }
     Ok(())
@@ -1848,14 +1857,6 @@ impl EffectiveConfig {
             merged_prov_cfg = merge_provider_config(merged_prov_cfg, user_prov_cfg.clone());
         }
 
-        if merged_prov_cfg.protocol.is_none() {
-            if let Some(ref k) = merged_prov_cfg.kind {
-                if let Some(s) = k.as_str() {
-                    merged_prov_cfg.protocol = Some(s.to_string());
-                }
-            }
-        }
-
         if crate::catalog::get_builtin_provider(&provider_name).is_none()
             && !self.providers.contains_key(&provider_name)
             && !gestalt_runtime::registered().contains(&provider_name)
@@ -2107,19 +2108,6 @@ impl EffectiveConfig {
                     field: format!("providers.{}.api_key", provider_name),
                     message: format!(
                         "providers.{}.api_key contains an inline credential; restrict gestalt.json permissions and avoid committing it",
-                        provider_name
-                    ),
-                });
-            }
-        }
-
-        if let Some(ref auth_ref) = merged_prov_cfg.auth_ref {
-            if auth_ref.starts_with("secret:") {
-                warnings.push(ConfigWarning {
-                    code: ConfigWarningCode::InlineCredential,
-                    field: format!("providers.{}.auth_ref", provider_name),
-                    message: format!(
-                        "providers.{}.auth_ref uses legacy secret: syntax; rewrite it as keychain:",
                         provider_name
                     ),
                 });
@@ -2540,6 +2528,126 @@ fn source_info(
     }
 }
 
+fn redact_sensitive_fields(value: &mut Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            let mut redacted = false;
+            for (key, nested) in map.iter_mut() {
+                let lower = key.to_lowercase();
+                if lower.contains("api_key_env") {
+                    if redact_sensitive_fields(nested) {
+                        redacted = true;
+                    }
+                    continue;
+                }
+                if lower.contains("auth_ref")
+                    || lower.contains("api_key")
+                    || lower.contains("headers")
+                    || lower.contains("token")
+                    || lower.contains("secret")
+                    || lower.contains("credential")
+                    || lower.contains("sig")
+                {
+                    *nested = Value::String("[REDACTED]".to_string());
+                    redacted = true;
+                } else if redact_sensitive_fields(nested) {
+                    redacted = true;
+                }
+            }
+            redacted
+        }
+        Value::Array(items) => {
+            let mut redacted = false;
+            for item in items {
+                if redact_sensitive_fields(item) {
+                    redacted = true;
+                }
+            }
+            redacted
+        }
+        _ => false,
+    }
+}
+
+fn source_info_redacted(
+    field_path: &str,
+    mut value: Value,
+    source: String,
+    global_path: &Path,
+    workspace_path: &Path,
+) -> ConfigSourceInfo {
+    let field_name = field_path.rsplit('.').next().unwrap_or(field_path);
+    let lower = field_name.to_lowercase();
+    let redacted = if !lower.contains("api_key_env")
+        && (lower.contains("auth_ref")
+            || lower.contains("api_key")
+            || lower.contains("headers")
+            || lower.contains("token")
+            || lower.contains("secret")
+            || lower.contains("credential")
+            || lower.contains("sig"))
+    {
+        value = Value::String("[REDACTED]".to_string());
+        true
+    } else {
+        redact_sensitive_fields(&mut value)
+    };
+    let mut info = source_info(value, source, global_path, workspace_path);
+    if redacted {
+        info.redacted = true;
+    }
+    info
+}
+
+fn insert_section_provenance(
+    field_path: &str,
+    effective: &Value,
+    global: Option<&Value>,
+    workspace: Option<&Value>,
+    global_path: &Path,
+    workspace_path: &Path,
+    map: &mut HashMap<String, ConfigSourceInfo>,
+) {
+    if let Value::Object(fields) = effective {
+        if !fields.is_empty() {
+            for (name, value) in fields {
+                let child_path = format!("{field_path}.{name}");
+                insert_section_provenance(
+                    &child_path,
+                    value,
+                    global.and_then(|parent| parent.get(name)),
+                    workspace.and_then(|parent| parent.get(name)),
+                    global_path,
+                    workspace_path,
+                    map,
+                );
+            }
+            return;
+        }
+    }
+
+    if map.contains_key(field_path) {
+        return;
+    }
+    let source = if workspace.is_some_and(|value| !value.is_null()) {
+        "Workspace Config File"
+    } else if global.is_some_and(|value| !value.is_null()) {
+        "Global Config File"
+    } else {
+        "Default"
+    };
+    map.insert(
+        field_path.to_string(),
+        source_info_redacted(
+            field_path,
+            effective.clone(),
+            source.to_string(),
+            global_path,
+            workspace_path,
+        ),
+    );
+}
+
 pub fn explain_config(
     overrides: &CliOverrides,
 ) -> Result<HashMap<String, ConfigSourceInfo>, HarnessError> {
@@ -2565,6 +2673,7 @@ pub fn explain_config(
         ws_cfg = Some(WorkspaceConfig::from_file(&workspace_path)?);
     }
 
+    let effective = load_effective_config(overrides)?;
     let mut map = HashMap::new();
 
     // Helper macro to resolve a key with precedence: CLI > Env Var > Workspace > Global > Default
@@ -2652,6 +2761,60 @@ pub fn explain_config(
     );
 
     resolve!(
+        "defaults.temperature",
+        None::<f64>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.temperature)),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.temperature)),
+        Value::Null
+    );
+
+    resolve!(
+        "defaults.top_p",
+        None::<f64>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.top_p)),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.top_p)),
+        Value::Null
+    );
+
+    resolve!(
+        "defaults.variant",
+        None::<String>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.variant.clone())),
+        (|c: &WorkspaceConfig| c.defaults.as_ref().and_then(|d| d.variant.clone())),
+        Value::Null
+    );
+
+    resolve!(
+        "tools.default_timeout_secs",
+        None::<u64>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.default_timeout_secs)),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.default_timeout_secs)),
+        60
+    );
+
+    resolve!(
+        "tools.max_output_bytes",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.max_output_bytes)),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.max_output_bytes)),
+        1_048_576
+    );
+
+    resolve!(
+        "tools.max_parallel_calls",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.max_parallel_calls)),
+        (|c: &WorkspaceConfig| c.tools.as_ref().and_then(|d| d.max_parallel_calls)),
+        4
+    );
+
+    resolve!(
         "tools.bash_timeout_secs",
         None::<u64>,
         None::<&str>,
@@ -2703,6 +2866,24 @@ pub fn explain_config(
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
         (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.reserved_output_tokens)),
         4096
+    );
+
+    resolve!(
+        "context.context_window_override",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.context_window_override)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.context_window_override)),
+        Value::Null
+    );
+
+    resolve!(
+        "context.safety_margin_tokens",
+        None::<usize>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.safety_margin_tokens)),
+        (|c: &WorkspaceConfig| c.context.as_ref().and_then(|d| d.safety_margin_tokens)),
+        2048
     );
 
     resolve!(
@@ -2991,6 +3172,15 @@ pub fn explain_config(
     );
 
     resolve!(
+        "prompt.assembly_strategy",
+        None::<PromptAssemblyStrategy>,
+        None::<&str>,
+        (|c: &WorkspaceConfig| c.prompt.as_ref().and_then(|p| p.assembly_strategy)),
+        (|c: &WorkspaceConfig| c.prompt.as_ref().and_then(|p| p.assembly_strategy)),
+        Value::Null
+    );
+
+    resolve!(
         "prompt.override",
         None::<String>,
         None::<&str>,
@@ -3205,6 +3395,34 @@ pub fn explain_config(
         (|c: &WorkspaceConfig| c.mcp.as_ref().and_then(|m| m.discovery_threshold)),
         5
     );
+
+    let effective_json = serde_json::to_value(&effective).unwrap_or(Value::Null);
+    let global_json = global_cfg
+        .as_ref()
+        .and_then(|config| serde_json::to_value(config).ok());
+    let workspace_json = ws_cfg
+        .as_ref()
+        .and_then(|config| serde_json::to_value(config).ok());
+    for section in [
+        "providers",
+        "profiles",
+        "extensions",
+        "skills",
+        "mcp",
+        "context",
+    ] {
+        if let Some(section_value) = effective_json.get(section) {
+            insert_section_provenance(
+                section,
+                section_value,
+                global_json.as_ref().and_then(|value| value.get(section)),
+                workspace_json.as_ref().and_then(|value| value.get(section)),
+                &global_path,
+                &workspace_path,
+                &mut map,
+            );
+        }
+    }
 
     Ok(map)
 }

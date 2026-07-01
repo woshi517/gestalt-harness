@@ -1,0 +1,29 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "config": {
+      "api_format": "openai_responses",
+      "api_key": null,
+      "api_key_env": "OPENAI_API_KEY",
+      "auth_ref": "keychain:gestalt/openai",
+      "base_url": "https://api.openai.com/v1",
+      "default_model": "gpt-4o-mini",
+      "display_name": "OpenAI",
+      "headers": {
+        "X-Trace": "trace-123"
+      },
+      "id": "openai",
+      "models_endpoint": "https://api.openai.com/v1/models",
+      "protocol": "openai"
+    },
+    "provider": "openai"
+  },
+  "error": null,
+  "kind": "providers.inspect",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

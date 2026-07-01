@@ -33,3 +33,20 @@ fn disabled_command_should_remain_visible_and_return_typed_error() {
     assert_eq!(error["error"]["retryable"], false);
     assert_eq!(error["warnings"], serde_json::json!([]));
 }
+
+#[test]
+fn json_usage_errors_remain_machine_readable() {
+    let binary = env!("CARGO_BIN_EXE_gestalt");
+    let output = Command::new(binary)
+        .args(["--format", "json", "--definitely-invalid"])
+        .output()
+        .expect("run invalid command");
+
+    assert_eq!(output.status.code(), Some(2));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["schema_version"], 1);
+    assert_eq!(error["status"], "error");
+    assert_eq!(error["error"]["code"], "USAGE");
+    assert_eq!(error["error"]["retryable"], false);
+    assert_eq!(error["warnings"], serde_json::json!([]));
+}

@@ -717,6 +717,7 @@ pub enum DurabilityMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ContextManagementPolicy {
     pub enabled: bool,
     pub buffer_tokens: usize,

@@ -1,0 +1,18 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: "snapshot_string(&error_json(\"TOOL_NOT_FOUND\", \"tool 'missing' not found\",\nfalse))"
+---
+{
+  "data": null,
+  "error": {
+    "code": "TOOL_NOT_FOUND",
+    "correlation_id": null,
+    "details": null,
+    "message": "tool 'missing' not found",
+    "retryable": false
+  },
+  "kind": "error",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}

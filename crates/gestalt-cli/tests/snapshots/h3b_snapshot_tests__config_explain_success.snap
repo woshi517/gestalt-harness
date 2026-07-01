@@ -1,0 +1,44 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "explain_map": {
+      "defaults.provider": {
+        "defaulted": true,
+        "overridden": false,
+        "redacted": false,
+        "source": "Default",
+        "source_location": null,
+        "value": "openrouter",
+        "winning_layer": "default"
+      },
+      "providers.openai": {
+        "defaulted": false,
+        "overridden": true,
+        "redacted": true,
+        "source": "Workspace Config File",
+        "source_location": "/workspace/gestalt.json",
+        "value": {
+          "api_format": "openai_responses",
+          "api_key": "[REDACTED]",
+          "api_key_env": "OPENAI_API_KEY",
+          "auth_ref": "[REDACTED]",
+          "base_url": "https://api.openai.com/v1",
+          "default_model": "gpt-4o-mini",
+          "display_name": "OpenAI",
+          "headers": "[REDACTED]",
+          "id": "openai",
+          "protocol": "openai"
+        },
+        "winning_layer": "workspace"
+      }
+    }
+  },
+  "error": null,
+  "kind": "config.explain",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}
