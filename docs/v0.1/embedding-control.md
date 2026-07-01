@@ -1,6 +1,15 @@
+---
+title: Gestalt Embedding and Runtime Control v1
+status: proposed
+type: version-contract
+target: v0.1
+owners:
+  - gestalt-runtime
+---
+
 # Gestalt v0.1: Stable Embedding and Runtime Control Contract
 
-This document specifies the stable v0.1 embedding interface and runtime control semantics for the Gestalt harness. It defines the stable API boundary for orchestrating agent runtimes in a product-neutral manner.
+This proposed contract specifies the v0.1 embedding interface and runtime control semantics for the Gestalt harness. It is published only after H1B's local and mock host implementations pass the same conformance suite.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 

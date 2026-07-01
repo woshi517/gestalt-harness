@@ -71,3 +71,14 @@ args = ["server.js"]
 ```
 
 Optional components use `optional = true`. Optional failure degrades package health instead of rejecting the candidate.
+---
+title: Historical Extension Manifest V1 to V2 Migration
+status: historical
+type: migration
+target: pre-v0.1
+owners:
+  - gestalt-runtime
+---
+
+> Historical only. Stable v0.1 does not accept or migrate extension manifest
+> V1. See [ADR-031](../adrs/ADR-031-v0-1-greenfield-compatibility-cutoff.md).

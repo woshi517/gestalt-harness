@@ -30,17 +30,23 @@ published in the relevant version-contract documentation.
 | Type | Purpose | Expected lifecycle |
 |---|---|---|
 | ADR | Record one architectural decision and its consequences | proposed → accepted → superseded |
+| Decision record | Record a coordinated set of release-gating decisions | proposed → accepted → superseded |
 | Version contract | Define released API, schema, CLI, or persistence behavior | active for the supported release |
 | Feature specification | Define goals, invariants, contracts, and acceptance criteria | proposed → active → implemented/superseded |
 | Implementation plan | Break an approved specification into executable tasks | proposed → active → completed/abandoned |
+| PRD / architecture | Define product direction or current system context | active → superseded |
 | Guide | Explain an implemented workflow | active → deprecated |
 | Reference | Describe an implemented protocol or schema | active and versioned |
 | Audit | Record evidence and findings at a date | immutable point-in-time record |
 | Solution | Record how a finding was resolved | historical with links to enforcement |
 | Migration | Explain a version transition | active while either version is supported |
+| Inventory / tracker / index | Record repository-wide classification or execution state | active → completed/historical |
 | Archive | Preserve superseded context | historical |
 
-Active documents must declare the following metadata block (YAML frontmatter):
+The authoritative metadata for every maintained Markdown file is the
+[documentation inventory](./plans/v0.1-hardening/documentation-inventory.md).
+Documents may repeat it as YAML frontmatter, but duplicated frontmatter is not
+required. Each inventory row must declare:
 - `status`: One of the allowed statuses for the document type (e.g., proposed, active, accepted, superseded, completed, abandoned).
 - `type`: The document category (e.g., adr, feature-spec, plan, guide, reference).
 - `target`: The target release version (e.g., v0.1, v0.2, general).
@@ -54,7 +60,7 @@ Active documents must declare the following metadata block (YAML frontmatter):
 
 ### Archive and Redirect Rules
 1. **Never Silent Deletes:** Historical plans or specs must not be silently deleted if they are referenced.
-2. **Redirect Stub:** Replace the contents of the moved file with a notice: `Redirect: This file has been moved to [New Path](path)`.
+2. **Redirect Stub:** Replace the contents of the moved file with a notice that links to its repository-relative replacement.
 3. **Archive Marker:** Historical or superseded documents must be marked `status: archived` and stored under `docs/archive/` (or labeled clearly if left in place).
 
 

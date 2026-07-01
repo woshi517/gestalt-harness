@@ -10,7 +10,7 @@ authority: implementation-contract
 
 # Context Build Report v1
 
-`ContextBuildReportV1` is the stable diagnostic boundary for context construction.
+`ContextBuildReportV1` is the proposed stable diagnostic boundary for context construction.
 Clients must not depend on `PreparedContext`, projection plans, or compaction
 implementation types.
 
