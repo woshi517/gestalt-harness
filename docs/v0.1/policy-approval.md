@@ -1,15 +1,15 @@
 ---
 title: Gestalt Policy and Approval v1
-status: active
+status: proposed
 type: version-contract
 target: v0.1
 owners:
   - gestalt-runtime
 ---
 
-# Gestalt v0.1: Policy & Approval Contract
+# Gestalt v0.1: Proposed Policy & Approval Contract
 
-This document specifies the stable v0.1 policy checking and user-in-the-loop approval contract. It defines how policies are projected, how approval challenges are issued, and how responses are validated.
+This document specifies the target v0.1 policy checking and user-in-the-loop approval contract. It remains unpublished until approval responses are proven against real runtime tool execution through the runtime-control boundary.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 

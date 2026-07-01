@@ -1,15 +1,15 @@
 ---
 title: Gestalt Embedding and Runtime Control v1
-status: active
+status: proposed
 type: version-contract
 target: v0.1
 owners:
   - gestalt-runtime
 ---
 
-# Gestalt v0.1: Stable Embedding and Runtime Control Contract
+# Gestalt v0.1: Proposed Embedding and Runtime Control Contract
 
-This contract specifies the v0.1 embedding interface and runtime control semantics for the Gestalt harness. H1B's local and mock host implementations pass the same conformance suite.
+This proposed contract specifies the target v0.1 embedding interface and runtime control semantics for the Gestalt harness. The current local and mock hosts are in-memory conformance implementations; this contract remains unpublished until the same interface drives real runtime execution, approval, cancellation, trace, and artifact paths.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 
