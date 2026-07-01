@@ -339,19 +339,12 @@ pub fn resolve_configured_instances(
 
 pub fn apply_trust_decisions(
     packages: &mut [ResolvedExtensionPackage],
-    trusted_ids: &[String],
     trusted_pins: &[crate::extension_trust::TrustedExtensionPin],
 ) {
     for package in packages {
-        let trusted = if trusted_pins.is_empty() {
-            trusted_ids
-                .iter()
-                .any(|trusted_id| trusted_id == &package.descriptor.id)
-        } else {
-            trusted_pins.iter().any(|trusted_pin| {
-                trusted_pin.matches(&package.descriptor.id, package.manifest_hash.as_deref())
-            })
-        };
+        let trusted = trusted_pins.iter().any(|trusted_pin| {
+            trusted_pin.matches(&package.descriptor.id, package.manifest_hash.as_deref())
+        });
         package.apply_trust_decision(trusted);
     }
 }
@@ -533,7 +526,6 @@ mod tests {
 
         apply_trust_decisions(
             std::slice::from_mut(&mut package),
-            &[],
             &[crate::extension_trust::TrustedExtensionPin::new(
                 "alpha-ext",
                 Some("hash-a".to_string()),
@@ -550,7 +542,6 @@ mod tests {
         let mut changed = test_package("hash-b");
         apply_trust_decisions(
             std::slice::from_mut(&mut changed),
-            &[],
             &[crate::extension_trust::TrustedExtensionPin::new(
                 "alpha-ext",
                 Some("hash-a".to_string()),
@@ -559,6 +550,38 @@ mod tests {
 
         assert_eq!(
             changed.trust,
+            crate::extension_trust::ExtensionTrust::Untrusted
+        );
+    }
+
+    #[test]
+    fn packages_without_matching_pins_remain_untrusted() {
+        let mut package = test_package("hash-a");
+
+        apply_trust_decisions(std::slice::from_mut(&mut package), &[]);
+
+        assert_eq!(
+            package.trust,
+            crate::extension_trust::ExtensionTrust::Untrusted
+        );
+    }
+
+    #[test]
+    fn bare_trusted_entries_do_not_bind_the_discovered_hash() {
+        let mut package = test_package("hash-a");
+
+        let pin = crate::extension_trust::TrustedExtensionPin::from_config_entry(
+            "alpha-ext",
+            Some("hash-a"),
+        );
+
+        assert_eq!(pin.package_id, "alpha-ext");
+        assert_eq!(pin.manifest_hash, None);
+
+        apply_trust_decisions(std::slice::from_mut(&mut package), &[pin]);
+
+        assert_eq!(
+            package.trust,
             crate::extension_trust::ExtensionTrust::Untrusted
         );
     }

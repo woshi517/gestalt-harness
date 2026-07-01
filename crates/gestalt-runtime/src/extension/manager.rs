@@ -537,11 +537,13 @@ impl ExtensionManager {
                                 managed.remove(&reuse_key);
                             }
                         }
-                        crate::activation::ManagedExtensionResource::Mcp { .. } => {
-                            // MCP draining
-                        }
-                        crate::activation::ManagedExtensionResource::Observer { .. } => {
-                            // Observer draining
+                        crate::activation::ManagedExtensionResource::Mcp { reuse_key, .. }
+                        | crate::activation::ManagedExtensionResource::Observer {
+                            reuse_key, ..
+                        } => {
+                            if let Ok(mut managed) = managed_resources.write() {
+                                managed.remove(&reuse_key);
+                            }
                         }
                     }
                 });

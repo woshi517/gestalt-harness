@@ -180,7 +180,6 @@ impl AgentRuntimeBuilder {
         let mut resolved_extension_packages = resolved_extension_packages;
         crate::extension::apply_trust_decisions(
             &mut resolved_extension_packages,
-            &self.config.trusted_extension_ids,
             &self.config.trusted_extension_pins,
         );
 

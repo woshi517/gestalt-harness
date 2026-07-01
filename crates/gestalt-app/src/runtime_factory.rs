@@ -77,7 +77,6 @@ pub async fn build_app_runtime(
     let discovery =
         gestalt_runtime::ExtensionDiscovery::new(config.workspace_root.clone(), global_dir);
 
-    let mut trusted_extension_ids: Vec<String> = Vec::new();
     let mut trusted_extension_pins: Vec<TrustedExtensionPin> = Vec::new();
 
     if let Ok(discovered) = discovery.discover_packages(&explicit_loads) {
@@ -92,9 +91,6 @@ pub async fn build_app_runtime(
 
             for trusted_entry in &config.extensions.trusted {
                 if let Some(pin) = trusted_pin_from_entry(trusted_entry, ext) {
-                    if !trusted_extension_ids.contains(&pin.package_id) {
-                        trusted_extension_ids.push(pin.package_id.clone());
-                    }
                     if !trusted_extension_pins.contains(&pin) {
                         trusted_extension_pins.push(pin);
                     }
@@ -227,7 +223,6 @@ pub async fn build_app_runtime(
         environment: std::collections::HashMap::new(),
         enabled_host_features,
         tool_profile: None,
-        trusted_extension_ids,
         trusted_extension_pins,
         discovered_skills: discovered_skills.clone(),
         active_skills: active_skills.clone(),
@@ -493,8 +488,7 @@ fn trusted_pin_from_entry(
     trusted_entry: &str,
     ext: &gestalt_runtime::DiscoveredExtensionPackage,
 ) -> Option<TrustedExtensionPin> {
-    let pin =
-        TrustedExtensionPin::from_config_entry(trusted_entry, Some(ext.manifest_hash.as_ref()));
+    let pin = TrustedExtensionPin::from_config_entry(trusted_entry, None);
     if pin.package_id != ext.package.descriptor.id {
         return None;
     }

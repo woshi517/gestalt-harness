@@ -10,6 +10,7 @@ use gestalt_core::{
     tool::{ToolCatalog, ToolSchema},
 };
 use gestalt_runtime::control::{HostControl, RuntimeControl};
+use gestalt_runtime::TrustedExtensionPin;
 use gestalt_runtime::{
     activation::HostLaunchContext, AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig,
     RuntimeHost,
@@ -18,6 +19,7 @@ use gestalt_runtime::{
     discovery::{DiscoverySource, ExtensionDiscovery},
     extension::{ExtensionManager, ResolvedExtensionPackage, RuntimeExtensionSnapshot},
 };
+use sha2::{Digest, Sha256};
 
 struct EmptyToolCatalog;
 
@@ -153,13 +155,15 @@ async fn test_host_owns_workspace_and_generation_lineage() {
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
             workspace_root: std::path::PathBuf::from("/test/host/workspace"),
-            trusted_extension_pins: Vec::new(),
             ..Default::default()
         });
-    let host = Arc::new(gestalt_runtime::RuntimeHost::new(
-        builder,
-        Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
-    ));
+    let host = Arc::new(
+        gestalt_runtime::RuntimeHost::new(
+            builder,
+            Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+        )
+        .unwrap(),
+    );
 
     assert_eq!(
         host.workspace_root,
@@ -189,17 +193,18 @@ async fn test_per_session_override_cannot_mutate_critical_inputs() {
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
             workspace_root: std::path::PathBuf::from("/test/host/workspace"),
-            trusted_extension_pins: Vec::new(),
             ..Default::default()
         });
-    let host = Arc::new(gestalt_runtime::RuntimeHost::new(
-        builder,
-        Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
-    ));
+    let host = Arc::new(
+        gestalt_runtime::RuntimeHost::new(
+            builder,
+            Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+        )
+        .unwrap(),
+    );
 
     let mut config_override = RuntimeConfig::default();
     config_override.workspace_root = std::path::PathBuf::from("/malicious/override");
-    config_override.trusted_extension_ids = vec!["untrusted-but-trusted-via-override".to_string()];
 
     let session_id = host
         .spawn_session("test-session-override", Some(config_override))
@@ -212,7 +217,6 @@ async fn test_per_session_override_cannot_mutate_critical_inputs() {
         session_runtime.config.workspace_root,
         std::path::PathBuf::from("/test/host/workspace")
     );
-    assert!(session_runtime.config.trusted_extension_ids.is_empty());
 }
 
 #[tokio::test]
@@ -226,10 +230,13 @@ async fn host_reload_advances_shared_generation_only_once_across_sessions() {
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default());
-    let host = Arc::new(gestalt_runtime::RuntimeHost::new(
-        builder,
-        Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
-    ));
+    let host = Arc::new(
+        gestalt_runtime::RuntimeHost::new(
+            builder,
+            Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+        )
+        .unwrap(),
+    );
 
     host.spawn_session("session-a", None).await.unwrap();
     host.spawn_session("session-b", None).await.unwrap();
@@ -265,8 +272,10 @@ async fn runtime_host_initialization_activates_configured_packages() {
     let builder = test_builder(workspace_root.clone())
         .config(RuntimeConfig {
             workspace_root: workspace_root.clone(),
-            trusted_extension_ids: vec![package.descriptor.id.clone()],
-            trusted_extension_pins: Vec::new(),
+            trusted_extension_pins: vec![TrustedExtensionPin::new(
+                package.descriptor.id.clone(),
+                package.manifest_hash.clone(),
+            )],
             ..Default::default()
         })
         .extension_package(package);
@@ -274,7 +283,8 @@ async fn runtime_host_initialization_activates_configured_packages() {
     let host = RuntimeHost::new(
         builder,
         Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
-    );
+    )
+    .unwrap();
 
     assert_eq!(host.current_generation().0, 1);
     assert_eq!(host.extension_manager.process_instances().len(), 1);
@@ -301,22 +311,65 @@ async fn runtime_host_initialization_activates_configured_packages() {
 }
 
 #[tokio::test]
+async fn runtime_host_initialization_returns_error_when_activation_fails() {
+    let temp = TempTree::new("gestalt-runtime-host-init-fails");
+    let workspace_root = temp.path().join("workspace");
+    fs::create_dir_all(&workspace_root).unwrap();
+
+    let mut package = lifecycle_package(
+        &workspace_root.join("host-init-fail-package"),
+        "host-init-fail-package",
+        "Host Init Fail Package",
+        "1.0.0",
+    );
+    package.components[0].entrypoint.command = "definitely-missing-binary".to_string();
+
+    let builder = test_builder(workspace_root.clone())
+        .config(RuntimeConfig {
+            workspace_root: workspace_root.clone(),
+            trusted_extension_pins: vec![TrustedExtensionPin::new(
+                package.descriptor.id.clone(),
+                package.manifest_hash.clone(),
+            )],
+            ..Default::default()
+        })
+        .extension_package(package);
+
+    let err = RuntimeHost::new(
+        builder,
+        Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+    )
+    .err()
+    .expect("host construction should fail");
+
+    assert!(err.to_string().contains("Spawn failed"));
+}
+
+#[tokio::test]
 async fn reload_rediscovers_added_removed_and_changed_packages() {
     let temp = TempTree::new("gestalt-runtime-reload");
     let workspace_root = temp.path().join("workspace");
     fs::create_dir_all(&workspace_root).unwrap();
 
-    write_lifecycle_manifest(
+    let alpha_hash = write_lifecycle_manifest(
         &workspace_root.join(".gestalt/extensions/alpha"),
         "alpha",
         "Alpha Extension",
         "1.0.0",
     );
+    let beta_hash = lifecycle_manifest_hash(
+        &workspace_root.join(".gestalt/extensions/beta"),
+        "beta",
+        "Beta Extension",
+        "2.0.0",
+    );
 
     let builder = test_builder(workspace_root.clone()).config(RuntimeConfig {
         workspace_root: workspace_root.clone(),
-        trusted_extension_ids: vec!["alpha".to_string(), "beta".to_string()],
-        trusted_extension_pins: Vec::new(),
+        trusted_extension_pins: vec![
+            TrustedExtensionPin::new("alpha", Some(alpha_hash)),
+            TrustedExtensionPin::new("beta", Some(beta_hash)),
+        ],
         ..Default::default()
     });
     let host = Arc::new(runtime_host_with_discovery(builder, workspace_root.clone()));
@@ -360,6 +413,43 @@ async fn reload_rediscovers_added_removed_and_changed_packages() {
     );
     assert_eq!(active.resolved_packages[0].descriptor.version, "2.0.0");
     assert_ne!(first.candidate_fingerprint, second.candidate_fingerprint);
+}
+
+#[tokio::test]
+async fn reload_reports_optional_activation_diagnostics() {
+    let temp = TempTree::new("gestalt-runtime-reload-optional");
+    let workspace_root = temp.path().join("workspace");
+    fs::create_dir_all(&workspace_root).unwrap();
+
+    let package = lifecycle_package_with_options(
+        &workspace_root.join(".gestalt/extensions/optional"),
+        "optional-ext",
+        "Optional Extension",
+        "1.0.0",
+        true,
+        "definitely-missing-binary",
+    );
+
+    let builder = test_builder(workspace_root.clone()).config(RuntimeConfig {
+        workspace_root: workspace_root.clone(),
+        trusted_extension_pins: vec![TrustedExtensionPin::new(
+            package.descriptor.id.clone(),
+            package.manifest_hash.clone(),
+        )],
+        ..Default::default()
+    });
+    let host = Arc::new(runtime_host_with_discovery(builder, workspace_root.clone()));
+
+    let report = host
+        .reload_extensions(ReloadExtensionsRequest::default())
+        .await
+        .unwrap();
+
+    assert!(!report.diagnostics.is_empty());
+    assert!(report
+        .validation_errors
+        .iter()
+        .any(|message| { message.contains("Optional lifecycle component failed to launch") }));
 }
 
 fn test_builder(workspace_root: PathBuf) -> AgentRuntimeBuilder {
@@ -421,7 +511,25 @@ fn runtime_host_with_discovery(
     }
 }
 
-fn write_lifecycle_manifest(dir: &Path, package_id: &str, package_name: &str, version: &str) {
+fn write_lifecycle_manifest(
+    dir: &Path,
+    package_id: &str,
+    package_name: &str,
+    version: &str,
+) -> String {
+    let script_path = dir.join("lifecycle.py");
+    let command = script_path.display().to_string();
+    write_lifecycle_manifest_with_options(dir, package_id, package_name, version, false, &command)
+}
+
+fn write_lifecycle_manifest_with_options(
+    dir: &Path,
+    package_id: &str,
+    package_name: &str,
+    version: &str,
+    optional: bool,
+    command: &str,
+) -> String {
     fs::create_dir_all(dir).unwrap();
     let script_path = dir.join("lifecycle.py");
     fs::write(&script_path, lifecycle_script(package_id)).unwrap();
@@ -445,6 +553,40 @@ version = "{version}"
 [[components]]
 id = "lifecycle"
 kind = "gestalt-lifecycle"
+optional = {optional}
+
+[components.entrypoint]
+command = "{command}"
+args = []
+"#,
+        optional = optional,
+        command = command,
+    );
+    fs::write(dir.join("gestalt.extension.toml"), &manifest).unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(manifest.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn lifecycle_manifest_hash(
+    dir: &Path,
+    package_id: &str,
+    package_name: &str,
+    version: &str,
+) -> String {
+    let script_path = dir.join("lifecycle.py");
+    let manifest = format!(
+        r#"
+manifest_version = 2
+
+[package]
+id = "{package_id}"
+name = "{package_name}"
+version = "{version}"
+
+[[components]]
+id = "lifecycle"
+kind = "gestalt-lifecycle"
 
 [components.entrypoint]
 command = "{}"
@@ -452,7 +594,9 @@ args = []
 "#,
         script_path.display()
     );
-    fs::write(dir.join("gestalt.extension.toml"), manifest).unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(manifest.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn lifecycle_package(
@@ -461,10 +605,35 @@ fn lifecycle_package(
     package_name: &str,
     version: &str,
 ) -> ResolvedExtensionPackage {
-    write_lifecycle_manifest(dir, package_id, package_name, version);
+    let manifest_hash = write_lifecycle_manifest(dir, package_id, package_name, version);
     let content = fs::read_to_string(dir.join("gestalt.extension.toml")).unwrap();
     let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&content).unwrap();
-    ResolvedExtensionPackage::from_v2_manifest(manifest, package_id).unwrap()
+    let mut package = ResolvedExtensionPackage::from_v2_manifest(manifest, package_id).unwrap();
+    package.manifest_hash = Some(manifest_hash);
+    package
+}
+
+fn lifecycle_package_with_options(
+    dir: &Path,
+    package_id: &str,
+    package_name: &str,
+    version: &str,
+    optional: bool,
+    command: &str,
+) -> ResolvedExtensionPackage {
+    let manifest_hash = write_lifecycle_manifest_with_options(
+        dir,
+        package_id,
+        package_name,
+        version,
+        optional,
+        command,
+    );
+    let content = fs::read_to_string(dir.join("gestalt.extension.toml")).unwrap();
+    let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&content).unwrap();
+    let mut package = ResolvedExtensionPackage::from_v2_manifest(manifest, package_id).unwrap();
+    package.manifest_hash = Some(manifest_hash);
+    package
 }
 
 fn lifecycle_script(package_id: &str) -> String {

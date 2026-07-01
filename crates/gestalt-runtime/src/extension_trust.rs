@@ -13,7 +13,10 @@ impl TrustedExtensionPin {
         }
     }
 
-    pub fn from_config_entry(entry: &str, discovered_manifest_hash: Option<&str>) -> Self {
+    pub fn from_config_entry(entry: &str, _discovered_manifest_hash: Option<&str>) -> Self {
+        // Only explicit `package_id:manifest_hash` entries produce a trust pin.
+        // Bare IDs are treated as non-trusting aliases and must not be normalized
+        // into a discovered hash at runtime.
         if let Some((package_id, manifest_hash)) = entry.split_once(':') {
             let manifest_hash = manifest_hash.trim();
             return Self::new(
@@ -26,10 +29,7 @@ impl TrustedExtensionPin {
             );
         }
 
-        Self::new(
-            entry.trim(),
-            discovered_manifest_hash.map(|hash| hash.to_string()),
-        )
+        Self::new(entry.trim(), None)
     }
 
     pub fn matches(&self, package_id: &str, manifest_hash: Option<&str>) -> bool {
@@ -39,7 +39,6 @@ impl TrustedExtensionPin {
 
         match (self.manifest_hash.as_deref(), manifest_hash) {
             (Some(expected), Some(actual)) => expected == actual,
-            (None, None) => true,
             _ => false,
         }
     }

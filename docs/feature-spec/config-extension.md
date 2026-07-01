@@ -1172,7 +1172,8 @@ Skills remain capability-narrowing instruction packages. They cannot grant autho
 
 - `explicit_loads`: additional discovery paths;
 - `disabled`: explicitly disable IDs; deny wins if listed in both;
-- `trusted`: IDs approved by the user, ideally bound to manifest/content hash;
+- `trusted`: exact package ID/hash pairs approved by the user; bare IDs do not
+  establish trust;
 - `allow_untrusted`: unsafe development escape hatch, false by default;
 - `instances`: configured extension package instances keyed by stable instance ID;
 - timeouts may override runtime defaults;

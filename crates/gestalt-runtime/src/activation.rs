@@ -40,7 +40,6 @@ pub struct HostLaunchContext {
     pub workspace_root: PathBuf,
     pub allow_network: bool,
     pub effective_permissions: Option<crate::extension::ExtensionGrantConfig>,
-    pub trusted_extension_ids: Vec<String>,
     pub timeout_initialize_ms: u64,
     pub timeout_hook_ms: u64,
     pub timeout_context_ms: u64,
@@ -63,7 +62,6 @@ impl std::fmt::Debug for HostLaunchContext {
         s.field("workspace_root", &self.workspace_root)
             .field("allow_network", &self.allow_network)
             .field("effective_permissions", &self.effective_permissions)
-            .field("trusted_extension_ids", &self.trusted_extension_ids)
             .field("timeout_initialize_ms", &self.timeout_initialize_ms)
             .field("timeout_hook_ms", &self.timeout_hook_ms)
             .field("timeout_context_ms", &self.timeout_context_ms)
@@ -102,7 +100,6 @@ impl HostLaunchContext {
             workspace_root: config.workspace_root.clone(),
             allow_network: config.allow_network,
             effective_permissions: None,
-            trusted_extension_ids: config.trusted_extension_ids.clone(),
             timeout_initialize_ms: config.extension_timeouts.initialize_ms.unwrap_or(10_000),
             timeout_hook_ms: config.extension_timeouts.hook_ms.unwrap_or(5_000),
             timeout_context_ms: config.extension_timeouts.context_ms.unwrap_or(15_000),
@@ -203,7 +200,7 @@ pub enum DiagnosticSeverity {
     Error,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActivationDiagnostic {
     pub component_id: ComponentInstanceId,
     pub severity: DiagnosticSeverity,
@@ -236,16 +233,41 @@ impl ActivationCandidate {
 impl Drop for ActivationCandidate {
     fn drop(&mut self) {
         if !self.committed {
-            for res in &self.newly_started {
-                if let ManagedExtensionResource::Process { process: p, .. } = res {
-                    let p = p.clone();
-                    tokio::spawn(async move {
-                        p.transition_to(crate::extension::ExtensionProcessState::Stopping);
-                        p.shutdown().await;
-                    });
-                }
-            }
+            shutdown_started_processes(&self.newly_started);
         }
+    }
+}
+
+fn shutdown_started_processes(resources: &[ManagedExtensionResource]) {
+    for res in resources {
+        if let ManagedExtensionResource::Process { process: p, .. } = res {
+            let p = p.clone();
+            tokio::spawn(async move {
+                p.transition_to(crate::extension::ExtensionProcessState::Stopping);
+                p.shutdown().await;
+            });
+        }
+    }
+}
+
+#[derive(Default)]
+struct StartedResources {
+    resources: Vec<ManagedExtensionResource>,
+}
+
+impl StartedResources {
+    fn push(&mut self, resource: ManagedExtensionResource) {
+        self.resources.push(resource);
+    }
+
+    fn take_resources(&mut self) -> Vec<ManagedExtensionResource> {
+        std::mem::take(&mut self.resources)
+    }
+}
+
+impl Drop for StartedResources {
+    fn drop(&mut self) {
+        shutdown_started_processes(&self.resources);
     }
 }
 
@@ -346,7 +368,6 @@ impl ExtensionActivationPipeline {
         let mut discovered = discovered;
         crate::extension::apply_trust_decisions(
             &mut discovered,
-            &self.host_context.trusted_extension_ids,
             &self.host_context.trusted_extension_pins,
         );
 
@@ -509,7 +530,7 @@ impl ExtensionActivationPipeline {
         }
 
         // 4. Resource activation (reuse vs newly_started)
-        let mut newly_started = Vec::new();
+        let mut newly_started = StartedResources::default();
         let mut reused = Vec::new();
         let mut diagnostics = Vec::new();
         let mut lifecycle_clients: std::collections::HashMap<
@@ -653,16 +674,6 @@ impl ExtensionActivationPipeline {
                                         });
                                         continue;
                                     } else {
-                                        for res in &newly_started {
-                                            if let ManagedExtensionResource::Process {
-                                                process: p,
-                                                ..
-                                            } = res
-                                            {
-                                                p.transition_to(crate::extension::ExtensionProcessState::Stopping);
-                                                p.shutdown().await;
-                                            }
-                                        }
                                         return Err(e);
                                     }
                                 }
@@ -785,16 +796,6 @@ impl ExtensionActivationPipeline {
                                                     message: format!("Optional lifecycle component failed to describe capabilities: {}", e),
                                                 });
                                         } else {
-                                            for res in &newly_started {
-                                                if let ManagedExtensionResource::Process {
-                                                    process: p,
-                                                    ..
-                                                } = res
-                                                {
-                                                    p.transition_to(crate::extension::ExtensionProcessState::Stopping);
-                                                    p.shutdown().await;
-                                                }
-                                            }
                                             return Err(e);
                                         }
                                     }
@@ -807,16 +808,6 @@ impl ExtensionActivationPipeline {
                                             message: format!("Optional lifecycle component failed to initialize: {}", e),
                                         });
                                     } else {
-                                        for res in &newly_started {
-                                            if let ManagedExtensionResource::Process {
-                                                process: p,
-                                                ..
-                                            } = res
-                                            {
-                                                p.transition_to(crate::extension::ExtensionProcessState::Stopping);
-                                                p.shutdown().await;
-                                            }
-                                        }
                                         return Err(e);
                                     }
                                 }
@@ -1013,6 +1004,8 @@ impl ExtensionActivationPipeline {
             &final_resolved_packages,
         );
         complete_fp = fingerprint_join(&complete_fp, &direct_mcp_fingerprint);
+
+        let newly_started = newly_started.take_resources();
 
         let mut all_managed_resources = Vec::new();
         all_managed_resources.extend(newly_started.clone());
