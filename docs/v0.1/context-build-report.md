@@ -41,7 +41,9 @@ structured diagnostic and never writes presentation output.
 | Criteria | Evidence |
 |---|---|
 | H2B-F01-F04, H2B-B01 | `context_report_contract_tests::report_identity_is_independent_of_source_registration_order` |
-| H2B-F05, H2B-B03, H2B-B06 | `context_report_contract_tests::persisted_report_round_trips_and_checks_version`, `context_report_contract_tests::replay_rejects_tampered_capture` |
+| H2B-B03, H2B-B06 | `context_report_contract_tests::persisted_report_round_trips_and_rejects_unsupported_version`, `context_report_contract_tests::best_effort_persistence_returns_structured_diagnostic`, `context_report_contract_tests::replay_rejects_tampered_capture` |
 | H2B-F06, H2B-B04 | `CapturedContributionV1::capture_redacted`, report bound fields |
 | H2B-B02 | `context_report_contract_tests::deterministic_replay_does_not_repeat_contributor_side_effect` |
 | H2B-B05 | Existing context projection and compaction history-preservation tests |
+
+The H2B-F05 H2A linkage remains in runtime wiring and should be covered by a dedicated integration test before this contract is published.

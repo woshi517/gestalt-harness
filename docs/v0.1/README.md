@@ -36,8 +36,8 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 * **Status:** 🔴 **Unpublished (Under Development)**
 * **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#34-events-remain-the-ground-truth)
 * **Implementation Plan:** [H2A](../plans/v0.1-hardening/H2A-event-trace-replay-contracts.md)
-* **Rust API Target:** `gestalt_runtime::EventEnvelope`
-* **Enforcing Tests:** `crates/gestalt-app/tests/sessions_tests.rs` (pending)
+* **Rust API Target:** `gestalt_runtime::{EventEnvelope, ClientEventRecordV1}`
+* **Enforcing Tests:** [trace_contract_tests.rs](../../crates/gestalt-runtime/tests/trace_contract_tests.rs), [sessions_tests.rs](../../crates/gestalt-app/tests/sessions_tests.rs)
 
 ## 6. Policy & Approval (POL-001–POL-004)
 * **Status:** 🟢 **Published**
