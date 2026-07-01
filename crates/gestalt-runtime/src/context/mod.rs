@@ -94,7 +94,6 @@ struct ProjectionStateApplication {
 
 struct LoadedCheckpoint {
     checkpoint: CompactionCheckpoint,
-    migrated_ref: Option<gestalt_core::context::CompactionCheckpointRef>,
 }
 
 impl RuntimeContextPipeline {
@@ -173,12 +172,6 @@ impl ContextPipeline for RuntimeContextPipeline {
             session_id,
         );
 
-        let migrated_checkpoint_ref = loaded_checkpoint.and_then(|loaded| loaded.migrated_ref);
-        let checkpoint_update = match (checkpoint_update, migrated_checkpoint_ref.clone()) {
-            (StateUpdate::Unchanged, Some(migrated)) => StateUpdate::Set(migrated),
-            (update, _) => update,
-        };
-        let effective_checkpoint = migrated_checkpoint_ref.or(effective_checkpoint);
         let plain_projected_history = projected_history.to_session_messages(session_id);
         let plain_history: Vec<Message> = plain_projected_history
             .iter()
@@ -1235,26 +1228,17 @@ impl RuntimeContextPipeline {
             })
         })?;
 
-        let mut migrated_ref = None;
         if let Some(art) = &checkpoint_ref.artifact {
             let mut hasher = sha2::Sha256::new();
             hasher.update(content.as_bytes());
             let computed_artifact_hash = format!("{:x}", hasher.finalize());
             if computed_artifact_hash != art.content_hash {
-                if art.content_hash == checkpoint_ref.source_hash {
-                    let mut updated_ref = checkpoint_ref.clone();
-                    if let Some(updated_artifact) = updated_ref.artifact.as_mut() {
-                        updated_artifact.content_hash = computed_artifact_hash;
-                    }
-                    migrated_ref = Some(updated_ref);
-                } else {
-                    return Err(gestalt_core::error::HarnessError::Context(
-                        gestalt_core::error::ContextError::PipelineFailed(format!(
-                            "checkpoint artifact content hash mismatch: expected {}, got {}",
-                            art.content_hash, computed_artifact_hash
-                        )),
-                    ));
-                }
+                return Err(gestalt_core::error::HarnessError::Context(
+                    gestalt_core::error::ContextError::PipelineFailed(format!(
+                        "checkpoint artifact content hash mismatch: expected {}, got {}",
+                        art.content_hash, computed_artifact_hash
+                    )),
+                ));
             }
         }
 
@@ -1291,10 +1275,7 @@ impl RuntimeContextPipeline {
             ));
         }
 
-        Ok(Some(LoadedCheckpoint {
-            checkpoint: loaded,
-            migrated_ref,
-        }))
+        Ok(Some(LoadedCheckpoint { checkpoint: loaded }))
     }
 
     fn build_projected_history(

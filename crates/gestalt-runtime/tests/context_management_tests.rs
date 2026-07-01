@@ -1092,7 +1092,7 @@ async fn missing_referenced_checkpoint_artifact() {
 
 #[cfg(feature = "trace")]
 #[tokio::test]
-async fn legacy_checkpoint_artifact_hash_is_migrated() {
+async fn checkpoint_rejects_source_hash_used_as_artifact_hash() {
     let pipeline = runtime_pipeline();
     let history = canonical_history(vec![
         Message::User {
@@ -1134,7 +1134,7 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
         relevant_references: vec![],
     };
 
-    let artifacts = temp_artifact_dir("legacy_hash_migration");
+    let artifacts = temp_artifact_dir("invalid_artifact_hash");
     gestalt_runtime::persist_checkpoint(
         &checkpoint,
         &artifacts,
@@ -1154,7 +1154,7 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
         }),
     });
 
-    let prepared = pipeline
+    let err = pipeline
         .prepare_context(gestalt_core::ContextPreparationRequest {
             history: &history,
             context_state: &state,
@@ -1171,20 +1171,11 @@ async fn legacy_checkpoint_artifact_hash_is_migrated() {
             emit: &mut |_| Ok(()),
         })
         .await
-        .unwrap();
+        .expect_err("source hash must not be migrated into an artifact hash");
 
-    let migrated = match prepared.state_delta.active_checkpoint {
-        StateUpdate::Set(ref checkpoint_ref) => checkpoint_ref,
-        _ => panic!("expected migrated checkpoint ref to be written back"),
-    };
-    assert_eq!(
-        migrated
-            .artifact
-            .as_ref()
-            .expect("migrated checkpoint should preserve artifact")
-            .content_hash,
-        compute_checkpoint_artifact_hash(&checkpoint)
-    );
+    assert!(err
+        .to_string()
+        .contains("checkpoint artifact content hash mismatch"));
 }
 
 #[cfg(feature = "trace")]

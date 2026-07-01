@@ -76,9 +76,6 @@ pub struct RuntimeRegistryBuilder {
     pub extensions: Vec<String>,
 }
 
-#[deprecated(note = "use RuntimeRegistryBuilder for mutable registry construction")]
-pub type RuntimeRegistry = RuntimeRegistryBuilder;
-
 impl Default for RuntimeRegistryBuilder {
     fn default() -> Self {
         Self::new()

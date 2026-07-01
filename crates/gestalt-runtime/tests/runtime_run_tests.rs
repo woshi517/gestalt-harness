@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -282,7 +280,7 @@ async fn test_prepare_next_turn_switch_model() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
         .tools(catalog)
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -439,7 +437,7 @@ async fn test_run_prompt_uses_pinned_extension_snapshot_tool_catalog() {
         .tools(Arc::new(SnapshotToolCatalog {
             tool: Arc::new(SnapshotTool),
         }))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -644,7 +642,7 @@ async fn test_prepare_next_turn_block_stops_session() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(ToolThenEndTurnMockProvider::new()))
         .tools(tool_catalog)
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -760,7 +758,7 @@ fn build_test_runtime() -> gestalt_runtime::runtime::AgentRuntime {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())

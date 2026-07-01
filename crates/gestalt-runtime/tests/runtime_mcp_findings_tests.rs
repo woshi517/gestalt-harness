@@ -1,6 +1,4 @@
 #![cfg(feature = "mcp")]
-#![allow(deprecated)]
-
 use gestalt_core::{
     approval::AutoApprovalProvider,
     policy::{PolicyDecision, PolicyEngine, PolicyRequest},
@@ -128,7 +126,7 @@ async fn test_findings_lazy_servers_stay_disconnected() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(DummyProvider))
         .tools(Arc::new(DummyToolCatalog))
-        .middleware(Arc::new(DummyContextPipeline))
+        .context_pipeline(Arc::new(DummyContextPipeline))
         .policy(Arc::new(AllowAllPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config)
@@ -193,7 +191,7 @@ async fn test_findings_duplicate_tool_names_scoping() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(DummyProvider))
         .tools(Arc::new(DummyToolCatalog))
-        .middleware(Arc::new(DummyContextPipeline))
+        .context_pipeline(Arc::new(DummyContextPipeline))
         .policy(Arc::new(AllowAllPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config)
@@ -289,7 +287,7 @@ async fn test_findings_concurrent_first_use() {
         AgentRuntimeBuilder::new()
             .provider(Arc::new(DummyProvider))
             .tools(Arc::new(DummyToolCatalog))
-            .middleware(Arc::new(DummyContextPipeline))
+            .context_pipeline(Arc::new(DummyContextPipeline))
             .policy(Arc::new(AllowAllPolicyEngine))
             .approval(Arc::new(AutoApprovalProvider))
             .config(config)
@@ -349,7 +347,7 @@ async fn test_findings_failure_reporting_in_discovery() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(DummyProvider))
         .tools(Arc::new(DummyToolCatalog))
-        .middleware(Arc::new(DummyContextPipeline))
+        .context_pipeline(Arc::new(DummyContextPipeline))
         .policy(Arc::new(AllowAllPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config)
@@ -371,7 +369,7 @@ async fn test_findings_event_emission_and_list_changed() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(DummyProvider))
         .tools(Arc::new(DummyToolCatalog))
-        .middleware(Arc::new(DummyContextPipeline))
+        .context_pipeline(Arc::new(DummyContextPipeline))
         .policy(Arc::new(AllowAllPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config)
@@ -511,7 +509,7 @@ async fn test_findings_risk_reduction_requires_annotations() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(DummyProvider))
         .tools(Arc::new(DummyToolCatalog))
-        .middleware(Arc::new(DummyContextPipeline))
+        .context_pipeline(Arc::new(DummyContextPipeline))
         .policy(Arc::new(AllowAllPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config)
