@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -275,7 +273,7 @@ async fn test_hooks_context_injection() {
         .tools(Arc::new(MockToolCatalog {
             tools: HashMap::new(),
         }))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -361,7 +359,7 @@ fn test_composition_hooks_require_assembler_backed_pipeline() {
         .tools(Arc::new(MockToolCatalog {
             tools: HashMap::new(),
         }))
-        .middleware(Arc::new(LegacyOnlyContextPipeline))
+        .context_pipeline(Arc::new(LegacyOnlyContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -402,7 +400,7 @@ async fn test_hooks_context_blocking_before() {
         .tools(Arc::new(MockToolCatalog {
             tools: HashMap::new(),
         }))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -452,7 +450,7 @@ async fn test_hooks_context_blocking_after() {
         .tools(Arc::new(MockToolCatalog {
             tools: HashMap::new(),
         }))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -523,7 +521,7 @@ async fn test_before_tool_policy_denial() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
         .tools(catalog)
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -624,7 +622,7 @@ async fn test_before_tool_policy_error() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
         .tools(catalog)
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -730,7 +728,7 @@ async fn test_before_tool_policy_runs_once_per_tool_call() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
         .tools(Arc::new(MockToolCatalog { tools }))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -891,7 +889,7 @@ async fn test_after_context_build_context_addition() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(provider)
         .tools(catalog)
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())

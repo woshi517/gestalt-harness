@@ -1,6 +1,4 @@
 #![cfg(feature = "mcp")]
-#![allow(deprecated)]
-
 use gestalt_core::{
     agent::executor::ToolExecutor,
     approval::AutoApprovalProvider,
@@ -145,7 +143,7 @@ async fn test_runtime_mcp_policy_check_and_execution() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(DummyProvider))
         .tools(Arc::new(DummyToolCatalog))
-        .middleware(Arc::new(DummyContextPipeline))
+        .context_pipeline(Arc::new(DummyContextPipeline))
         .policy(Arc::new(policy_engine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config)
@@ -301,7 +299,7 @@ async fn host_network_policy_denies_direct_http_mcp() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(DummyProvider))
         .tools(Arc::new(DummyToolCatalog))
-        .middleware(Arc::new(DummyContextPipeline))
+        .context_pipeline(Arc::new(DummyContextPipeline))
         .policy(Arc::new(AssertingPolicyEngine {
             called: Arc::new(AtomicBool::new(false)),
         }))

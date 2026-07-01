@@ -26,6 +26,8 @@ pub struct QueuedSessionMessage {
 pub enum QueueAck {
     Queued,
     Duplicate,
+    Conflict,
+    Full,
     SessionNotActive,
     SessionClosing,
 }

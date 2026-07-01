@@ -184,15 +184,11 @@ impl gestalt_core::ContextPipeline for LegacyContextPipeline {
 }
 
 #[test]
-#[expect(
-    deprecated,
-    reason = "exercise the legacy pipeline validation path intentionally"
-)]
 fn test_builder_rejects_legacy_pipeline_without_assembler() {
     let res = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .middleware(Arc::new(LegacyContextPipeline))
+        .context_pipeline(Arc::new(LegacyContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())

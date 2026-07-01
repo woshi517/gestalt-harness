@@ -1,26 +1,34 @@
 use async_trait::async_trait;
 use gestalt_core::session_queue::{QueueAck, QueueLifecycle, QueuedSessionMessage, SteeringQueue};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub struct InMemorySteeringQueue {
     state: Mutex<QueueState>,
+    capacity: usize,
 }
+
+pub const DEFAULT_STEERING_QUEUE_CAPACITY: usize = 64;
 
 struct QueueState {
     lifecycle: QueueLifecycle,
     messages: Vec<QueuedSessionMessage>,
-    seen_idempotency_keys: HashSet<String>,
+    idempotent_messages: HashMap<String, QueuedSessionMessage>,
 }
 
 impl InMemorySteeringQueue {
     pub fn new() -> Self {
+        Self::with_capacity(DEFAULT_STEERING_QUEUE_CAPACITY)
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
             state: Mutex::new(QueueState {
                 lifecycle: QueueLifecycle::Completed,
                 messages: Vec::new(),
-                seen_idempotency_keys: HashSet::new(),
+                idempotent_messages: HashMap::new(),
             }),
+            capacity,
         }
     }
 }
@@ -43,10 +51,24 @@ impl SteeringQueue for InMemorySteeringQueue {
             QueueLifecycle::Closing => Ok(QueueAck::SessionClosing),
             QueueLifecycle::Active => {
                 if let Some(ref key) = message.idempotency_key {
-                    if guard.seen_idempotency_keys.contains(key) {
-                        return Ok(QueueAck::Duplicate);
+                    if let Some(previous) = guard.idempotent_messages.get(key) {
+                        let same_payload = previous.content == message.content
+                            && previous.source == message.source
+                            && previous.injected_at_turn == message.injected_at_turn;
+                        return Ok(if same_payload {
+                            QueueAck::Duplicate
+                        } else {
+                            QueueAck::Conflict
+                        });
                     }
-                    guard.seen_idempotency_keys.insert(key.clone());
+                }
+                if guard.messages.len() >= self.capacity {
+                    return Ok(QueueAck::Full);
+                }
+                if let Some(ref key) = message.idempotency_key {
+                    guard
+                        .idempotent_messages
+                        .insert(key.clone(), message.clone());
                 }
                 guard.messages.push(message);
                 Ok(QueueAck::Queued)
@@ -68,6 +90,7 @@ impl SteeringQueue for InMemorySteeringQueue {
         guard.lifecycle = state;
         if state == QueueLifecycle::Completed {
             guard.messages.clear();
+            guard.idempotent_messages.clear();
         }
         Ok(())
     }

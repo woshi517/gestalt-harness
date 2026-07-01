@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use gestalt_core::{
     approval::AutoApprovalProvider,
     context::{ContextPipeline, TokenBudget},
@@ -121,7 +119,7 @@ fn build_test_builder() -> AgentRuntimeBuilder {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config_without_context_management())
@@ -298,7 +296,7 @@ async fn test_orchestration_steering_concurrent() {
     let builder = AgentRuntimeBuilder::new()
         .provider(provider)
         .tools(tools)
-        .middleware(Arc::new(PassThroughContextPipeline))
+        .context_pipeline(Arc::new(PassThroughContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {

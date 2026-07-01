@@ -101,12 +101,8 @@ impl AgentRuntimeBuilder {
         self
     }
 
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use assembler(Arc<dyn ContextAssembler>) instead"
-    )]
-    pub fn middleware(mut self, middleware: Arc<dyn ContextPipeline>) -> Self {
-        self.middleware = Some(middleware);
+    pub fn context_pipeline(mut self, pipeline: Arc<dyn ContextPipeline>) -> Self {
+        self.middleware = Some(pipeline);
         self
     }
 

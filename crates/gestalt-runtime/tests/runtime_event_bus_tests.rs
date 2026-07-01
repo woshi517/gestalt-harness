@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use std::sync::Arc;
 
 use gestalt_core::{
@@ -129,7 +127,7 @@ async fn test_runtime_event_bus_basic_fanout() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .middleware(Arc::new(MockContextPipeline))
+        .context_pipeline(Arc::new(MockContextPipeline))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(config)
