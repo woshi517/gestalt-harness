@@ -48,13 +48,8 @@ pub struct RuntimeConfig {
     pub environment: HashMap<String, String>,
     pub enabled_host_features: Vec<String>,
     pub tool_profile: Option<crate::tool_catalog_planner::ToolProfile>,
-    /// Extension ids whose annotations are promoted to
-    /// `BuiltInTrusted`. Extensions not in this list are treated as
-    /// `ExtensionDeclared` regardless of manifest claims.
-    #[serde(default)]
-    pub trusted_extension_ids: Vec<String>,
     /// Hash-aware trust pins derived from the active extension discovery set.
-    /// Runtime trust decisions must use these pins instead of ID-only lookups.
+    /// Runtime trust decisions use these pins directly.
     #[serde(default)]
     pub trusted_extension_pins: Vec<TrustedExtensionPin>,
     /// Discovered skill descriptors available at runtime startup.
@@ -144,7 +139,6 @@ impl Default for RuntimeConfig {
             environment: HashMap::new(),
             enabled_host_features: Vec::new(),
             tool_profile: None,
-            trusted_extension_ids: Vec::new(),
             trusted_extension_pins: Vec::new(),
             discovered_skills: Vec::new(),
             active_skills: Vec::new(),

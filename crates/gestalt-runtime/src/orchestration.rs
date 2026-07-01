@@ -54,7 +54,10 @@ fn default_global_extension_dir() -> Option<std::path::PathBuf> {
 }
 
 impl RuntimeHost {
-    pub fn new(builder: AgentRuntimeBuilder, artifact_store: Arc<dyn ArtifactStore>) -> Self {
+    pub fn new(
+        builder: AgentRuntimeBuilder,
+        artifact_store: Arc<dyn ArtifactStore>,
+    ) -> Result<Self> {
         let workspace_root = builder.config.workspace_root.clone();
         let config = builder.config.clone();
         let event_bus = builder.event_bus.clone();
@@ -101,11 +104,7 @@ impl RuntimeHost {
 
         if !builder.extension_packages.is_empty() {
             let mut packages = builder.extension_packages.clone();
-            crate::extension::apply_trust_decisions(
-                &mut packages,
-                &config.trusted_extension_ids,
-                &config.trusted_extension_pins,
-            );
+            crate::extension::apply_trust_decisions(&mut packages, &config.trusted_extension_pins);
             let pipeline = crate::activation::ExtensionActivationPipeline {
                 discovery: Arc::new(crate::activation::StaticExtensionSource::new(packages)),
                 launcher: Arc::new(crate::extension::LocalProcessLauncher),
@@ -159,12 +158,10 @@ impl RuntimeHost {
                     "extension activation thread panicked".to_string(),
                 ))
             });
-            if let Err(err) = pipeline_result {
-                panic!("failed to initialize runtime host extensions: {err}");
-            }
+            pipeline_result?;
         }
 
-        Self {
+        Ok(Self {
             workspace_root,
             config,
             extension_manager,
@@ -174,7 +171,7 @@ impl RuntimeHost {
             approval_broker,
             extension_source: discovery_source,
             builder,
-        }
+        })
     }
 }
 
@@ -199,7 +196,6 @@ impl crate::control::HostControl for RuntimeHost {
             config.workspace_root = self.config.workspace_root.clone();
             config.extension_instances = self.config.extension_instances.clone();
             config.mcp_servers = self.config.mcp_servers.clone();
-            config.trusted_extension_ids = self.config.trusted_extension_ids.clone();
             config.trusted_extension_pins = self.config.trusted_extension_pins.clone();
             config.extension_timeouts = self.config.extension_timeouts.clone();
             config.extension_limits = self.config.extension_limits.clone();
@@ -331,7 +327,6 @@ impl crate::control::RuntimeControl for RuntimeHost {
         let mut discovered = self.extension_source.discover_packages()?;
         crate::extension::apply_trust_decisions(
             &mut discovered,
-            &self.config.trusted_extension_ids,
             &self.config.trusted_extension_pins,
         );
         let pipeline = crate::activation::ExtensionActivationPipeline {
@@ -374,13 +369,18 @@ impl crate::control::RuntimeControl for RuntimeHost {
                 &self.extension_manager,
             )
             .await?;
+        let diagnostics = candidate.diagnostics.clone();
 
         let report = crate::control::ReloadExtensionsReport {
             previous_generation: active.generation,
             candidate_generation: candidate.snapshot.generation,
             candidate_fingerprint: candidate.snapshot.fingerprint.clone(),
             published: !request.dry_run,
-            validation_errors: Vec::new(),
+            validation_errors: diagnostics
+                .iter()
+                .map(|diag| diag.message.clone())
+                .collect(),
+            diagnostics,
         };
 
         if !request.dry_run {
@@ -410,10 +410,13 @@ pub struct DefaultAgentRuntimeHandle {
 }
 
 impl DefaultAgentRuntimeHandle {
-    pub fn new(builder: AgentRuntimeBuilder, artifact_store: Arc<dyn ArtifactStore>) -> Self {
-        Self {
-            host: Arc::new(RuntimeHost::new(builder, artifact_store)),
-        }
+    pub fn new(
+        builder: AgentRuntimeBuilder,
+        artifact_store: Arc<dyn ArtifactStore>,
+    ) -> Result<Self> {
+        Ok(Self {
+            host: Arc::new(RuntimeHost::new(builder, artifact_store)?),
+        })
     }
 }
 

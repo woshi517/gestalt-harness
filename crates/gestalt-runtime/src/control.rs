@@ -31,6 +31,7 @@ pub struct ReloadExtensionsReport {
     pub candidate_fingerprint: RuntimeFingerprint,
     pub published: bool,
     pub validation_errors: Vec<String>,
+    pub diagnostics: Vec<crate::activation::ActivationDiagnostic>,
 }
 
 #[async_trait]
@@ -116,12 +117,17 @@ impl RuntimeControl for crate::runtime::AgentRuntime {
                 &self.extension_manager,
             )
             .await?;
+        let diagnostics = candidate.diagnostics.clone();
         let report = ReloadExtensionsReport {
             previous_generation: active.generation,
             candidate_generation: candidate.snapshot.generation,
             candidate_fingerprint: candidate.snapshot.fingerprint.clone(),
             published: !request.dry_run,
-            validation_errors: Vec::new(),
+            validation_errors: diagnostics
+                .iter()
+                .map(|diag| diag.message.clone())
+                .collect(),
+            diagnostics,
         };
 
         if !request.dry_run {

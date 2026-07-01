@@ -162,7 +162,7 @@ impl Orchestrator for TwoStepOrchestrator {
 async fn test_orchestration_happy_path() {
     let builder = build_test_builder();
     let artifact_store = Arc::new(InMemoryArtifactStore::new());
-    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store));
+    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store).unwrap());
 
     // Subscribe to events
     let mut receiver = handle.subscribe();
@@ -219,7 +219,7 @@ async fn test_orchestration_happy_path() {
 async fn test_orchestration_unknown_session_error() {
     let builder = build_test_builder();
     let artifact_store = Arc::new(InMemoryArtifactStore::new());
-    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store));
+    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store).unwrap());
 
     let res = handle.send_message("non-existent-session", "hello").await;
     assert!(res.is_err());
@@ -231,7 +231,7 @@ async fn test_orchestration_unknown_session_error() {
 async fn test_orchestration_duplicate_session_error() {
     let builder = build_test_builder();
     let artifact_store = Arc::new(InMemoryArtifactStore::new());
-    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store));
+    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store).unwrap());
 
     let res1 = handle.spawn_session("s1", None).await;
     assert!(res1.is_ok());
@@ -246,7 +246,7 @@ async fn test_orchestration_duplicate_session_error() {
 async fn test_orchestration_steering_enqueue() {
     let builder = build_test_builder();
     let artifact_store = Arc::new(InMemoryArtifactStore::new());
-    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store));
+    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store).unwrap());
 
     // Spawn a session
     let session_id = handle.spawn_session("steered-session", None).await.unwrap();
@@ -306,7 +306,7 @@ async fn test_orchestration_steering_concurrent() {
         });
 
     let artifact_store = Arc::new(InMemoryArtifactStore::new());
-    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store));
+    let handle = Arc::new(DefaultAgentRuntimeHandle::new(builder, artifact_store).unwrap());
     *tool_handle.lock().unwrap() = Some(handle.clone());
 
     // Spawn and run the session

@@ -174,7 +174,7 @@ This assembles:
 - Extension discovery and loading
 - Verification hooks
 
-Extension trust is configured via `extensions.trusted` in `gestalt.json`. Trusted extension IDs are wired to `extension_trust::set_trusted_extension_ids()` before extension descriptors are built, ensuring the trust gate is active before any tool is registered.
+Extension trust is configured via `extensions.trusted` in `gestalt.json`. The runtime resolves exact ID/hash entries into hash-pinned trust decisions before extension descriptors are built, ensuring the trust gate is active before any tool is registered.
 
 ## Failure, Cancellation, and Features
 
