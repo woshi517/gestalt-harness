@@ -32,6 +32,8 @@ mod minimal {
     use clap::{Parser, Subcommand};
     use serde::Serialize;
 
+    use gestalt_app::config::is_json_output;
+
     #[derive(Clone, Copy, clap::ValueEnum)]
     enum OutputFormat {
         Text,
@@ -104,8 +106,38 @@ mod minimal {
         correlation_id: Option<()>,
     }
 
+    fn exit_clap_error(err: clap::Error, json_output: bool) -> ! {
+        if json_output {
+            let message = err.to_string();
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "schema_version": 1,
+                    "status": "error",
+                    "kind": "error",
+                    "data": null,
+                    "error": {
+                        "code": "USAGE",
+                        "message": message,
+                        "retryable": false,
+                        "details": null,
+                        "correlation_id": null
+                    },
+                    "warnings": []
+                })
+            );
+            std::process::exit(2);
+        }
+
+        err.exit();
+    }
+
     pub fn main() {
-        let cli = Cli::parse();
+        let json_output = is_json_output();
+        let cli = match Cli::try_parse() {
+            Ok(cli) => cli,
+            Err(err) => exit_clap_error(err, json_output),
+        };
         if cli.command.is_some() {
             let error = gestalt_core::ConfigError::FeatureDisabled {
                 feature: "product-integrations".to_string(),

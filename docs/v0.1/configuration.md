@@ -68,8 +68,8 @@ migration command exists until a second supported schema version is implemented.
 | Criteria | Evidence |
 |---|---|
 | H3A-F01, B02 | `config_schema_tests`: generated schema drift, valid fixtures, unknown fields, and distinct version failures |
-| H3A-F02, B06 | `removed_alias.json`, schema absence scan, and no migration command |
+| H3A-F02, B06 | `removed_alias.json`, `legacy_secret_auth_ref_is_rejected`, schema absence scan, and no migration command |
 | H3A-F03, F07 | This contract's maturity and future-version sections |
-| H3A-F04, B01, B05 | `config_tests::test_config_precedence_and_sources` and `config_cli_tests::test_config_show_redaction` |
+| H3A-F04, B01, B05 | `config_tests::test_config_precedence_and_sources`, `config_tests::explain_config_reports_leaf_provenance_and_redacts_secrets`, and `config_cli_tests::test_config_show_redaction` |
 | H3A-F05, F06, B03 | App config/connect tests and CLI workspace/main contract tests for load, mutation, doctor, and projection |
 | H3A-B04 | `runtime_cli_tests` extension-manifest activation fixture |

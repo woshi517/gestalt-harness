@@ -1,0 +1,17 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "config_path": "/workspace/gestalt.json",
+    "memory_md_path": "/workspace/.gestalt/memory.md",
+    "workspace_md_path": "/workspace/.gestalt/workspace.md",
+    "workspace_root": "/workspace"
+  },
+  "error": null,
+  "kind": "workspace.info",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

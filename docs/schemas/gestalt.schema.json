@@ -330,7 +330,8 @@
           "type": "number",
           "format": "double"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "ContextSnapshotMode": {
       "type": "string",

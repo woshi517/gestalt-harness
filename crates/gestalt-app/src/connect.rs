@@ -188,7 +188,6 @@ pub fn connect_provider(
             models: HashMap::new(),
             models_endpoint,
             headers,
-            kind: None,
         };
         ws_cfg.providers.insert(conn_name.clone(), prov_config);
 

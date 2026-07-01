@@ -1,0 +1,18 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: "snapshot_string(&error_json(\"UNSUPPORTED_LEGACY_CONFIG\",\n\"legacy TOML configuration is not supported\", false,))"
+---
+{
+  "data": null,
+  "error": {
+    "code": "UNSUPPORTED_LEGACY_CONFIG",
+    "correlation_id": null,
+    "details": null,
+    "message": "legacy TOML configuration is not supported",
+    "retryable": false
+  },
+  "kind": "error",
+  "schema_version": 1,
+  "status": "error",
+  "warnings": []
+}

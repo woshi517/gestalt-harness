@@ -20,8 +20,8 @@ fn extension_instances_deserialize_with_grants_and_component_overrides() {
         "policySet": "default"
       },
       "grants": {
-        "workspaceRead": true,
-        "workspaceWrite": false,
+        "workspace_read": true,
+        "workspace_write": false,
         "network": ["api.example.com"]
       }
     }
@@ -40,6 +40,26 @@ fn extension_instances_deserialize_with_grants_and_component_overrides() {
     assert!(instance.grants.workspace_read);
     assert!(!instance.grants.workspace_write);
     assert_eq!(instance.grants.network, ["api.example.com"]);
+}
+
+#[test]
+fn extension_grant_aliases_are_rejected() {
+    let error = serde_json::from_str::<ExtensionsConfig>(
+        r#"
+{
+  "instances": {
+    "review-primary": {
+      "package": "com.example.review",
+      "grants": {
+        "workspaceRead": true
+      }
+    }
+  }
+}
+"#,
+    );
+
+    assert!(error.is_err());
 }
 
 #[test]
@@ -83,8 +103,8 @@ fn configured_instances_select_components_and_apply_runtime_values() {
         "policySet": "strict"
       },
       "grants": {
-        "workspaceRead": true,
-        "workspaceWrite": false,
+        "workspace_read": true,
+        "workspace_write": false,
         "network": ["api.example.com"]
       }
     }

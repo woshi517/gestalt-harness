@@ -6,7 +6,10 @@ use std::{path::PathBuf, sync::Arc};
 use clap::{Args, Parser, Subcommand};
 use gestalt_app::{
     auth::{auth_doctor, resolve_auth},
-    config::{explain_config, load_effective_config, validate_workspace_config, CliOverrides},
+    config::{
+        explain_config, is_json_output, load_effective_config, validate_workspace_config,
+        CliOverrides,
+    },
     context, doctor,
     models::{inspect_model, list_models, refresh_models, search_models},
     providers::{doctor_provider, inspect_provider, list_providers},
@@ -494,92 +497,14 @@ enum ModelsSubcommand {
 
 fn map_to_cli_error(err: &(dyn std::error::Error + 'static)) -> CliErrorPayload {
     if let Some(harness_err) = err.downcast_ref::<gestalt_core::HarnessError>() {
-        let retryable = harness_err.is_recoverable();
-        match harness_err {
-            gestalt_core::HarnessError::Config(cfg_err) => CliErrorPayload {
-                code: match cfg_err {
-                    gestalt_core::ConfigError::FeatureDisabled { .. } => {
-                        "FEATURE_DISABLED".to_string()
-                    }
-                    gestalt_core::ConfigError::UnsupportedLegacyConfig { .. } => {
-                        "UNSUPPORTED_LEGACY_CONFIG".to_string()
-                    }
-                    gestalt_core::ConfigError::MissingVersion => {
-                        "CONFIG_VERSION_MISSING".to_string()
-                    }
-                    gestalt_core::ConfigError::InvalidVersion => {
-                        "CONFIG_VERSION_INVALID".to_string()
-                    }
-                    gestalt_core::ConfigError::UnsupportedVersion { .. } => {
-                        "CONFIG_VERSION_UNSUPPORTED".to_string()
-                    }
-                    _ => "CONFIG_ERROR".to_string(),
-                },
-                message: cfg_err.to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
-            gestalt_core::HarnessError::Provider(prov_err) => CliErrorPayload {
-                code: if matches!(prov_err, gestalt_core::ProviderError::UnknownProvider(_)) {
-                    "PROVIDER_NOT_FOUND".to_string()
-                } else {
-                    "PROVIDER_ERROR".to_string()
-                },
-                message: prov_err.to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
-            gestalt_core::HarnessError::Policy(pol_err) => CliErrorPayload {
-                code: "POLICY_ERROR".to_string(),
-                message: pol_err.to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
-            gestalt_core::HarnessError::Context(ctx_err) => CliErrorPayload {
-                code: "CONTEXT_ERROR".to_string(),
-                message: ctx_err.to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
-            gestalt_core::HarnessError::Tool(t_err) => CliErrorPayload {
-                code: match t_err {
-                    gestalt_core::ToolError::NotFound(_) => "TOOL_NOT_FOUND",
-                    gestalt_core::ToolError::PathNotAllowed(_)
-                    | gestalt_core::ToolError::NetworkDenied(_)
-                    | gestalt_core::ToolError::Denied(_) => "TOOL_PERMISSION_DENIED",
-                    _ => "TOOL_ERROR",
-                }
-                .to_string(),
-                message: t_err.to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
-            gestalt_core::HarnessError::Trace(tr_err) => CliErrorPayload {
-                code: "TRACE_ERROR".to_string(),
-                message: tr_err.to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
-            gestalt_core::HarnessError::Approval(app_err) => CliErrorPayload {
-                code: "APPROVAL_ERROR".to_string(),
-                message: app_err.to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
-            gestalt_core::HarnessError::Cancelled => CliErrorPayload {
-                code: "CANCELLED".to_string(),
-                message: "Execution was cancelled".to_string(),
-                retryable,
-                details: None,
-                correlation_id: None,
-            },
+        let projection =
+            gestalt_app::reports::AppErrorProjectionV1::from_harness_error(harness_err);
+        CliErrorPayload {
+            code: projection.code,
+            message: projection.message,
+            retryable: projection.retryable,
+            details: projection.details,
+            correlation_id: None,
         }
     } else if let Some(trace_err) = err.downcast_ref::<gestalt_core::TraceError>() {
         CliErrorPayload {
@@ -779,10 +704,40 @@ fn make_tui_launch_request(
     }
 }
 
+fn exit_clap_error(err: clap::Error, json_output: bool) -> ! {
+    if json_output {
+        let message = err.to_string();
+        let envelope = JsonEnvelope {
+            schema_version: 1,
+            kind: "error".to_string(),
+            data: CliErrorPayload {
+                code: "USAGE".to_string(),
+                message: message.clone(),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            },
+        };
+        eprintln!(
+            "{}",
+            serde_json::to_string(&envelope).unwrap_or_else(|_| {
+                r#"{"schema_version":1,"status":"error","kind":"error","data":null,"error":{"code":"USAGE","message":"invalid command line","retryable":false,"details":null,"correlation_id":null},"warnings":[]}"#.to_string()
+            })
+        );
+        std::process::exit(2);
+    }
+
+    err.exit();
+}
+
 #[allow(clippy::large_stack_frames)]
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cli = Cli::parse();
+    let json_output = is_json_output();
+    let mut cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => exit_clap_error(err, json_output),
+    };
     let mut overrides = CliOverrides {
         provider: cli.provider.clone(),
         model: cli.model.clone(),

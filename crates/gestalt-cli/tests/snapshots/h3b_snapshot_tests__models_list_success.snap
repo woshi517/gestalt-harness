@@ -1,0 +1,47 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "models": [
+      {
+        "display_name": "GPT-4o Mini",
+        "input_cost_per_million": 1.25,
+        "last_updated": null,
+        "max_context_tokens": 128000,
+        "max_output_tokens": 8192,
+        "model_id": "gpt-4o-mini",
+        "output_cost_per_million": 5.0,
+        "qualified_id": "openai/gpt-4o-mini",
+        "source": "built_in",
+        "supports_json_schema": true,
+        "supports_prompt_caching": true,
+        "supports_thinking": false,
+        "supports_tools": true,
+        "supports_vision": false
+      },
+      {
+        "display_name": "Claude 3.5 Sonnet",
+        "input_cost_per_million": 1.25,
+        "last_updated": null,
+        "max_context_tokens": 128000,
+        "max_output_tokens": 8192,
+        "model_id": "claude-3-5-sonnet-20241022",
+        "output_cost_per_million": 5.0,
+        "qualified_id": "anthropic/claude-3-5-sonnet-20241022",
+        "source": "built_in",
+        "supports_json_schema": true,
+        "supports_prompt_caching": true,
+        "supports_thinking": false,
+        "supports_tools": true,
+        "supports_vision": false
+      }
+    ]
+  },
+  "error": null,
+  "kind": "models.list",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

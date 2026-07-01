@@ -1,0 +1,27 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "profiles": [
+      {
+        "active": true,
+        "model": "gpt-4o-mini",
+        "name": "default",
+        "provider": "openai"
+      },
+      {
+        "active": false,
+        "model": "claude-3-5-sonnet-20241022",
+        "name": "research",
+        "provider": "anthropic"
+      }
+    ]
+  },
+  "error": null,
+  "kind": "profiles.list",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

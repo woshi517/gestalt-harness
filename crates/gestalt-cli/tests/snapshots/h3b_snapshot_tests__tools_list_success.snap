@@ -1,0 +1,25 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "tools": [
+      {
+        "description": "Read a file",
+        "name": "read",
+        "risk_type": "Low"
+      },
+      {
+        "description": "Write a file",
+        "name": "write",
+        "risk_type": "Medium"
+      }
+    ]
+  },
+  "error": null,
+  "kind": "tools.list",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

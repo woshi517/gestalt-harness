@@ -53,8 +53,8 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 * **Enforcing Tests:** `crates/gestalt-runtime/tests/extension_manifest_v2_tests.rs`, `crates/gestalt-runtime/tests/lifecycle_protocol_v2_tests.rs`, `crates/gestalt-runtime/tests/runtime_builder_tests.rs`
 
 ## 8. Stable CLI Automation (CLI-001–CLI-004)
-* **Status:** 🔴 **Unpublished (Inventory Accepted, Snapshots Pending)**
-* **Provisional Contract:** [cli-automation.md](./cli-automation.md)
+* **Status:** 🟢 **Published**
+* **Specification:** [cli-automation.md](./cli-automation.md)
 * **Implementation Plan:** [H3B](../plans/v0.1-hardening/H3B-cli-automation-contract-and-snapshots.md)
 * **CLI Command Entry Points:** See the stable command matrix.
-* **Enforcing Tests:** [main_cli_contract_tests.rs](../../crates/gestalt-cli/tests/main_cli_contract_tests.rs)
+* **Enforcing Tests:** [main_cli_contract_tests.rs](../../crates/gestalt-cli/tests/main_cli_contract_tests.rs), [h3b_snapshot_tests.rs](../../crates/gestalt-cli/tests/h3b_snapshot_tests.rs)

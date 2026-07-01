@@ -1206,20 +1206,59 @@ fn redact_explain_map(
 ) -> std::collections::HashMap<String, ConfigSourceInfo> {
     for (k, info) in &mut map {
         let lower_k = k.to_lowercase();
-        if (lower_k.contains("auth_ref")
+        let redacted = if (lower_k.contains("auth_ref")
             || lower_k.contains("api_key")
             || lower_k.contains("headers"))
             && !lower_k.contains("api_key_env")
         {
-            info.redacted = true;
-            match &mut info.value {
-                Value::String(s) => {
-                    *s = "[REDACTED]".to_string();
-                }
-                other => {
-                    *other = Value::String("[REDACTED]".to_string());
+            info.value = Value::String("[REDACTED]".to_string());
+            true
+        } else {
+            fn redact_nested(value: &mut Value) -> bool {
+                match value {
+                    Value::Object(map) => {
+                        let mut redacted = false;
+                        for (key, nested) in map.iter_mut() {
+                            let lower = key.to_lowercase();
+                            if lower.contains("api_key_env") {
+                                if redact_nested(nested) {
+                                    redacted = true;
+                                }
+                                continue;
+                            }
+                            if lower.contains("auth_ref")
+                                || lower.contains("api_key")
+                                || lower.contains("headers")
+                                || lower.contains("token")
+                                || lower.contains("secret")
+                                || lower.contains("credential")
+                                || lower.contains("sig")
+                            {
+                                *nested = Value::String("[REDACTED]".to_string());
+                                redacted = true;
+                            } else if redact_nested(nested) {
+                                redacted = true;
+                            }
+                        }
+                        redacted
+                    }
+                    Value::Array(items) => {
+                        let mut redacted = false;
+                        for item in items {
+                            if redact_nested(item) {
+                                redacted = true;
+                            }
+                        }
+                        redacted
+                    }
+                    _ => false,
                 }
             }
+
+            redact_nested(&mut info.value)
+        };
+        if redacted {
+            info.redacted = true;
         }
     }
     map

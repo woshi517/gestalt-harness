@@ -28,7 +28,6 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             request: None,
             capabilities: None,
             models: HashMap::new(),
-            kind: None,
         }),
         "anthropic" => Some(ProviderConfig {
             id: Some("anthropic".to_string()),
@@ -46,7 +45,6 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             request: None,
             capabilities: None,
             models: HashMap::new(),
-            kind: None,
         }),
         "openai" => Some(ProviderConfig {
             id: Some("openai".to_string()),
@@ -64,7 +62,6 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             request: None,
             capabilities: None,
             models: HashMap::new(),
-            kind: None,
         }),
         "ollama" => Some(ProviderConfig {
             id: Some("ollama".to_string()),
@@ -82,7 +79,6 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             request: None,
             capabilities: None,
             models: HashMap::new(),
-            kind: None,
         }),
         "groq" => Some(ProviderConfig {
             id: Some("groq".to_string()),
@@ -100,7 +96,6 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             request: None,
             capabilities: None,
             models: HashMap::new(),
-            kind: None,
         }),
         "together" => Some(ProviderConfig {
             id: Some("together".to_string()),
@@ -118,7 +113,6 @@ pub fn get_builtin_provider(name: &str) -> Option<ProviderConfig> {
             request: None,
             capabilities: None,
             models: HashMap::new(),
-            kind: None,
         }),
         _ => None,
     }

@@ -25,6 +25,90 @@ pub struct AppErrorProjectionV1 {
     pub details: Option<serde_json::Value>,
 }
 
+impl AppErrorProjectionV1 {
+    pub fn from_harness_error(error: &gestalt_core::HarnessError) -> Self {
+        let retryable = error.is_recoverable();
+        match error {
+            gestalt_core::HarnessError::Config(cfg_err) => Self {
+                code: match cfg_err {
+                    gestalt_core::ConfigError::FeatureDisabled { .. } => {
+                        "FEATURE_DISABLED".to_string()
+                    }
+                    gestalt_core::ConfigError::UnsupportedLegacyConfig { .. } => {
+                        "UNSUPPORTED_LEGACY_CONFIG".to_string()
+                    }
+                    gestalt_core::ConfigError::MissingVersion => {
+                        "CONFIG_VERSION_MISSING".to_string()
+                    }
+                    gestalt_core::ConfigError::InvalidVersion => {
+                        "CONFIG_VERSION_INVALID".to_string()
+                    }
+                    gestalt_core::ConfigError::UnsupportedVersion { .. } => {
+                        "CONFIG_VERSION_UNSUPPORTED".to_string()
+                    }
+                    _ => "CONFIG_ERROR".to_string(),
+                },
+                message: cfg_err.to_string(),
+                retryable,
+                details: None,
+            },
+            gestalt_core::HarnessError::Provider(prov_err) => Self {
+                code: if matches!(prov_err, gestalt_core::ProviderError::UnknownProvider(_)) {
+                    "PROVIDER_NOT_FOUND".to_string()
+                } else {
+                    "PROVIDER_ERROR".to_string()
+                },
+                message: prov_err.to_string(),
+                retryable,
+                details: None,
+            },
+            gestalt_core::HarnessError::Policy(pol_err) => Self {
+                code: "POLICY_ERROR".to_string(),
+                message: pol_err.to_string(),
+                retryable,
+                details: None,
+            },
+            gestalt_core::HarnessError::Context(ctx_err) => Self {
+                code: "CONTEXT_ERROR".to_string(),
+                message: ctx_err.to_string(),
+                retryable,
+                details: None,
+            },
+            gestalt_core::HarnessError::Tool(tool_err) => Self {
+                code: match tool_err {
+                    gestalt_core::ToolError::NotFound(_) => "TOOL_NOT_FOUND",
+                    gestalt_core::ToolError::PathNotAllowed(_)
+                    | gestalt_core::ToolError::NetworkDenied(_)
+                    | gestalt_core::ToolError::Denied(_) => "TOOL_PERMISSION_DENIED",
+                    _ => "TOOL_ERROR",
+                }
+                .to_string(),
+                message: tool_err.to_string(),
+                retryable,
+                details: None,
+            },
+            gestalt_core::HarnessError::Trace(trace_err) => Self {
+                code: "TRACE_ERROR".to_string(),
+                message: trace_err.to_string(),
+                retryable,
+                details: None,
+            },
+            gestalt_core::HarnessError::Approval(approval_err) => Self {
+                code: "APPROVAL_ERROR".to_string(),
+                message: approval_err.to_string(),
+                retryable,
+                details: None,
+            },
+            gestalt_core::HarnessError::Cancelled => Self {
+                code: "CANCELLED".to_string(),
+                message: "Execution was cancelled".to_string(),
+                retryable,
+                details: None,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceReportV1<T> {
     pub value: Option<T>,

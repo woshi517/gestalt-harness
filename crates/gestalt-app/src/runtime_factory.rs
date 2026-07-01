@@ -455,12 +455,9 @@ pub async fn build_app_runtime_with_report(
     let resolved = match config.resolve_provider() {
         Ok(resolved) => resolved,
         Err(error) => {
-            return ServiceReportV1::failure(crate::reports::AppErrorProjectionV1 {
-                code: "provider_resolution".to_string(),
-                message: error.to_string(),
-                retryable: false,
-                details: None,
-            });
+            return ServiceReportV1::failure(
+                crate::reports::AppErrorProjectionV1::from_harness_error(&error),
+            );
         }
     };
     let diagnostics = resolved
@@ -484,12 +481,9 @@ pub async fn build_app_runtime_with_report(
         Err(error) => ServiceReportV1 {
             value: None,
             diagnostics,
-            error: Some(crate::reports::AppErrorProjectionV1 {
-                code: "runtime_construction".to_string(),
-                message: error.to_string(),
-                retryable: false,
-                details: None,
-            }),
+            error: Some(crate::reports::AppErrorProjectionV1::from_harness_error(
+                &error,
+            )),
             correlation_id: None,
         },
     }

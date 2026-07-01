@@ -24,8 +24,7 @@ fn test_cli_format_json_envelope() {
         .env("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir")
         .arg("--workspace")
         .arg(&temp_root)
-        .arg("--format")
-        .arg("json")
+        .arg("--format=json")
         .arg("status")
         .output()
         .unwrap();
@@ -104,6 +103,36 @@ fn test_cli_invalid_provider_json_error() {
     assert_eq!(json["error"]["code"], "PROVIDER_NOT_FOUND");
     assert_eq!(json["error"]["retryable"], false);
     assert!(json["data"].is_null());
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn test_cli_json_usage_errors_are_machine_readable() {
+    let temp_root = create_temp_workspace();
+    init_workspace(&temp_root, false).unwrap();
+
+    let output = Command::new(get_bin())
+        .arg("--workspace")
+        .arg(&temp_root)
+        .arg("--format")
+        .arg("json")
+        .arg("config")
+        .arg("validate")
+        .arg("--definitely-invalid")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stderr).unwrap();
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["status"], "error");
+    assert_eq!(json["kind"], "error");
+    assert_eq!(json["error"]["code"], "USAGE");
+    assert_eq!(json["error"]["retryable"], false);
+    assert!(json["error"]["message"].is_string());
+    assert!(output.stdout.is_empty());
 
     let _ = fs::remove_dir_all(&temp_root);
 }

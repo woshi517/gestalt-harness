@@ -1,0 +1,32 @@
+---
+source: crates/gestalt-cli/tests/h3b_snapshot_tests.rs
+expression: snapshot_string(&success_json(&report))
+---
+{
+  "data": {
+    "annotations": {
+      "annotations": [
+        {
+          "key": "trusted",
+          "source": "built_in_trusted",
+          "value": "true"
+        }
+      ]
+    },
+    "name": "read",
+    "risk": "Low",
+    "schema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "error": null,
+  "kind": "tools.inspect",
+  "schema_version": 1,
+  "status": "success",
+  "warnings": []
+}

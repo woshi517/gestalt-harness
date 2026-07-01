@@ -1,6 +1,6 @@
 ---
 title: "CLI Automation Contract v1"
-status: proposed
+status: active
 type: version-contract
 target: v0.1
 owners:
@@ -73,16 +73,16 @@ remains experimental until H4B is frozen.
 ## Dependency Status
 
 H0B accepted the envelope and stable-candidate command inventory. The subset is
-not published until each selected command has the H3B-F06 normalized success
-and failure snapshots for its supported feature combinations.
+published with normalized success and failure snapshots for the supported
+feature combinations.
 
 ## Conformance Evidence
 
 | Criteria | Evidence |
 |---|---|
-| H3B-F03, B01, B02 | Central `handle_result` dispatcher and `main_cli_contract_tests` |
+| H3B-F03, B01, B02 | Central `handle_result` dispatcher, machine-readable usage errors, and `main_cli_contract_tests::test_cli_json_usage_errors_are_machine_readable` |
 | H3B-F04, F05, B03 | Central domain-error/exit mapping and legacy-config CLI assertion |
-| H3B-B04 | `minimal_feature_cli_tests` with `--no-default-features` |
+| H3B-B04 | `minimal_feature_cli_tests` with `--no-default-features`, including disabled-command and usage-error assertions |
 | H3B-B06 | `write_stdout` treats `BrokenPipe` as successful termination |
 | H3B-F01, F02 | H0B stable-candidate command inventory |
-| H3B-F06, B05 | Blocked on per-command normalized snapshots |
+| H3B-F06, B05 | `crates/gestalt-cli/tests/h3b_snapshot_tests.rs` and `crates/gestalt-cli/tests/snapshots/` |
