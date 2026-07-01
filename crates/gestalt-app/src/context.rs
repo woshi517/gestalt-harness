@@ -2,9 +2,11 @@ use crate::config::{load_effective_config, CliOverrides};
 use crate::reports::ContextExplainReport;
 use gestalt_core::ToolCatalog;
 use gestalt_core::{context::ContextPipeline, Message, TokenBudget};
-use gestalt_runtime::context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
-use gestalt_runtime::default_registry;
-use gestalt_runtime::workspace_context::load_and_snapshot_workspace_context;
+use gestalt_runtime::unstable::context::{
+    ContextContributor, ContextPatch, RuntimeContextPipeline,
+};
+use gestalt_runtime::unstable::default_registry;
+use gestalt_runtime::unstable::workspace_context::load_and_snapshot_workspace_context;
 use std::sync::{Arc, Mutex};
 
 pub async fn explain_context(
@@ -67,7 +69,7 @@ pub async fn explain_context(
         // Load workspace and memory contributors using load_and_snapshot_workspace_context.
         let workspace_cfg = config.context.workspace.clone().unwrap_or_default();
         let memory_cfg = config.context.memory.clone().unwrap_or_default();
-        let event_bus = gestalt_runtime::event_bus::RuntimeEventBus::new();
+        let event_bus = gestalt_runtime::unstable::event_bus::RuntimeEventBus::new();
 
         let policy = Arc::new(crate::run::build_policy(&config));
         let (ws_contrib, mem_contrib, _) = load_and_snapshot_workspace_context(
@@ -166,7 +168,7 @@ pub async fn explain_context(
             )));
         }
 
-        let envelopes = gestalt_runtime::read_trace(&trace_path)?;
+        let envelopes = gestalt_runtime::unstable::read_trace(&trace_path)?;
         for envelope in envelopes.iter().rev() {
             if let gestalt_core::AgentEvent::ContextBuilt {
                 packet_id,

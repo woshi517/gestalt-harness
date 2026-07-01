@@ -4,7 +4,7 @@ use crate::reports::{
 };
 use chrono::Utc;
 use gestalt_core::HarnessError;
-use gestalt_runtime::TraceEvent as AgentEvent;
+use gestalt_runtime::unstable::TraceEvent as AgentEvent;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -175,7 +175,9 @@ pub fn resolve_run_path(config: &EffectiveConfig, input: &str) -> Result<PathBuf
                 let manifest_path = entry.path().join("run.json");
                 if manifest_path.exists() {
                     if let Ok(manifest) =
-                        gestalt_runtime::run_manifest::RunManifest::load_from(&manifest_path)
+                        gestalt_runtime::unstable::run_manifest::RunManifest::load_from(
+                            &manifest_path,
+                        )
                     {
                         if manifest.run_id == input || manifest.run_id.starts_with(input) {
                             is_match = true;
@@ -230,11 +232,9 @@ pub fn scan_trace_file(trace_path: &Path) -> Result<ScannedTrace, gestalt_core::
         let line = line.map_err(|e| gestalt_core::TraceError::ReadFailed {
             reason: e.to_string(),
         })?;
-        let Some(envelope) =
-            gestalt_runtime::parse_trace_envelope_line(&line, 0).map_err(|err| {
-                gestalt_core::TraceError::ReadFailed {
-                    reason: err.to_string(),
-                }
+        let Some(envelope) = gestalt_runtime::unstable::parse_trace_envelope_line(&line, 0)
+            .map_err(|err| gestalt_core::TraceError::ReadFailed {
+                reason: err.to_string(),
             })?
         else {
             continue;
@@ -340,7 +340,7 @@ pub struct RunSummary {
 pub fn summarize_run_dir(path: &Path) -> Result<RunSummary, HarnessError> {
     let run_manifest_path = path.join("run.json");
     let manifest = if run_manifest_path.exists() {
-        gestalt_runtime::run_manifest::RunManifest::load_from(&run_manifest_path).ok()
+        gestalt_runtime::unstable::run_manifest::RunManifest::load_from(&run_manifest_path).ok()
     } else {
         None
     };
@@ -547,7 +547,7 @@ fn has_descendants(config: &EffectiveConfig, run_id: &str) -> bool {
             let manifest_path = entry.path().join("run.json");
             if manifest_path.exists() {
                 if let Ok(manifest) =
-                    gestalt_runtime::run_manifest::RunManifest::load_from(&manifest_path)
+                    gestalt_runtime::unstable::run_manifest::RunManifest::load_from(&manifest_path)
                 {
                     if let Some(ref parent_id) = manifest.parent_run_id {
                         if parent_id == run_id {
@@ -575,7 +575,7 @@ fn gather_descendants(
             let manifest_path = entry.path().join("run.json");
             if manifest_path.exists() {
                 if let Ok(manifest) =
-                    gestalt_runtime::run_manifest::RunManifest::load_from(&manifest_path)
+                    gestalt_runtime::unstable::run_manifest::RunManifest::load_from(&manifest_path)
                 {
                     if let Some(ref parent_id) = manifest.parent_run_id {
                         if parent_id == run_id {
@@ -654,9 +654,11 @@ pub fn prune_runs(
                     let run_manifest_path = path.join("run.json");
                     let mut r_id = None;
                     if run_manifest_path.exists() {
-                        if let Ok(m) = gestalt_runtime::run_manifest::RunManifest::load_from(
-                            &run_manifest_path,
-                        ) {
+                        if let Ok(m) =
+                            gestalt_runtime::unstable::run_manifest::RunManifest::load_from(
+                                &run_manifest_path,
+                            )
+                        {
                             r_id = Some(m.run_id);
                         }
                     }
@@ -776,7 +778,9 @@ pub fn delete_run(
     let run_manifest_path = resolved_path.join("run.json");
     let mut target_run_id = None;
     if run_manifest_path.exists() {
-        if let Ok(m) = gestalt_runtime::run_manifest::RunManifest::load_from(&run_manifest_path) {
+        if let Ok(m) =
+            gestalt_runtime::unstable::run_manifest::RunManifest::load_from(&run_manifest_path)
+        {
             target_run_id = Some(m.run_id);
         }
     }

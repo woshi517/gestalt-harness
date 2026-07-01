@@ -10,9 +10,9 @@ use std::sync::Arc;
 use tokio::io::AsyncBufReadExt as _;
 
 use gestalt_core::{HarnessError, ToolCatalog, WorkspaceSnapshotter};
-use gestalt_runtime::default_registry;
-use gestalt_runtime::resume::ResumeAnalyzer;
-use gestalt_runtime::run_manifest::{CompatibilityFingerprint, RunManifest};
+use gestalt_runtime::unstable::default_registry;
+use gestalt_runtime::unstable::resume::ResumeAnalyzer;
+use gestalt_runtime::unstable::run_manifest::{CompatibilityFingerprint, RunManifest};
 
 use crate::slash::{handle_slash_command, SlashOutcome};
 use gestalt_app::config::{load_effective_config, CliOverrides, EffectiveConfig};
@@ -50,7 +50,7 @@ pub async fn run_chat(
             })
         })?;
 
-        let snapshotter = gestalt_runtime::GitWorkspaceSnapshotter;
+        let snapshotter = gestalt_runtime::unstable::GitWorkspaceSnapshotter;
         let current_snapshot = snapshotter.capture(&config.workspace_root).await?;
         let tools = Arc::new(default_registry()?);
         let skill_explicit: Vec<std::path::PathBuf> = config
@@ -65,9 +65,9 @@ pub async fn run_chat(
             .unwrap_or_default();
         let workspace_cfg = config.context.workspace.clone().unwrap_or_default();
         let memory_cfg = config.context.memory.clone().unwrap_or_default();
-        let event_bus = gestalt_runtime::event_bus::RuntimeEventBus::new();
+        let event_bus = gestalt_runtime::unstable::event_bus::RuntimeEventBus::new();
         let workspace_context_snapshot_hash =
-            match gestalt_runtime::workspace_context::load_and_snapshot_workspace_context(
+            match gestalt_runtime::unstable::workspace_context::load_and_snapshot_workspace_context(
                 &config.workspace_root,
                 None,
                 &event_bus,
@@ -82,18 +82,20 @@ pub async fn run_chat(
 
         let expected_fingerprint = CompatibilityFingerprint {
             context_pipeline_version: "pipeline-v1".to_string(),
-            tool_schema_hash: gestalt_runtime::run_manifest::compute_tool_schema_hash(
+            tool_schema_hash: gestalt_runtime::unstable::run_manifest::compute_tool_schema_hash(
                 &tools.schemas(),
             ),
             policy_fingerprint: serde_json::to_string(&config.policies)
-                .map(|content| gestalt_runtime::run_manifest::compute_policy_fingerprint(&content))
+                .map(|content| {
+                    gestalt_runtime::unstable::run_manifest::compute_policy_fingerprint(&content)
+                })
                 .unwrap_or_default(),
             hook_contract_hash: {
                 let hook_names = vec![
                     "VerificationToolHook".to_string(),
                     "EvaluatorHook".to_string(),
                 ];
-                gestalt_runtime::run_manifest::compute_hook_contract_hash(&hook_names)
+                gestalt_runtime::unstable::run_manifest::compute_hook_contract_hash(&hook_names)
             },
             execution_mode: format!("{:?}", config.selected_mode()?),
             skill_fingerprint: gestalt_app::run::compute_skill_fingerprint(

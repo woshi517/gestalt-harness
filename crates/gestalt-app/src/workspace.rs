@@ -2,7 +2,7 @@
 use gestalt_core::snapshot::WorkspaceSnapshotter;
 use gestalt_core::{ConfigError, HarnessError};
 #[cfg(feature = "trace")]
-use gestalt_runtime::GitWorkspaceSnapshotter;
+use gestalt_runtime::unstable::GitWorkspaceSnapshotter;
 use std::fs;
 use std::path::Path;
 #[cfg(all(
@@ -149,7 +149,7 @@ pub async fn status_workspace(
             }
 
             let policy = std::sync::Arc::new(crate::run::build_policy(&config));
-            let loader = gestalt_runtime::workspace_context::WorkspaceContextLoader::new(
+            let loader = gestalt_runtime::unstable::workspace_context::WorkspaceContextLoader::new(
                 workspace_root.clone(),
                 Some(policy as std::sync::Arc<dyn gestalt_core::policy::PolicyEngine>),
             );
@@ -159,7 +159,7 @@ pub async fn status_workspace(
             if ws_enabled {
                 match loader.load_workspace_instructions(&ws_cfg).await {
                     Ok(_) => {}
-                    Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
+                    Err(gestalt_runtime::unstable::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
                         warnings.push(format!("workspace instructions file '{}' is missing", path.display()));
                     }
                     Err(err) => {
@@ -173,7 +173,7 @@ pub async fn status_workspace(
             if mem_enabled {
                 match loader.load_memory(&mem_cfg).await {
                     Ok(_) => {}
-                    Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
+                    Err(gestalt_runtime::unstable::workspace_context::WorkspaceContextError::RequiredMissing { path, .. }) => {
                         warnings.push(format!("memory file '{}' is missing", path.display()));
                     }
                     Err(err) => {

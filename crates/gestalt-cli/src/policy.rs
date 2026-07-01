@@ -5,7 +5,7 @@ use gestalt_app::config::{
 use gestalt_core::policy::{PolicyEngine, PolicyRequest};
 use gestalt_core::ToolCatalog;
 use gestalt_core::{tool::RiskLevel, HarnessError};
-use gestalt_runtime::MinimalPolicyEngine;
+use gestalt_runtime::unstable::MinimalPolicyEngine;
 use serde_json::Value;
 
 pub fn validate_policy(overrides: &CliOverrides) -> Result<PolicyValidateReport, HarnessError> {
@@ -42,8 +42,8 @@ fn get_tool_risk(tool_name: &str, input: &Value) -> RiskLevel {
             .get("command")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        gestalt_runtime::classify_bash(command)
-    } else if let Ok(registry) = gestalt_runtime::default_registry() {
+        gestalt_runtime::unstable::classify_bash(command)
+    } else if let Ok(registry) = gestalt_runtime::unstable::default_registry() {
         if let Some(tool) = registry.get(tool_name) {
             tool.risk(input)
         } else {

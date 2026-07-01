@@ -9,10 +9,10 @@ use gestalt_core::{
     tool::{ToolCatalog, ToolSchema},
     ContextStability,
 };
-use gestalt_runtime::{
-    AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, BeforeContextBuildCtx,
-    BeforeToolPolicyCtx, CompositionHooks, ContextContributor, HookOutcome, OnEventCtx,
-    PrepareNextTurnCtx, RuntimeConfig,
+use gestalt_runtime::unstable::{
+    AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, AgentRuntimeBuilderExt,
+    BeforeContextBuildCtx, BeforeToolPolicyCtx, CompositionHooks, ContextContributor, HookOutcome,
+    OnEventCtx, PrepareNextTurnCtx, RuntimeConfig,
 };
 
 struct EmptyToolCatalog;
@@ -100,7 +100,10 @@ impl ContextContributor for TestContextContributor {
         ContextStability::TurnDynamic
     }
 
-    async fn contribute(&self, _workspace_root: &Path) -> gestalt_runtime::Result<Message> {
+    async fn contribute(
+        &self,
+        _workspace_root: &Path,
+    ) -> gestalt_runtime::unstable::Result<Message> {
         Ok(Message::System {
             content: "test context".to_string(),
         })
@@ -114,39 +117,39 @@ impl CompositionHooks for NoopCompositionHooks {
     async fn before_context_build(
         &self,
         _context: &BeforeContextBuildCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn after_context_build(
         &self,
         _context: &AfterContextBuildCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn before_tool_policy(
         &self,
         _context: &BeforeToolPolicyCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn after_tool_result(
         &self,
         _context: &AfterToolResultCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn prepare_next_turn(
         &self,
         _context: &PrepareNextTurnCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
-    async fn on_event(&self, _context: &OnEventCtx) -> gestalt_runtime::Result<()> {
+    async fn on_event(&self, _context: &OnEventCtx) -> gestalt_runtime::unstable::Result<()> {
         Ok(())
     }
 }
@@ -156,16 +159,16 @@ fn runtime_snapshot_contains_typed_context_and_policy_plans() {
     let mut builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())
         .composition_hooks(Arc::new(NoopCompositionHooks));
 
     builder
-        .registry
+        .runtime_registry_mut()
         .register_context_contributor("test_context".to_string(), Arc::new(TestContextContributor))
         .unwrap();
 

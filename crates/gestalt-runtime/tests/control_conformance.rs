@@ -10,7 +10,7 @@
 //! - H1B-F06: legacy broad traits are no longer crate-root exports.
 //! - H1B-B04: this suite also passes with `--no-default-features`.
 
-use gestalt_runtime::control::contract::*;
+use gestalt_runtime::api::v1::*;
 use std::sync::Arc;
 
 use gestalt_core::{
@@ -21,10 +21,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::control::{
-    ControlHostOptions, InMemoryControlHost, MockControlHost, RuntimeBackedControlHost,
-};
-use gestalt_runtime::{
+use gestalt_runtime::unstable::{
     AgentRuntimeBuilder, ContextMessageAssembler, InMemoryArtifactStore, RuntimeConfig,
 };
 
@@ -36,7 +33,7 @@ trait ConformanceHost: RuntimeControlV1 + Clone {
         &self,
         session_id: &SessionIdV1,
         run_id: &RunIdV1,
-    ) -> Result<(), ControlErrorV1>;
+    ) -> std::result::Result<(), ControlErrorV1>;
 }
 
 #[async_trait::async_trait]
@@ -53,7 +50,7 @@ impl ConformanceHost for InMemoryControlHost {
         &self,
         session_id: &SessionIdV1,
         run_id: &RunIdV1,
-    ) -> Result<(), ControlErrorV1> {
+    ) -> std::result::Result<(), ControlErrorV1> {
         self.complete_run(session_id, run_id).await
     }
 }
@@ -72,7 +69,7 @@ impl ConformanceHost for RuntimeBackedControlHost {
         &self,
         session_id: &SessionIdV1,
         run_id: &RunIdV1,
-    ) -> Result<(), ControlErrorV1> {
+    ) -> std::result::Result<(), ControlErrorV1> {
         self.complete_run(session_id, run_id).await
     }
 }
@@ -117,14 +114,14 @@ impl Provider for ConformanceProvider {
         &self,
         _model: &str,
         _messages: &[Message],
-    ) -> Result<usize, gestalt_core::HarnessError> {
+    ) -> std::result::Result<usize, gestalt_core::HarnessError> {
         Ok(0)
     }
 
     async fn stream(
         &self,
         _request: ProviderRequest,
-    ) -> Result<EventStream, gestalt_core::HarnessError> {
+    ) -> std::result::Result<EventStream, gestalt_core::HarnessError> {
         Ok(Box::pin(futures::stream::iter(vec![Ok(
             AgentEvent::Stop {
                 reason: StopReason::EndTurn,
@@ -191,7 +188,7 @@ impl ConformanceHost for MockControlHost {
         &self,
         session_id: &SessionIdV1,
         run_id: &RunIdV1,
-    ) -> Result<(), ControlErrorV1> {
+    ) -> std::result::Result<(), ControlErrorV1> {
         self.complete_run(session_id, run_id).await
     }
 }

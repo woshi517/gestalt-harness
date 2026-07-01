@@ -34,7 +34,7 @@ promise.
 
 | Contract target | Missing gate | Current evidence |
 |---|---|---|
-| Runtime control and artifact access | Remaining approval, artifact-security, event-projection, and public-API gates | `RuntimeBackedControlHost` passes shared conformance plus `runtime_control_real_run`; `InMemoryControlHost` and `MockControlHost` are test support |
+| Runtime control and artifact access | Remaining approval, artifact-security, and event-projection gates | `api::v1` and its compile-fail boundary checks are enforced by `public_api_contract`; `RuntimeBackedControlHost` passes shared conformance plus `runtime_control_real_run`; in-memory and mock hosts are test support |
 | Policy and approval | Real policy-confirmed tool execution through runtime control | DTO and in-memory conformance tests |
 | App service reports | Runtime-factory diagnostics and complete value/error contract tests | `report_contract_tests` |
 | CLI automation | Upstream diagnostics must reach the JSON `warnings` field | JSON snapshots and envelope tests |
@@ -46,9 +46,12 @@ promise.
 
 All other public items in `gestalt-core`, `gestalt-runtime`, `gestalt-app`, and
 `gestalt-cli` are experimental until added to the published table.
-`AgentRuntimeBuilder`, its public fields, crate-root runtime re-exports, raw
-events, registries, queues, planners, snapshots, and activation internals are
-therefore not stable v0.1 APIs. Private and `pub(crate)` items are internal.
+The deliberate Rust boundary is `gestalt_runtime::api::v1`; it is documented in
+[runtime-api.md](./runtime-api.md). `AgentRuntimeBuilder` state is private and
+the crate root exports no runtime types. Raw events, registries, queues,
+planners, snapshots, activation internals, and every item under
+`gestalt_runtime::unstable` are experimental. Private and `pub(crate)` items are
+internal.
 
 ## Deprecated and Removed
 

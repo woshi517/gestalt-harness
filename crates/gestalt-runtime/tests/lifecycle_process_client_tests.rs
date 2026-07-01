@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
-use gestalt_runtime::extension::{
+use gestalt_runtime::unstable::extension::{
     ComponentInstanceId, ComponentKind, ExtensionManager, ExtensionRuntimeComponent,
     LocalProcessLauncher, RuntimeExtensionSnapshot, RuntimeGeneration,
 };
-use gestalt_runtime::lifecycle::{
+use gestalt_runtime::unstable::lifecycle::{
     InitializeRequestV2, LifecycleCapabilityKind, LifecycleClient, LifecycleInvokeRequestV2,
     ProcessLifecycleClient,
 };
-use gestalt_runtime::{RuntimeEventBus, RuntimeRegistryBuilder};
+use gestalt_runtime::unstable::{RuntimeEventBus, RuntimeRegistryBuilder};
 use serde_json::json;
 
 struct EmptyToolCatalog;
@@ -31,10 +31,10 @@ async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process(
         Arc::new(snapshot_with_generation(0)),
         event_bus.clone(),
         Arc::new(LocalProcessLauncher),
-        gestalt_runtime::activation::HostLaunchContext::default(),
+        gestalt_runtime::unstable::activation::HostLaunchContext::default(),
     ));
     let component = lifecycle_component();
-    let host_context = gestalt_runtime::activation::HostLaunchContext {
+    let host_context = gestalt_runtime::unstable::activation::HostLaunchContext {
         event_bus: event_bus.clone(),
         workspace_root: std::path::PathBuf::from("."),
         allow_network: false,
@@ -92,7 +92,7 @@ async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process(
     assert_eq!(manager.process_instances().len(), 1);
     assert_eq!(
         manager.process_instances()[0].state(),
-        gestalt_runtime::extension::ExtensionProcessState::Ready
+        gestalt_runtime::unstable::extension::ExtensionProcessState::Ready
     );
 
     client.shutdown().await.unwrap();
@@ -104,10 +104,10 @@ async fn process_lifecycle_client_reuses_processes_and_respects_draining_state()
         Arc::new(snapshot_with_generation(0)),
         RuntimeEventBus::new(),
         Arc::new(LocalProcessLauncher),
-        gestalt_runtime::activation::HostLaunchContext::default(),
+        gestalt_runtime::unstable::activation::HostLaunchContext::default(),
     ));
     let component = lifecycle_component();
-    let host_context = gestalt_runtime::activation::HostLaunchContext {
+    let host_context = gestalt_runtime::unstable::activation::HostLaunchContext {
         event_bus: manager.event_bus.clone(),
         workspace_root: std::path::PathBuf::from("."),
         allow_network: false,
@@ -154,7 +154,7 @@ fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
         registry,
         catalog,
         #[cfg(feature = "mcp")]
-        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+        Arc::new(gestalt_runtime::unstable::mcp::McpRegistry::new(
             std::path::PathBuf::from("."),
             std::collections::HashMap::new(),
         )),
@@ -213,17 +213,17 @@ while True:
         ],
         config: json!({ "policySet": "default" }),
         grants_fingerprint: "grants-a".to_string(),
-        trust: gestalt_runtime::ExtensionTrust::BuiltIn,
+        trust: gestalt_runtime::unstable::ExtensionTrust::BuiltIn,
         protocol_fingerprint: Some("2.0".to_string()),
         package_version: "1.0.0".to_string(),
         manifest_hash: None,
         executable_hash: None,
         dependency_lock_hash: None,
-        permissions: gestalt_runtime::manifest::Permissions {
+        permissions: gestalt_runtime::unstable::manifest::Permissions {
             allow_shell: true,
             ..Default::default()
         },
-        grants: gestalt_runtime::extension::ExtensionGrantConfig {
+        grants: gestalt_runtime::unstable::extension::ExtensionGrantConfig {
             shell: true,
             ..Default::default()
         },

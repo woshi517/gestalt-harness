@@ -10,15 +10,15 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
-use gestalt_runtime::control::contract::{
+use gestalt_runtime::api::v1::RuntimeBackedControlHost;
+use gestalt_runtime::api::v1::{
     ApprovalControlV1, ApprovalDecisionV1, ArtifactAccessV1, ContinueSessionRequestV1,
     ControlErrorCodeV1, CreateArtifactRequestV1, EventPayloadV1, EventSourceV1, IdempotencyKeyV1,
     InspectRunRequestV1, ListArtifactsRequestV1, ListPendingApprovalsRequestV1,
     PollEventsRequestV1, ReadArtifactRangeRequestV1, RespondToApprovalRequestV1, RunQueryV1,
     RunStatusV1, SessionControlV1, SessionIdV1, StartSessionRequestV1,
 };
-use gestalt_runtime::control::RuntimeBackedControlHost;
-use gestalt_runtime::{
+use gestalt_runtime::unstable::{
     AgentRuntimeBuilder, ArtifactStore, ContextMessageAssembler, InMemoryArtifactStore,
     RuntimeConfig,
 };
@@ -233,7 +233,7 @@ fn host(
 async fn start(
     host: &RuntimeBackedControlHost,
     id: &str,
-) -> (SessionIdV1, gestalt_runtime::control::contract::RunIdV1) {
+) -> (SessionIdV1, gestalt_runtime::api::v1::RunIdV1) {
     let response = host
         .start_session(StartSessionRequestV1 {
             session_id: Some(SessionIdV1(id.to_string())),
@@ -248,7 +248,7 @@ async fn start(
 async fn wait_for_status(
     host: &RuntimeBackedControlHost,
     session_id: &SessionIdV1,
-    run_id: &gestalt_runtime::control::contract::RunIdV1,
+    run_id: &gestalt_runtime::api::v1::RunIdV1,
     expected: RunStatusV1,
 ) {
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -274,7 +274,7 @@ async fn wait_for_status(
 async fn continue_run(
     host: &RuntimeBackedControlHost,
     session_id: &SessionIdV1,
-    run_id: &gestalt_runtime::control::contract::RunIdV1,
+    run_id: &gestalt_runtime::api::v1::RunIdV1,
     key: Option<&str>,
 ) {
     let response = host
@@ -363,11 +363,14 @@ async fn runtime_control_persists_real_trace() {
         .unwrap()
         .unwrap()
         .path();
-    let events = gestalt_runtime::read_trace(run_directory.join("trace.jsonl")).unwrap();
+    let events = gestalt_runtime::unstable::read_trace(run_directory.join("trace.jsonl")).unwrap();
 
-    assert!(events
-        .iter()
-        .any(|event| { matches!(event.event, gestalt_runtime::TraceEvent::UserMessage { .. }) }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            event.event,
+            gestalt_runtime::unstable::TraceEvent::UserMessage { .. }
+        )
+    }));
 }
 
 #[tokio::test]
@@ -440,7 +443,7 @@ async fn runtime_control_cancel_active_run() {
     .unwrap();
 
     let cancelled = host
-        .cancel_run(gestalt_runtime::control::contract::CancelRunRequestV1 {
+        .cancel_run(gestalt_runtime::api::v1::CancelRunRequestV1 {
             session_id: session_id.clone(),
             run_id: run_id.clone(),
             correlation_id: None,
@@ -451,7 +454,7 @@ async fn runtime_control_cancel_active_run() {
     wait_for_status(&host, &session_id, &run_id, RunStatusV1::Cancelled).await;
 
     let terminal = host
-        .cancel_run(gestalt_runtime::control::contract::CancelRunRequestV1 {
+        .cancel_run(gestalt_runtime::api::v1::CancelRunRequestV1 {
             session_id,
             run_id,
             correlation_id: None,
@@ -561,7 +564,7 @@ async fn runtime_control_concurrent_continue_rejects_or_queues_deterministically
     assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
     let conflict = first.err().or_else(|| second.err()).unwrap();
     assert_eq!(conflict.code, ControlErrorCodeV1::Conflict);
-    host.cancel_run(gestalt_runtime::control::contract::CancelRunRequestV1 {
+    host.cancel_run(gestalt_runtime::api::v1::CancelRunRequestV1 {
         session_id,
         run_id,
         correlation_id: None,

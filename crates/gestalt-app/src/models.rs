@@ -3,7 +3,7 @@ use gestalt_core::{
     model::{ModelInfo, ModelInfoSource},
     ConfigError, HarnessError,
 };
-use gestalt_runtime::ModelCatalog;
+use gestalt_runtime::unstable::ModelCatalog;
 use serde::Deserialize;
 
 use crate::config::EffectiveConfig;

@@ -13,26 +13,39 @@ use crate::composition_hooks::CompositionHooks;
 use crate::event_bus::RuntimeEventBus;
 use crate::extension::RuntimeModule;
 
+/// Configures and constructs an [`AgentRuntime`].
+///
+/// Builder state is intentionally opaque. Supported configuration is exposed
+/// through methods so internal composition can change without widening the
+/// v0.1 compatibility contract.
+///
+/// ```compile_fail
+/// use gestalt_runtime::unstable::api::v1::AgentRuntimeBuilder;
+///
+/// let builder = AgentRuntimeBuilder::new();
+/// let _ = builder.config;
+/// ```
 #[derive(Clone)]
 pub struct AgentRuntimeBuilder {
-    pub provider: Option<Arc<dyn Provider>>,
-    pub tools: Option<Arc<dyn ToolCatalog>>,
-    pub middleware: Option<Arc<dyn ContextPipeline>>,
-    pub assembler: Option<Arc<dyn gestalt_core::context::ContextAssembler>>,
-    pub policy: Option<Arc<dyn PolicyEngine>>,
-    pub approval: Option<Arc<dyn ApprovalProvider>>,
-    pub trace_sink: Option<Arc<dyn TraceSink>>,
-    pub config: RuntimeConfig,
-    pub hooks: HookRegistry,
-    pub registry: RuntimeRegistryBuilder,
-    pub composition_hooks: Option<Arc<dyn CompositionHooks>>,
-    pub runtime_modules: Vec<Arc<dyn RuntimeModule>>,
-    pub extension_packages: Vec<crate::extension::ResolvedExtensionPackage>,
-    pub extension_manager: Option<Arc<crate::extension::ExtensionManager>>,
-    pub event_bus: RuntimeEventBus,
+    pub(crate) provider: Option<Arc<dyn Provider>>,
+    pub(crate) tools: Option<Arc<dyn ToolCatalog>>,
+    pub(crate) middleware: Option<Arc<dyn ContextPipeline>>,
+    pub(crate) assembler: Option<Arc<dyn gestalt_core::context::ContextAssembler>>,
+    pub(crate) policy: Option<Arc<dyn PolicyEngine>>,
+    pub(crate) approval: Option<Arc<dyn ApprovalProvider>>,
+    pub(crate) trace_sink: Option<Arc<dyn TraceSink>>,
+    pub(crate) config: RuntimeConfig,
+    pub(crate) hooks: HookRegistry,
+    pub(crate) registry: RuntimeRegistryBuilder,
+    pub(crate) composition_hooks: Option<Arc<dyn CompositionHooks>>,
+    pub(crate) runtime_modules: Vec<Arc<dyn RuntimeModule>>,
+    pub(crate) extension_packages: Vec<crate::extension::ResolvedExtensionPackage>,
+    pub(crate) extension_manager: Option<Arc<crate::extension::ExtensionManager>>,
+    pub(crate) event_bus: RuntimeEventBus,
     #[cfg(feature = "mcp")]
-    pub mcp_registry: Option<Arc<crate::mcp::McpRegistry>>,
-    pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
+    pub(crate) mcp_registry: Option<Arc<crate::mcp::McpRegistry>>,
+    pub(crate) workspace_context_snapshot:
+        Option<crate::workspace_context::WorkspaceContextSnapshot>,
 }
 
 impl Default for AgentRuntimeBuilder {

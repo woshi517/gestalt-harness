@@ -1,5 +1,7 @@
-use gestalt_runtime::extension::{ComponentKind, ExtensionManifestV2, ResolvedExtensionPackage};
-use gestalt_runtime::lifecycle::protocol::{
+use gestalt_runtime::unstable::extension::{
+    ComponentKind, ExtensionManifestV2, ResolvedExtensionPackage,
+};
+use gestalt_runtime::unstable::lifecycle::protocol::{
     negotiate_protocol_version, InitializeRequestV2, LifecycleInvokeRequestV2,
 };
 

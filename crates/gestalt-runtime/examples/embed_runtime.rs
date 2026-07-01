@@ -8,13 +8,13 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::control::contract::{
+use gestalt_runtime::api::v1::RuntimeBackedControlHost;
+use gestalt_runtime::api::v1::{
+    AgentRuntimeBuilder, ContextMessageAssembler, InMemoryArtifactStore, RuntimeConfig,
+};
+use gestalt_runtime::api::v1::{
     ContinueSessionRequestV1, InspectRunRequestV1, RunQueryV1, RunStatusV1, SessionControlV1,
     StartSessionRequestV1,
-};
-use gestalt_runtime::control::RuntimeBackedControlHost;
-use gestalt_runtime::{
-    AgentRuntimeBuilder, ContextMessageAssembler, InMemoryArtifactStore, RuntimeConfig,
 };
 
 struct ExampleProvider;

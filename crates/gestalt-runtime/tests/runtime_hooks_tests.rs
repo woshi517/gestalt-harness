@@ -11,8 +11,8 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolContext, ToolOutput, ToolSchema},
 };
-use gestalt_runtime::ContextMessageAssembler;
-use gestalt_runtime::{
+use gestalt_runtime::unstable::ContextMessageAssembler;
+use gestalt_runtime::unstable::{
     AfterContextBuildCtx, AfterToolResultCtx, AgentRuntimeBuilder, BeforeContextBuildCtx,
     BeforeToolPolicyCtx, CompositionHooks, HookOutcome, OnEventCtx, RuntimeConfig, UserInput,
 };
@@ -175,7 +175,7 @@ impl PolicyEngine for MockPolicyEngine {
 struct TestCompositionHooks {
     add_context: Mutex<Option<Message>>,
     block_reason: Mutex<Option<String>>,
-    policy_outcome: Mutex<Option<gestalt_runtime::Result<HookOutcome>>>,
+    policy_outcome: Mutex<Option<gestalt_runtime::unstable::Result<HookOutcome>>>,
     after_context_outcome: Mutex<Option<HookOutcome>>,
     events: Mutex<Vec<AgentEvent>>,
     before_tool_policy_calls: Mutex<usize>,
@@ -186,7 +186,7 @@ impl CompositionHooks for TestCompositionHooks {
     async fn before_context_build(
         &self,
         _context: &BeforeContextBuildCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         let block_reason = self.block_reason.lock().unwrap().clone();
         if let Some(reason) = block_reason {
             return Ok(HookOutcome::Block { reason });
@@ -201,7 +201,7 @@ impl CompositionHooks for TestCompositionHooks {
     async fn after_context_build(
         &self,
         _context: &AfterContextBuildCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         let outcome = self.after_context_outcome.lock().unwrap().clone();
         if let Some(outcome) = outcome {
             Ok(outcome)
@@ -213,12 +213,12 @@ impl CompositionHooks for TestCompositionHooks {
     async fn before_tool_policy(
         &self,
         _context: &BeforeToolPolicyCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         *self.before_tool_policy_calls.lock().unwrap() += 1;
         if let Some(outcome) = self.policy_outcome.lock().unwrap().as_ref() {
             match outcome {
                 Ok(o) => Ok(o.clone()),
-                Err(_) => Err(gestalt_runtime::error::RuntimeError::Harness(
+                Err(_) => Err(gestalt_runtime::unstable::error::RuntimeError::Harness(
                     gestalt_core::error::HarnessError::Cancelled,
                 )),
             }
@@ -230,18 +230,18 @@ impl CompositionHooks for TestCompositionHooks {
     async fn after_tool_result(
         &self,
         _context: &AfterToolResultCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
     async fn prepare_next_turn(
         &self,
-        _context: &gestalt_runtime::PrepareNextTurnCtx,
-    ) -> gestalt_runtime::Result<HookOutcome> {
+        _context: &gestalt_runtime::unstable::PrepareNextTurnCtx,
+    ) -> gestalt_runtime::unstable::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
 
-    async fn on_event(&self, context: &OnEventCtx) -> gestalt_runtime::Result<()> {
+    async fn on_event(&self, context: &OnEventCtx) -> gestalt_runtime::unstable::Result<()> {
         self.events.lock().unwrap().push(context.event.clone());
         Ok(())
     }
@@ -558,7 +558,7 @@ async fn test_before_tool_policy_denial() {
         .filter(|event| {
             matches!(
                 event,
-                gestalt_runtime::RuntimeEvent::HookStarted { hook_name, .. }
+                gestalt_runtime::unstable::RuntimeEvent::HookStarted { hook_name, .. }
                 if hook_name == "before_tool_policy"
             )
         })
@@ -568,7 +568,7 @@ async fn test_before_tool_policy_denial() {
         .filter(|event| {
             matches!(
                 event,
-                gestalt_runtime::RuntimeEvent::HookCompleted { hook_name, .. }
+                gestalt_runtime::unstable::RuntimeEvent::HookCompleted { hook_name, .. }
                 if hook_name == "before_tool_policy"
             )
         })
@@ -582,9 +582,11 @@ async fn test_before_tool_policy_error() {
     let hooks = Arc::new(TestCompositionHooks {
         add_context: Mutex::new(None),
         block_reason: Mutex::new(None),
-        policy_outcome: Mutex::new(Some(Err(gestalt_runtime::error::RuntimeError::Harness(
-            gestalt_core::error::HarnessError::Cancelled,
-        )))),
+        policy_outcome: Mutex::new(Some(Err(
+            gestalt_runtime::unstable::error::RuntimeError::Harness(
+                gestalt_core::error::HarnessError::Cancelled,
+            ),
+        ))),
         after_context_outcome: Mutex::new(None),
         events: Mutex::new(Vec::new()),
         before_tool_policy_calls: Mutex::new(0),
@@ -668,7 +670,7 @@ async fn test_before_tool_policy_error() {
         .filter(|event| {
             matches!(
                 event,
-                gestalt_runtime::RuntimeEvent::HookStarted { hook_name, .. }
+                gestalt_runtime::unstable::RuntimeEvent::HookStarted { hook_name, .. }
                 if hook_name == "before_tool_policy"
             )
         })
@@ -678,7 +680,7 @@ async fn test_before_tool_policy_error() {
         .filter(|event| {
             matches!(
                 event,
-                gestalt_runtime::RuntimeEvent::HookFailed { hook_name, .. }
+                gestalt_runtime::unstable::RuntimeEvent::HookFailed { hook_name, .. }
                 if hook_name == "before_tool_policy"
             )
         })
@@ -755,7 +757,7 @@ async fn test_before_tool_policy_runs_once_per_tool_call() {
         .filter(|event| {
             matches!(
                 event,
-                gestalt_runtime::RuntimeEvent::HookStarted { hook_name, .. }
+                gestalt_runtime::unstable::RuntimeEvent::HookStarted { hook_name, .. }
                 if hook_name == "before_tool_policy"
             )
         })
@@ -765,7 +767,7 @@ async fn test_before_tool_policy_runs_once_per_tool_call() {
         .filter(|event| {
             matches!(
                 event,
-                gestalt_runtime::RuntimeEvent::HookCompleted { hook_name, .. }
+                gestalt_runtime::unstable::RuntimeEvent::HookCompleted { hook_name, .. }
                 if hook_name == "before_tool_policy"
             )
         })

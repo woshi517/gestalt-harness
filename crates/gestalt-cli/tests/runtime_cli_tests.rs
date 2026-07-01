@@ -104,7 +104,7 @@ where
 #[tokio::test]
 async fn test_inspect_runtime_cli() {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
-    let _ = gestalt_runtime::model_registry::register(
+    let _ = gestalt_runtime::unstable::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );
@@ -210,7 +210,7 @@ fn test_runtime_inspect_cli_subcommand() {
 #[tokio::test]
 async fn test_build_app_runtime_loads_configured_extension_instance() {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
-    let _ = gestalt_runtime::model_registry::register(
+    let _ = gestalt_runtime::unstable::model_registry::register(
         "mock-provider",
         Box::new(|_| Ok(Arc::new(MockProvider::new()) as Arc<dyn Provider>)),
     );

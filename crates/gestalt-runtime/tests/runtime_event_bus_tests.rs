@@ -9,7 +9,7 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent, UserInput};
+use gestalt_runtime::unstable::{AgentRuntimeBuilder, RuntimeConfig, RuntimeEvent, UserInput};
 
 fn temp_artifact_dir() -> std::path::PathBuf {
     let unique = std::time::SystemTime::now()
@@ -102,9 +102,9 @@ impl ContextPipeline for MockContextPipeline {
     }
 
     fn as_assembler(&self) -> Option<Arc<dyn gestalt_core::context::ContextAssembler>> {
-        Some(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        Some(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
     }
 }
 

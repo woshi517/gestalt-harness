@@ -169,7 +169,7 @@ This crate should be the default dependency for users who want to embed the harn
 Examples:
 
 ```rust
-use gestalt_runtime::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
+use gestalt_runtime::api::v1::{AgentRuntime, AgentRuntimeBuilder, RuntimeConfig};
 ```
 
 Feature-gated modules:

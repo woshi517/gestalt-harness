@@ -300,7 +300,7 @@ pub enum TraceSubcommand {
     },
     /// Analyze tool-calling reliability metrics over a run or
     /// directory of fixture traces. Wraps
-    /// `gestalt_runtime::analyze_tool_metrics` so the CLI does not
+    /// `gestalt_runtime::unstable::analyze_tool_metrics` so the CLI does not
     /// duplicate the JSONL walking logic.
     ///
     /// The `--tools` flag is the historical entry point and is

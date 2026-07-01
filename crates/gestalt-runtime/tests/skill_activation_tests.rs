@@ -17,13 +17,15 @@ use gestalt_core::policy::{PolicyDecision, PolicyEngine, PolicyRequest};
 use gestalt_core::session::Session;
 use gestalt_core::tool::{RiskLevel, Tool, ToolCatalog, ToolContext, ToolOutput, ToolSchema};
 use gestalt_core::tool_descriptor::ToolNamespace;
-use gestalt_runtime::composition_hooks::{
+use gestalt_runtime::unstable::composition_hooks::{
     CompositionHooks, HookOutcome, RuntimeContextHookAdapter,
 };
-use gestalt_runtime::event_bus::{RuntimeEvent, RuntimeEventBus};
-use gestalt_runtime::skills::contributor::SkillContributorState;
-use gestalt_runtime::{ComposedToolCatalog, RuntimePolicyEngine, ToolCatalogPlanner, ToolProfile};
-use gestalt_runtime::{SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel};
+use gestalt_runtime::unstable::event_bus::{RuntimeEvent, RuntimeEventBus};
+use gestalt_runtime::unstable::skills::contributor::SkillContributorState;
+use gestalt_runtime::unstable::{
+    ComposedToolCatalog, RuntimePolicyEngine, ToolCatalogPlanner, ToolProfile,
+};
+use gestalt_runtime::unstable::{SkillDescriptor, SkillIndex, SkillSource, SkillTrustLevel};
 
 fn make_descriptor(name: &str, description: &str, _body: &str) -> SkillDescriptor {
     SkillDescriptor {
@@ -114,38 +116,38 @@ struct NoopCompositionHooks;
 impl CompositionHooks for NoopCompositionHooks {
     async fn before_context_build(
         &self,
-        _ctx: &gestalt_runtime::composition_hooks::BeforeContextBuildCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+        _ctx: &gestalt_runtime::unstable::composition_hooks::BeforeContextBuildCtx,
+    ) -> gestalt_runtime::unstable::error::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
     async fn after_context_build(
         &self,
-        _ctx: &gestalt_runtime::composition_hooks::AfterContextBuildCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+        _ctx: &gestalt_runtime::unstable::composition_hooks::AfterContextBuildCtx,
+    ) -> gestalt_runtime::unstable::error::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
     async fn before_tool_policy(
         &self,
-        _ctx: &gestalt_runtime::composition_hooks::BeforeToolPolicyCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+        _ctx: &gestalt_runtime::unstable::composition_hooks::BeforeToolPolicyCtx,
+    ) -> gestalt_runtime::unstable::error::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
     async fn after_tool_result(
         &self,
-        _ctx: &gestalt_runtime::composition_hooks::AfterToolResultCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+        _ctx: &gestalt_runtime::unstable::composition_hooks::AfterToolResultCtx,
+    ) -> gestalt_runtime::unstable::error::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
     async fn prepare_next_turn(
         &self,
-        _ctx: &gestalt_runtime::composition_hooks::PrepareNextTurnCtx,
-    ) -> gestalt_runtime::error::Result<HookOutcome> {
+        _ctx: &gestalt_runtime::unstable::composition_hooks::PrepareNextTurnCtx,
+    ) -> gestalt_runtime::unstable::error::Result<HookOutcome> {
         Ok(HookOutcome::Continue)
     }
     async fn on_event(
         &self,
-        _ctx: &gestalt_runtime::composition_hooks::OnEventCtx,
-    ) -> gestalt_runtime::error::Result<()> {
+        _ctx: &gestalt_runtime::unstable::composition_hooks::OnEventCtx,
+    ) -> gestalt_runtime::unstable::error::Result<()> {
         Ok(())
     }
 }

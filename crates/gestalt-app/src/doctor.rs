@@ -62,7 +62,7 @@ pub async fn diagnose_workspace(
     }
 
     let policy = std::sync::Arc::new(crate::run::build_policy(&config));
-    let loader = gestalt_runtime::workspace_context::WorkspaceContextLoader::new(
+    let loader = gestalt_runtime::unstable::workspace_context::WorkspaceContextLoader::new(
         workspace_root.clone(),
         Some(policy as std::sync::Arc<dyn gestalt_core::policy::PolicyEngine>),
     );
@@ -72,7 +72,7 @@ pub async fn diagnose_workspace(
     if ws_enabled {
         match loader.load_workspace_instructions(&ws_cfg).await {
             Ok(_) => {}
-            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing {
+            Err(gestalt_runtime::unstable::workspace_context::WorkspaceContextError::RequiredMissing {
                 path,
                 ..
             }) => {
@@ -95,7 +95,7 @@ pub async fn diagnose_workspace(
     if mem_enabled {
         match loader.load_memory(&mem_cfg).await {
             Ok(_) => {}
-            Err(gestalt_runtime::workspace_context::WorkspaceContextError::RequiredMissing {
+            Err(gestalt_runtime::unstable::workspace_context::WorkspaceContextError::RequiredMissing {
                 path,
                 ..
             }) => {
@@ -202,7 +202,10 @@ pub async fn diagnose_workspace(
     let mut model_valid = true;
     let mut model_error = None;
     if let Some(ref model_id) = selected_model {
-        if gestalt_runtime::ModelCatalog::new().get(model_id).is_none() {
+        if gestalt_runtime::unstable::ModelCatalog::new()
+            .get(model_id)
+            .is_none()
+        {
             model_valid = false;
             model_error = Some(format!("selected model '{model_id}' is not in the catalog"));
         }

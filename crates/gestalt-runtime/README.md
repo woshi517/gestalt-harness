@@ -7,7 +7,7 @@ top of `gestalt-core`.
 Stable v0.1 is V2-only for extension packages and lifecycle protocol. V1
 compatibility is removed from the active contract.
 
-For the full API surface, see [`REFERENCE.md`](./REFERENCE.md).
+For the supported API surface, see [`REFERENCE.md`](./REFERENCE.md).
 
 ## Ownership and stability
 
@@ -15,10 +15,10 @@ This crate owns concrete runtime composition, context assembly, providers,
 tools, traces, policy enforcement, and extension activation. It does not own
 product session workflows, CLI/TUI rendering, or remote transport.
 
-Stable entry points are limited to the construction and control surfaces in the
-[v0.1 API inventory](../../docs/plans/v0.1-hardening/api-spi-inventory.md).
-Registries, raw runtime events, extension managers, hooks, and public
-implementation modules remain experimental/internal.
+The only v0.1 compatibility namespace is `gestalt_runtime::api::v1`.
+`gestalt_runtime::unstable` exists for first-party integration and test support;
+it carries no v0.1 compatibility guarantee. There are no runtime types
+re-exported from the crate root.
 
 ## Primary responsibilities
 
@@ -31,9 +31,8 @@ implementation modules remain experimental/internal.
 ## Quick start
 
 ```rust
-use gestalt_runtime::control::RuntimeBackedControlHost;
-use gestalt_runtime::control::contract::{
-    SessionControlV1, StartSessionRequestV1,
+use gestalt_runtime::api::v1::{
+    RuntimeBackedControlHost, SessionControlV1, StartSessionRequestV1,
 };
 
 let host = RuntimeBackedControlHost::new(builder, artifact_store)?;
@@ -61,13 +60,13 @@ hooks, and event bus.
 ### Builder
 
 `AgentRuntimeBuilder` assembles the runtime and registers native modules through
-`RuntimeModule`.
+method calls. Its state is private; consumers cannot mutate the registry,
+event bus, provider, tools, or configuration fields directly.
 
 ### Registry
 
-`RuntimeRegistryBuilder` collects tools, providers, context contributors,
-verifiers, hooks, and extension IDs before snapshotting them into a
-`RuntimeRegistrySnapshot`.
+The registry is an unstable implementation subsystem. First-party crates that
+need it must opt into `gestalt_runtime::unstable`.
 
 ## Extension packages
 

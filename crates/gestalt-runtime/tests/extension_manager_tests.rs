@@ -4,13 +4,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
-use gestalt_runtime::extension::{
+use gestalt_runtime::unstable::extension::{
     ComponentFingerprint, ComponentInstanceId, ComponentKind, ExtensionInventory,
     ExtensionLauncher, ExtensionManager, ExtensionProcessInstance, ExtensionProcessState,
     ExtensionRuntimeComponent, NoopExtensionLauncher, ResolvedExtensionPackage,
     RuntimeExtensionSnapshot, RuntimeGeneration,
 };
-use gestalt_runtime::{activation::HostLaunchContext, RuntimeEventBus, RuntimeRegistryBuilder};
+use gestalt_runtime::unstable::{
+    activation::HostLaunchContext, RuntimeEventBus, RuntimeRegistryBuilder,
+};
 use serde_json::json;
 
 struct EmptyToolCatalog;
@@ -77,13 +79,13 @@ fn extension_manager_owns_package_inventory() {
 fn combined_health_merges_snapshot_diagnostics_with_live_process_state() {
     let manager = manager_with_snapshot(snapshot_with_generation(0));
     let snapshot = Arc::new(RuntimeExtensionSnapshot {
-        diagnostics: Arc::from([gestalt_runtime::ActivationDiagnostic {
+        diagnostics: Arc::from([gestalt_runtime::unstable::ActivationDiagnostic {
             component_id: ComponentInstanceId::new(
                 "com.example.review",
                 "review-primary",
                 "lifecycle",
             ),
-            severity: gestalt_runtime::DiagnosticSeverity::Warning,
+            severity: gestalt_runtime::unstable::DiagnosticSeverity::Warning,
             message: "capability degraded".to_string(),
         }]),
         ..snapshot_with_generation(1)
@@ -93,16 +95,19 @@ fn combined_health_merges_snapshot_diagnostics_with_live_process_state() {
 
     assert_eq!(
         health,
-        vec![gestalt_runtime::extension::ExtensionInstanceHealth {
-            instance_id: ComponentInstanceId::new(
-                "com.example.review",
-                "review-primary",
-                "lifecycle",
-            )
-            .canonical_id(),
-            status: gestalt_runtime::extension::ExtensionInstanceHealthStatus::Degraded,
-            message: Some("capability degraded".to_string()),
-        }]
+        vec![
+            gestalt_runtime::unstable::extension::ExtensionInstanceHealth {
+                instance_id: ComponentInstanceId::new(
+                    "com.example.review",
+                    "review-primary",
+                    "lifecycle",
+                )
+                .canonical_id(),
+                status:
+                    gestalt_runtime::unstable::extension::ExtensionInstanceHealthStatus::Degraded,
+                message: Some("capability degraded".to_string()),
+            }
+        ]
     );
 }
 
@@ -187,11 +192,13 @@ async fn extension_manager_reuses_ready_processes_and_tracks_health() {
     assert_eq!(manager.process_instances().len(), 1);
     assert_eq!(
         manager.process_health(),
-        vec![gestalt_runtime::extension::ExtensionInstanceHealth {
-            instance_id: component.id.canonical_id(),
-            status: gestalt_runtime::extension::ExtensionInstanceHealthStatus::Ready,
-            message: None,
-        }]
+        vec![
+            gestalt_runtime::unstable::extension::ExtensionInstanceHealth {
+                instance_id: component.id.canonical_id(),
+                status: gestalt_runtime::unstable::extension::ExtensionInstanceHealthStatus::Ready,
+                message: None,
+            }
+        ]
     );
 
     manager.drain_process(&component).await.unwrap();
@@ -199,11 +206,14 @@ async fn extension_manager_reuses_ready_processes_and_tracks_health() {
     assert_eq!(first.state(), ExtensionProcessState::Draining);
     assert_eq!(
         manager.process_health(),
-        vec![gestalt_runtime::extension::ExtensionInstanceHealth {
-            instance_id: component.id.canonical_id(),
-            status: gestalt_runtime::extension::ExtensionInstanceHealthStatus::Degraded,
-            message: Some("process is draining".to_string()),
-        }]
+        vec![
+            gestalt_runtime::unstable::extension::ExtensionInstanceHealth {
+                instance_id: component.id.canonical_id(),
+                status:
+                    gestalt_runtime::unstable::extension::ExtensionInstanceHealthStatus::Degraded,
+                message: Some("process is draining".to_string()),
+            }
+        ]
     );
 
     manager.shutdown_process(&component).await.unwrap();
@@ -240,7 +250,7 @@ async fn replaced_same_id_resource_drains_after_old_lease_drops() {
     let launcher = Arc::new(FixedProcessLauncher::new(old_process.clone()));
     let previous_snapshot = RuntimeExtensionSnapshot {
         managed_resources: Arc::from([
-            gestalt_runtime::activation::ManagedExtensionResource::Process {
+            gestalt_runtime::unstable::activation::ManagedExtensionResource::Process {
                 reuse_key: old_component.reuse_key(),
                 process: old_process.clone(),
             },
@@ -265,7 +275,7 @@ async fn replaced_same_id_resource_drains_after_old_lease_drops() {
     new_component.package_version = "2.0.0".to_string();
     let new_snapshot = RuntimeExtensionSnapshot {
         managed_resources: Arc::from([
-            gestalt_runtime::activation::ManagedExtensionResource::Process {
+            gestalt_runtime::unstable::activation::ManagedExtensionResource::Process {
                 reuse_key: new_component.reuse_key(),
                 process: Arc::new(ExtensionProcessInstance::new(
                     new_component.id.canonical_id(),
@@ -312,7 +322,7 @@ fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
         registry,
         catalog,
         #[cfg(feature = "mcp")]
-        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+        Arc::new(gestalt_runtime::unstable::mcp::McpRegistry::new(
             std::path::PathBuf::from("."),
             HashMap::new(),
         )),
@@ -320,7 +330,7 @@ fn snapshot_with_generation(generation: u64) -> RuntimeExtensionSnapshot {
 }
 
 fn resolved_package(package_id: &str, instance_id: &str) -> ResolvedExtensionPackage {
-    let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&format!(
+    let manifest = gestalt_runtime::unstable::extension::ExtensionManifestV2::parse(&format!(
         r#"
 manifest_version = 2
 
@@ -360,14 +370,14 @@ fn runtime_component(
         entrypoint_args: vec!["-m".to_string(), "review.lifecycle".to_string()],
         config: json!({ "policySet": "default" }),
         grants_fingerprint: "grants-a".to_string(),
-        trust: gestalt_runtime::ExtensionTrust::BuiltIn,
+        trust: gestalt_runtime::unstable::ExtensionTrust::BuiltIn,
         protocol_fingerprint: Some("protocol-a".to_string()),
         package_version: "1.0.0".to_string(),
         manifest_hash: None,
         executable_hash: None,
         dependency_lock_hash: None,
-        permissions: gestalt_runtime::manifest::Permissions::default(),
-        grants: gestalt_runtime::extension::ExtensionGrantConfig::default(),
+        permissions: gestalt_runtime::unstable::manifest::Permissions::default(),
+        grants: gestalt_runtime::unstable::extension::ExtensionGrantConfig::default(),
         package_source_root: None,
     }
 }
@@ -403,7 +413,7 @@ impl ExtensionLauncher for FixedProcessLauncher {
         &self,
         _component: &ExtensionRuntimeComponent,
         _host_context: &HostLaunchContext,
-    ) -> gestalt_runtime::Result<Arc<ExtensionProcessInstance>> {
+    ) -> gestalt_runtime::unstable::Result<Arc<ExtensionProcessInstance>> {
         self.launches.fetch_add(1, Ordering::SeqCst);
         Ok(self.process.clone())
     }
@@ -415,7 +425,7 @@ impl ExtensionLauncher for CountingLauncher {
         &self,
         component: &ExtensionRuntimeComponent,
         _host_context: &HostLaunchContext,
-    ) -> gestalt_runtime::Result<Arc<ExtensionProcessInstance>> {
+    ) -> gestalt_runtime::unstable::Result<Arc<ExtensionProcessInstance>> {
         self.launches.fetch_add(1, Ordering::SeqCst);
         let process = Arc::new(ExtensionProcessInstance::new(component.id.canonical_id()));
         process.transition_to(ExtensionProcessState::Ready);

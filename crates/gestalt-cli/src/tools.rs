@@ -1,5 +1,5 @@
 use gestalt_core::{error::HarnessError, ToolCatalog};
-use gestalt_runtime::default_registry;
+use gestalt_runtime::unstable::default_registry;
 use serde_json::Value;
 
 use crate::output::{ToolInfoEntry, ToolsClassifyReport, ToolsInspectReport, ToolsListReport};
@@ -54,7 +54,7 @@ pub fn classify_bash(
     command: &[String],
 ) -> Result<ToolsClassifyReport, Box<dyn std::error::Error>> {
     let full_command = command.join(" ");
-    let risk = gestalt_runtime::classify_bash(&full_command);
+    let risk = gestalt_runtime::unstable::classify_bash(&full_command);
 
     Ok(ToolsClassifyReport {
         command: full_command,

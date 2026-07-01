@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use gestalt_core::tool::{ToolCatalog, ToolSchema};
-use gestalt_runtime::extension::{RuntimeExtensionSnapshot, RuntimeGeneration};
-use gestalt_runtime::{RuntimeRegistryBuilder, ToolRegistrationSnapshot};
+use gestalt_runtime::unstable::extension::{RuntimeExtensionSnapshot, RuntimeGeneration};
+use gestalt_runtime::unstable::{RuntimeRegistryBuilder, ToolRegistrationSnapshot};
 use serde_json::json;
 
 struct EmptyToolCatalog;
@@ -52,7 +52,7 @@ fn runtime_extension_snapshot_pins_generation_fingerprint_and_catalog() {
         registry_snapshot.clone(),
         catalog,
         #[cfg(feature = "mcp")]
-        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+        Arc::new(gestalt_runtime::unstable::mcp::McpRegistry::new(
             std::path::PathBuf::from("."),
             std::collections::HashMap::new(),
         )),

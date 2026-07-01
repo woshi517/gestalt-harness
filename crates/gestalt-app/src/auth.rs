@@ -1,5 +1,5 @@
 use gestalt_core::{ConfigError, HarnessError, ProviderError};
-use gestalt_runtime::auth::{
+use gestalt_runtime::unstable::auth::{
     ChainCredentialResolver, CredentialResolver, CredentialSource, EnvironmentCredentialResolver,
     ProviderAuthConfig, ResolvedCredential,
 };
@@ -188,7 +188,8 @@ pub struct KeychainCredentialResolver;
 
 impl CredentialResolver for KeychainCredentialResolver {
     fn resolve(&self, auth: &ProviderAuthConfig) -> Result<ResolvedCredential, HarnessError> {
-        if let gestalt_runtime::auth::ConfiguredCredential::Keychain(ref account) = auth.credential
+        if let gestalt_runtime::unstable::auth::ConfiguredCredential::Keychain(ref account) =
+            auth.credential
         {
             if let Ok(password) = get_keychain_secret(account) {
                 return Ok(ResolvedCredential::new(
@@ -236,7 +237,9 @@ pub fn build_credential_resolver(
     if let Some(key) = api_key_override {
         resolvers.push(Arc::new(SessionCredentialResolver { api_key: Some(key) }));
     }
-    resolvers.push(Arc::new(gestalt_runtime::auth::InlineCredentialResolver));
+    resolvers.push(Arc::new(
+        gestalt_runtime::unstable::auth::InlineCredentialResolver,
+    ));
     resolvers.push(Arc::new(EnvironmentCredentialResolver));
     resolvers.push(Arc::new(KeychainCredentialResolver));
     if let Some(inter) = interaction {
@@ -281,13 +284,13 @@ pub fn resolve_auth(
             CredentialSource::Inline => "inline".to_string(),
         };
         let var = match &auth_config.credential {
-            gestalt_runtime::auth::ConfiguredCredential::Environment(v) => v.clone(),
+            gestalt_runtime::unstable::auth::ConfiguredCredential::Environment(v) => v.clone(),
             _ => String::new(),
         };
         (src, "present".to_string(), var)
     } else {
         let var = match &auth_config.credential {
-            gestalt_runtime::auth::ConfiguredCredential::Environment(v) => v.clone(),
+            gestalt_runtime::unstable::auth::ConfiguredCredential::Environment(v) => v.clone(),
             _ => String::new(),
         };
         ("missing".to_string(), "missing".to_string(), var)

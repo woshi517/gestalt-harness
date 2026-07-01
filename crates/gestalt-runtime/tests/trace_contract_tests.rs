@@ -1,9 +1,9 @@
 use gestalt_core::context::HistoryRange;
 use gestalt_core::DurabilityMode;
-use gestalt_runtime::context::projection::CompactionCheckpoint;
-use gestalt_runtime::context::{ContextManagementPolicy, ProjectionManifest};
-use gestalt_runtime::run_manifest::{LifecycleState, RunKind, RunManifest};
-use gestalt_runtime::{
+use gestalt_runtime::unstable::context::projection::CompactionCheckpoint;
+use gestalt_runtime::unstable::context::{ContextManagementPolicy, ProjectionManifest};
+use gestalt_runtime::unstable::run_manifest::{LifecycleState, RunKind, RunManifest};
+use gestalt_runtime::unstable::{
     load_checkpoint, load_manifest, persist_checkpoint, persist_manifest, read_trace,
     ClientEventRecordV1, TraceEvent, CLIENT_EVENT_SCHEMA_VERSION, TRACE_EVENT_SCHEMA_VERSION,
 };
@@ -65,15 +65,16 @@ fn run_manifest_reader_rejects_unsupported_version() {
             prompt_snapshot_hash: None,
             prompt_snapshot_path: None,
             resolved_model: None,
-            compatibility_fingerprint: gestalt_runtime::run_manifest::CompatibilityFingerprint {
-                context_pipeline_version: "pipeline-v1".to_string(),
-                tool_schema_hash: "tool".to_string(),
-                policy_fingerprint: "policy".to_string(),
-                hook_contract_hash: "hook".to_string(),
-                execution_mode: "Yolo".to_string(),
-                skill_fingerprint: None,
-                workspace_context_snapshot_hash: None,
-            },
+            compatibility_fingerprint:
+                gestalt_runtime::unstable::run_manifest::CompatibilityFingerprint {
+                    context_pipeline_version: "pipeline-v1".to_string(),
+                    tool_schema_hash: "tool".to_string(),
+                    policy_fingerprint: "policy".to_string(),
+                    hook_contract_hash: "hook".to_string(),
+                    execution_mode: "Yolo".to_string(),
+                    skill_fingerprint: None,
+                    workspace_context_snapshot_hash: None,
+                },
         })
         .expect("serialize run manifest"),
     );
@@ -150,7 +151,7 @@ fn context_artifact_readers_reject_unsupported_versions() {
 
 #[test]
 fn client_projection_omits_workspace_snapshot() {
-    let envelope = gestalt_runtime::EventEnvelope {
+    let envelope = gestalt_runtime::unstable::EventEnvelope {
         v: TRACE_EVENT_SCHEMA_VERSION + 42,
         session_id: "session-1".to_string(),
         run_id: "run-1".to_string(),

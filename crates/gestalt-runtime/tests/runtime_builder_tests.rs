@@ -7,7 +7,9 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::{AgentRuntimeBuilder, RuntimeConfig, RuntimeModule, RuntimeRegistryBuilder};
+use gestalt_runtime::unstable::{
+    AgentRuntimeBuilder, RuntimeConfig, RuntimeModule, RuntimeRegistryBuilder,
+};
 use std::sync::Arc;
 
 #[test]
@@ -162,7 +164,10 @@ impl RuntimeModule for MockRuntimeModule {
         "test-module"
     }
 
-    fn register(&self, registry: &mut RuntimeRegistryBuilder) -> gestalt_runtime::Result<()> {
+    fn register(
+        &self,
+        registry: &mut RuntimeRegistryBuilder,
+    ) -> gestalt_runtime::unstable::Result<()> {
         registry.register_verifier("module-verifier".to_string())?;
         Ok(())
     }
@@ -208,9 +213,9 @@ fn test_builder_publishes_registry_snapshot() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())
@@ -225,7 +230,7 @@ fn test_builder_publishes_registry_snapshot() {
     );
     assert_eq!(
         runtime.extension_manager.current_generation(),
-        gestalt_runtime::extension::RuntimeGeneration(0)
+        gestalt_runtime::unstable::extension::RuntimeGeneration(0)
     );
     assert_eq!(
         runtime.extension_manager.active_snapshot().fingerprint,
@@ -240,9 +245,9 @@ fn test_inspect_reads_tool_catalog_from_pinned_snapshot() {
         .tools(Arc::new(InspectToolCatalog {
             tool: Arc::new(SnapshotTool),
         }))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())
@@ -264,9 +269,9 @@ fn test_runtime_module_registration() {
     let runtime = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(MockToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .runtime_module(Arc::new(MockRuntimeModule))

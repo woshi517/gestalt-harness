@@ -9,9 +9,9 @@ use gestalt_core::{
     trace::TraceSink, Message, Session, SessionConfig, TokenBudget, ToolCatalog, ToolContext,
     WorkspaceSnapshotter,
 };
-use gestalt_runtime::default_registry;
-use gestalt_runtime::TraceEvent as AgentEvent;
-use gestalt_runtime::{
+use gestalt_runtime::unstable::default_registry;
+use gestalt_runtime::unstable::TraceEvent as AgentEvent;
+use gestalt_runtime::unstable::{
     aggregate_costs, read_prompt_snapshot,
     resume::ResumeAnalyzer,
     run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest},
@@ -66,7 +66,7 @@ pub fn list_sessions(
             if let Ok(run_dir) = resolve_run_path(config, &first_run.run_id) {
                 let trace_path = run_dir.join("trace.jsonl");
                 if trace_path.exists() {
-                    if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
+                    if let Ok(envelopes) = gestalt_runtime::unstable::read_trace(&trace_path) {
                         let mut first_msg = None;
                         for env in envelopes {
                             if let AgentEvent::UserMessage { content } = env.event {
@@ -208,7 +208,7 @@ pub fn history_session(
     for (_, run_path, run_id) in runs {
         let trace_path = run_path.join("trace.jsonl");
         if trace_path.exists() {
-            if let Ok(envelopes) = gestalt_runtime::read_trace(&trace_path) {
+            if let Ok(envelopes) = gestalt_runtime::unstable::read_trace(&trace_path) {
                 for env in envelopes {
                     let event_summary = match env.event {
                         AgentEvent::UserMessage { ref content } => {
@@ -383,7 +383,7 @@ pub async fn run_session_action(
     };
 
     // 2. Perform preflight analysis
-    let snapshotter = gestalt_runtime::GitWorkspaceSnapshotter;
+    let snapshotter = gestalt_runtime::unstable::GitWorkspaceSnapshotter;
     let current_snapshot = snapshotter.capture(&config.workspace_root).await?;
 
     let tools = Arc::new(default_registry()?);
@@ -399,9 +399,9 @@ pub async fn run_session_action(
         .unwrap_or_default();
     let workspace_cfg = config.context.workspace.clone().unwrap_or_default();
     let memory_cfg = config.context.memory.clone().unwrap_or_default();
-    let event_bus = gestalt_runtime::event_bus::RuntimeEventBus::new();
+    let event_bus = gestalt_runtime::unstable::event_bus::RuntimeEventBus::new();
     let workspace_context_snapshot_hash =
-        match gestalt_runtime::workspace_context::load_and_snapshot_workspace_context(
+        match gestalt_runtime::unstable::workspace_context::load_and_snapshot_workspace_context(
             &config.workspace_root,
             None,
             &event_bus,
@@ -416,16 +416,20 @@ pub async fn run_session_action(
 
     let expected_fingerprint = CompatibilityFingerprint {
         context_pipeline_version: "pipeline-v1".to_string(),
-        tool_schema_hash: gestalt_runtime::run_manifest::compute_tool_schema_hash(&tools.schemas()),
+        tool_schema_hash: gestalt_runtime::unstable::run_manifest::compute_tool_schema_hash(
+            &tools.schemas(),
+        ),
         policy_fingerprint: serde_json::to_string(&config.policies)
-            .map(|content| gestalt_runtime::run_manifest::compute_policy_fingerprint(&content))
+            .map(|content| {
+                gestalt_runtime::unstable::run_manifest::compute_policy_fingerprint(&content)
+            })
             .unwrap_or_default(),
         hook_contract_hash: {
             let hook_names = vec![
                 "VerificationToolHook".to_string(),
                 "EvaluatorHook".to_string(),
             ];
-            gestalt_runtime::run_manifest::compute_hook_contract_hash(&hook_names)
+            gestalt_runtime::unstable::run_manifest::compute_hook_contract_hash(&hook_names)
         },
         execution_mode: format!("{:?}", config.selected_mode()?),
         skill_fingerprint: crate::run::compute_skill_fingerprint(config, &discovered_skills, None),
@@ -472,7 +476,7 @@ pub async fn run_session_action(
                     },
                 ));
             }
-            let envelopes = gestalt_runtime::read_trace(&trace_path)
+            let envelopes = gestalt_runtime::unstable::read_trace(&trace_path)
                 .map_err(gestalt_core::HarnessError::Trace)?;
             let mut target_checkpoint = None;
             for env in &envelopes {
@@ -653,7 +657,7 @@ pub async fn run_session_action(
     };
 
     let current_tool_hash =
-        gestalt_runtime::run_manifest::compute_tool_schema_hash(&tools.schemas());
+        gestalt_runtime::unstable::run_manifest::compute_tool_schema_hash(&tools.schemas());
     let current_cache_key =
         analysis
             .prompt_snapshot
@@ -679,7 +683,8 @@ pub async fn run_session_action(
         if let Some(prompt_snapshot) = analysis.prompt_snapshot.as_ref() {
             let loaded_event = AgentEvent::PromptSnapshotLoaded {
                 snapshot_hash: prompt_snapshot.snapshot_hash.clone(),
-                source: gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+                source: gestalt_runtime::unstable::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH
+                    .to_string(),
             };
             let loaded_event_core: gestalt_core::event::AgentEvent = loaded_event.clone().into();
             sink.emit(loaded_event_core)?;
@@ -782,7 +787,7 @@ pub async fn run_session_action(
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             Ok(run_paths.root.clone())
         }
-        Err(gestalt_runtime::RuntimeError::Harness(
+        Err(gestalt_runtime::unstable::RuntimeError::Harness(
             gestalt_core::error::HarnessError::Cancelled,
         )) => {
             manifest.lifecycle_state = LifecycleState::Interrupted;
@@ -819,7 +824,7 @@ pub async fn run_session_action(
             let _ = write_summary(&run_paths.summary, &mock_run_result);
             let _ = write_cost_report_helper(&run_paths.trace, &run_paths.cost);
             match err {
-                gestalt_runtime::RuntimeError::Harness(he) => Err(he),
+                gestalt_runtime::unstable::RuntimeError::Harness(he) => Err(he),
                 other => Err(gestalt_core::HarnessError::Config(
                     gestalt_core::error::ConfigError::InvalidValue {
                         field: "runtime".to_string(),
@@ -832,11 +837,12 @@ pub async fn run_session_action(
 
     let prompt_snapshot_path = run_paths
         .root
-        .join(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
+        .join(gestalt_runtime::unstable::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH);
     if let Ok(snapshot) = read_prompt_snapshot(&prompt_snapshot_path) {
         manifest.prompt_snapshot_hash = Some(snapshot.snapshot_hash);
-        manifest.prompt_snapshot_path =
-            Some(gestalt_runtime::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string());
+        manifest.prompt_snapshot_path = Some(
+            gestalt_runtime::unstable::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH.to_string(),
+        );
     }
 
     let _ = manifest.save_to(&run_manifest_path);
@@ -848,7 +854,7 @@ fn write_cost_report_helper(
     cost_path: &std::path::Path,
 ) -> Result<(), gestalt_core::HarnessError> {
     let report = aggregate_costs(trace_path, |model| {
-        gestalt_runtime::ModelCatalog::new().get(model)
+        gestalt_runtime::unstable::ModelCatalog::new().get(model)
     })?;
     write_cost_report(cost_path, &report)?;
     Ok(())

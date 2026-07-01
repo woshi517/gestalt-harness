@@ -562,7 +562,7 @@ fn test_effective_config_fingerprint_stability() {
 #[test]
 fn test_variant_fingerprint_changes() {
     let _guard = lock_env();
-    let fp1 = gestalt_runtime::inspect::compute_variant_fingerprint(
+    let fp1 = gestalt_runtime::unstable::inspect::compute_variant_fingerprint(
         "model-a",
         "provider-a",
         1000,
@@ -572,7 +572,7 @@ fn test_variant_fingerprint_changes() {
         Some(&gestalt_core::provider::TextVerbosity::Medium),
     );
 
-    let fp2 = gestalt_runtime::inspect::compute_variant_fingerprint(
+    let fp2 = gestalt_runtime::unstable::inspect::compute_variant_fingerprint(
         "model-a",
         "provider-a",
         1000,
@@ -582,7 +582,7 @@ fn test_variant_fingerprint_changes() {
         Some(&gestalt_core::provider::TextVerbosity::Medium),
     );
 
-    let fp3 = gestalt_runtime::inspect::compute_variant_fingerprint(
+    let fp3 = gestalt_runtime::unstable::inspect::compute_variant_fingerprint(
         "model-a",
         "provider-a",
         1000,

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gestalt_runtime::{
+use gestalt_runtime::unstable::{
     extension::{
         compute_complete_fingerprint, ComponentKind, ExtensionManifestV2,
         ExtensionPackageDescriptor, ResolvedExtensionPackage,

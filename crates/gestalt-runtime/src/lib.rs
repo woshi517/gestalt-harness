@@ -1,156 +1,147 @@
-pub mod activation;
-pub mod artifact_store;
-pub mod builder;
-pub mod compaction;
-pub mod composition_hooks;
-pub mod config;
-pub mod context;
-pub mod control;
-pub mod discovery;
-pub mod error;
-pub mod event_bus;
-pub mod exec;
-pub mod extension;
-pub mod extension_trust;
-pub mod inspect;
-pub mod jsonrpc;
-pub mod lifecycle;
-pub mod manifest;
-pub mod orchestration;
-pub mod permissions;
-pub mod policy;
+//! Gestalt runtime composition and embedding.
+//!
+//! [`api::v1`] is the sole stable v0.1 surface. [`unstable`] contains
+//! first-party implementation APIs with no v0.1 compatibility guarantee.
+//!
+//! Crate-root imports are deliberately unavailable:
+//!
+//! ```compile_fail
+//! use gestalt_runtime::AgentRuntimeBuilder;
+//! ```
+
+// Some crate-visible items live in private modules and are selectively exposed
+// through `unstable`; changing them to `pub` would widen that surface.
+#![allow(clippy::redundant_pub_crate)]
+
+pub mod api;
+pub mod unstable;
+
+mod activation;
+mod artifact_store;
+mod builder;
+mod compaction;
+mod composition_hooks;
+mod config;
+mod context;
+mod control;
+mod discovery;
+mod error;
+mod event_bus;
+mod exec;
+mod extension;
+mod extension_trust;
+mod inspect;
+mod jsonrpc;
+mod lifecycle;
+mod manifest;
+mod orchestration;
+mod permissions;
+mod policy;
 mod process_extension;
-pub mod registry;
-pub mod runtime;
-pub mod session_queue;
-pub mod tool_catalog;
-pub mod tool_catalog_planner;
-pub mod tool_output;
-pub mod workspace_context;
-pub mod workspace_snapshot;
+mod registry;
+mod runtime;
+mod session_queue;
+mod tool_catalog;
+mod tool_catalog_planner;
+mod tool_output;
+mod workspace_context;
+mod workspace_snapshot;
 
 #[cfg(feature = "mcp")]
-pub mod mcp;
+mod mcp;
 #[cfg(feature = "providers")]
-pub mod providers;
+mod providers;
 #[cfg(feature = "skills")]
-pub mod skills;
+mod skills;
 #[cfg(feature = "tools")]
-pub mod tools;
+mod tools;
 #[cfg(feature = "trace")]
-pub mod trace;
+mod trace;
 #[cfg(feature = "verify")]
-pub mod verify;
+mod verify;
 
-pub use context::assembler::{
-    estimate_message_tokens, estimate_text_tokens, ContextMessageAssembler,
-};
-pub use exec::{ExecRequest, ExecResult, ExecutionSandbox, NoSandbox, SandboxMount};
-#[cfg(feature = "mcp")]
-pub use mcp::*;
-pub use policy::engine::{
-    classify_bash, BashPolicy, MinimalPolicyEngine, NetworkPolicy, PathPolicy, PolicyAction,
-    PolicyConfig,
-};
-#[cfg(feature = "providers")]
-pub use providers::registry::registered;
-#[cfg(feature = "providers")]
-pub use providers::*;
-#[cfg(feature = "skills")]
-pub use skills::*;
-#[cfg(feature = "tools")]
-pub use tools::*;
-#[cfg(feature = "trace")]
-pub use trace::*;
-#[cfg(feature = "verify")]
-pub use verify::*;
+// Temporary crate-private aliases keep implementation modules independent from
+// the public export layout. They are not reachable by downstream crates.
+#[allow(ambiguous_glob_reexports, unused_imports)]
+mod internal_aliases {
+    pub(crate) use crate::context::assembler::{
+        estimate_message_tokens, estimate_text_tokens, ContextMessageAssembler,
+    };
+    pub(crate) use crate::exec::{
+        ExecRequest, ExecResult, ExecutionSandbox, NoSandbox, SandboxMount,
+    };
+    #[cfg(feature = "mcp")]
+    pub(crate) use crate::mcp::*;
+    pub(crate) use crate::policy::engine::{
+        classify_bash, BashPolicy, MinimalPolicyEngine, NetworkPolicy, PathPolicy, PolicyAction,
+        PolicyConfig,
+    };
+    #[cfg(feature = "providers")]
+    pub(crate) use crate::providers::*;
+    #[cfg(feature = "skills")]
+    pub(crate) use crate::skills::*;
+    #[cfg(feature = "tools")]
+    pub(crate) use crate::tools::*;
+    #[cfg(feature = "trace")]
+    pub(crate) use crate::trace::*;
+    #[cfg(feature = "verify")]
+    pub(crate) use crate::verify::*;
 
-pub use context::{
-    accounting, checkpoint_validation, compaction as context_compaction, default_prompt,
-    tool_clearing, tool_exchanges,
-};
-#[cfg(feature = "mcp")]
-pub use mcp::transport;
-#[cfg(feature = "mcp")]
-pub use mcp::{client, error as mcp_error, model as mcp_model, registry as mcp_registry};
-#[cfg(feature = "providers")]
-pub use providers::sse;
-#[cfg(feature = "providers")]
-pub use providers::{auth, catalog, openai, registry as model_registry, strict_schema};
-#[cfg(feature = "skills")]
-pub use skills::{
-    activation as skill_activation, discovery as skill_discovery, events as skill_events,
-    index as skill_index, manifest as skill_manifest, policy as skill_policy,
-    resources as skill_resources,
-};
-#[cfg(feature = "tools")]
-pub use tools::{backends, path, registry as tool_registry_module};
-#[cfg(feature = "trace")]
-pub use trace::{
-    context_artifacts, evaluator, fixture, golden, resume, run_manifest, tool_metrics,
-};
-#[cfg(feature = "verify")]
-pub use verify::verifiers;
+    pub(crate) use crate::context::{
+        accounting, checkpoint_validation, compaction as context_compaction, default_prompt,
+        tool_clearing, tool_exchanges,
+    };
+    #[cfg(feature = "mcp")]
+    pub(crate) use crate::mcp::{
+        client, error as mcp_error, model as mcp_model, registry as mcp_registry, transport,
+    };
+    #[cfg(feature = "providers")]
+    pub(crate) use crate::providers::{
+        auth, catalog, openai, registry as model_registry, sse, strict_schema,
+    };
+    #[cfg(feature = "skills")]
+    pub(crate) use crate::skills::{
+        activation as skill_activation, discovery as skill_discovery, events as skill_events,
+        index as skill_index, manifest as skill_manifest, policy as skill_policy,
+        resources as skill_resources,
+    };
+    #[cfg(feature = "tools")]
+    pub(crate) use crate::tools::{backends, path, registry as tool_registry_module};
+    #[cfg(feature = "trace")]
+    pub(crate) use crate::trace::{
+        context_artifacts, evaluator, fixture, golden, resume, run_manifest, tool_metrics,
+    };
+    #[cfg(feature = "verify")]
+    pub(crate) use crate::verify::verifiers;
 
-pub use activation::{
-    ActivationCandidate, ActivationDiagnostic, ActivationMode, ActivationRequest,
-    BaseRuntimeComposition, DiagnosticSeverity, ExtensionActivationPipeline,
-    ExtensionGenerationDiff, ExtensionSource, HostApprovalBroker, HostLaunchContext,
-    ManagedExtensionResource, RuntimeSnapshotLease, StaticExtensionSource,
-};
-pub use artifact_store::{ArtifactStore, FilesystemArtifactStore, InMemoryArtifactStore};
-pub use builder::AgentRuntimeBuilder;
-pub use composition_hooks::{
-    AfterContextBuildCtx, AfterToolResultCtx, BeforeContextBuildCtx, BeforeToolPolicyCtx,
-    CompositionHooks, HookOutcome, OnEventCtx, PrepareNextTurnCtx, RuntimeContextHookAdapter,
-    RuntimeNextTurnHookAdapter, RuntimeToolHookAdapter, RuntimeTraceHookAdapter,
-};
-pub use config::RuntimeConfig;
-pub use context::projection::{CompactionCheckpoint, MessageMetadataRef, ProjectionManifest};
-pub use context::report::{
-    load_context_build_report, persist_context_build_report, CapturedContributionV1,
-    ContextBuildReportInputV1, ContextBuildReportV1, ContextOmissionReportV1,
-    ContextPersistenceDiagnosticV1, ContextPressureV1, ContextSourceReportV1,
-    CONTEXT_BUILD_REPORT_SCHEMA_VERSION, MAX_CAPTURED_CONTRIBUTIONS_BYTES,
-    MAX_CAPTURED_CONTRIBUTION_BYTES,
-};
-pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
-pub use control::{ReloadExtensionsReport, ReloadExtensionsRequest};
-pub use discovery::{DiscoveredExtensionPackage, ExtensionDiscovery};
-pub use error::{Result, RuntimeError};
-pub use event_bus::{RuntimeEvent, RuntimeEventBus};
-pub use extension::RuntimeModule;
-pub use extension_trust::{ExtensionTrust, TrustedExtensionPin};
-pub use inspect::{
-    compute_hook_contract_hash, compute_policy_fingerprint, RuntimeInspect, ToolInspectInfo,
-};
-pub use manifest::{Entrypoint, Permissions};
-#[cfg(feature = "mcp")]
-pub use mcp::McpBackedTool;
-#[cfg(feature = "mcp")]
-pub use mcp::{GetToolDetailsTool, McpDiscoveryState, SearchToolsTool};
-pub use orchestration::{
-    AgentRuntimeHandle, DefaultAgentRuntimeHandle, OrchestrationResult, OrchestrationTask,
-    Orchestrator, RuntimeHost,
-};
-pub use permissions::{
-    check_network_permission, check_network_permission_effective, check_path_permission,
-    check_path_permission_effective, check_shell_permission, check_shell_permission_effective,
-};
-pub use policy::RuntimePolicyEngine;
-pub use registry::{
-    compute_schema_hash, compute_tool_schema_hash, ProviderFactory, ProviderMetadata,
-    RuntimeFingerprint, RuntimeRegistryBuilder, RuntimeRegistrySnapshot, ToolMetadata,
-    ToolRegistrationSnapshot,
-};
-pub use runtime::{AgentRuntime, UserInput};
-pub use session_queue::InMemorySteeringQueue;
-pub use tool_catalog::ComposedToolCatalog;
-pub use tool_catalog_planner::{ToolCatalogPlanner, ToolProfile};
-pub use tool_output::RuntimeToolOutputMaterializer;
-pub use workspace_context::{
-    load_and_snapshot_workspace_context, ContextSnapshotMode, MemoryContextConfig,
-    MemorySelectionStrategy, MemoryWriteMode, WorkspaceContextConfig, WorkspaceContextError,
-    WorkspaceContextLoader, WorkspaceContextSnapshot,
-};
-pub use workspace_snapshot::GitWorkspaceSnapshotter;
+    pub(crate) use crate::activation::*;
+    pub(crate) use crate::artifact_store::*;
+    pub(crate) use crate::builder::*;
+    pub(crate) use crate::composition_hooks::*;
+    pub(crate) use crate::config::*;
+    pub(crate) use crate::context::projection::*;
+    pub(crate) use crate::context::report::*;
+    pub(crate) use crate::context::*;
+    pub(crate) use crate::control::*;
+    pub(crate) use crate::discovery::*;
+    pub(crate) use crate::error::*;
+    pub(crate) use crate::event_bus::*;
+    pub(crate) use crate::extension::*;
+    pub(crate) use crate::extension_trust::*;
+    pub(crate) use crate::inspect::*;
+    pub(crate) use crate::manifest::*;
+    pub(crate) use crate::orchestration::*;
+    pub(crate) use crate::permissions::*;
+    pub(crate) use crate::policy::*;
+    pub(crate) use crate::registry::*;
+    pub(crate) use crate::runtime::*;
+    pub(crate) use crate::session_queue::*;
+    pub(crate) use crate::tool_catalog::*;
+    pub(crate) use crate::tool_catalog_planner::*;
+    pub(crate) use crate::tool_output::*;
+    pub(crate) use crate::workspace_context::*;
+    pub(crate) use crate::workspace_snapshot::*;
+}
+
+#[allow(clippy::wildcard_imports, unused_imports)]
+pub(crate) use internal_aliases::*;

@@ -9,13 +9,13 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::control::{HostControl, RuntimeControl};
-use gestalt_runtime::TrustedExtensionPin;
-use gestalt_runtime::{
-    activation::HostLaunchContext, AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig,
-    RuntimeHost,
+use gestalt_runtime::unstable::control::{HostControl, RuntimeControl};
+use gestalt_runtime::unstable::TrustedExtensionPin;
+use gestalt_runtime::unstable::{
+    activation::HostLaunchContext, AgentRuntimeBuilder, AgentRuntimeBuilderExt,
+    ReloadExtensionsRequest, RuntimeConfig, RuntimeHost,
 };
-use gestalt_runtime::{
+use gestalt_runtime::unstable::{
     discovery::{DiscoverySource, ExtensionDiscovery},
     extension::{ExtensionManager, ResolvedExtensionPackage, RuntimeExtensionSnapshot},
 };
@@ -129,13 +129,13 @@ async fn reload_publishes_next_generation_and_inspect_reports_it() {
     );
 }
 
-fn runtime() -> gestalt_runtime::AgentRuntime {
+fn runtime() -> gestalt_runtime::unstable::AgentRuntime {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default())
@@ -148,9 +148,9 @@ async fn test_host_owns_workspace_and_generation_lineage() {
     let builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
@@ -158,9 +158,9 @@ async fn test_host_owns_workspace_and_generation_lineage() {
             ..Default::default()
         });
     let host = Arc::new(
-        gestalt_runtime::RuntimeHost::new(
+        gestalt_runtime::unstable::RuntimeHost::new(
             builder,
-            Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+            Arc::new(gestalt_runtime::unstable::InMemoryArtifactStore::new()),
         )
         .unwrap(),
     );
@@ -186,9 +186,9 @@ async fn test_per_session_override_cannot_mutate_critical_inputs() {
     let builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
@@ -196,9 +196,9 @@ async fn test_per_session_override_cannot_mutate_critical_inputs() {
             ..Default::default()
         });
     let host = Arc::new(
-        gestalt_runtime::RuntimeHost::new(
+        gestalt_runtime::unstable::RuntimeHost::new(
             builder,
-            Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+            Arc::new(gestalt_runtime::unstable::InMemoryArtifactStore::new()),
         )
         .unwrap(),
     );
@@ -224,16 +224,16 @@ async fn host_reload_advances_shared_generation_only_once_across_sessions() {
     let builder = AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig::default());
     let host = Arc::new(
-        gestalt_runtime::RuntimeHost::new(
+        gestalt_runtime::unstable::RuntimeHost::new(
             builder,
-            Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+            Arc::new(gestalt_runtime::unstable::InMemoryArtifactStore::new()),
         )
         .unwrap(),
     );
@@ -282,7 +282,7 @@ async fn runtime_host_initialization_activates_configured_packages() {
 
     let host = RuntimeHost::new(
         builder,
-        Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+        Arc::new(gestalt_runtime::unstable::InMemoryArtifactStore::new()),
     )
     .unwrap();
 
@@ -337,7 +337,7 @@ async fn runtime_host_initialization_returns_error_when_activation_fails() {
 
     let err = RuntimeHost::new(
         builder,
-        Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+        Arc::new(gestalt_runtime::unstable::InMemoryArtifactStore::new()),
     )
     .err()
     .expect("host construction should fail");
@@ -456,9 +456,9 @@ fn test_builder(workspace_root: PathBuf) -> AgentRuntimeBuilder {
     AgentRuntimeBuilder::new()
         .provider(Arc::new(MockProvider))
         .tools(Arc::new(EmptyToolCatalog))
-        .assembler(Arc::new(gestalt_runtime::ContextMessageAssembler::new(
-            "pipeline-v1",
-        )))
+        .assembler(Arc::new(
+            gestalt_runtime::unstable::ContextMessageAssembler::new("pipeline-v1"),
+        ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
         .config(RuntimeConfig {
@@ -472,21 +472,22 @@ fn runtime_host_with_discovery(
     builder: AgentRuntimeBuilder,
     workspace_root: PathBuf,
 ) -> RuntimeHost {
-    let config = builder.config.clone();
-    let event_bus = builder.event_bus.clone();
-    let approval_broker = Arc::new(gestalt_runtime::activation::HostApprovalBroker::new());
-    let extension_source: Arc<dyn gestalt_runtime::activation::ExtensionSource> =
+    let config = builder.runtime_config().clone();
+    let event_bus = builder.runtime_event_bus().clone();
+    let approval_broker =
+        Arc::new(gestalt_runtime::unstable::activation::HostApprovalBroker::new());
+    let extension_source: Arc<dyn gestalt_runtime::unstable::activation::ExtensionSource> =
         Arc::new(DiscoverySource::new(
             ExtensionDiscovery::new(workspace_root.clone(), None),
             Vec::new(),
         ));
-    let registry_snapshot = builder.registry.snapshot();
+    let registry_snapshot = builder.runtime_registry().snapshot();
     let extension_snapshot = RuntimeExtensionSnapshot::from_registry_snapshot(
-        gestalt_runtime::extension::RuntimeGeneration(0),
+        gestalt_runtime::unstable::extension::RuntimeGeneration(0),
         registry_snapshot,
-        builder.tools.clone().unwrap(),
+        builder.configured_tools().cloned().unwrap(),
         #[cfg(feature = "mcp")]
-        Arc::new(gestalt_runtime::mcp::McpRegistry::new(
+        Arc::new(gestalt_runtime::unstable::mcp::McpRegistry::new(
             workspace_root.clone(),
             std::collections::HashMap::new(),
         )),
@@ -494,7 +495,7 @@ fn runtime_host_with_discovery(
     let extension_manager = Arc::new(ExtensionManager::new(
         Arc::new(extension_snapshot),
         event_bus.clone(),
-        Arc::new(gestalt_runtime::extension::LocalProcessLauncher),
+        Arc::new(gestalt_runtime::unstable::extension::LocalProcessLauncher),
         HostLaunchContext::from_runtime_config(&config, event_bus.clone()),
     ));
 
@@ -504,7 +505,7 @@ fn runtime_host_with_discovery(
         extension_manager,
         session_registry: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         event_bus,
-        artifact_store: Arc::new(gestalt_runtime::InMemoryArtifactStore::new()),
+        artifact_store: Arc::new(gestalt_runtime::unstable::InMemoryArtifactStore::new()),
         approval_broker,
         extension_source,
         builder,
@@ -607,7 +608,8 @@ fn lifecycle_package(
 ) -> ResolvedExtensionPackage {
     let manifest_hash = write_lifecycle_manifest(dir, package_id, package_name, version);
     let content = fs::read_to_string(dir.join("gestalt.extension.toml")).unwrap();
-    let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&content).unwrap();
+    let manifest =
+        gestalt_runtime::unstable::extension::ExtensionManifestV2::parse(&content).unwrap();
     let mut package = ResolvedExtensionPackage::from_v2_manifest(manifest, package_id).unwrap();
     package.manifest_hash = Some(manifest_hash);
     package
@@ -630,7 +632,8 @@ fn lifecycle_package_with_options(
         command,
     );
     let content = fs::read_to_string(dir.join("gestalt.extension.toml")).unwrap();
-    let manifest = gestalt_runtime::extension::ExtensionManifestV2::parse(&content).unwrap();
+    let manifest =
+        gestalt_runtime::unstable::extension::ExtensionManifestV2::parse(&content).unwrap();
     let mut package = ResolvedExtensionPackage::from_v2_manifest(manifest, package_id).unwrap();
     package.manifest_hash = Some(manifest_hash);
     package
