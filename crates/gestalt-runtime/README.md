@@ -9,6 +9,17 @@ compatibility is removed from the active contract.
 
 For the full API surface, see [`REFERENCE.md`](./REFERENCE.md).
 
+## Ownership and stability
+
+This crate owns concrete runtime composition, context assembly, providers,
+tools, traces, policy enforcement, and extension activation. It does not own
+product session workflows, CLI/TUI rendering, or remote transport.
+
+Stable entry points are limited to the construction and control surfaces in the
+[v0.1 API inventory](../../docs/plans/v0.1-hardening/api-spi-inventory.md).
+Registries, raw runtime events, extension managers, hooks, and public
+implementation modules remain experimental/internal.
+
 ## Primary responsibilities
 
 - run sessions through `AgentRuntime`
@@ -79,6 +90,15 @@ are published as `RuntimeEvent::PermissionDecision`.
 `CompositionHooks` intercept runtime execution at the user-hook layer. The H4A
 cleanup removed the old extension hook bridge; lifecycle components now use the
 typed protocol instead of injecting hooks through a legacy adapter.
+
+## Failure, cancellation, and feature gates
+
+Builder, activation, provider, trace, and tool failures return structured
+errors/reports; required security components fail closed. Cancellation
+propagates through provider streaming, approvals, tools, and lifecycle
+processes. Features `providers`, `tools`, `trace`, `mcp`, `skills`, and `verify`
+only expose their corresponding experimental implementation modules; enabling a
+feature does not make its entire surface stable.
 
 ## Related docs
 

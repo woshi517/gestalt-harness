@@ -2,6 +2,16 @@
 
 Binary entry point and command surface for the `gestalt` CLI tool. Local-first AI agent harness for safe, inspectable single-agent work.
 
+## Ownership Boundary
+
+The CLI owns argument parsing, terminal rendering, JSON output, and process exit
+codes. Reusable workspace/runtime behavior belongs to `gestalt-app` and
+`gestalt-runtime`; the CLI does not define independent business contracts.
+
+Only commands listed in the
+[v0.1 CLI contract](../../docs/v0.1/cli-automation.md) are stable candidates.
+All others remain experimental until explicitly published.
+
 ---
 
 ## Commands
@@ -165,3 +175,11 @@ This assembles:
 - Verification hooks
 
 Extension trust is configured via `extensions.trusted` in `gestalt.json`. Trusted extension IDs are wired to `extension_trust::set_trusted_extension_ids()` before extension descriptors are built, ensuring the trust gate is active before any tool is registered.
+
+## Failure, Cancellation, and Features
+
+Machine-readable failures use the shared JSON envelope on stderr and stable
+exit categories. Interactive cancellation propagates to the runtime; broken
+stdout pipes terminate successfully. Optional build features remove unavailable
+commands and return `FEATURE_DISABLED` where the command surface remains
+present. See the contract for the stable feature matrix.

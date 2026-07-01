@@ -1,6 +1,6 @@
 ---
 title: "CLI Automation Contract v1"
-status: active
+status: proposed
 type: version-contract
 target: v0.1
 owners:
@@ -72,11 +72,9 @@ remains experimental until H4B is frozen.
 
 ## Dependency Status
 
-H0B accepted the envelope but did not materialize the stable-command inventory
-required by H0B-F05 and H3B-F02. The table above is therefore a conservative
-provisional subset. Its implemented envelope and error behavior are usable,
-but the subset is not frozen until H0B records the inventory and each selected
-command has the H3B-F06 snapshot set.
+H0B accepted the envelope and stable-candidate command inventory. The subset is
+not published until each selected command has the H3B-F06 normalized success
+and failure snapshots for its supported feature combinations.
 
 ## Conformance Evidence
 
@@ -86,4 +84,5 @@ command has the H3B-F06 snapshot set.
 | H3B-F04, F05, B03 | Central domain-error/exit mapping and legacy-config CLI assertion |
 | H3B-B04 | `minimal_feature_cli_tests` with `--no-default-features` |
 | H3B-B06 | `write_stdout` treats `BrokenPipe` as successful termination |
-| H3B-F01, F02, F06, B05 | Blocked on the missing H0B command inventory and per-command normalized snapshots |
+| H3B-F01, F02 | H0B stable-candidate command inventory |
+| H3B-F06, B05 | Blocked on per-command normalized snapshots |

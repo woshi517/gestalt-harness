@@ -1,3 +1,12 @@
+---
+title: Gestalt Policy and Approval v1
+status: active
+type: version-contract
+target: v0.1
+owners:
+  - gestalt-runtime
+---
+
 # Gestalt v0.1: Policy & Approval Contract
 
 This document specifies the stable v0.1 policy checking and user-in-the-loop approval contract. It defines how policies are projected, how approval challenges are issued, and how responses are validated.

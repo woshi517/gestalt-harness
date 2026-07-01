@@ -4,6 +4,24 @@ Core traits, events, agent loop, and session types for gestalt-harness. **Zero I
 
 This crate defines the abstract skeleton that every other gestalt crate implements against. If a type is referenced by two or more crates without depending on the network or the filesystem, it belongs here.
 
+## Ownership and Stability
+
+This crate owns execution invariants and the stable provider, tool, policy,
+approval, and context-assembler SPIs. It does not own concrete providers,
+filesystem/process execution, product services, or presentation.
+
+Only the SPIs listed in the
+[v0.1 API inventory](../../docs/plans/v0.1-hardening/api-spi-inventory.md) are
+stable. Raw sessions/events, hooks, projection internals, and technically public
+helpers remain experimental unless explicitly allowlisted there.
+
+## Failure, Cancellation, and Features
+
+Fallible operations return `HarnessError` or a domain error; expected input and
+execution failures do not panic. `CancelToken` propagates cancellation through
+provider, approval, and tool boundaries without deleting committed events.
+`gestalt-core` has no optional Cargo features.
+
 ---
 
 ## Architecture Overview

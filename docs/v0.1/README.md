@@ -5,7 +5,7 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 ---
 
 ## 1. Embedding and Runtime Control (RUNTIME-001–RUNTIME-006)
-* **Status:** 🟢 **Published**
+* **Status:** 🔴 **Unpublished (H1B Host Conformance Pending)**
 * **Specification:** [embedding-control.md](./embedding-control.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md), [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
 * **Rust API Target:** `gestalt_runtime::control::contract::RuntimeControlV1`
@@ -53,7 +53,7 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 * **Enforcing Tests:** `crates/gestalt-runtime/tests/extension_manifest_v2_tests.rs`, `crates/gestalt-runtime/tests/lifecycle_protocol_v2_tests.rs`, `crates/gestalt-runtime/tests/runtime_builder_tests.rs`
 
 ## 8. Stable CLI Automation (CLI-001–CLI-004)
-* **Status:** 🔴 **Unpublished (Envelope Implemented, Inventory Blocked)**
+* **Status:** 🔴 **Unpublished (Inventory Accepted, Snapshots Pending)**
 * **Provisional Contract:** [cli-automation.md](./cli-automation.md)
 * **Implementation Plan:** [H3B](../plans/v0.1-hardening/H3B-cli-automation-contract-and-snapshots.md)
 * **CLI Command Entry Points:** See the stable command matrix.

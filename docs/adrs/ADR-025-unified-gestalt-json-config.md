@@ -1,5 +1,10 @@
 # ADR-025: Unified `gestalt.json` Configuration
 
+> **Current status:** Accepted except for the legacy TOML fallback, migration
+> seeding, legacy aliases, and compatibility window, which are superseded by
+> [ADR-031](./ADR-031-v0-1-greenfield-compatibility-cutoff.md). Those clauses
+> below are retained only as decision history and are not supported behavior.
+
 **Status:** Accepted
 
 > **Superseded in part by
