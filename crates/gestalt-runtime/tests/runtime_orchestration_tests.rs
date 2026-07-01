@@ -7,10 +7,10 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{Tool, ToolCatalog, ToolSchema},
 };
+use gestalt_runtime::control::HostControl;
 use gestalt_runtime::{
-    AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, HostControl,
-    InMemoryArtifactStore, OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig,
-    RuntimeEvent,
+    AgentRuntimeBuilder, AgentRuntimeHandle, DefaultAgentRuntimeHandle, InMemoryArtifactStore,
+    OrchestrationResult, OrchestrationTask, Orchestrator, RuntimeConfig, RuntimeEvent,
 };
 use std::sync::Arc;
 

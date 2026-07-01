@@ -7,9 +7,8 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::{
-    AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig, RuntimeControl,
-};
+use gestalt_runtime::control::RuntimeControl;
+use gestalt_runtime::{AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig};
 
 struct EmptyToolCatalog;
 

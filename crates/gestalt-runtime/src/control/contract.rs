@@ -111,14 +111,24 @@ impl fmt::Display for IdempotencyKeyV1 {
     }
 }
 
-/// Opaque cursor used for paging or resuming event streams.
+/// Opaque cursor used for paging or resuming one event stream.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct CursorV1(pub String);
+pub struct CursorV1(String);
 
 impl fmt::Display for CursorV1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl CursorV1 {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self(token.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -336,6 +346,30 @@ pub struct ListRunsResponseV1 {
     pub next_cursor: Option<CursorV1>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InspectSessionRequestV1 {
+    pub session_id: SessionIdV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InspectSessionResponseV1 {
+    pub session_id: SessionIdV1,
+    pub active_run_id: Option<RunIdV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InspectRunRequestV1 {
+    pub session_id: SessionIdV1,
+    pub run_id: RunIdV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InspectRunResponseV1 {
+    pub session_id: SessionIdV1,
+    pub run_id: RunIdV1,
+    pub status: RunStatusV1,
+}
+
 // =========================================================================
 // 4. Policy and Approval DTOs (H1A-F05, H1A-F06)
 // =========================================================================
@@ -346,12 +380,47 @@ pub struct PolicyProjectionV1 {
     pub tool_call_id: ToolCallIdV1,
     pub canonical_tool_id: String,
     pub input_hash: String,
-    pub risk_level: String,
-    pub execution_mode: String,
-    pub decision: String,
+    pub risk_level: RiskLevelV1,
+    pub execution_mode: ExecutionModeV1,
+    pub decision: PolicyDecisionV1,
     pub reason: Option<String>,
     pub matched_rule: Option<String>,
     pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RiskLevelV1 {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ExecutionModeV1 {
+    Sandbox,
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PolicyDecisionV1 {
+    Allow,
+    Deny,
+    RequiresApproval,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RunStatusV1 {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
 }
 
 /// Terms governing a bounded session grant.
@@ -414,6 +483,9 @@ pub struct RespondToApprovalRequestV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RespondToApprovalResponseV1 {
     pub success: bool,
+    pub original_hash: String,
+    pub edited_hash: Option<String>,
+    pub session_grant_terms: Option<SessionGrantTermsV1>,
 }
 
 // =========================================================================
@@ -423,6 +495,7 @@ pub struct RespondToApprovalResponseV1 {
 /// Lost-less wrapper around event payloads crossing the control boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventEnvelopeV1 {
+    pub schema_version: u32,
     pub sequence_number: u64,
     pub run_id: RunIdV1,
     pub session_id: SessionIdV1,
@@ -431,12 +504,27 @@ pub struct EventEnvelopeV1 {
     pub payload: EventPayloadV1,
 }
 
-/// Projected event payload.
+/// Stable client event payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EventPayloadV1 {
-    pub schema_version: String,
-    pub kind: String,
-    pub data: serde_json::Value,
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum EventPayloadV1 {
+    SessionStarted,
+    MessageQueued {
+        message_id: MessageIdV1,
+    },
+    RunCompleted,
+    RunFailed {
+        message: String,
+    },
+    ApprovalRequested {
+        approval_id: ApprovalIdV1,
+    },
+    RunCancelled,
+    ArtifactCreated {
+        artifact_id: ArtifactIdV1,
+    },
+    #[serde(other)]
+    Unknown,
 }
 
 /// Request to poll events for a session.
@@ -445,6 +533,7 @@ pub struct PollEventsRequestV1 {
     pub session_id: SessionIdV1,
     pub cursor: Option<CursorV1>,
     pub limit: Option<usize>,
+    pub kinds: Option<Vec<String>>,
 }
 
 /// Response containing polled events.
@@ -672,6 +761,11 @@ pub trait SessionControlV1: Send + Sync {
         &self,
         req: CancelRunRequestV1,
     ) -> Result<CancelRunResponseV1, ControlErrorV1>;
+
+    async fn inspect_session(
+        &self,
+        req: InspectSessionRequestV1,
+    ) -> Result<InspectSessionResponseV1, ControlErrorV1>;
 }
 
 /// Capability to query runs and active sessions.
@@ -704,6 +798,11 @@ pub trait RunQueryV1: Send + Sync {
     /// - **Panic**: Not applicable.
     async fn list_runs(&self, req: ListRunsRequestV1)
         -> Result<ListRunsResponseV1, ControlErrorV1>;
+
+    async fn inspect_run(
+        &self,
+        req: InspectRunRequestV1,
+    ) -> Result<InspectRunResponseV1, ControlErrorV1>;
 }
 
 /// Capability to manage policy approvals and decisions.

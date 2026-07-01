@@ -1,6 +1,6 @@
 ---
 title: Gestalt Embedding and Runtime Control v1
-status: proposed
+status: active
 type: version-contract
 target: v0.1
 owners:
@@ -9,7 +9,7 @@ owners:
 
 # Gestalt v0.1: Stable Embedding and Runtime Control Contract
 
-This proposed contract specifies the v0.1 embedding interface and runtime control semantics for the Gestalt harness. It is published only after H1B's local and mock host implementations pass the same conformance suite.
+This contract specifies the v0.1 embedding interface and runtime control semantics for the Gestalt harness. H1B's local and mock host implementations pass the same conformance suite.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 
@@ -19,11 +19,12 @@ These specifications are constrained by the accepted [H0B Architectural Decision
 
 All embedding client integrations interact with the harness through the unified `RuntimeControlV1` façade, which is an aggregate of six narrow capabilities:
 
-1. **`SessionControlV1`**: Start, continue, resume, branch, queue, and cancel active sessions.
-2. **`RunQueryV1`**: List active sessions and physical runs.
-3. **`EventSourceV1`**: Poll lossless historical and real-time trace events.
-4. **`ArtifactAccessV1`**: List, create, and read bounded ranges of session-generated artifacts.
-5. **`RuntimeInspectionV1`**: Query runtime status, active snapshot generation, and extension health.
+1. **`SessionControlV1`**: Start, continue, resume, branch, queue, cancel, and inspect active sessions.
+2. **`RunQueryV1`**: List and inspect physical runs.
+3. **`ApprovalControlV1`**: List and respond to approvals and inspect policy projections.
+4. **`EventSourceV1`**: Poll retained events or resume from a stream-scoped cursor.
+5. **`ArtifactAccessV1`**: List, create, describe, and read bounded ranges of session-generated artifacts.
+6. **`RuntimeInspectionV1`**: Query runtime status, active snapshot generation, and extension health.
 
 All operations consume and produce stable, versioned DTOs to avoid leaking raw internal models.
 
@@ -86,4 +87,4 @@ All fallible operations return the unified `ControlErrorV1` payload containing a
 
 ### 4.5 Bounded Artifact Reads (H1A-B07)
 * Artifact range reads reject directory traversal sequences (e.g. `../`) and block cross-session resource reads.
-* The API enforces a strict maximum chunk size limit. Requests above this limit or specifying invalid bounds are rejected immediately with a `VALIDATION` error, preventing unbounded memory allocations.
+* The API enforces a 1 MiB maximum chunk size by default. Requests above this limit or specifying invalid bounds are rejected immediately with a `VALIDATION` error, preventing unbounded memory allocations.

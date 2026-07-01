@@ -9,9 +9,10 @@ use gestalt_core::{
     provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
     tool::{ToolCatalog, ToolSchema},
 };
+use gestalt_runtime::control::{HostControl, RuntimeControl};
 use gestalt_runtime::{
-    activation::HostLaunchContext, AgentRuntimeBuilder, HostControl, ReloadExtensionsRequest,
-    RuntimeConfig, RuntimeControl, RuntimeHost,
+    activation::HostLaunchContext, AgentRuntimeBuilder, ReloadExtensionsRequest, RuntimeConfig,
+    RuntimeHost,
 };
 use gestalt_runtime::{
     discovery::{DiscoverySource, ExtensionDiscovery},

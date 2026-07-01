@@ -3,6 +3,12 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 pub mod contract;
+mod host;
+
+pub use host::{
+    ControlHostOptions, LocalControlHost, MockControlHost, DEFAULT_CONTROL_QUEUE_CAPACITY,
+    MAX_ARTIFACT_READ_BYTES,
+};
 
 use crate::artifact_store::ArtifactStore;
 use crate::error::Result;

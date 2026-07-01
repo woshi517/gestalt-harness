@@ -14,7 +14,10 @@ The `gestalt-app` crate owns reusable product-level services built on top of `ge
 ## Core Entry Points
 
 - `workspace::init_workspace` / `workspace::info_workspace` — Resolve, initialize, and inspect the current workspace configuration.
-- `reports::RunReport` — Serializes runs and cost estimates into human-readable data.
+- `reports::ServiceReportV1` / `AppDiagnosticV1` — Return typed values,
+  ordered diagnostics, and stable error projections without presentation I/O.
+- `runtime_factory::build_app_runtime_with_report` — Constructs a runtime and
+  returns expected failures and warnings as structured data.
 
 ---
 
@@ -34,7 +37,8 @@ let report = init_workspace(Path::new("./my-workspace"), false)
 
 ## Error Handling & Cancellation
 
-- Expected validation errors return `HarnessError::Config`; I/O and snapshot failures bubble through the relevant source error.
+- Reusable service boundaries return `ServiceReportV1`; expected construction
+  failures are projected as `AppErrorProjectionV1`.
 - Cancellation is propagated via the standard `CancelToken` to abort network preflight tests and credential verification checks.
 
 ---

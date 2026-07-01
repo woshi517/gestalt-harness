@@ -21,7 +21,7 @@ Before executing any high-risk action (such as a tool call), the runtime evaluat
 
 * **`tool_call_id`**: The target tool call ID.
 * **`canonical_tool_id`**: The fully qualified name or URI of the tool.
-* **`input_hash`**: The FNV-1a 64-bit deterministic hash of the tool input.
+* **`input_hash`**: A deterministic SHA-256 hash of the normalized tool input.
 * **`risk_level`**: The classified risk level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
 * **`execution_mode`**: The execution model (e.g. `SANDBOX`, `LOCAL`, `REMOTE`).
 * **`decision`**: The policy decision (`ALLOW`, `DENY`, `REQUIRES_APPROVAL`).

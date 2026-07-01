@@ -27,7 +27,7 @@ pub struct AppErrorProjectionV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceReportV1<T> {
-    pub value: T,
+    pub value: Option<T>,
     pub diagnostics: Vec<AppDiagnosticV1>,
     pub error: Option<AppErrorProjectionV1>,
     pub correlation_id: Option<String>,
@@ -36,9 +36,18 @@ pub struct ServiceReportV1<T> {
 impl<T> ServiceReportV1<T> {
     pub fn new(value: T) -> Self {
         Self {
-            value,
+            value: Some(value),
             diagnostics: Vec::new(),
             error: None,
+            correlation_id: None,
+        }
+    }
+
+    pub fn failure(error: AppErrorProjectionV1) -> Self {
+        Self {
+            value: None,
+            diagnostics: Vec::new(),
+            error: Some(error),
             correlation_id: None,
         }
     }

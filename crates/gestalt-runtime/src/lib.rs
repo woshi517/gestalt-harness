@@ -115,7 +115,7 @@ pub use context::report::{
     MAX_CAPTURED_CONTRIBUTION_BYTES,
 };
 pub use context::{ContextContributor, ContextPatch, RuntimeContextPipeline};
-pub use control::{HostControl, ReloadExtensionsReport, ReloadExtensionsRequest, RuntimeControl};
+pub use control::{ReloadExtensionsReport, ReloadExtensionsRequest};
 pub use discovery::{DiscoveredExtensionPackage, ExtensionDiscovery};
 pub use error::{Result, RuntimeError};
 pub use event_bus::{RuntimeEvent, RuntimeEventBus};
