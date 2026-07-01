@@ -73,7 +73,7 @@ pub struct ClientEventRecordV1 {
 impl From<&EventEnvelope> for ClientEventRecordV1 {
     fn from(envelope: &EventEnvelope) -> Self {
         Self {
-            v: envelope.v,
+            v: CLIENT_EVENT_SCHEMA_VERSION,
             session_id: envelope.session_id.clone(),
             run_id: envelope.run_id.clone(),
             turn_id: envelope.turn_id,
@@ -348,7 +348,11 @@ pub fn parse_trace_envelope_line(
     };
 
     if !is_known_kind(kind) {
-        eprintln!("Warning: skipping unknown trace event kind '{kind}' at line {line_number}");
+        tracing::warn!(
+            line = line_number,
+            event_kind = kind,
+            "skipping unknown trace event"
+        );
         return Ok(None);
     }
 

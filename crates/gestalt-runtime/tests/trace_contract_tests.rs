@@ -1,10 +1,11 @@
 use gestalt_core::context::HistoryRange;
+use gestalt_core::DurabilityMode;
 use gestalt_runtime::context::projection::CompactionCheckpoint;
 use gestalt_runtime::context::{ContextManagementPolicy, ProjectionManifest};
 use gestalt_runtime::run_manifest::{LifecycleState, RunKind, RunManifest};
 use gestalt_runtime::{
-    load_checkpoint, load_manifest, read_trace, ClientEventRecordV1, TraceEvent,
-    TRACE_EVENT_SCHEMA_VERSION,
+    load_checkpoint, load_manifest, persist_checkpoint, persist_manifest, read_trace,
+    ClientEventRecordV1, TraceEvent, CLIENT_EVENT_SCHEMA_VERSION, TRACE_EVENT_SCHEMA_VERSION,
 };
 use serde_json::json;
 use std::fs;
@@ -150,7 +151,7 @@ fn context_artifact_readers_reject_unsupported_versions() {
 #[test]
 fn client_projection_omits_workspace_snapshot() {
     let envelope = gestalt_runtime::EventEnvelope {
-        v: TRACE_EVENT_SCHEMA_VERSION,
+        v: TRACE_EVENT_SCHEMA_VERSION + 42,
         session_id: "session-1".to_string(),
         run_id: "run-1".to_string(),
         turn_id: 0,
@@ -175,5 +176,59 @@ fn client_projection_omits_workspace_snapshot() {
     let value = serde_json::to_value(&client).expect("serialize client record");
     assert!(value.get("workspace_snapshot").is_none());
     assert!(value.get("snapshot_id").is_none());
-    assert_eq!(value["v"], json!(1));
+    assert_eq!(client.v, CLIENT_EVENT_SCHEMA_VERSION);
+    assert_eq!(value["v"], json!(CLIENT_EVENT_SCHEMA_VERSION));
+}
+
+#[test]
+fn best_effort_manifest_persistence_returns_diagnostic() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let blocked_parent = tempdir.path().join("blocked");
+    fs::write(&blocked_parent, "blocked").expect("block parent directory");
+    let artifacts_dir = blocked_parent.join("artifacts");
+
+    let manifest = ProjectionManifest {
+        manifest_id: "manifest-1".to_string(),
+        ..ProjectionManifest::default()
+    };
+
+    let diagnostic = persist_manifest(&manifest, &artifacts_dir, DurabilityMode::BestEffort)
+        .expect("best effort manifest persistence");
+    let diagnostic = diagnostic.expect("best effort persistence should return a diagnostic");
+
+    assert_eq!(diagnostic.code, "PROJECTION_MANIFEST_PERSISTENCE_FAILED");
+}
+
+#[test]
+fn best_effort_checkpoint_persistence_returns_diagnostic() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let blocked_parent = tempdir.path().join("blocked");
+    fs::write(&blocked_parent, "blocked").expect("block parent directory");
+    let artifacts_dir = blocked_parent.join("artifacts");
+
+    let checkpoint = CompactionCheckpoint {
+        v: 1,
+        checkpoint_id: "checkpoint-1".to_string(),
+        history_range: HistoryRange { start: 0, end: 1 },
+        history_range_hash: "range-hash".to_string(),
+        policy_version: "policy-v1".to_string(),
+        compactor_model: "model".to_string(),
+        prompt_hash: "prompt-hash".to_string(),
+        created_at: chrono::Utc::now(),
+        goal: "goal".to_string(),
+        constraints: Vec::new(),
+        completed_work: Vec::new(),
+        in_progress_work: Vec::new(),
+        blocked_items: Vec::new(),
+        key_decisions: Vec::new(),
+        next_steps: Vec::new(),
+        critical_context: "context".to_string(),
+        relevant_references: Vec::new(),
+    };
+
+    let diagnostic = persist_checkpoint(&checkpoint, &artifacts_dir, DurabilityMode::BestEffort)
+        .expect("best effort checkpoint persistence");
+    let diagnostic = diagnostic.expect("best effort persistence should return a diagnostic");
+
+    assert_eq!(diagnostic.code, "COMPACTION_CHECKPOINT_PERSISTENCE_FAILED");
 }

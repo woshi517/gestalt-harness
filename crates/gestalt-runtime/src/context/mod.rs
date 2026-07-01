@@ -473,9 +473,18 @@ impl ContextPipeline for RuntimeContextPipeline {
 
                     #[cfg(feature = "trace")]
                     let checkpoint_artifact = if let Some(dir) = artifacts_dir {
-                        crate::trace::persist_checkpoint(&checkpoint, dir, policy.durability)?;
-                        (!matches!(policy.durability, gestalt_core::DurabilityMode::Disabled))
-                            .then(|| Self::checkpoint_artifact_ref(run_id, &checkpoint))
+                        let checkpoint_persistence =
+                            crate::trace::persist_checkpoint(&checkpoint, dir, policy.durability)?;
+                        let checkpoint_persisted = checkpoint_persistence.is_none();
+                        if let Some(diagnostic) = checkpoint_persistence {
+                            emit(gestalt_core::event::AgentEvent::Error {
+                                message: format!("{}: {}", diagnostic.code, diagnostic.message),
+                                recoverable: true,
+                            })?;
+                        }
+                        (checkpoint_persisted
+                            && !matches!(policy.durability, gestalt_core::DurabilityMode::Disabled))
+                        .then(|| Self::checkpoint_artifact_ref(run_id, &checkpoint))
                     } else {
                         None
                     };
@@ -899,7 +908,12 @@ impl RuntimeContextPipeline {
                   + Send),
     ) -> std::result::Result<(), gestalt_core::error::HarnessError> {
         if let Some(dir) = artifacts_dir {
-            crate::trace::persist_manifest(manifest, dir, durability)?;
+            if let Some(diagnostic) = crate::trace::persist_manifest(manifest, dir, durability)? {
+                emit(gestalt_core::event::AgentEvent::Error {
+                    message: format!("{}: {}", diagnostic.code, diagnostic.message),
+                    recoverable: true,
+                })?;
+            }
             let policy = serde_json::to_string(&manifest.policy).unwrap_or_default();
             let patches = self.patch_store.lock().unwrap();
             let captures = patches

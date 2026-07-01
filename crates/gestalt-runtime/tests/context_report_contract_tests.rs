@@ -5,6 +5,7 @@ use gestalt_runtime::{
     ContextBuildReportInputV1, ContextBuildReportV1,
 };
 use std::collections::BTreeMap;
+use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn packet(sources: Vec<ContextSourceRef>) -> ContextPacket {
@@ -113,7 +114,7 @@ fn deterministic_replay_does_not_repeat_contributor_side_effect() {
 }
 
 #[test]
-fn persisted_report_round_trips_and_checks_version() {
+fn persisted_report_round_trips_and_rejects_unsupported_version() {
     let dir = tempfile::tempdir().expect("tempdir");
     let report = report(&packet(vec![source("a")]));
     persist_context_build_report(&report, dir.path(), DurabilityMode::Required)
@@ -121,6 +122,37 @@ fn persisted_report_round_trips_and_checks_version() {
 
     let loaded = load_context_build_report(&report.report_id, dir.path()).expect("load report");
     assert_eq!(loaded, report);
+
+    let path = dir
+        .path()
+        .join(format!("context_report_{}.json", report.report_id));
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).expect("read report")).expect("parse report json");
+    value["v"] = serde_json::json!(2);
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&value).expect("serialize mutated report"),
+    )
+    .expect("write mutated report");
+
+    let err = load_context_build_report(&report.report_id, dir.path())
+        .expect_err("unsupported report version must fail");
+    assert!(matches!(err, TraceError::InvalidFormat { .. }));
+}
+
+#[test]
+fn best_effort_persistence_returns_structured_diagnostic() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let artifacts_dir = dir.path().join("artifacts");
+    fs::write(&artifacts_dir, "blocked").expect("block artifacts dir");
+
+    let report = report(&packet(vec![source("a")]));
+    let diagnostic =
+        persist_context_build_report(&report, &artifacts_dir, DurabilityMode::BestEffort)
+            .expect("best effort persistence");
+
+    let diagnostic = diagnostic.expect("best effort persistence should return a diagnostic");
+    assert_eq!(diagnostic.code, "CONTEXT_REPORT_PERSISTENCE_FAILED");
 }
 
 fn report_input(packet: &ContextPacket) -> ContextBuildReportInputV1<'_> {
