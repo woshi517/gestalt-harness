@@ -329,6 +329,10 @@ impl HostApprovalBroker {
             )))
         }
     }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.pending_approvals.lock().unwrap().contains_key(id)
+    }
 }
 
 impl Default for HostApprovalBroker {

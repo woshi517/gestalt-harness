@@ -2,8 +2,8 @@
 //!
 //! - H1A-F01–F07: `dto_families_*` plus the compiling host implementations.
 //! - H1A-B01–B07: `run_conformance`.
-//! - H1B-F01–F03, H1B-B01: `local_host_conforms` and `mock_host_conforms`
-//!   invoke the same generic suite.
+//! - H1B-F01–F03, H1B-B01: in-memory, mock, and runtime-backed hosts invoke
+//!   the same generic suite.
 //! - H1B-F02: `mock_host_exposes_controllable_failures`.
 //! - H1B-F07, H1B-B05: `examples/embed_runtime.rs` is compiled by `--all-targets`.
 //! - H1B-F04–F05, H1B-B02–B03: `gestalt-app/tests/report_contract_tests.rs`.
@@ -11,7 +11,22 @@
 //! - H1B-B04: this suite also passes with `--no-default-features`.
 
 use gestalt_runtime::control::contract::*;
-use gestalt_runtime::control::{ControlHostOptions, LocalControlHost, MockControlHost};
+use std::sync::Arc;
+
+use gestalt_core::{
+    approval::AutoApprovalProvider,
+    event::{AgentEvent, StopReason},
+    message::Message,
+    policy::{PolicyDecision, PolicyEngine, PolicyRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
+    tool::{ToolCatalog, ToolSchema},
+};
+use gestalt_runtime::control::{
+    ControlHostOptions, InMemoryControlHost, MockControlHost, RuntimeBackedControlHost,
+};
+use gestalt_runtime::{
+    AgentRuntimeBuilder, ContextMessageAssembler, InMemoryArtifactStore, RuntimeConfig,
+};
 
 #[async_trait::async_trait]
 trait ConformanceHost: RuntimeControlV1 + Clone {
@@ -25,7 +40,7 @@ trait ConformanceHost: RuntimeControlV1 + Clone {
 }
 
 #[async_trait::async_trait]
-impl ConformanceHost for LocalControlHost {
+impl ConformanceHost for InMemoryControlHost {
     fn add_approval(&self, approval: ApprovalProjectionV1) {
         self.add_approval(approval);
     }
@@ -41,6 +56,125 @@ impl ConformanceHost for LocalControlHost {
     ) -> Result<(), ControlErrorV1> {
         self.complete_run(session_id, run_id).await
     }
+}
+
+#[async_trait::async_trait]
+impl ConformanceHost for RuntimeBackedControlHost {
+    fn add_approval(&self, approval: ApprovalProjectionV1) {
+        self.add_approval(approval);
+    }
+
+    fn add_policy_projection(&self, projection: PolicyProjectionV1) {
+        self.add_policy_projection(projection);
+    }
+
+    async fn complete_run(
+        &self,
+        session_id: &SessionIdV1,
+        run_id: &RunIdV1,
+    ) -> Result<(), ControlErrorV1> {
+        self.complete_run(session_id, run_id).await
+    }
+}
+
+struct ConformanceProvider;
+
+#[async_trait::async_trait]
+impl Provider for ConformanceProvider {
+    fn id(&self) -> &str {
+        "conformance"
+    }
+
+    fn display_name(&self) -> &str {
+        "Conformance"
+    }
+
+    fn default_model(&self) -> &str {
+        "conformance-model"
+    }
+
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAPABILITIES: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: false,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: false,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: true,
+            supports_strict_schema: false,
+        };
+        &CAPABILITIES
+    }
+
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::HarnessError> {
+        Ok(0)
+    }
+
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::HarnessError> {
+        Ok(Box::pin(futures::stream::iter(vec![Ok(
+            AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        )])))
+    }
+}
+
+struct EmptyTools;
+
+impl ToolCatalog for EmptyTools {
+    fn schemas(&self) -> Vec<ToolSchema> {
+        Vec::new()
+    }
+
+    fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::Tool>> {
+        None
+    }
+}
+
+struct AllowPolicy;
+
+#[async_trait::async_trait]
+impl PolicyEngine for AllowPolicy {
+    async fn evaluate(&self, _request: PolicyRequest) -> PolicyDecision {
+        PolicyDecision::allowed(None)
+    }
+}
+
+fn runtime_backed_host() -> RuntimeBackedControlHost {
+    let mut config = RuntimeConfig::default();
+    config.context_management_policy = Some(gestalt_core::ContextManagementPolicy {
+        enabled: false,
+        ..Default::default()
+    });
+    RuntimeBackedControlHost::with_options_and_trace_directory(
+        AgentRuntimeBuilder::new()
+            .provider(Arc::new(ConformanceProvider))
+            .tools(Arc::new(EmptyTools))
+            .assembler(Arc::new(ContextMessageAssembler::new(
+                "control-conformance",
+            )))
+            .policy(Arc::new(AllowPolicy))
+            .approval(Arc::new(AutoApprovalProvider))
+            .config(config),
+        Arc::new(InMemoryArtifactStore::new()),
+        options(),
+        None,
+    )
+    .unwrap()
 }
 
 #[async_trait::async_trait]
@@ -516,13 +650,18 @@ async fn run_conformance<H: ConformanceHost>(host: H) {
 }
 
 #[tokio::test]
-async fn local_host_conforms() {
-    run_conformance(LocalControlHost::with_options(options())).await;
+async fn in_memory_host_conforms() {
+    run_conformance(InMemoryControlHost::with_options(options())).await;
 }
 
 #[tokio::test]
 async fn mock_host_conforms() {
     run_conformance(MockControlHost::with_options(options())).await;
+}
+
+#[tokio::test]
+async fn runtime_backed_host_conforms() {
+    run_conformance(runtime_backed_host()).await;
 }
 
 #[tokio::test]

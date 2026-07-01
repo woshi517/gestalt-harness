@@ -31,12 +31,12 @@ implementation modules remain experimental/internal.
 ## Quick start
 
 ```rust
-use gestalt_runtime::control::LocalControlHost;
+use gestalt_runtime::control::RuntimeBackedControlHost;
 use gestalt_runtime::control::contract::{
     SessionControlV1, StartSessionRequestV1,
 };
 
-let host = LocalControlHost::new();
+let host = RuntimeBackedControlHost::new(builder, artifact_store)?;
 let session = host.start_session(StartSessionRequestV1 {
     session_id: None,
     idempotency_key: None,
@@ -44,9 +44,11 @@ let session = host.start_session(StartSessionRequestV1 {
 }).await?;
 ```
 
-`LocalControlHost`, `MockControlHost`, the six V1 capability traits, and their
-versioned DTOs are the supported embedding boundary. `AgentRuntimeBuilder` and
-the legacy broad control traits remain implementation APIs.
+`RuntimeBackedControlHost`, the six V1 capability traits, and their versioned
+DTOs are the embedding boundary. `InMemoryControlHost` and `MockControlHost`
+exist only for conformance tests. See
+[`examples/embed_runtime.rs`](./examples/embed_runtime.rs) for a complete
+runtime-backed setup.
 
 ## Runtime surfaces
 

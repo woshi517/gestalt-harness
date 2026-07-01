@@ -34,7 +34,7 @@ promise.
 
 | Contract target | Missing gate | Current evidence |
 |---|---|---|
-| Runtime control and artifact access | Real runtime-backed execution, event, approval, cancellation, trace, and artifact integration | In-memory `LocalControlHost` and `MockControlHost` pass `control_conformance` |
+| Runtime control and artifact access | Remaining approval, artifact-security, event-projection, and public-API gates | `RuntimeBackedControlHost` passes shared conformance plus `runtime_control_real_run`; `InMemoryControlHost` and `MockControlHost` are test support |
 | Policy and approval | Real policy-confirmed tool execution through runtime control | DTO and in-memory conformance tests |
 | App service reports | Runtime-factory diagnostics and complete value/error contract tests | `report_contract_tests` |
 | CLI automation | Upstream diagnostics must reach the JSON `warnings` field | JSON snapshots and envelope tests |

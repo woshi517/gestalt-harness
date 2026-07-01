@@ -26,6 +26,10 @@ use super::contract::{
 };
 use crate::session_queue::InMemorySteeringQueue;
 
+mod runtime_backed;
+
+pub use runtime_backed::RuntimeBackedControlHost;
+
 pub const DEFAULT_CONTROL_QUEUE_CAPACITY: usize = 64;
 pub const MAX_ARTIFACT_READ_BYTES: u64 = 1024 * 1024;
 const CURSOR_TTL_SECONDS: i64 = 24 * 60 * 60;
@@ -266,11 +270,11 @@ impl InMemoryControl {
 }
 
 #[derive(Clone)]
-pub struct LocalControlHost {
+pub struct InMemoryControlHost {
     inner: Arc<InMemoryControl>,
 }
 
-impl LocalControlHost {
+impl InMemoryControlHost {
     pub fn new() -> Self {
         Self::with_options(ControlHostOptions::default())
     }
@@ -298,7 +302,7 @@ impl LocalControlHost {
     }
 }
 
-impl Default for LocalControlHost {
+impl Default for InMemoryControlHost {
     fn default() -> Self {
         Self::new()
     }
@@ -1142,5 +1146,5 @@ macro_rules! impl_control_host {
     };
 }
 
-impl_control_host!(LocalControlHost);
+impl_control_host!(InMemoryControlHost);
 impl_control_host!(MockControlHost);
