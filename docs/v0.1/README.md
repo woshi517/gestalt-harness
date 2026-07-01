@@ -8,12 +8,12 @@ The complete current classification is in the
 ---
 
 ## 1. Embedding and Runtime Control (RUNTIME-001–RUNTIME-006)
-* **Status:** 🔴 **Unpublished (Runtime Adapter Required)**
+* **Status:** 🔴 **Unpublished (Remaining Approval/Artifact/API Gates)**
 * **Specification:** [embedding-control.md](./embedding-control.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md), [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
-* **Rust API Target:** `gestalt_runtime::control::contract::RuntimeControlV1` with a real runtime-backed host
-* **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
-* **Current Limitation:** `LocalControlHost` and `MockControlHost` only prove in-memory DTO and behavior conformance.
+* **Rust API Target:** `gestalt_runtime::control::{RuntimeBackedControlHost, contract::RuntimeControlV1}`
+* **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs), [runtime_control_real_run.rs](../../crates/gestalt-runtime/tests/runtime_control_real_run.rs)
+* **Test Support:** `InMemoryControlHost` and `MockControlHost` are conformance-only implementations.
 
 ## 2. App Services (APP-001–APP-002)
 * **Status:** 🔴 **Unpublished (Diagnostics Integration Required)**

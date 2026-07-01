@@ -173,6 +173,62 @@ impl RuntimeHost {
             builder,
         })
     }
+
+    pub(crate) fn session_runtime(&self, session_id: &str) -> Result<Arc<AgentRuntime>> {
+        self.session_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(session_id)
+            .cloned()
+            .ok_or_else(|| RuntimeError::Orchestration(format!("Session not found: {session_id}")))
+    }
+
+    pub(crate) fn remove_session(&self, session_id: &str) {
+        self.session_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session_id);
+    }
+
+    pub(crate) fn spawn_session_with_trace_sink(
+        &self,
+        session_id: &str,
+        config_override: Option<crate::config::RuntimeConfig>,
+        trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
+    ) -> Result<String> {
+        let mut runtimes = self
+            .session_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if runtimes.contains_key(session_id) {
+            return Err(RuntimeError::Orchestration(format!(
+                "Session already exists: {session_id}"
+            )));
+        }
+
+        let mut session_builder = self.builder.clone();
+        if let Some(mut config) = config_override {
+            config.workspace_root = self.config.workspace_root.clone();
+            config.extension_instances = self.config.extension_instances.clone();
+            config.mcp_servers = self.config.mcp_servers.clone();
+            config.trusted_extension_pins = self.config.trusted_extension_pins.clone();
+            config.extension_timeouts = self.config.extension_timeouts.clone();
+            config.extension_limits = self.config.extension_limits.clone();
+            session_builder = session_builder.config(config);
+        }
+        if let Some(trace_sink) = trace_sink {
+            session_builder = session_builder.trace_sink(trace_sink);
+        }
+        session_builder.event_bus = self.event_bus.clone();
+        session_builder.extension_manager = Some(self.extension_manager.clone());
+        session_builder.approval = Some(self.approval_broker.clone());
+
+        runtimes.insert(session_id.to_string(), Arc::new(session_builder.build()?));
+        self.event_bus.publish(RuntimeEvent::SessionSpawned {
+            session_id: session_id.to_string(),
+        });
+        Ok(session_id.to_string())
+    }
 }
 
 #[async_trait::async_trait]
@@ -182,38 +238,7 @@ impl crate::control::HostControl for RuntimeHost {
         session_id: &str,
         config_override: Option<crate::config::RuntimeConfig>,
     ) -> Result<String> {
-        let mut runtimes = self.session_registry.lock().unwrap();
-        if runtimes.contains_key(session_id) {
-            return Err(RuntimeError::Orchestration(format!(
-                "Session already exists: {}",
-                session_id
-            )));
-        }
-
-        let mut session_builder = self.builder.clone();
-        if let Some(mut config) = config_override {
-            // Per-session overrides must not change workspace root, extension discovery roots, extension instances, grants, direct MCP configuration, or package trust decisions.
-            config.workspace_root = self.config.workspace_root.clone();
-            config.extension_instances = self.config.extension_instances.clone();
-            config.mcp_servers = self.config.mcp_servers.clone();
-            config.trusted_extension_pins = self.config.trusted_extension_pins.clone();
-            config.extension_timeouts = self.config.extension_timeouts.clone();
-            config.extension_limits = self.config.extension_limits.clone();
-            session_builder = session_builder.config(config);
-        }
-
-        session_builder.event_bus = self.event_bus.clone();
-        session_builder.extension_manager = Some(self.extension_manager.clone());
-        session_builder.approval = Some(self.approval_broker.clone());
-
-        let runtime = session_builder.build()?;
-        runtimes.insert(session_id.to_string(), Arc::new(runtime));
-
-        self.event_bus.publish(RuntimeEvent::SessionSpawned {
-            session_id: session_id.to_string(),
-        });
-
-        Ok(session_id.to_string())
+        self.spawn_session_with_trace_sink(session_id, config_override, None)
     }
 
     async fn send_message(

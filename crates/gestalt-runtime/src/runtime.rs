@@ -181,7 +181,21 @@ impl AgentRuntime {
         let session_id = input
             .session_id
             .unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
+        let mut session = self
+            .create_session(session_id, input.artifact_dir, input.event_tx.as_ref())
+            .await?;
+        self.append_user_message(&mut session, input.prompt, input.event_tx.as_ref());
 
+        self.run_session(&mut session, &input.cancel_token, input.event_tx, None)
+            .await
+    }
+
+    pub(crate) async fn create_session(
+        &self,
+        session_id: String,
+        artifact_dir: Option<std::path::PathBuf>,
+        event_tx: Option<&UnboundedSender<AgentEvent>>,
+    ) -> Result<Session> {
         let snapshotter = GitWorkspaceSnapshotter;
         let snapshot = snapshotter.capture(&self.config.workspace_root).await?;
 
@@ -241,7 +255,7 @@ impl AgentRuntime {
                 allow_network: self.config.allow_network,
                 environment: self.config.environment.clone(),
                 max_output_bytes: self.config.max_output_tokens.unwrap_or(4_000),
-                artifact_dir: input.artifact_dir,
+                artifact_dir,
                 current_tool_call_id: None,
                 ignore_patterns: self.config.ignore_patterns.clone(),
             },
@@ -267,30 +281,34 @@ impl AgentRuntime {
         if let Some(ref sink) = self.trace_sink {
             let _ = sink.emit(snapshot_event.clone());
         }
-        if let Some(ref tx) = input.event_tx {
+        if let Some(tx) = event_tx {
             let _ = tx.send(snapshot_event);
         }
 
+        Ok(session)
+    }
+
+    pub(crate) fn append_user_message(
+        &self,
+        session: &mut Session,
+        prompt: String,
+        event_tx: Option<&UnboundedSender<AgentEvent>>,
+    ) {
         session.append_message(Message::User {
             content: vec![gestalt_core::message::ContentBlock::Text {
-                text: input.prompt.clone(),
+                text: prompt.clone(),
             }],
             metadata: None,
         });
 
-        let user_msg_event = AgentEvent::UserMessage {
-            content: input.prompt.clone(),
-        };
+        let user_msg_event = AgentEvent::UserMessage { content: prompt };
         self.event_bus.publish_agent(user_msg_event.clone());
         if let Some(ref sink) = self.trace_sink {
             let _ = sink.emit(user_msg_event.clone());
         }
-        if let Some(ref tx) = input.event_tx {
+        if let Some(tx) = event_tx {
             let _ = tx.send(user_msg_event);
         }
-
-        self.run_session(&mut session, &input.cancel_token, input.event_tx, None)
-            .await
     }
 
     pub async fn run_session(
@@ -718,6 +736,14 @@ impl AgentRuntime {
             injected_at_turn: None,
         };
 
+        self.enqueue_message_record(session_id, msg).await
+    }
+
+    pub(crate) async fn enqueue_message_record(
+        &self,
+        session_id: String,
+        msg: gestalt_core::session_queue::QueuedSessionMessage,
+    ) -> Result<gestalt_core::session_queue::QueueAck> {
         let ack = self.steering_queue.enqueue(msg.clone()).await?;
 
         if ack == gestalt_core::session_queue::QueueAck::Queued {

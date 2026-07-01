@@ -9,7 +9,7 @@ owners:
 
 # Gestalt v0.1: Proposed Embedding and Runtime Control Contract
 
-This proposed contract specifies the target v0.1 embedding interface and runtime control semantics for the Gestalt harness. The current local and mock hosts are in-memory conformance implementations; this contract remains unpublished until the same interface drives real runtime execution, approval, cancellation, trace, and artifact paths.
+This proposed contract specifies the target v0.1 embedding interface and runtime control semantics for the Gestalt harness. `RuntimeBackedControlHost` drives real provider/tool execution, approval, cancellation, events, and artifact storage. `InMemoryControlHost` and `MockControlHost` are conformance-only test support. Publication still waits for the remaining approval, artifact-security, event-projection, and public-API gates.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 
@@ -88,3 +88,19 @@ All fallible operations return the unified `ControlErrorV1` payload containing a
 ### 4.5 Bounded Artifact Reads (H1A-B07)
 * Artifact range reads reject directory traversal sequences (e.g. `../`) and block cross-session resource reads.
 * The API enforces a 1 MiB maximum chunk size by default. Requests above this limit or specifying invalid bounds are rejected immediately with a `VALIDATION` error, preventing unbounded memory allocations.
+
+## 5. Runtime-Backed Host
+
+`RuntimeBackedControlHost` owns a real `AgentRuntime` and retained `Session` for
+each logical session. `continue_session` starts provider/tool execution
+asynchronously; clients use event polling and run inspection for progress.
+Concurrent continues for one run return `CONFLICT`, and `cancel_run` signals the
+active runtime `CancelToken`.
+
+With the `trace` feature enabled, the default constructor writes one JSONL trace
+per run under `<workspace>/.gestalt/runs`. `with_trace_directory` selects a
+different root or explicitly disables trace persistence with `None`.
+
+The shared conformance suite covers `RuntimeBackedControlHost`,
+`InMemoryControlHost`, and `MockControlHost`. Only the runtime-backed host is an
+embedding implementation; the other two are test support.

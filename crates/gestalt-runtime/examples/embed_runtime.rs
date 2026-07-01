@@ -1,96 +1,142 @@
-use gestalt_runtime::control::contract::{
-    ApprovalControlV1, ApprovalDecisionV1, ApprovalIdV1, ApprovalProjectionV1, ArtifactAccessV1,
-    CancelRunRequestV1, ControlErrorV1, CreateArtifactRequestV1, EventPayloadV1, EventSourceV1,
-    IdempotencyKeyV1, PollEventsRequestV1, ReadArtifactRangeRequestV1, RespondToApprovalRequestV1,
-    SessionControlV1, StartSessionRequestV1, SubmitMessageRequestV1, ToolCallIdV1,
+use std::sync::Arc;
+
+use gestalt_core::{
+    approval::AutoApprovalProvider,
+    event::{AgentEvent, StopReason},
+    message::Message,
+    policy::{PolicyDecision, PolicyEngine, PolicyRequest},
+    provider::{EventStream, Provider, ProviderCapabilities, ProviderRequest},
+    tool::{ToolCatalog, ToolSchema},
 };
-use gestalt_runtime::control::LocalControlHost;
+use gestalt_runtime::control::contract::{
+    ContinueSessionRequestV1, InspectRunRequestV1, RunQueryV1, RunStatusV1, SessionControlV1,
+    StartSessionRequestV1,
+};
+use gestalt_runtime::control::RuntimeBackedControlHost;
+use gestalt_runtime::{
+    AgentRuntimeBuilder, ContextMessageAssembler, InMemoryArtifactStore, RuntimeConfig,
+};
+
+struct ExampleProvider;
+
+#[async_trait::async_trait]
+impl Provider for ExampleProvider {
+    fn id(&self) -> &str {
+        "example"
+    }
+
+    fn display_name(&self) -> &str {
+        "Example"
+    }
+
+    fn default_model(&self) -> &str {
+        "example-model"
+    }
+
+    fn capabilities(&self) -> &ProviderCapabilities {
+        static CAPABILITIES: ProviderCapabilities = ProviderCapabilities {
+            supports_tools: false,
+            supports_parallel_tools: false,
+            supports_vision: false,
+            supports_documents: false,
+            supports_thinking: false,
+            supports_json_schema_tools: false,
+            supports_prompt_caching: false,
+            supports_usage_reporting: false,
+            supports_streaming: true,
+            supports_strict_schema: false,
+        };
+        &CAPABILITIES
+    }
+
+    fn model_info(&self, _model: &str) -> Option<gestalt_core::ModelInfo> {
+        None
+    }
+
+    fn count_tokens(
+        &self,
+        _model: &str,
+        _messages: &[Message],
+    ) -> Result<usize, gestalt_core::HarnessError> {
+        Ok(0)
+    }
+
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+    ) -> Result<EventStream, gestalt_core::HarnessError> {
+        Ok(Box::pin(futures::stream::iter(vec![
+            Ok(AgentEvent::Text {
+                delta: "hello from the runtime".to_string(),
+            }),
+            Ok(AgentEvent::Stop {
+                reason: StopReason::EndTurn,
+            }),
+        ])))
+    }
+}
+
+struct EmptyTools;
+
+impl ToolCatalog for EmptyTools {
+    fn schemas(&self) -> Vec<ToolSchema> {
+        Vec::new()
+    }
+
+    fn get(&self, _name: &str) -> Option<Arc<dyn gestalt_core::Tool>> {
+        None
+    }
+}
+
+struct AllowPolicy;
+
+#[async_trait::async_trait]
+impl PolicyEngine for AllowPolicy {
+    async fn evaluate(&self, _request: PolicyRequest) -> PolicyDecision {
+        PolicyDecision::allowed(None)
+    }
+}
 
 #[tokio::main]
-async fn main() -> Result<(), ControlErrorV1> {
-    let host = LocalControlHost::new();
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let host = RuntimeBackedControlHost::new(
+        AgentRuntimeBuilder::new()
+            .provider(Arc::new(ExampleProvider))
+            .tools(Arc::new(EmptyTools))
+            .assembler(Arc::new(ContextMessageAssembler::new("embedding-example")))
+            .policy(Arc::new(AllowPolicy))
+            .approval(Arc::new(AutoApprovalProvider))
+            .config(RuntimeConfig::default()),
+        Arc::new(InMemoryArtifactStore::new()),
+    )?;
     let started = host
         .start_session(StartSessionRequestV1 {
             session_id: None,
-            idempotency_key: Some(IdempotencyKeyV1("example-start".to_string())),
+            idempotency_key: None,
             config_override: None,
         })
         .await?;
-
-    let acknowledgement = host
-        .submit_message(SubmitMessageRequestV1 {
-            session_id: started.session_id.clone(),
-            message: "hello".to_string(),
-            idempotency_key: Some(IdempotencyKeyV1("example-message".to_string())),
-        })
-        .await?;
-    assert!(acknowledgement.acknowledged);
-    host.complete_run(&started.session_id, &started.run_id)
-        .await?;
-
-    let events = host
-        .poll_events(PollEventsRequestV1 {
-            session_id: started.session_id.clone(),
-            cursor: None,
-            limit: None,
-            kinds: None,
-        })
-        .await?;
-    assert!(events
-        .events
-        .iter()
-        .any(|event| matches!(event.payload, EventPayloadV1::RunCompleted)));
-
-    let approval_id = ApprovalIdV1("example-approval".to_string());
-    host.add_approval(ApprovalProjectionV1 {
-        approval_id: approval_id.clone(),
-        tool_call_id: ToolCallIdV1("example-tool-call".to_string()),
-        correlation_id: None,
-        summary: "Run example tool".to_string(),
-        editable_input_rules: None,
-        original_hash: "example-input-hash".to_string(),
-        edited_hash: None,
-        expires_at: None,
-        is_cancelled: false,
-        session_grant_terms: None,
-    });
-    host.respond_to_approval(RespondToApprovalRequestV1 {
-        approval_id,
-        decision: ApprovalDecisionV1::Approve,
+    host.continue_session(ContinueSessionRequestV1 {
+        session_id: started.session_id.clone(),
+        run_id: started.run_id.clone(),
+        message: "hello".to_string(),
+        idempotency_key: None,
     })
     .await?;
 
-    let cancellable = host
-        .start_session(StartSessionRequestV1 {
-            session_id: None,
-            idempotency_key: Some(IdempotencyKeyV1("example-cancel".to_string())),
-            config_override: None,
-        })
-        .await?;
-    assert!(
-        host.cancel_run(CancelRunRequestV1 {
-            session_id: cancellable.session_id,
-            run_id: cancellable.run_id,
-            correlation_id: None,
-        })
-        .await?
-        .cancelled
-    );
-
-    let artifact = host
-        .create_artifact(CreateArtifactRequestV1 {
-            session_id: started.session_id.clone(),
-            display_path: "result.txt".to_string(),
-            data: b"done".to_vec(),
-        })
-        .await?;
-    host.read_artifact_range(ReadArtifactRangeRequestV1 {
-        session_id: started.session_id,
-        artifact_id: artifact.metadata.logical_id,
-        offset: 0,
-        length: 4,
-    })
-    .await?;
+    loop {
+        let status = host
+            .inspect_run(InspectRunRequestV1 {
+                session_id: started.session_id.clone(),
+                run_id: started.run_id.clone(),
+            })
+            .await?
+            .status;
+        if status == RunStatusV1::Completed {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
 
     Ok(())
 }
