@@ -921,14 +921,17 @@ impl RuntimeContextPipeline {
                 .filter_map(|patch| {
                     patch.source.as_ref().map(|source| {
                         let content = serde_json::to_string(&patch.message).unwrap_or_default();
-                        let (redacted, _) = crate::trace::redact_string(&content);
-                        report::CapturedContributionV1::capture_redacted(
+                        report::CapturedContributionV1::capture(
                             format!("{}:{}", source.kind, source.path_or_label),
-                            redacted,
+                            content,
+                            manifest.policy.capture,
                         )
                     })
                 })
-                .collect::<std::result::Result<Vec<_>, _>>()?;
+                .collect::<std::result::Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
             let source_stabilities = patches
                 .iter()
                 .filter_map(|patch| {
@@ -955,6 +958,7 @@ impl RuntimeContextPipeline {
                     .as_deref()
                     .unwrap_or_default(),
                 workspace_snapshot_hash: None,
+                capture_mode: manifest.policy.capture,
                 captured_contributions: captures,
                 source_stabilities,
                 deterministic: true,

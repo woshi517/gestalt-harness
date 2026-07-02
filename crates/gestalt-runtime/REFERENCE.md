@@ -14,6 +14,7 @@ It contains:
 - the six `RuntimeControlV1` capability traits and their versioned DTOs;
 - `ClientEventPayloadV1`, `ClientEventRecordV1`, and
   `project_client_event_line` with the `trace` feature;
+- `ContextBuildReportV1`, `ContextCaptureMode`, and bounded report persistence;
 - artifact stores used to construct a runtime-backed host;
 - in-memory and mock control hosts for conformance testing.
 

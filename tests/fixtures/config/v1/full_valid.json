@@ -46,6 +46,17 @@
       "pinned_section": "Pinned",
       "snapshot": "session",
       "write_mode": "proposal"
+    },
+    "management": {
+      "enabled": true,
+      "buffer_tokens": 4096,
+      "keep_recent_tokens": 8192,
+      "keep_recent_turns": 5,
+      "tool_result_budget_ratio": 0.5,
+      "compaction_target_ratio": 0.8,
+      "durability": "required",
+      "capture": "redacted",
+      "profile": "default"
     }
   },
   "observe": {
