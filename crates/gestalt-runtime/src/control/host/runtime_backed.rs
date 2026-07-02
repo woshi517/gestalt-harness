@@ -275,7 +275,7 @@ impl RuntimeBackedControlHost {
                         canonical_tool_id: tool_name.unwrap_or_else(|| "unknown".to_string()),
                         input_hash: input_hash.unwrap_or_default(),
                         risk_level: risk.map_or(RiskLevelV1::Low, Self::risk),
-                        execution_mode: crate::control::contract::ExecutionModeV1::Local,
+                        execution_backend: crate::control::contract::ExecutionBackendV1::Local,
                         decision: match decision {
                             PolicyStatus::Allowed => PolicyDecisionV1::Allow,
                             PolicyStatus::Denied => PolicyDecisionV1::Deny,
@@ -295,6 +295,10 @@ impl RuntimeBackedControlHost {
                 risk,
             } => {
                 let approval_id = ApprovalIdV1(tool_call_id.clone());
+                let policy = state
+                    .policy_projections
+                    .get(&ToolCallIdV1(tool_call_id.clone()))
+                    .cloned();
                 state.approvals.insert(
                     approval_id.clone(),
                     ApprovalProjectionV1 {
@@ -311,10 +315,16 @@ impl RuntimeBackedControlHost {
                         is_cancelled: false,
                         session_grant_terms: Some(SessionGrantTermsV1 {
                             tool_name,
-                            risk_ceiling: format!("{risk:?}").to_uppercase(),
-                            matched_rule: "runtime_policy".to_string(),
-                            policy_source: "runtime".to_string(),
-                            expires_in_turns: 1,
+                            input_hash: gestalt_core::hash_input(&input),
+                            risk_ceiling: Self::risk(risk),
+                            matched_rule: policy
+                                .as_ref()
+                                .and_then(|projection| projection.matched_rule.clone())
+                                .unwrap_or_else(|| "runtime_policy".to_string()),
+                            policy_source: policy
+                                .and_then(|projection| projection.source)
+                                .unwrap_or_else(|| "runtime".to_string()),
+                            expires_in_turns: self.runtime_host.config.max_turns.max(1),
                         }),
                     },
                 );

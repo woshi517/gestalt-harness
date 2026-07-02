@@ -381,7 +381,7 @@ pub struct PolicyProjectionV1 {
     pub canonical_tool_id: String,
     pub input_hash: String,
     pub risk_level: RiskLevelV1,
-    pub execution_mode: ExecutionModeV1,
+    pub execution_backend: ExecutionBackendV1,
     pub decision: PolicyDecisionV1,
     pub reason: Option<String>,
     pub matched_rule: Option<String>,
@@ -399,7 +399,7 @@ pub enum RiskLevelV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ExecutionModeV1 {
+pub enum ExecutionBackendV1 {
     Sandbox,
     Local,
     Remote,
@@ -427,7 +427,8 @@ pub enum RunStatusV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionGrantTermsV1 {
     pub tool_name: String,
-    pub risk_ceiling: String,
+    pub input_hash: String,
+    pub risk_ceiling: RiskLevelV1,
     pub matched_rule: String,
     pub policy_source: String,
     pub expires_in_turns: usize,

@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gestalt_core::{
@@ -27,6 +27,8 @@ use gestalt_runtime::unstable::{
 enum ProviderBehavior {
     EndTurn,
     ToolThenEnd,
+    ToolTwiceSameThenEnd,
+    ToolTwiceDifferentThenEnd,
     Pending,
 }
 
@@ -91,23 +93,39 @@ impl Provider for FakeProvider {
                     reason: StopReason::EndTurn,
                 }),
             ]))),
-            ProviderBehavior::ToolThenEnd if call == 0 => {
+            behavior
+                if (matches!(behavior, ProviderBehavior::ToolThenEnd) && call == 0)
+                    || (matches!(
+                        behavior,
+                        ProviderBehavior::ToolTwiceSameThenEnd
+                            | ProviderBehavior::ToolTwiceDifferentThenEnd
+                    ) && call < 2) =>
+            {
+                let value = if matches!(self.behavior, ProviderBehavior::ToolTwiceDifferentThenEnd)
+                    && call == 1
+                {
+                    2
+                } else {
+                    1
+                };
                 Ok(Box::pin(futures::stream::iter(vec![
                     Ok(AgentEvent::ToolCallStreamed {
-                        id: "call-1".to_string(),
+                        id: format!("call-{}", call + 1),
                         name: "record".to_string(),
-                        input_delta: r#"{"value":1}"#.to_string(),
+                        input_delta: format!(r#"{{"value":{value}}}"#),
                     }),
                     Ok(AgentEvent::Stop {
                         reason: StopReason::ToolUse,
                     }),
                 ])))
             }
-            ProviderBehavior::ToolThenEnd => Ok(Box::pin(futures::stream::iter(vec![Ok(
-                AgentEvent::Stop {
+            ProviderBehavior::ToolThenEnd
+            | ProviderBehavior::ToolTwiceSameThenEnd
+            | ProviderBehavior::ToolTwiceDifferentThenEnd => Ok(Box::pin(futures::stream::iter(
+                vec![Ok(AgentEvent::Stop {
                     reason: StopReason::EndTurn,
-                },
-            )]))),
+                })],
+            ))),
             ProviderBehavior::Pending => Ok(Box::pin(futures::stream::pending())),
         }
     }
@@ -115,6 +133,7 @@ impl Provider for FakeProvider {
 
 struct RecordingTool {
     executions: Arc<AtomicUsize>,
+    inputs: Arc<Mutex<Vec<serde_json::Value>>>,
 }
 
 #[async_trait::async_trait]
@@ -146,10 +165,14 @@ impl Tool for RecordingTool {
 
     async fn execute(
         &self,
-        _input: serde_json::Value,
+        input: serde_json::Value,
         _ctx: &ToolContext,
     ) -> Result<ToolOutput, gestalt_core::ToolError> {
         self.executions.fetch_add(1, Ordering::SeqCst);
+        self.inputs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(input);
         Ok(ToolOutput::Text {
             content: "recorded".to_string(),
         })
@@ -188,7 +211,18 @@ struct TestPolicy {
 
 #[async_trait::async_trait]
 impl PolicyEngine for TestPolicy {
-    async fn evaluate(&self, _request: PolicyRequest) -> PolicyDecision {
+    async fn evaluate(&self, request: PolicyRequest) -> PolicyDecision {
+        if self.confirm
+            && request
+                .input
+                .get("edited")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        {
+            return PolicyDecision::allowed(Some(
+                "edited input accepted by test policy".to_string(),
+            ));
+        }
         if self.confirm {
             PolicyDecision::confirm(
                 "test approval required".to_string(),
@@ -374,7 +408,7 @@ async fn runtime_control_persists_real_trace() {
 }
 
 #[tokio::test]
-async fn runtime_control_policy_requires_approval_then_executes_tool() {
+async fn approval_requested_for_confirm_policy() {
     let executions = Arc::new(AtomicUsize::new(0));
     let host = host(
         ProviderBehavior::ToolThenEnd,
@@ -382,6 +416,7 @@ async fn runtime_control_policy_requires_approval_then_executes_tool() {
         Arc::new(SingleToolCatalog {
             tool: Arc::new(RecordingTool {
                 executions: executions.clone(),
+                inputs: Arc::new(Mutex::new(Vec::new())),
             }),
         }),
         true,
@@ -391,7 +426,53 @@ async fn runtime_control_policy_requires_approval_then_executes_tool() {
     let (session_id, run_id) = start(&host, "real-approval").await;
     continue_run(&host, &session_id, &run_id, None).await;
 
-    let approval = tokio::time::timeout(Duration::from_secs(2), async {
+    let approval = wait_for_approval(&host, &session_id).await;
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        approval
+            .session_grant_terms
+            .as_ref()
+            .map(|terms| terms.risk_ceiling),
+        Some(gestalt_runtime::api::v1::RiskLevelV1::Medium)
+    );
+}
+
+#[tokio::test]
+async fn approval_approve_executes_tool() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let host = host(
+        ProviderBehavior::ToolThenEnd,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(SingleToolCatalog {
+            tool: Arc::new(RecordingTool {
+                executions: executions.clone(),
+                inputs: Arc::new(Mutex::new(Vec::new())),
+            }),
+        }),
+        true,
+        Arc::new(InMemoryArtifactStore::new()),
+        None,
+    );
+    let (session_id, run_id) = start(&host, "real-approval-approve").await;
+    continue_run(&host, &session_id, &run_id, None).await;
+    let approval = wait_for_approval(&host, &session_id).await;
+
+    host.respond_to_approval(RespondToApprovalRequestV1 {
+        approval_id: approval.approval_id,
+        decision: ApprovalDecisionV1::Approve,
+    })
+    .await
+    .unwrap();
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+}
+
+async fn wait_for_approval(
+    host: &RuntimeBackedControlHost,
+    session_id: &SessionIdV1,
+) -> gestalt_runtime::api::v1::ApprovalProjectionV1 {
+    tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             let mut approvals = host
                 .list_pending_approvals(ListPendingApprovalsRequestV1 {
@@ -407,18 +488,157 @@ async fn runtime_control_policy_requires_approval_then_executes_tool() {
         }
     })
     .await
-    .unwrap();
-    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    .unwrap()
+}
+
+#[tokio::test]
+async fn approval_deny_blocks_tool() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let host = host(
+        ProviderBehavior::ToolThenEnd,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(SingleToolCatalog {
+            tool: Arc::new(RecordingTool {
+                executions: executions.clone(),
+                inputs: Arc::new(Mutex::new(Vec::new())),
+            }),
+        }),
+        true,
+        Arc::new(InMemoryArtifactStore::new()),
+        None,
+    );
+    let (session_id, run_id) = start(&host, "real-approval-deny").await;
+    continue_run(&host, &session_id, &run_id, None).await;
+    let approval = wait_for_approval(&host, &session_id).await;
 
     host.respond_to_approval(RespondToApprovalRequestV1 {
         approval_id: approval.approval_id,
-        decision: ApprovalDecisionV1::Approve,
+        decision: ApprovalDecisionV1::Deny,
+    })
+    .await
+    .unwrap();
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn approval_edit_revalidates_policy() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let inputs = Arc::new(Mutex::new(Vec::new()));
+    let host = host(
+        ProviderBehavior::ToolThenEnd,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(SingleToolCatalog {
+            tool: Arc::new(RecordingTool {
+                executions: executions.clone(),
+                inputs: inputs.clone(),
+            }),
+        }),
+        true,
+        Arc::new(InMemoryArtifactStore::new()),
+        None,
+    );
+    let (session_id, run_id) = start(&host, "real-approval-edit").await;
+    continue_run(&host, &session_id, &run_id, None).await;
+    let approval = wait_for_approval(&host, &session_id).await;
+
+    host.respond_to_approval(RespondToApprovalRequestV1 {
+        approval_id: approval.approval_id,
+        decision: ApprovalDecisionV1::Edit(serde_json::json!({"value": 2, "edited": true})),
     })
     .await
     .unwrap();
     wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
 
     assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        *inputs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        vec![serde_json::json!({"value": 2, "edited": true})]
+    );
+}
+
+#[tokio::test]
+async fn runtime_session_grant_is_limited_by_input_hash() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let host = host(
+        ProviderBehavior::ToolTwiceDifferentThenEnd,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(SingleToolCatalog {
+            tool: Arc::new(RecordingTool {
+                executions: executions.clone(),
+                inputs: Arc::new(Mutex::new(Vec::new())),
+            }),
+        }),
+        true,
+        Arc::new(InMemoryArtifactStore::new()),
+        None,
+    );
+    let (session_id, run_id) = start(&host, "real-approval-grant").await;
+    continue_run(&host, &session_id, &run_id, None).await;
+    let first = wait_for_approval(&host, &session_id).await;
+    assert_eq!(
+        first
+            .session_grant_terms
+            .as_ref()
+            .map(|terms| terms.input_hash.as_str()),
+        Some(first.original_hash.as_str())
+    );
+    host.respond_to_approval(RespondToApprovalRequestV1 {
+        approval_id: first.approval_id,
+        decision: ApprovalDecisionV1::AlwaysAllowForSession,
+    })
+    .await
+    .unwrap();
+
+    let second = wait_for_approval(&host, &session_id).await;
+    host.respond_to_approval(RespondToApprovalRequestV1 {
+        approval_id: second.approval_id,
+        decision: ApprovalDecisionV1::Deny,
+    })
+    .await
+    .unwrap();
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn runtime_session_grant_reuses_only_its_exact_bound() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let host = host(
+        ProviderBehavior::ToolTwiceSameThenEnd,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(SingleToolCatalog {
+            tool: Arc::new(RecordingTool {
+                executions: executions.clone(),
+                inputs: Arc::new(Mutex::new(Vec::new())),
+            }),
+        }),
+        true,
+        Arc::new(InMemoryArtifactStore::new()),
+        None,
+    );
+    let (session_id, run_id) = start(&host, "real-approval-grant-reuse").await;
+    continue_run(&host, &session_id, &run_id, None).await;
+    let approval = wait_for_approval(&host, &session_id).await;
+    host.respond_to_approval(RespondToApprovalRequestV1 {
+        approval_id: approval.approval_id,
+        decision: ApprovalDecisionV1::AlwaysAllowForSession,
+    })
+    .await
+    .unwrap();
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    assert_eq!(executions.load(Ordering::SeqCst), 2);
+    assert!(host
+        .list_pending_approvals(ListPendingApprovalsRequestV1 { session_id })
+        .await
+        .unwrap()
+        .approvals
+        .is_empty());
 }
 
 #[tokio::test]

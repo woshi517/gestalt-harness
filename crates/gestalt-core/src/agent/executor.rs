@@ -344,7 +344,7 @@ impl ToolExecutor {
                         &input,
                         risk_ceiling,
                         policy.policy_source.clone(),
-                        "session_grant",
+                        policy.policy_source.clone(),
                         current_turn,
                         loop_max_turns.max(1),
                     );
