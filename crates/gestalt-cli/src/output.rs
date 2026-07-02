@@ -239,26 +239,61 @@ pub struct JsonEnvelope<T> {
     pub data: T,
 }
 
+pub struct JsonEnvelopeWithWarnings<T> {
+    envelope: JsonEnvelope<T>,
+    warnings: Vec<AppDiagnosticV1>,
+}
+
+impl<T> JsonEnvelope<T> {
+    pub fn with_warnings(self, warnings: Vec<AppDiagnosticV1>) -> JsonEnvelopeWithWarnings<T> {
+        JsonEnvelopeWithWarnings {
+            envelope: self,
+            warnings,
+        }
+    }
+}
+
 impl<T: Serialize> Serialize for JsonEnvelope<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let is_error = self.kind == "error";
-        let mut map = serializer.serialize_map(Some(6))?;
-        map.serialize_entry("schema_version", &self.schema_version)?;
-        map.serialize_entry("status", if is_error { "error" } else { "success" })?;
-        map.serialize_entry("kind", &self.kind)?;
-        if is_error {
-            map.serialize_entry("data", &Option::<()>::None)?;
-            map.serialize_entry("error", &self.data)?;
-        } else {
-            map.serialize_entry("data", &self.data)?;
-            map.serialize_entry("error", &Option::<()>::None)?;
-        }
-        map.serialize_entry("warnings", &Vec::<Value>::new())?;
-        map.end()
+        serialize_json_envelope(self, &[], serializer)
     }
+}
+
+impl<T: Serialize> Serialize for JsonEnvelopeWithWarnings<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_json_envelope(&self.envelope, &self.warnings, serializer)
+    }
+}
+
+fn serialize_json_envelope<T, S>(
+    envelope: &JsonEnvelope<T>,
+    warnings: &[AppDiagnosticV1],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    T: Serialize,
+    S: serde::Serializer,
+{
+    let is_error = envelope.kind == "error";
+    let mut map = serializer.serialize_map(Some(6))?;
+    map.serialize_entry("schema_version", &envelope.schema_version)?;
+    map.serialize_entry("status", if is_error { "error" } else { "success" })?;
+    map.serialize_entry("kind", &envelope.kind)?;
+    if is_error {
+        map.serialize_entry("data", &Option::<()>::None)?;
+        map.serialize_entry("error", &envelope.data)?;
+    } else {
+        map.serialize_entry("data", &envelope.data)?;
+        map.serialize_entry("error", &Option::<()>::None)?;
+    }
+    map.serialize_entry("warnings", warnings)?;
+    map.end()
 }
 
 #[derive(Serialize)]
@@ -273,7 +308,109 @@ pub struct CliErrorPayload {
 pub trait CliReport: Serialize {
     fn kind(&self) -> &'static str;
     fn render_text(&self) -> String;
+
+    fn diagnostics(&self) -> Vec<AppDiagnosticV1> {
+        Vec::new()
+    }
 }
+
+fn warning_diagnostics(code: &str, warnings: &[String]) -> Vec<AppDiagnosticV1> {
+    warnings
+        .iter()
+        .map(|message| AppDiagnosticV1 {
+            severity: DiagnosticSeverityV1::Warning,
+            code: code.to_string(),
+            message: message.clone(),
+            correlation_id: None,
+            details: None,
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StableCommandContractV1 {
+    pub command: &'static str,
+    pub kind: &'static str,
+}
+
+pub const STABLE_COMMANDS_V1: &[StableCommandContractV1] = &[
+    StableCommandContractV1 {
+        command: "config validate",
+        kind: "config.validate",
+    },
+    StableCommandContractV1 {
+        command: "config show",
+        kind: "config.show",
+    },
+    StableCommandContractV1 {
+        command: "config explain",
+        kind: "config.explain",
+    },
+    StableCommandContractV1 {
+        command: "workspace info",
+        kind: "workspace.info",
+    },
+    StableCommandContractV1 {
+        command: "providers list",
+        kind: "providers.list",
+    },
+    StableCommandContractV1 {
+        command: "providers inspect",
+        kind: "providers.inspect",
+    },
+    StableCommandContractV1 {
+        command: "models list",
+        kind: "models.list",
+    },
+    StableCommandContractV1 {
+        command: "models inspect",
+        kind: "models.inspect",
+    },
+    StableCommandContractV1 {
+        command: "profiles list",
+        kind: "profiles.list",
+    },
+    StableCommandContractV1 {
+        command: "profiles inspect",
+        kind: "profiles.inspect",
+    },
+    StableCommandContractV1 {
+        command: "policy explain",
+        kind: "policy.explain",
+    },
+    StableCommandContractV1 {
+        command: "tools list",
+        kind: "tools.list",
+    },
+    StableCommandContractV1 {
+        command: "tools inspect",
+        kind: "tools.inspect",
+    },
+    StableCommandContractV1 {
+        command: "connect",
+        kind: "connect",
+    },
+    StableCommandContractV1 {
+        command: "runs list",
+        kind: "runs.list",
+    },
+    StableCommandContractV1 {
+        command: "runs inspect",
+        kind: "runs.inspect",
+    },
+    StableCommandContractV1 {
+        command: "trace inspect",
+        kind: "trace.inspect",
+    },
+    StableCommandContractV1 {
+        command: "context explain",
+        kind: "context.explain",
+    },
+    StableCommandContractV1 {
+        command: "extension validate",
+        kind: "extension.validate",
+    },
+];
 
 #[derive(Serialize)]
 pub struct RunReport {
@@ -312,6 +449,10 @@ impl CliReport for CostReportWrapper {
     }
     fn render_text(&self) -> String {
         crate::cost::render_cost(&self.0)
+    }
+
+    fn diagnostics(&self) -> Vec<AppDiagnosticV1> {
+        warning_diagnostics("cost", &self.0.warnings)
     }
 }
 
@@ -550,6 +691,10 @@ impl CliReport for WorkspaceStatusReport {
             }
         }
         lines.join("\n")
+    }
+
+    fn diagnostics(&self) -> Vec<AppDiagnosticV1> {
+        warning_diagnostics("workspace_status", &self.warnings)
     }
 }
 
@@ -1000,6 +1145,10 @@ impl CliReport for TraceInspectReport {
         }
         lines.join("\n")
     }
+
+    fn diagnostics(&self) -> Vec<AppDiagnosticV1> {
+        warning_diagnostics("trace_inspect", &self.warnings)
+    }
 }
 
 /// Trace file validation report.
@@ -1036,6 +1185,10 @@ impl CliReport for TraceValidateReport {
             }
         }
         lines.join("\n")
+    }
+
+    fn diagnostics(&self) -> Vec<AppDiagnosticV1> {
+        warning_diagnostics("trace_validate", &self.warnings)
     }
 }
 
@@ -1995,6 +2148,21 @@ pub struct ExtensionInspectReport {
 impl CliReport for ExtensionInspectReport {
     fn kind(&self) -> &'static str {
         "extensions.inspect"
+    }
+
+    fn render_text(&self) -> String {
+        serde_json::to_string_pretty(&self.manifest).unwrap_or_default()
+    }
+}
+
+#[derive(Serialize)]
+pub struct ExtensionValidateReport {
+    pub manifest: gestalt_runtime::unstable::extension::ExtensionManifestV2,
+}
+
+impl CliReport for ExtensionValidateReport {
+    fn kind(&self) -> &'static str {
+        "extension.validate"
     }
 
     fn render_text(&self) -> String {

@@ -30,6 +30,11 @@ Errors set `status` to `error`, `data` to `null`, and provide `code`,
 `message`, `retryable`, optional redacted `details`, and optional
 `correlation_id`.
 
+`warnings` contains app-service diagnostics that did not prevent the command
+from succeeding. Each warning has `severity`, `code`, `message`, optional
+`correlation_id`, and optional redacted `details`. Reports with no diagnostics
+emit an empty array.
+
 ## Exit Codes
 
 | Exit | Category |
@@ -52,6 +57,7 @@ All use `--format json`; errors use the codes and exits above.
 | Command | Kind | Rationale | Features | Evidence |
 |---|---|---|---|---|
 | `config validate` | `config.validate` | CI validation | base | `main_cli_contract_tests`, `config_cli_tests` |
+| `config show` | `config.show` | redacted effective configuration | base | `config_cli_tests` |
 | `config explain` | `config.explain` | provenance audit | base | `config_cli_tests` |
 | `workspace info` | `workspace.info` | workspace inspection | base | `workspace_contract_tests` |
 | `providers list`, `providers inspect` | `providers.list`, `providers.inspect` | provider discovery | providers | `main_cli_contract_tests` |
@@ -59,16 +65,19 @@ All use `--format json`; errors use the codes and exits above.
 | `models list`, `models inspect` | `models.list`, `models.inspect` | model discovery | providers | `main_cli_contract_tests` |
 | `policy explain` | `policy.explain` | policy audit | tools | `policy_cli_tests` |
 | `tools list`, `tools inspect` | `tools.list`, `tools.inspect` | tool inspection | tools | `tools_cli_tests` |
+| `connect` | `connect` | provider credential setup | providers | `main_cli_contract_tests` |
+| `runs list`, `runs inspect` | `runs.list`, `runs.inspect` | run metadata inspection | trace | `runs_cli_tests` |
+| `trace inspect` | `trace.inspect` | trace summary inspection | trace | `trace_cli_tests` |
+| `context explain` | `context.explain` | bounded context diagnostics | providers | `context_cli_tests` |
+| `extension validate` | `extension.validate` | V2 manifest validation | base | `runtime_cli_tests`, `cli_automation_contract_tests` |
 
 ## Experimental Commands
 
-`run`, `chat`, `tui`, `replay`, `cost`, `auth`, `connect`, `disconnect`,
-profile/model mutation, `init`, `status`, workspace mutation/doctor/snapshot,
-all run and trace commands, sessions, export, verify, policy test/validate,
-context diagnostics, tool classification, runtime inspection, extension
-administration, skills, and doctor are experimental. Run, trace, and context
-commands remain experimental until H2A/H2B are frozen; runtime inspection
-remains experimental until H4B is frozen.
+`run`, `chat`, `tui`, `replay`, `cost`, `auth`, `disconnect`, profile/model
+mutation, `init`, `status`, workspace mutation/doctor/snapshot, run mutation,
+trace replay/validation/analysis, sessions, export, verify, policy
+test/validate, tool classification, runtime inspection, extension
+administration other than validation, skills, and doctor are experimental.
 
 ## Dependency Status
 
@@ -84,5 +93,6 @@ feature combinations.
 | H3B-F04, F05, B03 | Central domain-error/exit mapping and legacy-config CLI assertion |
 | H3B-B04 | `minimal_feature_cli_tests` with `--no-default-features`, including disabled-command and usage-error assertions |
 | H3B-B06 | `write_stdout` treats `BrokenPipe` as successful termination |
-| H3B-F01, F02 | H0B stable-candidate command inventory |
+| H3B-F01, F02 | `STABLE_COMMANDS_V1` and the stable/experimental command tables above |
 | H3B-F06, B05 | `crates/gestalt-cli/tests/h3b_snapshot_tests.rs` and `crates/gestalt-cli/tests/snapshots/` |
+| Warning projection | `cli_automation_contract_tests::cli_json_warnings_include_app_diagnostics` and report-specific warning projection |
