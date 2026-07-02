@@ -521,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn trust_pins_require_the_current_manifest_hash() {
+    fn extension_trust_requires_manifest_hash() {
         let mut package = test_package("hash-a");
 
         apply_trust_decisions(
@@ -555,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn packages_without_matching_pins_remain_untrusted() {
+    fn extension_untrusted_rejected_by_default() {
         let mut package = test_package("hash-a");
 
         apply_trust_decisions(std::slice::from_mut(&mut package), &[]);
@@ -567,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn bare_trusted_entries_do_not_bind_the_discovered_hash() {
+    fn extension_bare_trusted_id_does_not_trust() {
         let mut package = test_package("hash-a");
 
         let pin = crate::extension_trust::TrustedExtensionPin::from_config_entry(

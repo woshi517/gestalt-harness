@@ -175,7 +175,7 @@ fn test_permissions_shell() {
 }
 
 #[test]
-fn test_permissions_effective_shell() {
+fn extension_shell_permission_checked() {
     let mut manifest = dummy_permissions();
     let mut grant = gestalt_runtime::unstable::extension::ExtensionGrantConfig::default();
     let event_bus = RuntimeEventBus::new();
@@ -215,7 +215,7 @@ fn test_permissions_effective_shell() {
 }
 
 #[test]
-fn test_permissions_effective_network_wildcard() {
+fn extension_network_permission_checked() {
     let mut manifest = dummy_permissions();
     let mut grant = gestalt_runtime::unstable::extension::ExtensionGrantConfig::default();
     let event_bus = RuntimeEventBus::new();
@@ -284,7 +284,7 @@ fn gestalt_network_check(
 }
 
 #[test]
-fn test_permissions_effective_paths_intersection() {
+fn extension_path_permission_checked() {
     let mut manifest = dummy_permissions();
     let mut grant = gestalt_runtime::unstable::extension::ExtensionGrantConfig::default();
     let event_bus = RuntimeEventBus::new();
@@ -343,4 +343,63 @@ fn test_permissions_effective_paths_intersection() {
         "test",
     );
     assert!(res.is_err()); // Write denied by grant
+}
+
+#[test]
+fn extension_mcp_stdio_permission_checked() {
+    let mut manifest = dummy_permissions();
+    let mut grant = gestalt_runtime::unstable::extension::ExtensionGrantConfig::default();
+    let event_bus = RuntimeEventBus::new();
+
+    manifest.allow_shell = true;
+    assert!(gestalt_runtime::unstable::check_shell_permission_effective(
+        &manifest,
+        Some(&grant),
+        &event_bus,
+        "package.example.primary.stdio",
+    )
+    .is_err());
+
+    grant.shell = true;
+    assert!(gestalt_runtime::unstable::check_shell_permission_effective(
+        &manifest,
+        Some(&grant),
+        &event_bus,
+        "package.example.primary.stdio",
+    )
+    .is_ok());
+}
+
+#[test]
+fn extension_mcp_http_permission_checked() {
+    let mut manifest = dummy_permissions();
+    let mut grant = gestalt_runtime::unstable::extension::ExtensionGrantConfig::default();
+    let event_bus = RuntimeEventBus::new();
+
+    manifest.allow_network = vec!["api.example.com".to_string()];
+    grant.network = vec!["other.example.com".to_string()];
+    assert!(
+        gestalt_runtime::unstable::check_network_permission_effective(
+            &manifest,
+            Some(&grant),
+            true,
+            "api.example.com",
+            &event_bus,
+            "package.example.primary.http",
+        )
+        .is_err()
+    );
+
+    grant.network = vec!["api.example.com".to_string()];
+    assert!(
+        gestalt_runtime::unstable::check_network_permission_effective(
+            &manifest,
+            Some(&grant),
+            true,
+            "api.example.com",
+            &event_bus,
+            "package.example.primary.http",
+        )
+        .is_ok()
+    );
 }

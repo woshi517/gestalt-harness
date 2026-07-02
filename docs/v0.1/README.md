@@ -51,14 +51,14 @@ documented in [runtime-api.md](./runtime-api.md).
 * **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
 
 ## 7. Extension Packages & Components (V2-only) (EXT-001–EXT-005)
-* **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Specification:** [feature-spec/product-neutral-extension-architecture.md](../feature-spec/product-neutral-extension-architecture.md)
+* **Status:** 🟢 **Published**
+* **Specification:** [extensions.md](./extensions.md)
 * **Implementation Plan:** [H4A](../plans/v0.1-hardening/H4A-extension-v2-only-cleanup.md), [H4B](../plans/v0.1-hardening/H4B-extension-activation-trust-and-generation.md)
-* **Enforcing Tests:** `crates/gestalt-runtime/tests/extension_manifest_v2_tests.rs`, `crates/gestalt-runtime/tests/lifecycle_protocol_v2_tests.rs`, `crates/gestalt-runtime/tests/runtime_builder_tests.rs`
+* **Enforcing Tests:** `extension_manifest_v2_tests`, `extension_instance_config_tests`, `runtime_permissions_tests`, `extension_manager_tests`, `extension_reload_tests`, and `runtime_cli_tests`
 
 ## 8. Stable CLI Automation (CLI-001–CLI-004)
-* **Status:** 🔴 **Unpublished (Warning Projection Required)**
+* **Status:** 🟢 **Published**
 * **Specification:** [cli-automation.md](./cli-automation.md)
 * **Implementation Plan:** [H3B](../plans/v0.1-hardening/H3B-cli-automation-contract-and-snapshots.md)
 * **CLI Command Entry Points:** See the stable command matrix.
-* **Enforcing Tests:** [main_cli_contract_tests.rs](../../crates/gestalt-cli/tests/main_cli_contract_tests.rs), [h3b_snapshot_tests.rs](../../crates/gestalt-cli/tests/h3b_snapshot_tests.rs)
+* **Enforcing Tests:** [cli_automation_contract_tests.rs](../../crates/gestalt-cli/tests/cli_automation_contract_tests.rs), [main_cli_contract_tests.rs](../../crates/gestalt-cli/tests/main_cli_contract_tests.rs), [h3b_snapshot_tests.rs](../../crates/gestalt-cli/tests/h3b_snapshot_tests.rs)

@@ -65,7 +65,7 @@ fn manifest_v2_parses_multiple_component_kinds() {
 }
 
 #[test]
-fn manifest_v2_rejects_duplicate_component_ids() {
+fn extension_v2_rejects_duplicate_component_ids() {
     let manifest = ExtensionManifestV2::parse(
         r#"
 manifest_version = 2
@@ -109,7 +109,7 @@ fn package_and_component_canonical_ids_include_instance_scope() {
 }
 
 #[test]
-fn reserved_package_namespaces_remain_rejected() {
+fn extension_v2_rejects_reserved_package_namespace() {
     let descriptor = ExtensionPackageDescriptor {
         id: "gestalt.internal".to_string(),
         name: "Reserved".to_string(),
@@ -186,7 +186,7 @@ fn discovery_discovers_v2_packages_in_deterministic_order() {
 }
 
 #[test]
-fn discovery_rejects_v1_explicit_manifests() {
+fn extension_v2_rejects_manifest_v1() {
     let root = TempTree::new("gestalt-runtime-package-discovery-v1");
     let explicit = root.path().join("legacy.toml");
     write_manifest_file(
@@ -211,6 +211,98 @@ args = ["-m", "legacy"]
     let discovery = ExtensionDiscovery::new(root.path().join("workspace"), None);
     let err = discovery.discover_packages(&[explicit]).unwrap_err();
     assert!(err.to_string().contains("manifest_version"));
+}
+
+#[test]
+fn extension_v2_requires_command_tool_fields() {
+    let manifest = ExtensionManifestV2::parse(
+        r#"
+manifest_version = 2
+
+[package]
+id = "com.example.command"
+name = "Command"
+version = "1.0.0"
+
+[[components]]
+id = "run"
+kind = "command-tool"
+description = "Run a bounded command"
+input_schema = { type = "object" }
+risk = "Low"
+read_only = true
+idempotent = true
+
+[components.entrypoint]
+command = "command-tool"
+"#,
+    )
+    .unwrap();
+
+    let cases = [
+        ("description", 0usize),
+        ("input_schema", 1),
+        ("risk", 2),
+        ("read_only", 3),
+        ("idempotent", 4),
+        ("entrypoint", 5),
+    ];
+    for (field, case) in cases {
+        let mut candidate = manifest.clone();
+        let component = &mut candidate.components[0];
+        match case {
+            0 => component.description = None,
+            1 => component.input_schema = None,
+            2 => component.risk = None,
+            3 => component.read_only = None,
+            4 => component.idempotent = None,
+            5 => component.entrypoint = None,
+            _ => unreachable!(),
+        }
+
+        let error = candidate
+            .validate()
+            .expect_err("required command-tool field must be enforced");
+        assert!(
+            error.contains(field),
+            "expected {field} error, got: {error}"
+        );
+    }
+}
+
+#[test]
+fn extension_active_docs_are_v2_only() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    for relative in [
+        "docs/extension-development-guide.md",
+        "docs/extension-manifest-schema.md",
+        "docs/v0.1/extensions.md",
+    ] {
+        let content = fs::read_to_string(root.join(relative)).unwrap();
+        assert!(
+            !content.contains("manifest_version = 1")
+                && !content.contains("manifest_version = \"1\""),
+            "active extension doc {relative} contains a V1 example"
+        );
+        assert!(
+            content.contains("manifest_version = 2"),
+            "active extension doc {relative} must identify V2"
+        );
+    }
+
+    for legacy in [
+        "crates/gestalt-runtime/tests/fixtures/extensions/mock-ext/gestalt.extension.toml",
+        "crates/gestalt-runtime/tests/fixtures/extensions/mock-switch-model-ext/gestalt.extension.toml",
+    ] {
+        assert!(
+            !root.join(legacy).exists(),
+            "unreferenced legacy V1 fixture must stay removed: {legacy}"
+        );
+    }
 }
 
 #[test]

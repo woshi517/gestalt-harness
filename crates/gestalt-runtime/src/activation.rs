@@ -51,6 +51,7 @@ pub struct HostLaunchContext {
     pub package_source_root: Option<PathBuf>,
     pub extension_instances:
         std::collections::BTreeMap<String, crate::extension::ExtensionInstanceConfig>,
+    pub allow_untrusted_extensions: bool,
     pub trusted_extension_pins: Vec<crate::extension_trust::TrustedExtensionPin>,
     #[cfg(feature = "mcp")]
     pub mcp_servers: std::collections::HashMap<String, crate::mcp::McpServerConfig>,
@@ -72,6 +73,10 @@ impl std::fmt::Debug for HostLaunchContext {
             .field("environment", &self.environment)
             .field("package_source_root", &self.package_source_root)
             .field("extension_instances", &self.extension_instances)
+            .field(
+                "allow_untrusted_extensions",
+                &self.allow_untrusted_extensions,
+            )
             .field("trusted_extension_pins", &self.trusted_extension_pins);
         #[cfg(feature = "mcp")]
         {
@@ -113,6 +118,7 @@ impl HostLaunchContext {
             environment: config.environment.clone(),
             package_source_root: None,
             extension_instances: config.extension_instances.clone(),
+            allow_untrusted_extensions: config.allow_untrusted_extensions,
             trusted_extension_pins: config.trusted_extension_pins.clone(),
             #[cfg(feature = "mcp")]
             mcp_servers: config.mcp_servers.clone(),
@@ -374,6 +380,47 @@ impl ExtensionActivationPipeline {
             &mut discovered,
             &self.host_context.trusted_extension_pins,
         );
+        if let Some(package) = discovered.iter().find(|package| {
+            !package.trust.is_trusted()
+                && !self.host_context.allow_untrusted_extensions
+                && self
+                    .host_context
+                    .extension_instances
+                    .values()
+                    .any(|instance| instance.enabled && instance.package == package.descriptor.id)
+        }) {
+            return Err(crate::error::RuntimeError::Extension(format!(
+                "Configured extension package '{}' is untrusted; add an exact ID/hash trust pin or explicitly enable allow_untrusted",
+                package.descriptor.id
+            )));
+        }
+        discovered.retain(|package| {
+            if package.trust.is_trusted() {
+                return true;
+            }
+
+            let explicit_instance = self.host_context.extension_instances.values().any(|instance| {
+                instance.enabled && instance.package == package.descriptor.id
+            });
+            if self.host_context.allow_untrusted_extensions && explicit_instance {
+                self.host_context.event_bus.publish(
+                    crate::event_bus::RuntimeEvent::ExtensionDiagnostic {
+                        extension_id: package.descriptor.id.clone(),
+                        code: "untrusted_activation".to_string(),
+                        message: "Untrusted extension activated through an enabled explicit instance; this development escape hatch is experimental.".to_string(),
+                    },
+                );
+                true
+            } else {
+                self.host_context.event_bus.publish(
+                    crate::event_bus::RuntimeEvent::ExtensionRejected {
+                        extension_id: package.descriptor.id.clone(),
+                        reason: "Untrusted extension requires both allow_untrusted and an enabled explicit instance.".to_string(),
+                    },
+                );
+                false
+            }
+        });
 
         // 2. Resolve configured instances or targeted instance
         let mut final_resolved_packages = Vec::new();
@@ -386,6 +433,12 @@ impl ExtensionActivationPipeline {
             }
 
             let target_config = self.host_context.extension_instances.get(target).unwrap();
+            if !target_config.enabled {
+                return Err(crate::error::RuntimeError::Extension(format!(
+                    "Configured extension instance '{}' is disabled",
+                    target
+                )));
+            }
             let discovered_target_package = discovered
                 .iter()
                 .find(|p| p.descriptor.id == target_config.package)

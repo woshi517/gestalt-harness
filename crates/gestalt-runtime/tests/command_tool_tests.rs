@@ -131,6 +131,24 @@ async fn command_tool_invalid_json_output_is_execution_error() {
     assert!(err.to_string().contains("expected ident"));
 }
 
+#[tokio::test]
+async fn extension_process_tool_shell_permission_checked() {
+    let mut package = command_tool_package("/bin/cat", &[]);
+    package.components[0].grants.shell = false;
+    let tool = CommandTool::from_component(
+        &package.components[0],
+        std::path::PathBuf::from("."),
+        gestalt_runtime::unstable::event_bus::RuntimeEventBus::new(),
+    )
+    .unwrap();
+
+    let error = tool
+        .execute(serde_json::json!({}), &tool_context())
+        .await
+        .expect_err("process-backed command tools require effective shell permission");
+    assert!(error.to_string().contains("permission"));
+}
+
 #[test]
 fn builder_registers_command_tool_components_as_tools() {
     let runtime = AgentRuntimeBuilder::new()
@@ -141,7 +159,7 @@ fn builder_registers_command_tool_components_as_tools() {
         ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(command_tool_runtime_config(&["primary"]))
         .extension_package(command_tool_package("/bin/cat", &[]))
         .build()
         .unwrap();
@@ -163,7 +181,7 @@ fn builder_keeps_same_component_names_unique_across_instances() {
         ))
         .policy(Arc::new(MockPolicyEngine))
         .approval(Arc::new(AutoApprovalProvider))
-        .config(RuntimeConfig::default())
+        .config(command_tool_runtime_config(&["primary", "secondary"]))
         .extension_package(command_tool_package("/bin/cat", &[]))
         .extension_package(command_tool_package_with_instance(
             "secondary",
@@ -198,6 +216,31 @@ fn builder_keeps_same_component_names_unique_across_instances() {
 
 fn command_tool_package(command: &str, args: &[&str]) -> ResolvedExtensionPackage {
     command_tool_package_with_instance("primary", command, args)
+}
+
+fn command_tool_runtime_config(instance_ids: &[&str]) -> RuntimeConfig {
+    RuntimeConfig {
+        allow_untrusted_extensions: true,
+        extension_instances: instance_ids
+            .iter()
+            .map(|instance_id| {
+                (
+                    (*instance_id).to_string(),
+                    gestalt_runtime::unstable::extension::ExtensionInstanceConfig {
+                        package: "com.example.tools".to_string(),
+                        enabled: true,
+                        components: Default::default(),
+                        config: serde_json::Value::Null,
+                        grants: gestalt_runtime::unstable::extension::ExtensionGrantConfig {
+                            shell: true,
+                            ..Default::default()
+                        },
+                    },
+                )
+            })
+            .collect(),
+        ..RuntimeConfig::default()
+    }
 }
 
 fn command_tool_package_with_instance(

@@ -50,6 +50,7 @@ async fn process_lifecycle_client_invokes_v2_capabilities_through_child_process(
         environment: std::collections::HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
+        allow_untrusted_extensions: false,
         #[cfg(feature = "mcp")]
         mcp_servers: std::collections::HashMap::new(),
     };
@@ -123,6 +124,7 @@ async fn process_lifecycle_client_reuses_processes_and_respects_draining_state()
         environment: std::collections::HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
+        allow_untrusted_extensions: false,
         #[cfg(feature = "mcp")]
         mcp_servers: std::collections::HashMap::new(),
     };

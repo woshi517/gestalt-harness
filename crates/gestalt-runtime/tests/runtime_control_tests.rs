@@ -588,6 +588,7 @@ version = "{version}"
 [[components]]
 id = "lifecycle"
 kind = "gestalt-lifecycle"
+optional = false
 
 [components.entrypoint]
 command = "{}"

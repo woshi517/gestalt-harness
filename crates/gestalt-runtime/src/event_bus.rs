@@ -22,6 +22,11 @@ pub enum RuntimeEvent {
         extension_id: String,
         reason: String,
     },
+    ExtensionDiagnostic {
+        extension_id: String,
+        code: String,
+        message: String,
+    },
     ExtensionError {
         extension_id: String,
         message: String,
