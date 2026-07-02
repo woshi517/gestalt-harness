@@ -167,30 +167,46 @@ fn test_config_precedence_and_sources() {
 }
 
 #[test]
-fn legacy_config_is_rejected_without_parsing() {
+fn config_rejects_legacy_toml_paths() {
     let _guard = lock_env();
     let temp_dir = std::env::temp_dir().join(format!("gestalt-legacy-{}", uuid::Uuid::new_v4()));
     let _env = TestEnvGuard::set_xdg_config_home(&temp_dir);
     let workspace = temp_dir.join("workspace");
-    fs::create_dir_all(workspace.join(".gestalt")).unwrap();
-    fs::write(
+    let legacy_paths = [
+        temp_dir.join("gestalt/config.toml"),
         workspace.join(".gestalt/config.toml"),
-        vec![b'x'; 1024 * 1024],
-    )
-    .unwrap();
+        workspace.join(".gestalt/policies.toml"),
+    ];
 
-    let error = load_effective_config(&CliOverrides {
-        workspace: Some(workspace),
-        ..CliOverrides::default()
-    })
-    .expect_err("legacy config must fail before parsing");
+    for legacy_path in legacy_paths {
+        fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        fs::write(&legacy_path, vec![b'x'; 1024 * 1024]).unwrap();
 
-    assert!(matches!(
-        error,
-        gestalt_core::HarnessError::Config(
-            gestalt_core::ConfigError::UnsupportedLegacyConfig { .. }
-        )
-    ));
+        let error = load_effective_config(&CliOverrides {
+            workspace: Some(workspace.clone()),
+            ..CliOverrides::default()
+        })
+        .expect_err("legacy config must fail before parsing");
+
+        match error {
+            gestalt_core::HarnessError::Config(
+                gestalt_core::ConfigError::UnsupportedLegacyConfig {
+                    path,
+                    supported_path,
+                    remediation,
+                },
+            ) => {
+                assert_eq!(path, legacy_path.display().to_string());
+                assert!(supported_path.ends_with("gestalt.json"));
+                assert!(remediation.contains("intentionally unsupported"));
+            }
+            other => panic!("expected structured legacy-config error, got: {other}"),
+        }
+
+        fs::remove_file(legacy_path).unwrap();
+    }
+
+    fs::remove_dir_all(temp_dir).unwrap();
 }
 
 #[test]
@@ -257,44 +273,97 @@ fn test_provider_model_cli_overrides_beat_profile() {
 }
 
 #[test]
-fn test_policy_monotonicity_enforcement() {
+fn config_workspace_cannot_widen_global_policy() {
     let _guard = lock_env();
     use gestalt_app::config::WorkspaceConfig;
-    let global: WorkspaceConfig =
-        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"allow_read":["/a","/b"]}}}"#)
-            .unwrap();
-    let workspace: WorkspaceConfig =
-        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"allow_read":["/a","/c"]}}}"#)
-            .unwrap();
 
-    let merge_res = global.merge(workspace);
-    assert!(merge_res.is_err());
-    let err = merge_res.unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("workspace policy tries to widen authority"),
-        "expected widening error, got: {}",
-        err
-    );
+    let cases = [
+        ("/policies/paths/allow_read", "policies.paths.allow_read"),
+        ("/policies/paths/allow_write", "policies.paths.allow_write"),
+        ("/policies/bash/allow", "policies.bash.allow"),
+        (
+            "/policies/network/allow_domains",
+            "policies.network.allow_domains",
+        ),
+    ];
+
+    for (pointer, field) in cases {
+        let mut global = serde_json::json!({
+            "version": 1,
+            "policies": {
+                "paths": {"allow_read": [], "allow_write": []},
+                "bash": {"allow": []},
+                "network": {"allow_domains": []}
+            }
+        });
+        let mut workspace = global.clone();
+        *global.pointer_mut(pointer).unwrap() = serde_json::json!(["existing"]);
+        *workspace.pointer_mut(pointer).unwrap() = serde_json::json!(["existing", "widened"]);
+
+        let global: WorkspaceConfig = serde_json::from_value(global).unwrap();
+        let workspace: WorkspaceConfig = serde_json::from_value(workspace).unwrap();
+        let error = global
+            .merge(workspace)
+            .expect_err("workspace must not widen global allow policy");
+
+        assert!(error.to_string().contains(field), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains("workspace policy tries to widen authority"),
+            "{error}"
+        );
+    }
 }
 
 #[test]
-fn test_policy_deny_union_merge() {
+fn config_deny_lists_union() {
     let _guard = lock_env();
     use gestalt_app::config::WorkspaceConfig;
-    let global: WorkspaceConfig =
-        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"deny_read":["/secret1"]}}}"#)
-            .unwrap();
-    let workspace: WorkspaceConfig =
-        serde_json::from_str(r#"{"version":1,"policies":{"paths":{"deny_read":["/secret2"]}}}"#)
-            .unwrap();
+    let global: WorkspaceConfig = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "policies": {
+            "paths": {
+                "deny_read": ["global-read"],
+                "deny_write": ["global-write"]
+            },
+            "bash": {"deny": ["global-bash"]},
+            "network": {"deny_domains": ["global.example"]}
+        }
+    }))
+    .unwrap();
+    let workspace: WorkspaceConfig = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "policies": {
+            "paths": {
+                "deny_read": ["workspace-read"],
+                "deny_write": ["workspace-write"]
+            },
+            "bash": {"deny": ["workspace-bash"]},
+            "network": {"deny_domains": ["workspace.example"]}
+        }
+    }))
+    .unwrap();
 
     let merged = global.merge(workspace).expect("merge succeeds");
-    let paths = merged.policies.unwrap().paths;
-    let deny_read = paths.deny_read.unwrap();
-    assert!(deny_read.contains(&"/secret1".to_string()));
-    assert!(deny_read.contains(&"/secret2".to_string()));
-    assert_eq!(deny_read.len(), 2);
+    let policies = merged.policies.unwrap();
+
+    assert_eq!(
+        policies.paths.deny_read.unwrap(),
+        ["global-read", "workspace-read"]
+    );
+    assert_eq!(
+        policies.paths.deny_write.unwrap(),
+        ["global-write", "workspace-write"]
+    );
+    assert_eq!(
+        policies.bash.deny.unwrap(),
+        ["global-bash", "workspace-bash"]
+    );
+    assert_eq!(
+        policies.network.deny_domains.unwrap(),
+        ["global.example", "workspace.example"]
+    );
 }
 
 #[test]
@@ -375,7 +444,7 @@ fn legacy_extension_grant_aliases_are_rejected() {
 }
 
 #[test]
-fn legacy_secret_auth_ref_is_rejected() {
+fn config_rejects_secret_auth_ref() {
     let _guard = lock_env();
     let _env = TestEnvGuard::clear();
 
@@ -407,6 +476,41 @@ fn legacy_secret_auth_ref_is_rejected() {
         .contains("legacy secret: syntax is not supported"));
 
     let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn config_rejects_multiple_provider_credentials() {
+    let _guard = lock_env();
+    let _env = TestEnvGuard::clear();
+    let temp_dir =
+        std::env::temp_dir().join(format!("gestalt_test_credentials_{}", uuid::Uuid::new_v4()));
+    let config_path = temp_dir.join("gestalt.json");
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let cases = [
+        serde_json::json!({"api_key": "inline", "api_key_env": "API_KEY"}),
+        serde_json::json!({"api_key": "inline", "auth_ref": "keychain:gestalt/test"}),
+        serde_json::json!({"api_key_env": "API_KEY", "auth_ref": "keychain:gestalt/test"}),
+        serde_json::json!({
+            "api_key": "inline",
+            "api_key_env": "API_KEY",
+            "auth_ref": "keychain:gestalt/test"
+        }),
+    ];
+
+    for credentials in cases {
+        let config = serde_json::json!({
+            "version": 1,
+            "providers": {"test": credentials}
+        });
+        fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+
+        let error = gestalt_app::config::WorkspaceConfig::from_file(&config_path)
+            .expect_err("provider credentials must be mutually exclusive");
+        assert!(error.to_string().contains("mutually exclusive"), "{error}");
+    }
+
+    fs::remove_dir_all(temp_dir).unwrap();
 }
 
 #[test]
