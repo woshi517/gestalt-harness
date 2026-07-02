@@ -256,6 +256,7 @@ pub async fn build_app_runtime(
             max_protocol_errors: config.extensions.limits.max_protocol_errors,
         },
         extension_instances: convert_extension_instances(&config.extensions.instances),
+        allow_untrusted_extensions: config.extensions.allow_untrusted,
         effective_config_fingerprint: Some(config.compute_fingerprint()),
     };
 
@@ -383,13 +384,36 @@ pub async fn build_app_runtime(
                 .trusted
                 .iter()
                 .any(|trusted_entry| trusted_pin_from_entry(trusted_entry, &ext).is_some());
-
-            if !is_trusted_by_config && !config.extensions.allow_untrusted {
-                builder.runtime_event_bus().publish(gestalt_runtime::unstable::RuntimeEvent::ExtensionRejected {
-                    extension_id: ext.package.descriptor.id.clone(),
-                    reason: "Untrusted extension ignored. Pin it with 'extensions.trusted' using an exact ID/hash pair or set 'extensions.allow_untrusted' to true.".to_string(),
+            let explicit_instance =
+                config.extensions.instances.values().any(|instance| {
+                    instance.enabled && instance.package == ext.package.descriptor.id
                 });
-                continue;
+
+            if !is_trusted_by_config {
+                if explicit_instance && !config.extensions.allow_untrusted {
+                    return Err(gestalt_core::ConfigError::InvalidValue {
+                        field: "extensions.instances".to_string(),
+                        reason: format!(
+                            "configured extension package '{}' is untrusted; add an exact ID/hash trust pin or explicitly enable allow_untrusted",
+                            ext.package.descriptor.id
+                        ),
+                    }
+                    .into());
+                }
+                if !config.extensions.allow_untrusted || !explicit_instance {
+                    builder.runtime_event_bus().publish(gestalt_runtime::unstable::RuntimeEvent::ExtensionRejected {
+                        extension_id: ext.package.descriptor.id.clone(),
+                        reason: "Untrusted extension requires an exact ID/hash trust pin, or both allow_untrusted and an enabled explicit instance.".to_string(),
+                    });
+                    continue;
+                }
+                builder.runtime_event_bus().publish(
+                    gestalt_runtime::unstable::RuntimeEvent::ExtensionDiagnostic {
+                        extension_id: ext.package.descriptor.id.clone(),
+                        code: "untrusted_activation".to_string(),
+                        message: "Untrusted extension activated through an enabled explicit instance; this development escape hatch is experimental.".to_string(),
+                    },
+                );
             }
 
             builder = builder.extension_package(ext.package.clone());

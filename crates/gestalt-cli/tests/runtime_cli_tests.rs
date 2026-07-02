@@ -208,7 +208,56 @@ fn test_runtime_inspect_cli_subcommand() {
 }
 
 #[tokio::test]
-async fn test_build_app_runtime_loads_configured_extension_instance() {
+async fn extension_allow_untrusted_requires_explicit_instance() {
+    let (runtime, workspace) = build_untrusted_extension_runtime(true, Some(true)).await;
+    let runtime = runtime.unwrap();
+    assert!(runtime
+        .tools
+        .get("extension:com.example.tools@review-primary:echo")
+        .is_some());
+    let _ = std::fs::remove_dir_all(workspace);
+
+    let (runtime, workspace) = build_untrusted_extension_runtime(true, None).await;
+    let runtime = runtime.unwrap();
+    assert!(
+        runtime
+            .tools
+            .get("extension:com.example.tools@review-primary:echo")
+            .is_none(),
+        "allow_untrusted must not activate discovery-wide packages"
+    );
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[tokio::test]
+async fn extension_disabled_package_not_loaded() {
+    let (runtime, workspace) = build_untrusted_extension_runtime(true, Some(false)).await;
+    let runtime = runtime.unwrap();
+    assert!(runtime
+        .tools
+        .get("extension:com.example.tools@review-primary:echo")
+        .is_none());
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[tokio::test]
+async fn extension_untrusted_rejected_by_default() {
+    let (runtime, workspace) = build_untrusted_extension_runtime(false, Some(true)).await;
+    let error = match runtime {
+        Ok(_) => panic!("configured untrusted extension must fail closed"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("is untrusted"), "{error}");
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+async fn build_untrusted_extension_runtime(
+    allow_untrusted: bool,
+    enabled_instance: Option<bool>,
+) -> (
+    Result<gestalt_runtime::unstable::AgentRuntime, HarnessError>,
+    std::path::PathBuf,
+) {
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/non-existent-gestalt-test-dir");
     let _ = gestalt_runtime::unstable::model_registry::register(
         "mock-provider",
@@ -253,18 +302,22 @@ args = []
                 "model": "mock-model"
             }
         });
-        json["extensions"] = json!({
-            "allow_untrusted": true,
-            "instances": {
-                "review-primary": {
-                    "package": "com.example.tools",
-                    "enabled": true,
-                    "components": {
-                        "echo": true
+        json["extensions"] = if let Some(enabled) = enabled_instance {
+            json!({
+                "allow_untrusted": allow_untrusted,
+                "instances": {
+                    "review-primary": {
+                        "package": "com.example.tools",
+                        "enabled": enabled,
+                        "components": {
+                            "echo": true
+                        }
                     }
                 }
-            }
-        });
+            })
+        } else {
+            json!({"allow_untrusted": allow_untrusted})
+        };
     });
 
     let overrides = CliOverrides {
@@ -279,17 +332,8 @@ args = []
     };
     let config = gestalt_app::config::load_effective_config(&overrides).unwrap();
 
-    let runtime = gestalt_app::runtime_factory::build_app_runtime(&config, None, None, None, None)
-        .await
-        .unwrap();
+    let runtime =
+        gestalt_app::runtime_factory::build_app_runtime(&config, None, None, None, None).await;
 
-    let tool_name = "extension:com.example.tools@review-primary:echo";
-    let registered = runtime.tools.get(tool_name).is_some();
-    assert!(
-        registered,
-        "Configured extension instance should register a unique command tool"
-    );
-
-    // Clean up
-    let _ = std::fs::remove_dir_all(&temp_dir);
+    (runtime, temp_dir)
 }

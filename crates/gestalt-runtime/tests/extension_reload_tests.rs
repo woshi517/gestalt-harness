@@ -84,9 +84,23 @@ impl PolicyEngine for MockPolicyEngine {
 }
 
 #[tokio::test]
-async fn successful_reload_increments_generation_and_changes_fingerprint() {
+async fn extension_generation_snapshot_changes_deterministically() {
     let runtime = runtime();
     let before = runtime.extension_manager.active_snapshot();
+    let first_preview = runtime
+        .reload_extensions(ReloadExtensionsRequest {
+            dry_run: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let second_preview = runtime
+        .reload_extensions(ReloadExtensionsRequest {
+            dry_run: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
 
     let report = runtime
         .reload_extensions(ReloadExtensionsRequest::default())
@@ -94,6 +108,14 @@ async fn successful_reload_increments_generation_and_changes_fingerprint() {
         .unwrap();
     let after = runtime.extension_manager.active_snapshot();
 
+    assert_eq!(
+        first_preview.candidate_fingerprint,
+        second_preview.candidate_fingerprint
+    );
+    assert_eq!(
+        report.candidate_fingerprint,
+        first_preview.candidate_fingerprint
+    );
     assert_eq!(report.previous_generation, before.generation);
     assert_eq!(after.generation.0, before.generation.0 + 1);
     assert_eq!(after.fingerprint, report.candidate_fingerprint);

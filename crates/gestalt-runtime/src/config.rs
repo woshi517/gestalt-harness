@@ -77,6 +77,10 @@ pub struct RuntimeConfig {
     pub extension_limits: ExtensionLimitsConfig,
     #[serde(default)]
     pub extension_instances: BTreeMap<String, crate::extension::ExtensionInstanceConfig>,
+    /// Experimental development escape hatch. Untrusted packages still require
+    /// an enabled explicit instance; this never enables discovery-wide activation.
+    #[serde(default)]
+    pub allow_untrusted_extensions: bool,
     #[serde(default)]
     pub effective_config_fingerprint: Option<String>,
 }
@@ -152,6 +156,7 @@ impl Default for RuntimeConfig {
             extension_timeouts: ExtensionTimeoutsConfig::default(),
             extension_limits: ExtensionLimitsConfig::default(),
             extension_instances: BTreeMap::new(),
+            allow_untrusted_extensions: false,
             effective_config_fingerprint: None,
         }
     }

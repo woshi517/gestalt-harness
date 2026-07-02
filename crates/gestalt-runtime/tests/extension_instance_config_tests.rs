@@ -128,6 +128,49 @@ fn configured_instances_select_components_and_apply_runtime_values() {
     assert!(instance.components[0].grants.workspace_read);
 }
 
+#[test]
+fn extension_instance_can_disable_component() {
+    let package = package_with_two_components();
+    let config: ExtensionsConfig = serde_json::from_str(
+        r#"{
+          "instances": {
+            "review": {
+              "package": "com.example.review",
+              "components": {"client-metadata": false}
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let resolved = resolve_configured_instances(&[package], &config.instances).unwrap();
+    assert_eq!(resolved[0].components.len(), 1);
+    assert_eq!(resolved[0].components[0].id.component_id, "lifecycle");
+}
+
+#[test]
+fn extension_instance_disabling_all_components_errors() {
+    let package = package_with_two_components();
+    let config: ExtensionsConfig = serde_json::from_str(
+        r#"{
+          "instances": {
+            "review": {
+              "package": "com.example.review",
+              "components": {
+                "lifecycle": false,
+                "client-metadata": false
+              }
+            }
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let error = resolve_configured_instances(&[package], &config.instances)
+        .expect_err("an instance with no enabled components must fail");
+    assert!(error.to_string().contains("disabled all components"));
+}
+
 fn package_with_two_components() -> ResolvedExtensionPackage {
     let manifest = ExtensionManifestV2::parse(
         r#"

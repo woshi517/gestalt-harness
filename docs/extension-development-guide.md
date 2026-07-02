@@ -65,16 +65,20 @@ There is no legacy compatibility path in H4A.
 
 ## 4. Permissions and trust
 
-Permissions are declared per component in the manifest and validated before the
-component starts.
+Permissions are declared per component in the manifest and intersected with
+the configured instance grants before the component starts.
 
-- Filesystem checks use `check_path_permission`
-- Network checks use `check_network_permission`
-- Shell checks use `check_shell_permission`
+- Filesystem checks use `check_path_permission_effective`
+- Network checks use `check_network_permission_effective`
+- Shell checks use `check_shell_permission_effective`
 
 The runtime publishes `RuntimeEvent::PermissionDecision` for each check.
-Trust is applied by the activation pipeline and controls whether a discovered
-package is treated as trusted or untrusted.
+Trust requires an exact package-ID/manifest-hash pin. Bare trusted IDs do not
+grant trust. `allow_untrusted` is an experimental development escape hatch and
+still requires an enabled explicit instance; it never auto-activates all
+discovered packages. See the
+[v0.1 extension contract](v0.1/extensions.md) for activation and generation
+semantics.
 
 ## 5. Working with the runtime
 

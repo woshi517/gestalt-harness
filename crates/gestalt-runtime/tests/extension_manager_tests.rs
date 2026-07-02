@@ -174,6 +174,7 @@ async fn extension_manager_reuses_ready_processes_and_tracks_health() {
         environment: HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
+        allow_untrusted_extensions: false,
         #[cfg(feature = "mcp")]
         mcp_servers: HashMap::new(),
     };
@@ -239,6 +240,7 @@ async fn replaced_same_id_resource_drains_after_old_lease_drops() {
         environment: HashMap::new(),
         package_source_root: None,
         extension_instances: std::collections::BTreeMap::new(),
+        allow_untrusted_extensions: false,
         #[cfg(feature = "mcp")]
         mcp_servers: HashMap::new(),
     };
