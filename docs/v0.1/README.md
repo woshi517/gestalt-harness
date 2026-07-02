@@ -38,10 +38,10 @@ documented in [runtime-api.md](./runtime-api.md).
 * **Enforcing Tests:** [config_schema_tests.rs](../../crates/gestalt-app/tests/config_schema_tests.rs), [config_tests.rs](../../crates/gestalt-app/tests/config_tests.rs)
 
 ## 5. Trace & Run Manifests (EVT-001–EVT-005)
-* **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#34-events-remain-the-ground-truth)
-* **Implementation Plan:** [H2A](../plans/v0.1-hardening/H2A-event-trace-replay-contracts.md)
-* **Rust API Target:** `gestalt_runtime::unstable::{EventEnvelope, ClientEventRecordV1}`
+* **Status:** 🟢 **Published**
+* **Specification:** [trace-events.md](./trace-events.md)
+* **Client API:** `gestalt_runtime::api::v1::{ClientEventPayloadV1, ClientEventRecordV1, project_client_event_line}`
+* **Internal Trace API:** `gestalt_runtime::unstable::{EventEnvelope, TraceEventV1}`
 * **Enforcing Tests:** [trace_contract_tests.rs](../../crates/gestalt-runtime/tests/trace_contract_tests.rs), [sessions_tests.rs](../../crates/gestalt-app/tests/sessions_tests.rs)
 
 ## 6. Policy & Approval (POL-001–POL-004)

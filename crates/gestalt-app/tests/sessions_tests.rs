@@ -5,7 +5,7 @@ use gestalt_app::sessions::{history_session, inspect_session, list_sessions, run
 use gestalt_runtime::unstable::run_manifest::{
     CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
 };
-use gestalt_runtime::unstable::TraceEvent;
+use gestalt_runtime::unstable::TraceEventV1;
 use std::fs;
 use std::path::PathBuf;
 
@@ -414,7 +414,7 @@ async fn test_sessions_successful_resume_and_branch() {
             turn_id: 1,
             seq: 2,
             ts: chrono::Utc::now(),
-            event: TraceEvent::Checkpoint {
+            event: TraceEventV1::Checkpoint {
                 history: vec![history_msg.clone()],
                 context_state: Box::new(gestalt_core::ContextProjectionState::default()),
                 token_budget: gestalt_core::context::TokenBudget::default(),
@@ -460,7 +460,7 @@ async fn test_sessions_successful_resume_and_branch() {
     for line in new_trace_content.lines() {
         if let Ok(env) = serde_json::from_str::<gestalt_runtime::unstable::EventEnvelope>(line) {
             match env.event {
-                TraceEvent::Checkpoint { history, .. } => {
+                TraceEventV1::Checkpoint { history, .. } => {
                     for msg in history {
                         if let Message::Assistant { content } = msg.message {
                             for block in content {
@@ -473,8 +473,8 @@ async fn test_sessions_successful_resume_and_branch() {
                         }
                     }
                 }
-                TraceEvent::PromptSnapshotLoaded { .. } => saw_loaded_snapshot = true,
-                TraceEvent::PromptSnapshotReused { .. } => saw_reused_snapshot = true,
+                TraceEventV1::PromptSnapshotLoaded { .. } => saw_loaded_snapshot = true,
+                TraceEventV1::PromptSnapshotReused { .. } => saw_reused_snapshot = true,
                 _ => {}
             }
         }
@@ -519,7 +519,7 @@ async fn test_sessions_successful_resume_and_branch() {
     let mut found_checkpoint = false;
     for line in branch_trace_content.lines() {
         if let Ok(env) = serde_json::from_str::<gestalt_runtime::unstable::EventEnvelope>(line) {
-            if let TraceEvent::Checkpoint { history, .. } = env.event {
+            if let TraceEventV1::Checkpoint { history, .. } = env.event {
                 found_checkpoint = true;
                 assert_eq!(
                     history.len(),

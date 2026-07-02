@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 
 use gestalt_core::event::PolicyStatus;
 use gestalt_runtime::unstable::{
-    aggregate_costs, analyze_tool_metrics, read_trace, TraceEvent as AgentEvent,
+    aggregate_costs, analyze_tool_metrics, read_trace, TraceEventV1 as AgentEvent,
 };
 
 use crate::output::{

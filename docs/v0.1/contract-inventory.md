@@ -29,6 +29,7 @@ promise.
 | Contract | Specification | Implementation | Enforcing tests |
 |---|---|---|---|
 | `gestalt.json` version 1 | [configuration.md](./configuration.md) | `gestalt_app::config` and `docs/schemas/gestalt.schema.json` | `config_schema_tests`, `config_tests` |
+| Trace envelope and client event version 1 | [trace-events.md](./trace-events.md) | `TraceEventV1`, `ClientEventPayloadV1`, and `project_client_event_line` | `trace_contract_tests` |
 
 ## Unpublished
 
@@ -38,7 +39,6 @@ promise.
 | Policy and approval | Real policy-confirmed tool execution through runtime control | DTO and in-memory conformance tests |
 | App service reports | Runtime-factory diagnostics and complete value/error contract tests | `report_contract_tests` |
 | CLI automation | Upstream diagnostics must reach the JSON `warnings` field | JSON snapshots and envelope tests |
-| Trace and client events | Complete lossless trace/client projection split and forward-compatible projection tests | `trace_contract_tests` |
 | Context diagnostics | Safe capture policy, redaction, bounds, replay integrity, and durability tests | `context_report_contract_tests` |
 | Extension packages/components | Complete trust, activation, permission, and generation matrix | extension V2 integration tests |
 

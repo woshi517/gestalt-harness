@@ -49,6 +49,10 @@ exist only for conformance tests. See
 [`examples/embed_runtime.rs`](./examples/embed_runtime.rs) for a complete
 runtime-backed setup.
 
+With the `trace` feature, product clients consume
+`api::v1::ClientEventRecordV1`; persisted `unstable::TraceEventV1` remains an
+internal-rich replay/audit representation.
+
 ## Runtime surfaces
 
 ### Agent runtime

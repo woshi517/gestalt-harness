@@ -100,24 +100,29 @@ pub fn tail_run(
 }
 
 fn print_tailed_line(line: &str, format: crate::output::OutputFormat) -> Result<(), HarnessError> {
-    let Some(envelope) = gestalt_runtime::unstable::parse_trace_envelope_line(line, 0)
-        .map_err(|err| HarnessError::Trace(err))?
-    else {
-        return Ok(());
-    };
-
     match format {
         crate::output::OutputFormat::Json => {
-            let data = gestalt_runtime::unstable::ClientEventRecordV1::from(&envelope);
+            let data = gestalt_runtime::api::v1::project_client_event_line(line, 0)
+                .map_err(HarnessError::Trace)?;
             let wrapped = crate::output::JsonEnvelope {
-                schema_version: gestalt_runtime::unstable::CLIENT_EVENT_SCHEMA_VERSION,
+                schema_version: gestalt_runtime::api::v1::CLIENT_EVENT_SCHEMA_VERSION,
                 kind: "runs.tail.event".to_string(),
                 data,
             };
             println!("{}", serde_json::to_string(&wrapped).unwrap_or_default());
         }
         crate::output::OutputFormat::Text => {
-            let core_event: gestalt_core::AgentEvent = envelope.event.clone().into();
+            let Some(envelope) = gestalt_runtime::unstable::parse_trace_envelope_line(line, 0)
+                .map_err(HarnessError::Trace)?
+            else {
+                return Ok(());
+            };
+            let core_event = gestalt_core::AgentEvent::try_from(envelope.event).map_err(|err| {
+                HarnessError::Trace(gestalt_core::TraceError::InvalidFormat {
+                    line: 0,
+                    reason: format!("trace event cannot be projected for text output: {err}"),
+                })
+            })?;
             if let Some(rendered) = crate::output::render_event(&core_event) {
                 println!("{rendered}");
             }

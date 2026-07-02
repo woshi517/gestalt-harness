@@ -4,7 +4,7 @@ use crate::reports::{
 };
 use chrono::Utc;
 use gestalt_core::HarnessError;
-use gestalt_runtime::unstable::TraceEvent as AgentEvent;
+use gestalt_runtime::unstable::TraceEventV1 as AgentEvent;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
