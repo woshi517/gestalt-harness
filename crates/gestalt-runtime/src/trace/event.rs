@@ -13,7 +13,7 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum TraceEvent {
+pub enum TraceEventV1 {
     RunStarted {
         resolved_model: ResolvedModelSnapshot,
     },
@@ -350,29 +350,33 @@ pub enum TraceEvent {
     },
 }
 
-impl TraceEvent {
-    #[must_use]
-    pub fn from_agent_event(event: gestalt_core::event::AgentEvent) -> Self {
-        serde_json::from_value(serde_json::to_value(event).expect("serializable agent event"))
-            .expect("trace event mirrors agent event")
+impl TraceEventV1 {
+    pub fn try_from_agent_event(
+        event: gestalt_core::event::AgentEvent,
+    ) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(serde_json::to_value(event)?)
     }
 
-    #[must_use]
-    pub fn into_agent_event(self) -> gestalt_core::event::AgentEvent {
-        serde_json::from_value(serde_json::to_value(self).expect("serializable trace event"))
-            .expect("agent event mirrors trace event")
-    }
-}
-
-impl From<gestalt_core::event::AgentEvent> for TraceEvent {
-    fn from(event: gestalt_core::event::AgentEvent) -> Self {
-        Self::from_agent_event(event)
+    pub fn try_into_agent_event(
+        self,
+    ) -> Result<gestalt_core::event::AgentEvent, serde_json::Error> {
+        serde_json::from_value(serde_json::to_value(self)?)
     }
 }
 
-impl From<TraceEvent> for gestalt_core::event::AgentEvent {
-    fn from(event: TraceEvent) -> Self {
-        event.into_agent_event()
+impl TryFrom<gestalt_core::event::AgentEvent> for TraceEventV1 {
+    type Error = serde_json::Error;
+
+    fn try_from(event: gestalt_core::event::AgentEvent) -> Result<Self, serde_json::Error> {
+        Self::try_from_agent_event(event)
+    }
+}
+
+impl TryFrom<TraceEventV1> for gestalt_core::event::AgentEvent {
+    type Error = serde_json::Error;
+
+    fn try_from(event: TraceEventV1) -> Result<Self, serde_json::Error> {
+        event.try_into_agent_event()
     }
 }
 

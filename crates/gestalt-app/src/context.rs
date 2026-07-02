@@ -170,25 +170,31 @@ pub async fn explain_context(
 
         let envelopes = gestalt_runtime::unstable::read_trace(&trace_path)?;
         for envelope in envelopes.iter().rev() {
-            if let gestalt_core::AgentEvent::ContextBuilt {
+            if let gestalt_runtime::unstable::TraceEventV1::ContextBuilt {
                 packet_id,
                 token_estimate,
                 packet_hash,
                 sources,
                 omissions,
                 prompt_source,
-            } = envelope.event.clone().into()
+            } = &envelope.event
             {
                 return Ok(ContextExplainReport {
                     prompt: None,
                     run_id: Some(run_id_or_path.to_string()),
-                    token_estimate,
+                    token_estimate: *token_estimate,
                     packet_hash: packet_hash.clone().unwrap_or_default(),
                     pipeline_version: packet_id.clone(),
-                    prompt_source,
+                    prompt_source: prompt_source.clone(),
                     system_prompt: None,
-                    sources: sources.unwrap_or_default().iter().map(Into::into).collect(),
+                    sources: sources
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(Into::into)
+                        .collect(),
                     omissions: omissions
+                        .as_deref()
                         .unwrap_or_default()
                         .iter()
                         .map(Into::into)

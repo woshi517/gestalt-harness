@@ -368,7 +368,7 @@ async fn runtime_control_persists_real_trace() {
     assert!(events.iter().any(|event| {
         matches!(
             event.event,
-            gestalt_runtime::unstable::TraceEvent::UserMessage { .. }
+            gestalt_runtime::unstable::TraceEventV1::UserMessage { .. }
         )
     }));
 }

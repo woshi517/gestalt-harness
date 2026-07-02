@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gestalt_core::{
-    trace::TraceSink, Message, Session, SessionConfig, TokenBudget, ToolCatalog, ToolContext,
-    WorkspaceSnapshotter,
+    event::AgentEvent as CoreAgentEvent, trace::TraceSink, Message, Session, SessionConfig,
+    TokenBudget, ToolCatalog, ToolContext, WorkspaceSnapshotter,
 };
 use gestalt_runtime::unstable::default_registry;
-use gestalt_runtime::unstable::TraceEvent as AgentEvent;
+use gestalt_runtime::unstable::TraceEventV1;
 use gestalt_runtime::unstable::{
     aggregate_costs, read_prompt_snapshot,
     resume::ResumeAnalyzer,
@@ -69,7 +69,7 @@ pub fn list_sessions(
                     if let Ok(envelopes) = gestalt_runtime::unstable::read_trace(&trace_path) {
                         let mut first_msg = None;
                         for env in envelopes {
-                            if let AgentEvent::UserMessage { content } = env.event {
+                            if let TraceEventV1::UserMessage { content } = env.event {
                                 let trimmed = content.trim();
                                 if !trimmed.is_empty() {
                                     let mut t = trimmed.chars().take(30).collect::<String>();
@@ -211,10 +211,10 @@ pub fn history_session(
             if let Ok(envelopes) = gestalt_runtime::unstable::read_trace(&trace_path) {
                 for env in envelopes {
                     let event_summary = match env.event {
-                        AgentEvent::UserMessage { ref content } => {
+                        TraceEventV1::UserMessage { ref content } => {
                             format!("User: {}", content)
                         }
-                        AgentEvent::AssistantMessageCommitted { ref message } => {
+                        TraceEventV1::AssistantMessageCommitted { ref message } => {
                             let text = match message {
                                 Message::Assistant { content } => content
                                     .iter()
@@ -237,10 +237,10 @@ pub fn history_session(
                                 format!("Assistant: {}", text)
                             }
                         }
-                        AgentEvent::ToolExecutionStarted { ref tool_name, .. } => {
+                        TraceEventV1::ToolExecutionStarted { ref tool_name, .. } => {
                             format!("Tool Executed: {}", tool_name)
                         }
-                        AgentEvent::ToolResult {
+                        TraceEventV1::ToolResult {
                             ref id, is_error, ..
                         } => {
                             format!(
@@ -249,8 +249,8 @@ pub fn history_session(
                                 if is_error { "error" } else { "success" }
                             )
                         }
-                        AgentEvent::Checkpoint { .. } => "Checkpoint Committed".to_string(),
-                        AgentEvent::Interrupted { ref reason } => {
+                        TraceEventV1::Checkpoint { .. } => "Checkpoint Committed".to_string(),
+                        TraceEventV1::Interrupted { ref reason } => {
                             format!("Interrupted: {}", reason)
                         }
                         _ => continue,
@@ -480,14 +480,14 @@ pub async fn run_session_action(
                 .map_err(gestalt_core::HarnessError::Trace)?;
             let mut target_checkpoint = None;
             for env in &envelopes {
-                if matches!(env.event, AgentEvent::Checkpoint { .. }) && env.seq == target_seq {
+                if matches!(env.event, TraceEventV1::Checkpoint { .. }) && env.seq == target_seq {
                     target_checkpoint = Some(env);
                     break;
                 }
             }
             match target_checkpoint {
                 Some(env) => match &env.event {
-                    AgentEvent::Checkpoint {
+                    TraceEventV1::Checkpoint {
                         history,
                         context_state,
                         token_budget,
@@ -681,15 +681,14 @@ pub async fn run_session_action(
 
     let initial_prompt_snapshot_hash = if cache_matches {
         if let Some(prompt_snapshot) = analysis.prompt_snapshot.as_ref() {
-            let loaded_event = AgentEvent::PromptSnapshotLoaded {
+            let loaded_event = CoreAgentEvent::PromptSnapshotLoaded {
                 snapshot_hash: prompt_snapshot.snapshot_hash.clone(),
                 source: gestalt_runtime::unstable::run_manifest::PROMPT_SNAPSHOT_RELATIVE_PATH
                     .to_string(),
             };
-            let loaded_event_core: gestalt_core::event::AgentEvent = loaded_event.clone().into();
-            sink.emit(loaded_event_core)?;
+            sink.emit(loaded_event.clone())?;
             if let Some(ref tx) = event_tx {
-                let _ = tx.send(loaded_event.into());
+                let _ = tx.send(loaded_event);
             }
         }
         analysis
@@ -730,14 +729,13 @@ pub async fn run_session_action(
         .map_err(|e| gestalt_core::HarnessError::Trace(gestalt_core::TraceError::WriteFailed(e)))?;
 
     let snapshot_id: String = current_snapshot.content_hash.chars().take(12).collect();
-    let snapshot_event = AgentEvent::WorkspaceSnapshotCaptured {
+    let snapshot_event = CoreAgentEvent::WorkspaceSnapshotCaptured {
         snapshot_id,
         dirty: current_snapshot.git_dirty.unwrap_or(false),
     };
-    let snapshot_event_core: gestalt_core::event::AgentEvent = snapshot_event.clone().into();
-    sink.emit(snapshot_event_core)?;
+    sink.emit(snapshot_event.clone())?;
     if let Some(ref tx) = event_tx {
-        let _ = tx.send(snapshot_event.into());
+        let _ = tx.send(snapshot_event);
     }
 
     // If continue or branch, we append the user's prompt as the next turn
@@ -746,11 +744,10 @@ pub async fn run_session_action(
             content: vec![gestalt_core::ContentBlock::Text { text: p.clone() }],
             metadata: None,
         });
-        let user_msg_event = AgentEvent::UserMessage { content: p.clone() };
-        let user_msg_event_core: gestalt_core::event::AgentEvent = user_msg_event.clone().into();
-        sink.emit(user_msg_event_core)?;
+        let user_msg_event = CoreAgentEvent::UserMessage { content: p.clone() };
+        sink.emit(user_msg_event.clone())?;
         if let Some(ref tx) = event_tx {
-            let _ = tx.send(user_msg_event.into());
+            let _ = tx.send(user_msg_event);
         }
     }
 

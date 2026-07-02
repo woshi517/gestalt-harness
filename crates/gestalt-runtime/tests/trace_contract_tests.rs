@@ -1,11 +1,15 @@
 use gestalt_core::context::HistoryRange;
 use gestalt_core::DurabilityMode;
+use gestalt_runtime::api::v1::{
+    project_client_event_line, ClientEventPayloadV1, ClientEventRecordV1,
+    CLIENT_EVENT_SCHEMA_VERSION,
+};
 use gestalt_runtime::unstable::context::projection::CompactionCheckpoint;
 use gestalt_runtime::unstable::context::{ContextManagementPolicy, ProjectionManifest};
 use gestalt_runtime::unstable::run_manifest::{LifecycleState, RunKind, RunManifest};
 use gestalt_runtime::unstable::{
     load_checkpoint, load_manifest, persist_checkpoint, persist_manifest, read_trace,
-    ClientEventRecordV1, TraceEvent, CLIENT_EVENT_SCHEMA_VERSION, TRACE_EVENT_SCHEMA_VERSION,
+    EventEnvelope, TraceEventV1, TRACE_EVENT_SCHEMA_VERSION,
 };
 use serde_json::json;
 use std::fs;
@@ -29,7 +33,7 @@ fn read_trace_skips_unknown_event_kinds() {
 
     let trace = read_trace(&path).expect("read trace");
     assert_eq!(trace.len(), 1);
-    assert!(matches!(trace[0].event, TraceEvent::UserMessage { .. }));
+    assert!(matches!(trace[0].event, TraceEventV1::UserMessage { .. }));
 }
 
 #[test]
@@ -151,14 +155,14 @@ fn context_artifact_readers_reject_unsupported_versions() {
 
 #[test]
 fn client_projection_omits_workspace_snapshot() {
-    let envelope = gestalt_runtime::unstable::EventEnvelope {
+    let envelope = EventEnvelope {
         v: TRACE_EVENT_SCHEMA_VERSION + 42,
         session_id: "session-1".to_string(),
         run_id: "run-1".to_string(),
         turn_id: 0,
         seq: 1,
         ts: chrono::Utc::now(),
-        event: TraceEvent::UserMessage {
+        event: TraceEventV1::UserMessage {
             content: "hello".to_string(),
         },
         redacted: false,
@@ -179,6 +183,160 @@ fn client_projection_omits_workspace_snapshot() {
     assert!(value.get("snapshot_id").is_none());
     assert_eq!(client.v, CLIENT_EVENT_SCHEMA_VERSION);
     assert_eq!(value["v"], json!(CLIENT_EVENT_SCHEMA_VERSION));
+}
+
+#[test]
+fn trace_event_round_trip_known_events() {
+    let events = [
+        TraceEventV1::UserMessage {
+            content: "hello".to_string(),
+        },
+        TraceEventV1::ContextBuilt {
+            packet_id: "packet-1".to_string(),
+            token_estimate: 42,
+            packet_hash: Some("hash".to_string()),
+            sources: None,
+            omissions: None,
+            prompt_source: Some("default".to_string()),
+        },
+        TraceEventV1::Checkpoint {
+            history: Vec::new(),
+            context_state: Box::default(),
+            token_budget: gestalt_core::TokenBudget::default(),
+            latest_projection_id: Some("projection-1".to_string()),
+            packet_hash: Some("checkpoint-hash".to_string()),
+            prompt_source: None,
+        },
+    ];
+
+    for event in events {
+        let encoded = serde_json::to_value(&event).expect("serialize trace event");
+        let decoded: TraceEventV1 =
+            serde_json::from_value(encoded).expect("deserialize trace event");
+        assert_eq!(decoded, event);
+    }
+}
+
+#[test]
+fn agent_to_trace_conversion_is_fallible_and_non_panicking() {
+    let core = gestalt_core::AgentEvent::Checkpoint {
+        history: Vec::new(),
+        context_state: Box::default(),
+        token_budget: gestalt_core::TokenBudget::default(),
+        latest_projection_id: Some("projection-1".to_string()),
+        packet_hash: Some("hash".to_string()),
+        prompt_source: None,
+    };
+
+    let trace = TraceEventV1::try_from(core.clone()).expect("convert agent event");
+    let restored = gestalt_core::AgentEvent::try_from(trace).expect("restore agent event");
+    assert_eq!(restored, core);
+}
+
+#[test]
+fn client_event_projection_redacts_content() {
+    let envelope = EventEnvelope {
+        v: TRACE_EVENT_SCHEMA_VERSION,
+        session_id: "session-1".to_string(),
+        run_id: "run-1".to_string(),
+        turn_id: 2,
+        seq: 7,
+        ts: chrono::Utc::now(),
+        event: TraceEventV1::UserMessage {
+            content: "use sk-secret-value now".to_string(),
+        },
+        redacted: false,
+        workspace_snapshot: None,
+        snapshot_id: None,
+    };
+
+    let client = ClientEventRecordV1::from(&envelope);
+    assert!(client.redacted);
+    assert!(matches!(
+        client.payload,
+        ClientEventPayloadV1::UserMessage { ref content }
+            if content == "use [REDACTED] now"
+    ));
+}
+
+#[test]
+fn client_event_projection_does_not_expose_checkpoint_payload() {
+    let envelope = EventEnvelope {
+        v: TRACE_EVENT_SCHEMA_VERSION,
+        session_id: "session-1".to_string(),
+        run_id: "run-1".to_string(),
+        turn_id: 3,
+        seq: 9,
+        ts: chrono::Utc::now(),
+        event: TraceEventV1::Checkpoint {
+            history: Vec::new(),
+            context_state: Box::default(),
+            token_budget: gestalt_core::TokenBudget::default(),
+            latest_projection_id: Some("INTERNAL_PROJECTION_SENTINEL".to_string()),
+            packet_hash: Some("INTERNAL_CHECKPOINT_SENTINEL".to_string()),
+            prompt_source: Some("INTERNAL_PROMPT_SENTINEL".to_string()),
+        },
+        redacted: false,
+        workspace_snapshot: None,
+        snapshot_id: None,
+    };
+
+    let value = serde_json::to_value(ClientEventRecordV1::from(&envelope)).unwrap();
+    let encoded = serde_json::to_string(&value).unwrap();
+    assert_eq!(value["payload"]["type"], "context");
+    for forbidden in [
+        "history",
+        "context_state",
+        "token_budget",
+        "INTERNAL_PROJECTION_SENTINEL",
+        "INTERNAL_CHECKPOINT_SENTINEL",
+        "INTERNAL_PROMPT_SENTINEL",
+    ] {
+        assert!(!encoded.contains(forbidden), "{forbidden} leaked");
+    }
+}
+
+#[test]
+fn client_event_projection_preserves_ordering_metadata() {
+    let envelope = EventEnvelope {
+        v: TRACE_EVENT_SCHEMA_VERSION,
+        session_id: "session-7".to_string(),
+        run_id: "run-5".to_string(),
+        turn_id: 11,
+        seq: 29,
+        ts: chrono::Utc::now(),
+        event: TraceEventV1::ContextBuildStarted,
+        redacted: false,
+        workspace_snapshot: None,
+        snapshot_id: None,
+    };
+
+    let client = ClientEventRecordV1::from(&envelope);
+    assert_eq!(client.session_id, "session-7");
+    assert_eq!(client.run_id, "run-5");
+    assert_eq!(client.turn_id, 11);
+    assert_eq!(client.seq, 29);
+    assert_eq!(client.ts, envelope.ts);
+    let encoded = serde_json::to_value(&client).expect("serialize client event");
+    let decoded: ClientEventRecordV1 =
+        serde_json::from_value(encoded).expect("deserialize client event");
+    assert_eq!(decoded, client);
+}
+
+#[test]
+fn client_event_projection_preserves_unknown_kind() {
+    let client = project_client_event_line(
+        r#"{"v":1,"session_id":"session-1","run_id":"run-1","turn_id":4,"seq":12,"ts":"2026-06-01T00:00:00Z","event":{"type":"future_kind","internal":{"secret":"ignored"}},"redacted":false}"#,
+        1,
+    )
+    .expect("project future event");
+
+    assert!(matches!(
+        client.payload,
+        ClientEventPayloadV1::Unknown { ref kind } if kind == "future_kind"
+    ));
+    assert_eq!(client.turn_id, 4);
+    assert_eq!(client.seq, 12);
 }
 
 #[test]

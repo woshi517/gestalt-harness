@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::read_trace;
-use crate::TraceEvent as AgentEvent;
+use crate::TraceEventV1 as AgentEvent;
 use gestalt_core::{event::PolicyStatus, model::ModelInfo, TraceError};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -183,7 +183,16 @@ pub fn load_session_transcript(
             if trace_path.exists() {
                 if let Ok(envelopes) = gestalt_runtime::unstable::read_trace(&trace_path) {
                     for env in envelopes {
-                        push_event(&mut entries, env.event.into());
+                        let event =
+                            gestalt_core::AgentEvent::try_from(env.event).map_err(|err| {
+                                HarnessError::Trace(gestalt_core::TraceError::InvalidFormat {
+                                    line: 0,
+                                    reason: format!(
+                                        "trace event cannot be projected into transcript: {err}"
+                                    ),
+                                })
+                            })?;
+                        push_event(&mut entries, event);
                     }
                 }
             }

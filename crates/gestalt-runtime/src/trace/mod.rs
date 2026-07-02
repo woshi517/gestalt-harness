@@ -14,14 +14,14 @@ pub use context_artifacts::{
     MessageMetadataRef, ProjectionManifest,
 };
 pub use evaluator::{EvalResult, EvalStatus, EvaluatorHook, NoopTraceEvaluator, TraceEvaluator};
-pub use event::{is_known_kind, TraceEvent};
+pub use event::{is_known_kind, TraceEventV1};
 pub use fixture::{FixtureInput, MockToolConfig, TraceFixture};
 pub use golden::{GoldenTrace, GoldenTraceRunner};
 pub use resume::{RecoveryStatus, ResumeAnalysis, ResumeAnalyzer};
 pub use run_manifest::{CompatibilityFingerprint, LifecycleState, RunKind, RunManifest};
 pub use tool_metrics::{analyze_tool_metrics, ToolMetricsReport};
 
-type AgentEvent = TraceEvent;
+type AgentEvent = TraceEventV1;
 
 use std::{
     fs::{self, File},
@@ -50,7 +50,7 @@ pub struct EventEnvelope {
     pub turn_id: usize,
     pub seq: u64,
     pub ts: DateTime<Utc>,
-    pub event: TraceEvent,
+    pub event: TraceEventV1,
     pub redacted: bool,
     #[serde(default)]
     pub workspace_snapshot: Option<gestalt_core::snapshot::WorkspaceSnapshot>,
@@ -66,12 +66,81 @@ pub struct ClientEventRecordV1 {
     pub turn_id: usize,
     pub seq: u64,
     pub ts: DateTime<Utc>,
-    pub event: TraceEvent,
+    pub payload: ClientEventPayloadV1,
     pub redacted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ClientEventPayloadV1 {
+    RunStarted {
+        provider: String,
+        model: String,
+    },
+    UserMessage {
+        content: String,
+    },
+    AssistantText {
+        delta: String,
+    },
+    AssistantThinking {
+        delta: String,
+    },
+    Context {
+        kind: String,
+        token_estimate: Option<usize>,
+        detail: Option<String>,
+    },
+    Model {
+        kind: String,
+        provider: Option<String>,
+        model: Option<String>,
+    },
+    Tool {
+        kind: String,
+        call_id: Option<String>,
+        name: Option<String>,
+        status: Option<String>,
+    },
+    Policy {
+        kind: String,
+        tool_call_id: String,
+        decision: Option<String>,
+        reason: Option<String>,
+    },
+    Approval {
+        kind: String,
+        tool_call_id: String,
+        decision: Option<String>,
+    },
+    Artifact {
+        size_bytes: usize,
+        mime_type: String,
+        hash: String,
+    },
+    Usage {
+        input_tokens: usize,
+        output_tokens: usize,
+    },
+    Stop {
+        reason: String,
+    },
+    Error {
+        kind: String,
+        message: String,
+        recoverable: bool,
+    },
+    Lifecycle {
+        kind: String,
+    },
+    Unknown {
+        kind: String,
+    },
 }
 
 impl From<&EventEnvelope> for ClientEventRecordV1 {
     fn from(envelope: &EventEnvelope) -> Self {
+        let (payload, projection_redacted) = project_client_payload(&envelope.event);
         Self {
             v: CLIENT_EVENT_SCHEMA_VERSION,
             session_id: envelope.session_id.clone(),
@@ -79,9 +148,350 @@ impl From<&EventEnvelope> for ClientEventRecordV1 {
             turn_id: envelope.turn_id,
             seq: envelope.seq,
             ts: envelope.ts,
-            event: envelope.event.clone(),
-            redacted: envelope.redacted,
+            payload,
+            redacted: envelope.redacted || projection_redacted,
         }
+    }
+}
+
+fn project_client_payload(event: &TraceEventV1) -> (ClientEventPayloadV1, bool) {
+    use ClientEventPayloadV1::{
+        Approval, Artifact, AssistantText, AssistantThinking, Context, Error, Lifecycle, Model,
+        Policy, RunStarted, Stop, Tool, Usage, UserMessage,
+    };
+
+    let kind = || trace_event_kind(event);
+    match event {
+        TraceEventV1::RunStarted { resolved_model } => (
+            RunStarted {
+                provider: resolved_model.selection.provider_id.clone(),
+                model: resolved_model.selection.model_id.clone(),
+            },
+            false,
+        ),
+        TraceEventV1::UserMessage { content } => {
+            let (content, redacted) = redact_string(content);
+            (UserMessage { content }, redacted)
+        }
+        TraceEventV1::Text { delta } => {
+            let (delta, redacted) = redact_string(delta);
+            (AssistantText { delta }, redacted)
+        }
+        TraceEventV1::Thinking { delta } => {
+            let (delta, redacted) = redact_string(delta);
+            (AssistantThinking { delta }, redacted)
+        }
+        TraceEventV1::ContextBuilt { token_estimate, .. } => (
+            Context {
+                kind: kind(),
+                token_estimate: Some(*token_estimate),
+                detail: None,
+            },
+            false,
+        ),
+        TraceEventV1::EphemeralContextInjected {
+            source,
+            token_estimate,
+        } => {
+            let (detail, redacted) = redact_string(source);
+            (
+                Context {
+                    kind: kind(),
+                    token_estimate: Some(*token_estimate),
+                    detail: Some(detail),
+                },
+                redacted,
+            )
+        }
+        TraceEventV1::ContextBuildFailed { reason }
+        | TraceEventV1::NextTurnBlocked { reason }
+        | TraceEventV1::WorkspaceContextSkipped { reason }
+        | TraceEventV1::WorkspaceContextRejected { reason }
+        | TraceEventV1::MemoryContextSkipped { reason }
+        | TraceEventV1::MemoryContextRejected { reason } => {
+            let (detail, redacted) = redact_string(reason);
+            (
+                Context {
+                    kind: kind(),
+                    token_estimate: None,
+                    detail: Some(detail),
+                },
+                redacted,
+            )
+        }
+        TraceEventV1::ContextManagementFailed { error }
+        | TraceEventV1::ContextExhaustion { details: error }
+        | TraceEventV1::WorkspaceContextLoadFailed { error }
+        | TraceEventV1::MemoryContextLoadFailed { error } => {
+            let (message, redacted) = redact_string(error);
+            (
+                Error {
+                    kind: kind(),
+                    message,
+                    recoverable: true,
+                },
+                redacted,
+            )
+        }
+        TraceEventV1::ModelRequest {
+            provider, model, ..
+        } => (
+            Model {
+                kind: kind(),
+                provider: Some(provider.clone()),
+                model: Some(model.clone()),
+            },
+            false,
+        ),
+        TraceEventV1::ModelResponseStreamFailed { error, .. } => {
+            let (message, redacted) = redact_string(error);
+            (
+                Error {
+                    kind: kind(),
+                    message,
+                    recoverable: true,
+                },
+                redacted,
+            )
+        }
+        TraceEventV1::ModelResponseStarted { .. }
+        | TraceEventV1::ModelResponseStreamCompleted { .. }
+        | TraceEventV1::ModelResponseStreamInterrupted { .. } => (
+            Model {
+                kind: kind(),
+                provider: None,
+                model: None,
+            },
+            false,
+        ),
+        TraceEventV1::ToolCallStreamed { id, name, .. }
+        | TraceEventV1::ToolCallProposed { id, name, .. }
+        | TraceEventV1::ToolExecutionStarted {
+            id,
+            tool_name: name,
+            ..
+        } => (
+            Tool {
+                kind: kind(),
+                call_id: Some(id.clone()),
+                name: Some(name.clone()),
+                status: None,
+            },
+            false,
+        ),
+        TraceEventV1::ToolResult {
+            id,
+            tool_name,
+            is_error,
+            truncated,
+            ..
+        } => (
+            Tool {
+                kind: kind(),
+                call_id: Some(id.clone()),
+                name: tool_name.clone(),
+                status: Some(if *is_error {
+                    "error".to_string()
+                } else if *truncated {
+                    "truncated".to_string()
+                } else {
+                    "ok".to_string()
+                }),
+            },
+            false,
+        ),
+        TraceEventV1::ToolCallValidationFailed {
+            tool_call_id,
+            tool_name,
+            ..
+        }
+        | TraceEventV1::PolicyViolation {
+            tool_call_id,
+            tool_name,
+            ..
+        } => (
+            Tool {
+                kind: kind(),
+                call_id: Some(tool_call_id.clone()),
+                name: Some(tool_name.clone()),
+                status: Some("rejected".to_string()),
+            },
+            false,
+        ),
+        TraceEventV1::ToolRetryAttempt {
+            tool_call_id,
+            attempt,
+            ..
+        } => (
+            Tool {
+                kind: kind(),
+                call_id: Some(tool_call_id.clone()),
+                name: None,
+                status: Some(format!("retry_{attempt}")),
+            },
+            false,
+        ),
+        TraceEventV1::PolicyDecision {
+            tool_call_id,
+            decision,
+            reason,
+            ..
+        } => {
+            let (reason, redacted) = reason.as_ref().map_or((None, false), |reason| {
+                let (reason, redacted) = redact_string(reason);
+                (Some(reason), redacted)
+            });
+            (
+                Policy {
+                    kind: kind(),
+                    tool_call_id: tool_call_id.clone(),
+                    decision: Some(policy_status_name(*decision).to_string()),
+                    reason,
+                },
+                redacted,
+            )
+        }
+        TraceEventV1::PolicyEvaluationStarted { tool_call_id }
+        | TraceEventV1::PolicyEvaluationCancelled { tool_call_id } => (
+            Policy {
+                kind: kind(),
+                tool_call_id: tool_call_id.clone(),
+                decision: None,
+                reason: None,
+            },
+            false,
+        ),
+        TraceEventV1::PolicyEvaluationFailed {
+            tool_call_id,
+            error,
+        } => {
+            let (reason, redacted) = redact_string(error);
+            (
+                Policy {
+                    kind: kind(),
+                    tool_call_id: tool_call_id.clone(),
+                    decision: None,
+                    reason: Some(reason),
+                },
+                redacted,
+            )
+        }
+        TraceEventV1::ApprovalDecision {
+            tool_call_id,
+            decision,
+            ..
+        } => (
+            Approval {
+                kind: kind(),
+                tool_call_id: tool_call_id.clone(),
+                decision: Some(approval_outcome_name(*decision).to_string()),
+            },
+            false,
+        ),
+        TraceEventV1::ApprovalRequested { tool_call_id, .. }
+        | TraceEventV1::ApprovalCancelled { tool_call_id } => (
+            Approval {
+                kind: kind(),
+                tool_call_id: tool_call_id.clone(),
+                decision: None,
+            },
+            false,
+        ),
+        TraceEventV1::ArtifactCreated {
+            size_bytes,
+            mime_type,
+            hash,
+            ..
+        } => (
+            Artifact {
+                size_bytes: *size_bytes,
+                mime_type: mime_type.clone(),
+                hash: hash.clone(),
+            },
+            false,
+        ),
+        TraceEventV1::Usage {
+            input_tokens,
+            output_tokens,
+        } => (
+            Usage {
+                input_tokens: *input_tokens,
+                output_tokens: *output_tokens,
+            },
+            false,
+        ),
+        TraceEventV1::Stop { reason } => (
+            Stop {
+                reason: stop_reason_name(*reason).to_string(),
+            },
+            false,
+        ),
+        TraceEventV1::Error {
+            message,
+            recoverable,
+        } => {
+            let (message, redacted) = redact_string(message);
+            (
+                Error {
+                    kind: kind(),
+                    message,
+                    recoverable: *recoverable,
+                },
+                redacted,
+            )
+        }
+        TraceEventV1::Checkpoint { .. }
+        | TraceEventV1::AssistantMessageCommitted { .. }
+        | TraceEventV1::SessionMessageInjected { .. }
+        | TraceEventV1::ToolCatalogSelected { .. }
+        | TraceEventV1::ContextCompactionStarted { .. }
+        | TraceEventV1::ContextCompacted { .. } => (
+            Context {
+                kind: kind(),
+                token_estimate: None,
+                detail: None,
+            },
+            false,
+        ),
+        _ => (Lifecycle { kind: kind() }, false),
+    }
+}
+
+fn trace_event_kind(event: &TraceEventV1) -> String {
+    serde_json::to_value(event)
+        .ok()
+        .and_then(|value| value.get("type")?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+const fn policy_status_name(status: gestalt_core::event::PolicyStatus) -> &'static str {
+    match status {
+        gestalt_core::event::PolicyStatus::Allowed => "allowed",
+        gestalt_core::event::PolicyStatus::Confirm => "confirm",
+        gestalt_core::event::PolicyStatus::Denied => "denied",
+    }
+}
+
+const fn approval_outcome_name(outcome: gestalt_core::event::ApprovalOutcome) -> &'static str {
+    match outcome {
+        gestalt_core::event::ApprovalOutcome::Approve => "approve",
+        gestalt_core::event::ApprovalOutcome::Deny => "deny",
+        gestalt_core::event::ApprovalOutcome::Edit => "edit",
+        gestalt_core::event::ApprovalOutcome::AlwaysAllow => "always_allow",
+    }
+}
+
+const fn stop_reason_name(reason: StopReason) -> &'static str {
+    match reason {
+        StopReason::EndTurn => "end_turn",
+        StopReason::ToolUse => "tool_use",
+        StopReason::MaxOutput => "max_output",
+        StopReason::ContentFiltered => "content_filtered",
+        StopReason::MaxTurns => "max_turns",
+        StopReason::BudgetExhausted => "budget_exhausted",
+        StopReason::PolicyViolation => "policy_violation",
+        StopReason::ProviderError => "provider_error",
+        StopReason::HookBlocked => "hook_blocked",
     }
 }
 
@@ -204,6 +614,10 @@ impl TraceSink for JsonlTraceSink {
             .workspace_snapshot
             .as_ref()
             .map(|s| s.content_hash.chars().take(12).collect::<String>());
+        let event = TraceEventV1::try_from(event).map_err(|err| TraceError::InvalidFormat {
+            line: 0,
+            reason: format!("agent event cannot be represented by trace schema v1: {err}"),
+        })?;
         let envelope = EventEnvelope {
             v: 1,
             session_id: self.session_id.clone(),
@@ -211,7 +625,7 @@ impl TraceSink for JsonlTraceSink {
             turn_id: state.turn_id,
             seq: state.seq,
             ts: Utc::now(),
-            event: TraceEvent::from(event),
+            event,
             redacted,
             workspace_snapshot: state.workspace_snapshot.clone(),
             snapshot_id,
@@ -362,6 +776,78 @@ pub fn parse_trace_envelope_line(
             line: line_number,
             reason: err.to_string(),
         })
+}
+
+#[derive(Deserialize)]
+struct ClientEnvelopeMetadata {
+    v: u32,
+    session_id: String,
+    #[serde(default)]
+    run_id: String,
+    turn_id: usize,
+    seq: u64,
+    ts: DateTime<Utc>,
+    #[serde(default)]
+    redacted: bool,
+}
+
+/// Projects a raw trace JSON line into the stable client event contract.
+///
+/// Unknown event kinds retain their envelope ordering metadata and become
+/// [`ClientEventPayloadV1::Unknown`]. Known kinds must satisfy the complete
+/// trace schema.
+pub fn project_client_event_line(
+    line: &str,
+    line_number: usize,
+) -> Result<ClientEventRecordV1, TraceError> {
+    let value: Value = serde_json::from_str(line).map_err(|err| TraceError::InvalidFormat {
+        line: line_number,
+        reason: err.to_string(),
+    })?;
+    let metadata: ClientEnvelopeMetadata =
+        serde_json::from_value(value.clone()).map_err(|err| TraceError::InvalidFormat {
+            line: line_number,
+            reason: err.to_string(),
+        })?;
+    if metadata.v != TRACE_EVENT_SCHEMA_VERSION {
+        return Err(TraceError::InvalidFormat {
+            line: line_number,
+            reason: format!(
+                "unsupported trace schema version {} (expected {})",
+                metadata.v, TRACE_EVENT_SCHEMA_VERSION
+            ),
+        });
+    }
+    let kind = value
+        .get("event")
+        .and_then(|event| event.get("type"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| TraceError::InvalidFormat {
+            line: line_number,
+            reason: "missing trace event kind".to_string(),
+        })?;
+
+    if is_known_kind(kind) {
+        let envelope: EventEnvelope =
+            serde_json::from_value(value).map_err(|err| TraceError::InvalidFormat {
+                line: line_number,
+                reason: err.to_string(),
+            })?;
+        return Ok(ClientEventRecordV1::from(&envelope));
+    }
+
+    Ok(ClientEventRecordV1 {
+        v: CLIENT_EVENT_SCHEMA_VERSION,
+        session_id: metadata.session_id,
+        run_id: metadata.run_id,
+        turn_id: metadata.turn_id,
+        seq: metadata.seq,
+        ts: metadata.ts,
+        payload: ClientEventPayloadV1::Unknown {
+            kind: kind.to_string(),
+        },
+        redacted: metadata.redacted,
+    })
 }
 
 #[allow(clippy::format_push_string)]

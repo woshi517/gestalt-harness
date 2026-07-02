@@ -1,4 +1,4 @@
-use crate::TraceEvent as AgentEvent;
+use crate::TraceEventV1 as AgentEvent;
 use crate::{
     read_prompt_snapshot, read_trace,
     run_manifest::{LifecycleState, RunManifest},
@@ -452,7 +452,7 @@ mod tests {
         CompatibilityFingerprint, LifecycleState, RunKind, RunManifest,
         PROMPT_SNAPSHOT_RELATIVE_PATH,
     };
-    use crate::TraceEvent as AgentEvent;
+    use crate::TraceEventV1 as AgentEvent;
     use crate::{write_prompt_snapshot, EventEnvelope};
     use gestalt_core::snapshot::WorkspaceSnapshot;
     use gestalt_core::{Message, PromptSnapshot};

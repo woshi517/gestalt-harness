@@ -21,4 +21,9 @@ pub mod v1 {
     };
     pub use crate::error::{Result, RuntimeError};
     pub use crate::runtime::{AgentRuntime, UserInput};
+    #[cfg(feature = "trace")]
+    pub use crate::trace::{
+        project_client_event_line, ClientEventPayloadV1, ClientEventRecordV1,
+        CLIENT_EVENT_SCHEMA_VERSION,
+    };
 }
