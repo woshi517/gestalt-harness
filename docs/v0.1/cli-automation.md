@@ -1,6 +1,6 @@
 ---
 title: "CLI Automation Contract v1"
-status: active
+status: published
 type: version-contract
 target: v0.1
 owners:
