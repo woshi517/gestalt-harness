@@ -64,7 +64,7 @@ pub struct AgentRuntime {
     pub mcp_registry: Arc<crate::mcp::McpRegistry>,
     #[cfg(feature = "mcp")]
     pub mcp_discovery_state: Arc<std::sync::Mutex<crate::mcp::McpDiscoveryState>>,
-    steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
+    pub(crate) steering_queue: Arc<dyn gestalt_core::session_queue::SteeringQueue>,
     pub workspace_context_snapshot: Option<crate::workspace_context::WorkspaceContextSnapshot>,
 }
 
@@ -128,6 +128,8 @@ impl AgentRuntime {
             host_context,
         ));
 
+        let steering_queue_capacity = config.steering_queue_capacity;
+
         Self {
             provider,
             tools,
@@ -149,7 +151,12 @@ impl AgentRuntime {
             mcp_registry,
             #[cfg(feature = "mcp")]
             mcp_discovery_state,
-            steering_queue: Arc::new(crate::session_queue::InMemorySteeringQueue::new()),
+            steering_queue: Arc::new(
+                crate::session_queue::InMemorySteeringQueue::active_with_capacity(
+                    steering_queue_capacity
+                        .unwrap_or(crate::session_queue::DEFAULT_STEERING_QUEUE_CAPACITY),
+                ),
+            ),
             workspace_context_snapshot: None,
         }
     }

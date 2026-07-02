@@ -253,7 +253,7 @@ async fn test_orchestration_steering_enqueue() {
 
     let mut rx = handle.subscribe();
 
-    // Enqueue a steering message before session starts running -> SessionNotActive
+    // Enqueue a steering message before session starts running -> Queued
     let ack = handle
         .enqueue_steering_message(
             &session_id,
@@ -264,9 +264,9 @@ async fn test_orchestration_steering_enqueue() {
         .await
         .unwrap();
 
-    assert_eq!(ack, gestalt_core::session_queue::QueueAck::SessionNotActive);
+    assert_eq!(ack, gestalt_core::session_queue::QueueAck::Queued);
 
-    // Verify no SessionMessageQueued event is published on event bus
+    // Verify SessionMessageQueued event is published on event bus
     let mut event_found = false;
     while let Ok(evt) = rx.try_recv() {
         if let RuntimeEvent::SessionMessageQueued { .. } = &*evt {
@@ -274,8 +274,8 @@ async fn test_orchestration_steering_enqueue() {
         }
     }
     assert!(
-        !event_found,
-        "Should NOT have received SessionMessageQueued event before active"
+        event_found,
+        "Should have received SessionMessageQueued event when successfully queued"
     );
 }
 

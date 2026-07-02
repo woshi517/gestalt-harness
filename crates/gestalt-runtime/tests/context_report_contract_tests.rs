@@ -317,3 +317,58 @@ fn report_input(packet: &ContextPacket) -> ContextBuildReportInputV1<'_> {
         projection_artifact_ref: Some("projection.json".to_string()),
     }
 }
+
+#[test]
+fn context_redaction_redacts_nested_object_under_sensitive_key() {
+    let raw = serde_json::json!({
+        "credentials": {
+            "value": "plain-secret",
+            "nested": {
+                "inner": "deep-secret"
+            }
+        }
+    });
+    let capture =
+        CapturedContributionV1::capture_redacted("dyn", serde_json::to_string(&raw).unwrap())
+            .unwrap();
+    let redacted = capture.content.as_deref().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(redacted).unwrap();
+    assert_eq!(parsed["credentials"]["value"], "[REDACTED]");
+    assert_eq!(parsed["credentials"]["nested"]["inner"], "[REDACTED]");
+}
+
+#[test]
+fn context_redaction_redacts_array_under_sensitive_key() {
+    let raw = serde_json::json!({
+        "credentials": [
+            "secret-1",
+            "secret-2"
+        ]
+    });
+    let capture =
+        CapturedContributionV1::capture_redacted("dyn", serde_json::to_string(&raw).unwrap())
+            .unwrap();
+    let redacted = capture.content.as_deref().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(redacted).unwrap();
+    assert_eq!(parsed["credentials"][0], "[REDACTED]");
+    assert_eq!(parsed["credentials"][1], "[REDACTED]");
+}
+
+#[test]
+fn context_redaction_preserves_non_sensitive_nested_json() {
+    let raw = serde_json::json!({
+        "normal": {
+            "field": "normal-value",
+            "nested": {
+                "inner": "safe"
+            }
+        }
+    });
+    let capture =
+        CapturedContributionV1::capture_redacted("dyn", serde_json::to_string(&raw).unwrap())
+            .unwrap();
+    let redacted = capture.content.as_deref().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(redacted).unwrap();
+    assert_eq!(parsed["normal"]["field"], "normal-value");
+    assert_eq!(parsed["normal"]["nested"]["inner"], "safe");
+}

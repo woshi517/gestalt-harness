@@ -665,7 +665,7 @@ impl Drop for JsonlTraceSink {
 }
 
 pub fn create_run_paths(base_dir: impl AsRef<Path>, run_id: &str) -> Result<RunPaths, TraceError> {
-    let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
+    let stamp = Utc::now().format("%Y%m%dT%H%M%S.%fZ");
     let root = base_dir.as_ref().join(format!("{stamp}-{run_id}"));
     let artifacts = root.join("artifacts");
     fs::create_dir_all(&artifacts).map_err(TraceError::WriteFailed)?;

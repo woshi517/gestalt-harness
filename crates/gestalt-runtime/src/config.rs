@@ -83,6 +83,8 @@ pub struct RuntimeConfig {
     pub allow_untrusted_extensions: bool,
     #[serde(default)]
     pub effective_config_fingerprint: Option<String>,
+    #[serde(default)]
+    pub steering_queue_capacity: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -158,6 +160,7 @@ impl Default for RuntimeConfig {
             extension_instances: BTreeMap::new(),
             allow_untrusted_extensions: false,
             effective_config_fingerprint: None,
+            steering_queue_capacity: None,
         }
     }
 }

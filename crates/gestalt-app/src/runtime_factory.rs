@@ -298,6 +298,7 @@ async fn build_app_runtime_inner(
         extension_instances: convert_extension_instances(&config.extensions.instances),
         allow_untrusted_extensions: config.extensions.allow_untrusted,
         effective_config_fingerprint: Some(config.compute_fingerprint()),
+        steering_queue_capacity: None,
     };
 
     let mut verifier_registry = gestalt_runtime::unstable::VerifierRegistry::new();
