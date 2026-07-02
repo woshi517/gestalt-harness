@@ -22,6 +22,7 @@ use gestalt_runtime::unstable::{
     AgentRuntimeBuilder, ArtifactStore, ContextMessageAssembler, InMemoryArtifactStore,
     RuntimeConfig,
 };
+use sha2::Digest;
 
 #[derive(Clone, Copy)]
 enum ProviderBehavior {
@@ -134,6 +135,54 @@ impl Provider for FakeProvider {
 struct RecordingTool {
     executions: Arc<AtomicUsize>,
     inputs: Arc<Mutex<Vec<serde_json::Value>>>,
+}
+
+struct ArtifactTool {
+    path: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl Tool for ArtifactTool {
+    fn name(&self) -> &str {
+        "record"
+    }
+
+    fn description(&self) -> &str {
+        "materialize artifact"
+    }
+
+    fn schema(&self) -> ToolSchema {
+        serde_json::from_value(serde_json::json!({
+            "name": "record",
+            "description": "materialize artifact",
+            "input_schema": {
+                "type": "object",
+                "properties": {"value": {"type": "integer"}},
+                "required": ["value"]
+            }
+        }))
+        .unwrap()
+    }
+
+    fn risk(&self, _input: &serde_json::Value) -> gestalt_core::RiskLevel {
+        gestalt_core::RiskLevel::Low
+    }
+
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &ToolContext,
+    ) -> Result<ToolOutput, gestalt_core::ToolError> {
+        Ok(ToolOutput::Artifact {
+            path: self.path.clone(),
+            mime_type: "text/plain".to_string(),
+            size_bytes: std::fs::metadata(&self.path)
+                .unwrap()
+                .len()
+                .try_into()
+                .unwrap(),
+        })
+    }
 }
 
 #[async_trait::async_trait]
@@ -728,6 +777,51 @@ async fn runtime_control_artifact_lifecycle_uses_real_artifact_store() {
     assert_eq!(
         store.get_artifact(&session_id.0, "result.txt").unwrap(),
         b"artifact"
+    );
+}
+
+#[tokio::test]
+async fn artifact_real_runtime_tool_output_materialized() {
+    let source = tempfile::tempdir().unwrap();
+    let source_path = source.path().join("tool-output.txt");
+    std::fs::write(&source_path, b"tool artifact").unwrap();
+    let store = Arc::new(InMemoryArtifactStore::new());
+    let host = host(
+        ProviderBehavior::ToolThenEnd,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(SingleToolCatalog {
+            tool: Arc::new(ArtifactTool { path: source_path }),
+        }),
+        false,
+        store.clone(),
+        None,
+    );
+    let (session_id, run_id) = start(&host, "real-tool-artifact").await;
+    continue_run(&host, &session_id, &run_id, None).await;
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    let listed = host
+        .list_artifacts(ListArtifactsRequestV1 {
+            session_id: session_id.clone(),
+            cursor: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(listed.artifacts.len(), 1);
+    let metadata = &listed.artifacts[0];
+    assert!(!metadata
+        .display_path
+        .contains(source.path().to_str().unwrap()));
+    assert_eq!(
+        store
+            .get_artifact(&session_id.0, &metadata.logical_id.0)
+            .unwrap(),
+        b"tool artifact"
+    );
+    assert_eq!(
+        metadata.integrity,
+        format!("{:x}", sha2::Sha256::digest(b"tool artifact"))
     );
 }
 

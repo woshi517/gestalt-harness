@@ -9,7 +9,7 @@ owners:
 
 # Gestalt v0.1: Proposed Embedding and Runtime Control Contract
 
-This proposed contract specifies the target v0.1 embedding interface and runtime control semantics for the Gestalt harness. `RuntimeBackedControlHost` drives real provider/tool execution, approval, cancellation, events, and artifact storage. `InMemoryControlHost` and `MockControlHost` are conformance-only test support. Policy/approval is published separately; this aggregate contract still waits for the remaining artifact-security, event-projection, and public-API gates.
+This proposed contract specifies the target v0.1 embedding interface and runtime control semantics for the Gestalt harness. `RuntimeBackedControlHost` drives real provider/tool execution, approval, cancellation, events, and artifact storage. `InMemoryControlHost` and `MockControlHost` are conformance-only test support. Policy/approval and artifact access are test-backed; this aggregate contract still waits for the remaining event-projection and aggregate conformance gates.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 
@@ -86,8 +86,12 @@ All fallible operations return the unified `ControlErrorV1` payload containing a
 * If a cursor falls behind retention limits, the API returns a `LAGGED_CURSOR` error containing the newest safe resumption cursor within the error's `details`.
 
 ### 4.5 Bounded Artifact Reads (H1A-B07)
-* Artifact range reads reject directory traversal sequences (e.g. `../`) and block cross-session resource reads.
-* The API enforces a 1 MiB maximum chunk size by default. Requests above this limit or specifying invalid bounds are rejected immediately with a `VALIDATION` error, preventing unbounded memory allocations.
+* `display_path` is a validated logical name, never an authority-bearing filesystem path. Empty paths, absolute Unix or Windows paths, `.`/`..` segments, backslashes, empty segments, and control characters are rejected.
+* Runtime-backed control stores API-created and tool-produced artifacts in the configured `ArtifactStore`. Tool filesystem paths are copied into the store and projected as content-derived logical IDs; raw source paths do not cross the stable event boundary.
+* Artifact IDs are resolved inside the requested session namespace. Cross-session reads return `NOT_FOUND`.
+* The API enforces a 1 MiB maximum chunk size by default. Offset and length conversion, addition overflow, and ranges past EOF return `VALIDATION`.
+* A zero-length read is valid at any offset through EOF, including exactly EOF; it is invalid beyond EOF.
+* Metadata includes logical ID, display path, byte size, SHA-256 integrity, and media type. Stores without durable media-type metadata report `application/octet-stream`.
 
 ## 5. Runtime-Backed Host
 
