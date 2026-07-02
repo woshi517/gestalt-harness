@@ -9,7 +9,7 @@ documented in [runtime-api.md](./runtime-api.md).
 ---
 
 ## 1. Embedding and Runtime Control (RUNTIME-001–RUNTIME-006)
-* **Status:** 🔴 **Unpublished (Remaining Artifact/API Gates)**
+* **Status:** 🔴 **Unpublished (Remaining Event/Conformance Gates)**
 * **Specification:** [embedding-control.md](./embedding-control.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md), [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
 * **Rust API Target:** `gestalt_runtime::api::v1::{RuntimeBackedControlHost, RuntimeControlV1}`

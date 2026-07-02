@@ -11,6 +11,7 @@
 //! - H1B-B04: this suite also passes with `--no-default-features`.
 
 use gestalt_runtime::api::v1::*;
+use sha2::Digest;
 use std::sync::Arc;
 
 use gestalt_core::{
@@ -750,6 +751,155 @@ async fn approval_cancelled_rejected() {
         .unwrap_err();
 
     assert_eq!(error.code, ControlErrorCodeV1::Conflict);
+}
+
+async fn artifact_fixture(
+    data: &[u8],
+    max_read: usize,
+) -> (InMemoryControlHost, SessionIdV1, CreateArtifactResponseV1) {
+    let host = InMemoryControlHost::with_options(ControlHostOptions {
+        max_artifact_read_bytes: max_read as u64,
+        ..ControlHostOptions::default()
+    });
+    let started = host
+        .start_session(StartSessionRequestV1 {
+            session_id: None,
+            idempotency_key: None,
+            config_override: None,
+        })
+        .await
+        .unwrap();
+    let artifact = host
+        .create_artifact(CreateArtifactRequestV1 {
+            session_id: started.session_id.clone(),
+            display_path: "result.txt".to_string(),
+            data: data.to_vec(),
+        })
+        .await
+        .unwrap();
+    (host, started.session_id, artifact)
+}
+
+#[tokio::test]
+async fn artifact_create_rejects_traversal() {
+    let (host, session_id, _) = artifact_fixture(b"x", 4).await;
+    for path in ["../secret", "dir/../secret", r"dir\..\secret"] {
+        let error = host
+            .create_artifact(CreateArtifactRequestV1 {
+                session_id: session_id.clone(),
+                display_path: path.to_string(),
+                data: Vec::new(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ControlErrorCodeV1::Validation, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn artifact_create_rejects_absolute_path() {
+    let (host, session_id, _) = artifact_fixture(b"x", 4).await;
+    for path in ["/secret", "C:/secret", "", "bad\nname"] {
+        let error = host
+            .create_artifact(CreateArtifactRequestV1 {
+                session_id: session_id.clone(),
+                display_path: path.to_string(),
+                data: Vec::new(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ControlErrorCodeV1::Validation, "{path:?}");
+    }
+}
+
+#[tokio::test]
+async fn artifact_read_rejects_oversized_chunk() {
+    let (host, session_id, artifact) = artifact_fixture(b"abcdef", 4).await;
+    let error = host
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id,
+            artifact_id: artifact.metadata.logical_id,
+            offset: 0,
+            length: 5,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ControlErrorCodeV1::Validation);
+}
+
+#[tokio::test]
+async fn artifact_read_rejects_offset_overflow() {
+    let (host, session_id, artifact) = artifact_fixture(b"abcdef", 4).await;
+    let error = host
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id,
+            artifact_id: artifact.metadata.logical_id,
+            offset: u64::MAX,
+            length: 1,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ControlErrorCodeV1::Validation);
+}
+
+#[tokio::test]
+async fn artifact_read_rejects_range_past_eof() {
+    let (host, session_id, artifact) = artifact_fixture(b"abcdef", 4).await;
+    let error = host
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id: session_id.clone(),
+            artifact_id: artifact.metadata.logical_id.clone(),
+            offset: 4,
+            length: 3,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ControlErrorCodeV1::Validation);
+
+    let empty = host
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id,
+            artifact_id: artifact.metadata.logical_id,
+            offset: 6,
+            length: 0,
+        })
+        .await
+        .unwrap();
+    assert!(empty.data.is_empty());
+}
+
+#[tokio::test]
+async fn artifact_cross_session_access_denied_or_not_found() {
+    let (host, _, artifact) = artifact_fixture(b"secret", 4).await;
+    let other = host
+        .start_session(StartSessionRequestV1 {
+            session_id: None,
+            idempotency_key: None,
+            config_override: None,
+        })
+        .await
+        .unwrap();
+    let error = host
+        .read_artifact_range(ReadArtifactRangeRequestV1 {
+            session_id: other.session_id,
+            artifact_id: artifact.metadata.logical_id,
+            offset: 0,
+            length: 1,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ControlErrorCodeV1::NotFound);
+}
+
+#[tokio::test]
+async fn artifact_integrity_matches_content() {
+    let content = b"integrity";
+    let (_, _, artifact) = artifact_fixture(content, content.len()).await;
+    assert_eq!(
+        artifact.metadata.integrity,
+        format!("{:x}", sha2::Sha256::digest(content))
+    );
+    assert_eq!(artifact.metadata.media_type, "application/octet-stream");
 }
 
 #[test]

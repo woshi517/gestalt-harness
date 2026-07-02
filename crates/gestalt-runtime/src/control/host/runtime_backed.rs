@@ -249,6 +249,12 @@ impl RuntimeBackedControlHost {
     }
 
     fn project_agent_event(&self, session_id: &SessionIdV1, run_id: &RunIdV1, event: AgentEvent) {
+        let logical_artifact_id = match &event {
+            AgentEvent::ArtifactCreated { path, .. } => {
+                self.store_tool_artifact(session_id, std::path::Path::new(path))
+            }
+            _ => None,
+        };
         let mut state = self
             .control
             .inner
@@ -330,9 +336,10 @@ impl RuntimeBackedControlHost {
                 );
                 EventPayloadV1::ApprovalRequested { approval_id }
             }
-            AgentEvent::ArtifactCreated { path, .. } => EventPayloadV1::ArtifactCreated {
-                artifact_id: ArtifactIdV1(path),
-            },
+            AgentEvent::ArtifactCreated { .. } => logical_artifact_id
+                .map_or(EventPayloadV1::Unknown, |artifact_id| {
+                    EventPayloadV1::ArtifactCreated { artifact_id }
+                }),
             _ => EventPayloadV1::Unknown,
         };
         self.control
@@ -440,18 +447,21 @@ impl RuntimeBackedControlHost {
         }
     }
 
-    fn validate_artifact_path(path: &str) -> Result<(), ControlErrorV1> {
-        if path.is_empty()
-            || path.contains("..")
-            || path.starts_with('/')
-            || path.contains('\\')
-            || path.chars().any(char::is_control)
-        {
-            return Err(InMemoryControl::validation(
-                "artifact path must be a non-empty relative path",
-            ));
-        }
-        Ok(())
+    fn store_tool_artifact(
+        &self,
+        session_id: &SessionIdV1,
+        path: &std::path::Path,
+    ) -> Option<ArtifactIdV1> {
+        let content = std::fs::read(path).ok()?;
+        let file_name = path.file_name()?.to_str()?;
+        InMemoryControl::validate_artifact_display_path(file_name).ok()?;
+        let integrity = format!("{:x}", sha2::Sha256::digest(&content));
+        let logical_id = format!("{}-{file_name}", &integrity[..16]);
+        self.runtime_host
+            .artifact_store()
+            .put_artifact(&session_id.0, &logical_id, &content)
+            .ok()?;
+        Some(ArtifactIdV1(logical_id))
     }
 
     fn map_queue_ack(ack: QueueAck) -> Result<bool, ControlErrorV1> {
@@ -1014,7 +1024,7 @@ impl ArtifactAccessV1 for RuntimeBackedControlHost {
         &self,
         req: CreateArtifactRequestV1,
     ) -> Result<CreateArtifactResponseV1, ControlErrorV1> {
-        Self::validate_artifact_path(&req.display_path)?;
+        InMemoryControl::validate_artifact_display_path(&req.display_path)?;
         self.control
             .inspect_session(InspectSessionRequestV1 {
                 session_id: req.session_id.clone(),

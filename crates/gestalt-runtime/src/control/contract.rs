@@ -554,6 +554,8 @@ pub struct ArtifactMetadataV1 {
     pub logical_id: ArtifactIdV1,
     pub display_path: String,
     pub size: u64,
+    /// Media type reported by the store; v0.1 defaults to
+    /// `application/octet-stream` when no durable type metadata exists.
     pub media_type: String,
     pub integrity: String,
 }

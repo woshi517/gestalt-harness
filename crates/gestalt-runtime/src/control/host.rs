@@ -114,6 +114,26 @@ impl InMemoryControl {
         }
     }
 
+    fn validate_artifact_display_path(path: &str) -> Result<(), ControlErrorV1> {
+        let has_invalid_segment = path
+            .split('/')
+            .any(|segment| segment.is_empty() || matches!(segment, "." | ".."));
+        let has_windows_prefix = path.as_bytes().get(1) == Some(&b':')
+            && path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic);
+        if path.is_empty()
+            || path.starts_with('/')
+            || path.contains('\\')
+            || has_invalid_segment
+            || has_windows_prefix
+            || path.chars().any(char::is_control)
+        {
+            return Err(Self::validation(
+                "artifact display path must be a safe, non-empty logical path",
+            ));
+        }
+        Ok(())
+    }
+
     fn not_found(message: impl Into<String>) -> ControlErrorV1 {
         ControlErrorV1 {
             code: ControlErrorCodeV1::NotFound,
@@ -1059,12 +1079,7 @@ macro_rules! impl_control_host {
                 &self,
                 req: CreateArtifactRequestV1,
             ) -> Result<CreateArtifactResponseV1, ControlErrorV1> {
-                if req.display_path.contains("..")
-                    || req.display_path.starts_with('/')
-                    || req.display_path.contains('\\')
-                {
-                    return Err(InMemoryControl::validation("artifact path must be relative"));
-                }
+                InMemoryControl::validate_artifact_display_path(&req.display_path)?;
                 let mut state = self
                     .inner
                     .state
