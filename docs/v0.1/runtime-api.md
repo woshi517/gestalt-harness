@@ -19,6 +19,9 @@ host. With the `trace` feature, it also exposes the stable client event payload,
 record, and raw-line projection function. Runtime types are not re-exported
 from the crate root.
 
+The namespace also exposes the versioned context build report DTOs, capture
+policy, bounds, and persistence helpers.
+
 ```rust
 use gestalt_runtime::api::v1::{
     AgentRuntimeBuilder, InMemoryArtifactStore, RuntimeBackedControlHost,

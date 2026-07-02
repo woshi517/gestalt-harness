@@ -40,6 +40,12 @@ Provider `api_key` and credential-bearing headers are experimental and always
 redacted from reports. Stable configuration should use `auth_ref` or
 `api_key_env`.
 
+`context.management.capture` controls context-report contribution capture.
+Its values are `disabled`, `hash_only`, `redacted`, and `full_for_replay`;
+`hash_only` is the default. `full_for_replay` stores raw contribution content
+and must be enabled explicitly. See
+[Context Build Report v1](./context-build-report.md).
+
 ## Errors
 
 | Condition | Stable code |

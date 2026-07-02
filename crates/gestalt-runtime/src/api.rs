@@ -14,6 +14,12 @@ pub mod v1 {
     pub use crate::context::assembler::{
         estimate_message_tokens, estimate_text_tokens, ContextMessageAssembler,
     };
+    pub use crate::context::report::{
+        load_context_build_report, persist_context_build_report, CapturedContributionV1,
+        ContextBuildReportV1, ContextOmissionReportV1, ContextPersistenceDiagnosticV1,
+        ContextPressureV1, ContextSourceReportV1, CONTEXT_BUILD_REPORT_SCHEMA_VERSION,
+        MAX_CAPTURED_CONTRIBUTIONS_BYTES, MAX_CAPTURED_CONTRIBUTION_BYTES,
+    };
     pub use crate::control::contract::*;
     pub use crate::control::{
         ControlHostOptions, InMemoryControlHost, MockControlHost, RuntimeBackedControlHost,
@@ -26,4 +32,5 @@ pub mod v1 {
         project_client_event_line, ClientEventPayloadV1, ClientEventRecordV1,
         CLIENT_EVENT_SCHEMA_VERSION,
     };
+    pub use gestalt_core::ContextCaptureMode;
 }

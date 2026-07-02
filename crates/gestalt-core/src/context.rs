@@ -716,6 +716,16 @@ pub enum DurabilityMode {
     Disabled,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextCaptureMode {
+    Disabled,
+    #[default]
+    HashOnly,
+    Redacted,
+    FullForReplay,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ContextManagementPolicy {
@@ -726,6 +736,8 @@ pub struct ContextManagementPolicy {
     pub tool_result_budget_ratio: f64,
     pub compaction_target_ratio: f64,
     pub durability: DurabilityMode,
+    #[serde(default)]
+    pub capture: ContextCaptureMode,
     pub profile: String,
 }
 
@@ -739,6 +751,7 @@ impl Default for ContextManagementPolicy {
             tool_result_budget_ratio: 0.5,
             compaction_target_ratio: 0.8,
             durability: DurabilityMode::Required,
+            capture: ContextCaptureMode::HashOnly,
             profile: "default".to_string(),
         }
     }

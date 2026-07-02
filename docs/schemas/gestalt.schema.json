@@ -217,6 +217,15 @@
         "openai_responses"
       ]
     },
+    "ContextCaptureMode": {
+      "type": "string",
+      "enum": [
+        "disabled",
+        "hash_only",
+        "redacted",
+        "full_for_replay"
+      ]
+    },
     "ContextConfig": {
       "type": "object",
       "properties": {
@@ -302,6 +311,14 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
+        },
+        "capture": {
+          "default": "hash_only",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ContextCaptureMode"
+            }
+          ]
         },
         "compaction_target_ratio": {
           "type": "number",

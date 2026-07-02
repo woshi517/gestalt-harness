@@ -24,10 +24,9 @@ documented in [runtime-api.md](./runtime-api.md).
 * **Enforcing Tests:** [report_contract_tests.rs](../../crates/gestalt-app/tests/report_contract_tests.rs)
 
 ## 3. Context Diagnostics (CTX-001–CTX-004)
-* **Status:** 🔴 **Unpublished (Under Development)**
-* **Proposed Contract:** [context-build-report.md](./context-build-report.md)
-* **Implementation Plan:** [H2B](../plans/v0.1-hardening/H2B-context-diagnostics-and-determinism.md)
-* **Rust API Target:** `gestalt_runtime::unstable::ContextBuildReportV1`
+* **Status:** 🟢 **Published**
+* **Contract:** [context-build-report.md](./context-build-report.md)
+* **Rust API:** `gestalt_runtime::api::v1::{ContextBuildReportV1, ContextCaptureMode}`
 * **Enforcing Tests:** [context_report_contract_tests.rs](../../crates/gestalt-runtime/tests/context_report_contract_tests.rs)
 
 ## 4. Configuration (CFG-001–CFG-005)

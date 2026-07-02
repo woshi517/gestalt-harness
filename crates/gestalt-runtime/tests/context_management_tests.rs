@@ -53,6 +53,7 @@ fn policy() -> gestalt_core::ContextManagementPolicy {
         tool_result_budget_ratio: 0.1,
         compaction_target_ratio: 0.8,
         durability: gestalt_core::DurabilityMode::Required,
+        capture: gestalt_core::ContextCaptureMode::HashOnly,
         profile: "test".to_string(),
     }
 }
@@ -116,6 +117,8 @@ async fn prepare_context_captures_dynamic_contribution_for_replay() {
             Vec::new(),
         ));
     let artifacts = temp_artifact_dir("context-report");
+    let mut replay_policy = policy();
+    replay_policy.capture = gestalt_core::ContextCaptureMode::FullForReplay;
     let prepared = pipeline
         .prepare_context(gestalt_core::ContextPreparationRequest {
             history: &canonical_history(vec![Message::User {
@@ -132,7 +135,7 @@ async fn prepare_context_captures_dynamic_contribution_for_replay() {
             session_id: "session-1",
             run_id: "run-1",
             turn_id: 0,
-            policy: &policy(),
+            policy: &replay_policy,
             artifacts_dir: Some(&artifacts),
             tool_retention: &retention_snapshot(),
             emit: &mut |_| Ok(()),

@@ -48,8 +48,8 @@ pub use approval::{
 pub use cancel::CancelToken;
 pub use context::{
     ArtifactRef, CheckpointRef, ClearAction, ClearedToolResultRef, CompactionCheckpointRef,
-    ContextAssembler, ContextEpoch, ContextManagementPolicy, ContextOmission, ContextPacket,
-    ContextPipeline, ContextPlan, ContextPreparationRequest, ContextProjectionState,
+    ContextAssembler, ContextCaptureMode, ContextEpoch, ContextManagementPolicy, ContextOmission,
+    ContextPacket, ContextPipeline, ContextPlan, ContextPreparationRequest, ContextProjectionState,
     ContextSourceRef, ContextStability, ContextStateDelta, DurabilityMode, HistoryRange, MessageId,
     MessageNamespace, PreparedContext, ProjectedHistory, ProjectedHistoryItem, ProjectionManifest,
     ProjectionMessageMetadata, PromptAssemblyStrategy, PromptCachePlan, PromptSegment,
