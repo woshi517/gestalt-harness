@@ -27,12 +27,12 @@ use gestalt_cli::{
         AuthDoctorReport, AuthResolveReport, CliErrorPayload, CliReport, ConfigExplainReport,
         ConfigPathsReport, ConfigShowReport, ConfigValidateReport, ContextExplainReport,
         CostReportWrapper, ExportFormat, ExtensionActionReport, ExtensionInspectReport,
-        ExtensionsListReport, JsonEnvelope, ModelsInspectReport, ModelsListReport,
-        ModelsRefreshReport, ModelsSearchReport, ModelsSelectReport, OutputFormat,
-        PolicyExplainReport, PolicyTestReport, PolicyValidateReport, ProvidersDoctorReport,
-        ProvidersInspectReport, ProvidersListReport, ReplayReport, RunReport, RuntimeDoctorReport,
-        RuntimeEventsReport, RuntimeInspectReport, SkillActionReport, SkillInspectReport,
-        SkillsListReport, WorkspaceSnapshotReport,
+        ExtensionValidateReport, ExtensionsListReport, JsonEnvelope, ModelsInspectReport,
+        ModelsListReport, ModelsRefreshReport, ModelsSearchReport, ModelsSelectReport,
+        OutputFormat, PolicyExplainReport, PolicyTestReport, PolicyValidateReport,
+        ProvidersDoctorReport, ProvidersInspectReport, ProvidersListReport, ReplayReport,
+        RunReport, RuntimeDoctorReport, RuntimeEventsReport, RuntimeInspectReport,
+        SkillActionReport, SkillInspectReport, SkillsListReport, WorkspaceSnapshotReport,
     },
     policy,
     replay::replay_display,
@@ -570,11 +570,13 @@ fn handle_result<T: CliReport>(
         Ok(report) => {
             match format {
                 OutputFormat::Json => {
+                    let warnings = report.diagnostics();
                     let envelope = JsonEnvelope {
                         schema_version: 1,
                         kind: report.kind().to_string(),
                         data: report,
-                    };
+                    }
+                    .with_warnings(warnings);
                     write_stdout(&serde_json::to_string(&envelope)?)?;
                 }
                 OutputFormat::Text => {
@@ -1610,7 +1612,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ExtensionSubcommand::Validate { path } => {
                     let res = gestalt_app::runtime_factory::validate_extension(&path)
-                        .map(|manifest| ExtensionInspectReport { manifest });
+                        .map(|manifest| ExtensionValidateReport { manifest });
                     handle_result(res, format, quiet)?;
                 }
             }
