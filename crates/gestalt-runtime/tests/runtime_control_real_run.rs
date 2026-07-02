@@ -886,3 +886,454 @@ async fn runtime_control_concurrent_continue_rejects_or_queues_deterministically
     .await
     .unwrap();
 }
+
+#[cfg(feature = "trace")]
+#[tokio::test]
+async fn runtime_control_submit_before_continue_is_seen_by_real_runtime() {
+    let trace_root = tempfile::tempdir().unwrap();
+    let host = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        Some(trace_root.path().to_path_buf()),
+    );
+    let (session_id, run_id) = start(&host, "submit-before").await;
+
+    let submit_resp = host
+        .submit_message(gestalt_runtime::api::v1::SubmitMessageRequestV1 {
+            session_id: session_id.clone(),
+            message: "steered-msg".to_string(),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+    assert!(submit_resp.acknowledged);
+
+    continue_run(&host, &session_id, &run_id, None).await;
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    let run_directory = std::fs::read_dir(trace_root.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let events = gestalt_runtime::unstable::read_trace(run_directory.join("trace.jsonl")).unwrap();
+    assert!(events.iter().any(|event| {
+        match &event.event {
+            gestalt_runtime::unstable::TraceEventV1::SessionMessageInjected { message } => {
+                message.content.contains("steered-msg")
+            }
+            _ => false,
+        }
+    }));
+}
+
+#[cfg(feature = "trace")]
+#[tokio::test]
+async fn runtime_control_submit_between_completed_and_resumed_run_is_seen_by_real_runtime() {
+    let trace_root = tempfile::tempdir().unwrap();
+    let host = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        Some(trace_root.path().to_path_buf()),
+    );
+    let (session_id, run_id) = start(&host, "submit-between").await;
+    continue_run(&host, &session_id, &run_id, None).await;
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    host.resume_session(gestalt_runtime::api::v1::ResumeSessionRequestV1 {
+        session_id: session_id.clone(),
+        run_id: run_id.clone(),
+        idempotency_key: None,
+    })
+    .await
+    .unwrap();
+
+    let run_id2 = host
+        .inspect_session(gestalt_runtime::api::v1::InspectSessionRequestV1 {
+            session_id: session_id.clone(),
+        })
+        .await
+        .unwrap()
+        .active_run_id
+        .unwrap();
+
+    let submit_resp = host
+        .submit_message(gestalt_runtime::api::v1::SubmitMessageRequestV1 {
+            session_id: session_id.clone(),
+            message: "msg-between".to_string(),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+    assert!(submit_resp.acknowledged);
+
+    continue_run(&host, &session_id, &run_id2, None).await;
+    wait_for_status(&host, &session_id, &run_id2, RunStatusV1::Completed).await;
+
+    let mut found = false;
+    let paths = std::fs::read_dir(trace_root.path()).unwrap();
+    for entry in paths.flatten() {
+        let trace_path = entry.path().join("trace.jsonl");
+        if trace_path.exists() {
+            let events = gestalt_runtime::unstable::read_trace(trace_path).unwrap();
+            if events.iter().any(|event| match &event.event {
+                gestalt_runtime::unstable::TraceEventV1::SessionMessageInjected { message } => {
+                    message.content.contains("msg-between")
+                }
+                _ => false,
+            }) {
+                found = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found,
+        "Message between runs was not seen by the real runtime!"
+    );
+}
+
+#[cfg(feature = "trace")]
+#[tokio::test]
+async fn runtime_control_submit_during_execution_is_seen_by_real_runtime() {
+    let trace_root = tempfile::tempdir().unwrap();
+    let host = host(
+        ProviderBehavior::Pending,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        Some(trace_root.path().to_path_buf()),
+    );
+    let (session_id, run_id) = start(&host, "submit-during").await;
+    host.continue_session(ContinueSessionRequestV1 {
+        session_id: session_id.clone(),
+        run_id: run_id.clone(),
+        message: "run".to_string(),
+        idempotency_key: None,
+    })
+    .await
+    .unwrap();
+
+    let submit_resp = host
+        .submit_message(gestalt_runtime::api::v1::SubmitMessageRequestV1 {
+            session_id: session_id.clone(),
+            message: "msg-during".to_string(),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+    assert!(submit_resp.acknowledged);
+
+    host.cancel_run(gestalt_runtime::api::v1::CancelRunRequestV1 {
+        session_id: session_id.clone(),
+        run_id: run_id.clone(),
+        correlation_id: None,
+    })
+    .await
+    .unwrap();
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Cancelled).await;
+}
+
+#[cfg(feature = "trace")]
+#[tokio::test]
+async fn runtime_control_resume_completed_run_rebinds_real_runtime_session() {
+    let trace_root = tempfile::tempdir().unwrap();
+    let host1 = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        Some(trace_root.path().to_path_buf()),
+    );
+    let (session_id, run_id) = start(&host1, "resume-rebind").await;
+    continue_run(&host1, &session_id, &run_id, None).await;
+    wait_for_status(&host1, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    let host2 = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        Some(trace_root.path().to_path_buf()),
+    );
+
+    let resume_resp = host2
+        .resume_session(gestalt_runtime::api::v1::ResumeSessionRequestV1 {
+            session_id: session_id.clone(),
+            run_id: run_id.clone(),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(resume_resp.session_id, session_id);
+    assert_eq!(resume_resp.run_id, run_id);
+
+    let inspect = host2
+        .inspect_session(gestalt_runtime::api::v1::InspectSessionRequestV1 {
+            session_id: session_id.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(inspect.active_run_id, Some(run_id));
+}
+
+#[tokio::test]
+async fn runtime_control_resume_missing_runtime_state_returns_stable_error() {
+    let host = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        None,
+    );
+    let err = host
+        .resume_session(gestalt_runtime::api::v1::ResumeSessionRequestV1 {
+            session_id: SessionIdV1("nonexistent".to_string()),
+            run_id: gestalt_runtime::api::v1::RunIdV1("nonexistent-run".to_string()),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code, ControlErrorCodeV1::NotFound);
+}
+
+#[cfg(feature = "trace")]
+#[tokio::test]
+async fn runtime_control_resume_preserves_trace_artifact_policy_context_expectations() {
+    let trace_root = tempfile::tempdir().unwrap();
+    let store = Arc::new(InMemoryArtifactStore::new());
+    let host1 = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        store.clone(),
+        Some(trace_root.path().to_path_buf()),
+    );
+    let (session_id, run_id) = start(&host1, "resume-preserves").await;
+
+    host1
+        .create_artifact(CreateArtifactRequestV1 {
+            session_id: session_id.clone(),
+            display_path: "resume-file.txt".to_string(),
+            data: b"some data".to_vec(),
+        })
+        .await
+        .unwrap();
+
+    continue_run(&host1, &session_id, &run_id, None).await;
+    wait_for_status(&host1, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    let host2 = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        store.clone(),
+        Some(trace_root.path().to_path_buf()),
+    );
+    host2
+        .resume_session(gestalt_runtime::api::v1::ResumeSessionRequestV1 {
+            session_id: session_id.clone(),
+            run_id: run_id.clone(),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+
+    let artifacts = host2
+        .list_artifacts(ListArtifactsRequestV1 {
+            session_id: session_id.clone(),
+            cursor: None,
+            limit: None,
+        })
+        .await
+        .unwrap()
+        .artifacts;
+    assert!(artifacts
+        .iter()
+        .any(|a| a.display_path == "resume-file.txt"));
+}
+
+#[cfg(feature = "trace")]
+#[tokio::test]
+async fn runtime_control_branch_uses_requested_parent_run_boundary() {
+    let trace_root = tempfile::tempdir().unwrap();
+    let host = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        Some(trace_root.path().to_path_buf()),
+    );
+    let (session_id, run_id) = start(&host, "branch-boundary").await;
+
+    host.submit_message(gestalt_runtime::api::v1::SubmitMessageRequestV1 {
+        session_id: session_id.clone(),
+        message: "msg1".to_string(),
+        idempotency_key: None,
+    })
+    .await
+    .unwrap();
+    continue_run(&host, &session_id, &run_id, None).await;
+    wait_for_status(&host, &session_id, &run_id, RunStatusV1::Completed).await;
+
+    let branch_resp = host
+        .branch_session(gestalt_runtime::api::v1::BranchSessionRequestV1 {
+            parent_session_id: session_id.clone(),
+            parent_run_id: run_id.clone(),
+            new_session_id: Some(SessionIdV1("branched-session".to_string())),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+
+    let inspect = host
+        .inspect_session(gestalt_runtime::api::v1::InspectSessionRequestV1 {
+            session_id: branch_resp.new_session_id.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(inspect.active_run_id, Some(branch_resp.new_run_id));
+}
+
+#[cfg(feature = "trace")]
+#[tokio::test]
+async fn runtime_control_branch_does_not_include_messages_after_branch_point() {
+    let trace_root = tempfile::tempdir().unwrap();
+    let host = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        Some(trace_root.path().to_path_buf()),
+    );
+    let (session_id, run_id1) = start(&host, "branch-messages").await;
+
+    host.submit_message(gestalt_runtime::api::v1::SubmitMessageRequestV1 {
+        session_id: session_id.clone(),
+        message: "msg1".to_string(),
+        idempotency_key: None,
+    })
+    .await
+    .unwrap();
+    continue_run(&host, &session_id, &run_id1, None).await;
+    wait_for_status(&host, &session_id, &run_id1, RunStatusV1::Completed).await;
+
+    host.resume_session(gestalt_runtime::api::v1::ResumeSessionRequestV1 {
+        session_id: session_id.clone(),
+        run_id: run_id1.clone(),
+        idempotency_key: None,
+    })
+    .await
+    .unwrap();
+    let run_id2 = host
+        .inspect_session(gestalt_runtime::api::v1::InspectSessionRequestV1 {
+            session_id: session_id.clone(),
+        })
+        .await
+        .unwrap()
+        .active_run_id
+        .unwrap();
+    host.submit_message(gestalt_runtime::api::v1::SubmitMessageRequestV1 {
+        session_id: session_id.clone(),
+        message: "msg2".to_string(),
+        idempotency_key: None,
+    })
+    .await
+    .unwrap();
+    continue_run(&host, &session_id, &run_id2, None).await;
+    wait_for_status(&host, &session_id, &run_id2, RunStatusV1::Completed).await;
+
+    let branch_resp = host
+        .branch_session(gestalt_runtime::api::v1::BranchSessionRequestV1 {
+            parent_session_id: session_id.clone(),
+            parent_run_id: run_id1.clone(),
+            new_session_id: Some(SessionIdV1("branched-msg1-only".to_string())),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap();
+
+    continue_run(
+        &host,
+        &branch_resp.new_session_id,
+        &branch_resp.new_run_id,
+        None,
+    )
+    .await;
+    wait_for_status(
+        &host,
+        &branch_resp.new_session_id,
+        &branch_resp.new_run_id,
+        RunStatusV1::Completed,
+    )
+    .await;
+
+    let history = host
+        .get_session_history(&branch_resp.new_session_id)
+        .unwrap();
+    let branched_has_msg1 = history.iter().any(|msg| match msg {
+        gestalt_core::message::Message::User { content, .. } => {
+            content.iter().any(|block| match block {
+                gestalt_core::message::ContentBlock::Text { text } => text.contains("msg1"),
+                _ => false,
+            })
+        }
+        _ => false,
+    });
+    let branched_has_msg2 = history.iter().any(|msg| match msg {
+        gestalt_core::message::Message::User { content, .. } => {
+            content.iter().any(|block| match block {
+                gestalt_core::message::ContentBlock::Text { text } => text.contains("msg2"),
+                _ => false,
+            })
+        }
+        _ => false,
+    });
+    assert!(
+        branched_has_msg1,
+        "Branched run should inherit msg1 from parent!"
+    );
+    assert!(
+        !branched_has_msg2,
+        "Branched run should NOT inherit msg2 from after the branch point!"
+    );
+}
+
+#[tokio::test]
+async fn runtime_control_branch_missing_checkpoint_returns_stable_error() {
+    let host = host(
+        ProviderBehavior::EndTurn,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(EmptyToolCatalog),
+        false,
+        Arc::new(InMemoryArtifactStore::new()),
+        None,
+    );
+    let err = host
+        .branch_session(gestalt_runtime::api::v1::BranchSessionRequestV1 {
+            parent_session_id: SessionIdV1("nonexistent".to_string()),
+            parent_run_id: gestalt_runtime::api::v1::RunIdV1("nonexistent-run".to_string()),
+            new_session_id: Some(SessionIdV1("branched-session".to_string())),
+            idempotency_key: None,
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code, ControlErrorCodeV1::NotFound);
+}

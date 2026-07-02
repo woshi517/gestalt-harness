@@ -58,6 +58,25 @@ pub struct RuntimeBackedControlHost {
 }
 
 impl RuntimeBackedControlHost {
+    pub fn get_session_history(
+        &self,
+        session_id: &SessionIdV1,
+    ) -> Option<Vec<gestalt_core::message::Message>> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let runtime_session = state.sessions.get(session_id)?;
+        let session = runtime_session.session.try_lock().ok()?;
+        Some(
+            session
+                .history
+                .iter()
+                .map(|sm| sm.message.clone())
+                .collect(),
+        )
+    }
+
     pub fn new(
         builder: AgentRuntimeBuilder,
         artifact_store: Arc<dyn ArtifactStore>,
@@ -221,6 +240,38 @@ impl RuntimeBackedControlHost {
                 details: None,
                 correlation_id: None,
             })?;
+            println!(
+                "trace_sink called for run_id={:?}, path={:?}",
+                run_id, paths.root
+            );
+
+            let manifest = crate::trace::run_manifest::RunManifest {
+                v: 1,
+                session_id: session_id.0.clone(),
+                run_id: run_id.0.clone(),
+                parent_run_id: None,
+                base_checkpoint: None,
+                run_kind: crate::trace::run_manifest::RunKind::New,
+                created_at: chrono::Utc::now(),
+                lifecycle_state: crate::trace::run_manifest::LifecycleState::Running,
+                finalized_at: None,
+                failure_kind: None,
+                interrupted_phase: None,
+                prompt_snapshot_hash: None,
+                prompt_snapshot_path: None,
+                resolved_model: None,
+                compatibility_fingerprint: crate::trace::run_manifest::CompatibilityFingerprint {
+                    context_pipeline_version: String::new(),
+                    tool_schema_hash: String::new(),
+                    policy_fingerprint: String::new(),
+                    hook_contract_hash: String::new(),
+                    execution_mode: String::new(),
+                    skill_fingerprint: None,
+                    workspace_context_snapshot_hash: None,
+                },
+            };
+            let _ = manifest.save_to(&paths.root.join("run.json"));
+
             self.state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -236,6 +287,37 @@ impl RuntimeBackedControlHost {
         }
     }
 
+    fn finalize_run_manifest(
+        &self,
+        run_id: &RunIdV1,
+        lifecycle: crate::trace::run_manifest::LifecycleState,
+        failure_kind: Option<String>,
+    ) {
+        let trace_path = {
+            self.state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .trace_paths
+                .get(run_id)
+                .cloned()
+        };
+        if let Some(trace_path) = trace_path {
+            if let Some(run_dir) = trace_path.parent() {
+                let manifest_path = run_dir.join("run.json");
+                if manifest_path.exists() {
+                    if let Ok(mut manifest) =
+                        crate::trace::run_manifest::RunManifest::load_from(&manifest_path)
+                    {
+                        manifest.lifecycle_state = lifecycle;
+                        manifest.finalized_at = Some(chrono::Utc::now());
+                        manifest.failure_kind = failure_kind;
+                        let _ = manifest.save_to(&manifest_path);
+                    }
+                }
+            }
+        }
+    }
+
     fn control_run(&self, session_id: &SessionIdV1) -> Result<RunIdV1, ControlErrorV1> {
         self.control
             .inner
@@ -246,6 +328,45 @@ impl RuntimeBackedControlHost {
             .get(session_id)
             .and_then(|session| session.active_run.clone())
             .ok_or_else(|| InMemoryControl::not_found("active run not found"))
+    }
+
+    fn find_run_dir(&self, run_id: &RunIdV1) -> Option<std::path::PathBuf> {
+        #[cfg(feature = "trace")]
+        {
+            let trace_dir = self.trace_directory.as_ref()?;
+            let entries = std::fs::read_dir(trace_dir).ok()?;
+            let target_suffix = format!("-{}", run_id.0);
+            let mut dirs = Vec::new();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.ends_with(&target_suffix) {
+                            dirs.push(path);
+                        }
+                    }
+                }
+            }
+            println!("find_run_dir debugging for run_id={:?}:", run_id);
+            println!("  found dirs:");
+            for d in &dirs {
+                println!("    {:?}", d);
+            }
+            dirs.sort();
+            println!("  sorted dirs:");
+            for d in &dirs {
+                println!("    {:?}", d);
+            }
+            if let Some(first) = dirs.first() {
+                println!("  selected: {:?}", first);
+                return Some(first.clone());
+            }
+        }
+        #[cfg(not(feature = "trace"))]
+        {
+            let _ = run_id;
+        }
+        None
     }
 
     fn project_agent_event(&self, session_id: &SessionIdV1, run_id: &RunIdV1, event: AgentEvent) {
@@ -262,6 +383,21 @@ impl RuntimeBackedControlHost {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let payload = match event {
+            AgentEvent::RunStarted { .. } => EventPayloadV1::RunStarted,
+            AgentEvent::Text { delta } => EventPayloadV1::AssistantText { delta },
+            AgentEvent::ToolCallProposed { id, name, input } => {
+                EventPayloadV1::ToolCallProposed { id, name, input }
+            }
+            AgentEvent::ToolResult {
+                id,
+                output,
+                is_error,
+                ..
+            } => EventPayloadV1::ToolResult {
+                id,
+                output,
+                is_error,
+            },
             AgentEvent::PolicyDecision {
                 tool_call_id,
                 tool_name,
@@ -277,7 +413,7 @@ impl RuntimeBackedControlHost {
                 state.policy_projections.insert(
                     tool_call_id.clone(),
                     PolicyProjectionV1 {
-                        tool_call_id,
+                        tool_call_id: tool_call_id.clone(),
                         canonical_tool_id: tool_name.unwrap_or_else(|| "unknown".to_string()),
                         input_hash: input_hash.unwrap_or_default(),
                         risk_level: risk.map_or(RiskLevelV1::Low, Self::risk),
@@ -292,7 +428,7 @@ impl RuntimeBackedControlHost {
                         source: Some(policy_source),
                     },
                 );
-                EventPayloadV1::Unknown
+                EventPayloadV1::PolicyDecision { tool_call_id }
             }
             AgentEvent::ApprovalRequested {
                 tool_call_id,
@@ -406,13 +542,28 @@ impl RuntimeBackedControlHost {
             .remove(&run_id);
 
         if cancel_token.is_cancelled() {
+            self.finalize_run_manifest(
+                &run_id,
+                crate::trace::run_manifest::LifecycleState::Interrupted,
+                None,
+            );
             return;
         }
         match result {
             Ok(_) => {
+                self.finalize_run_manifest(
+                    &run_id,
+                    crate::trace::run_manifest::LifecycleState::Completed,
+                    None,
+                );
                 let _ = self.control.complete_run(&session_id, &run_id).await;
             }
             Err(error) => {
+                self.finalize_run_manifest(
+                    &run_id,
+                    crate::trace::run_manifest::LifecycleState::Failed,
+                    Some(error.to_string()),
+                );
                 let mut state = self
                     .control
                     .inner
@@ -491,7 +642,10 @@ impl SessionControlV1 for RuntimeBackedControlHost {
         req: StartSessionRequestV1,
     ) -> Result<StartSessionResponseV1, ControlErrorV1> {
         let _guard = self.session_lock.lock().await;
-        let config_override = self.merge_config_override(req.config_override.clone())?;
+        let mut config_override = self
+            .merge_config_override(req.config_override.clone())?
+            .unwrap_or_else(|| self.runtime_host.config.clone());
+        config_override.steering_queue_capacity = Some(self.control.inner.options.queue_capacity);
         let response = self.control.start_session(req.clone()).await?;
         if self
             .state
@@ -516,7 +670,7 @@ impl SessionControlV1 for RuntimeBackedControlHost {
         };
         if let Err(error) = self.runtime_host.spawn_session_with_trace_sink(
             &response.session_id.0,
-            config_override,
+            Some(config_override),
             trace_sink,
         ) {
             self.rollback_session(
@@ -551,6 +705,10 @@ impl SessionControlV1 for RuntimeBackedControlHost {
                 return Err(Self::runtime_error(error));
             }
         };
+        let _ = runtime
+            .steering_queue
+            .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)
+            .await;
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -652,7 +810,152 @@ impl SessionControlV1 for RuntimeBackedControlHost {
         &self,
         req: ResumeSessionRequestV1,
     ) -> Result<ResumeSessionResponseV1, ControlErrorV1> {
-        self.control.resume_session(req).await
+        let _guard = self.session_lock.lock().await;
+
+        let exists = {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.sessions.contains_key(&req.session_id)
+        };
+        if !exists {
+            self.control
+                .seed_session(req.session_id.clone(), req.run_id.clone());
+        }
+
+        let response = match self.control.resume_session(req.clone()).await {
+            Ok(resp) => resp,
+            Err(err) => {
+                if !exists {
+                    self.rollback_session(
+                        &req.session_id,
+                        &req.run_id,
+                        req.idempotency_key.as_ref(),
+                    );
+                }
+                return Err(err);
+            }
+        };
+
+        let result = async {
+            // 1. Get parent session data
+            let parent_session_data = {
+                let state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(prs) = state.sessions.get(&req.session_id) {
+                    if let Ok(s) = prs.session.try_lock() {
+                        Some((
+                            s.history.clone(),
+                            s.context_state.clone(),
+                            s.token_budget.clone(),
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            let (history, context_state, token_budget) = if let Some(data) = parent_session_data {
+                data
+            } else {
+                let run_dir = self
+                    .find_run_dir(&req.run_id)
+                    .ok_or_else(|| ControlErrorV1 {
+                        code: ControlErrorCodeV1::NotFound,
+                        message: format!("run directory not found for run {}", req.run_id.0),
+                        retryable: false,
+                        details: None,
+                        correlation_id: None,
+                    })?;
+
+                let analysis = crate::trace::ResumeAnalyzer::analyze(&run_dir, None, None);
+                if !analysis.is_safe_to_resume() && !analysis.is_safe_to_continue() {
+                    return Err(ControlErrorV1 {
+                        code: ControlErrorCodeV1::Conflict,
+                        message: format!(
+                            "run cannot be resumed due to recovery status {:?}",
+                            analysis.status
+                        ),
+                        retryable: false,
+                        details: None,
+                        correlation_id: None,
+                    });
+                }
+                (
+                    analysis.history,
+                    analysis.context_state,
+                    analysis.token_budget,
+                )
+            };
+
+            // 2. Create trace sink for the NEW run_id
+            let trace_sink = self.trace_sink(&req.session_id, &response.run_id)?;
+
+            // 3. Spawn a new session in runtime_host
+            self.runtime_host.remove_session(&req.session_id.0);
+            let mut config = self.runtime_host.config.clone();
+            config.steering_queue_capacity = Some(self.control.inner.options.queue_capacity);
+            if let Err(error) = self.runtime_host.spawn_session_with_trace_sink(
+                &req.session_id.0,
+                Some(config),
+                trace_sink,
+            ) {
+                return Err(Self::runtime_error(error));
+            }
+            let runtime = match self.runtime_host.session_runtime(&req.session_id.0) {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    return Err(Self::runtime_error(error));
+                }
+            };
+            let mut session = match runtime
+                .create_session(req.session_id.0.clone(), None, None)
+                .await
+            {
+                Ok(session) => session,
+                Err(error) => {
+                    return Err(Self::runtime_error(error));
+                }
+            };
+
+            session.history = history;
+            session.context_state = context_state;
+            session.token_budget = token_budget;
+
+            let _ = runtime
+                .steering_queue
+                .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)
+                .await;
+            self.state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .sessions
+                .insert(
+                    req.session_id.clone(),
+                    RuntimeSession {
+                        runtime,
+                        session: Arc::new(tokio::sync::Mutex::new(session)),
+                    },
+                );
+            Ok(())
+        }
+        .await;
+
+        if let Err(err) = result {
+            self.rollback_session(
+                &req.session_id,
+                &response.run_id,
+                req.idempotency_key.as_ref(),
+            );
+            return Err(err);
+        }
+
+        Ok(response)
     }
 
     async fn branch_session(
@@ -670,14 +973,65 @@ impl SessionControlV1 for RuntimeBackedControlHost {
         {
             return Ok(response);
         }
-        let parent = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .sessions
-            .get(&req.parent_session_id)
-            .cloned()
-            .ok_or_else(|| InMemoryControl::not_found("parent runtime session not found"))?;
+
+        let parent_run_dir = self.find_run_dir(&req.parent_run_id);
+        let analysis = if let Some(ref dir) = parent_run_dir {
+            let analysis = crate::trace::ResumeAnalyzer::analyze(dir, None, None);
+            if !analysis.is_safe_to_resume() && !analysis.is_safe_to_continue() {
+                return Err(ControlErrorV1 {
+                    code: ControlErrorCodeV1::Conflict,
+                    message: format!(
+                        "parent run cannot be branched due to recovery status {:?}",
+                        analysis.status
+                    ),
+                    retryable: false,
+                    details: None,
+                    correlation_id: None,
+                });
+            }
+            Some(analysis)
+        } else {
+            None
+        };
+
+        let parent_session_data = if analysis.is_none() {
+            let parent_session_mutex = {
+                let state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state
+                    .sessions
+                    .get(&req.parent_session_id)
+                    .map(|prs| prs.session.clone())
+            };
+            if let Some(session_mutex) = parent_session_mutex {
+                let session = session_mutex.lock().await;
+                Some((
+                    session.history.clone(),
+                    session.context_state.clone(),
+                    session.token_budget.clone(),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if analysis.is_none() && parent_session_data.is_none() {
+            return Err(ControlErrorV1 {
+                code: ControlErrorCodeV1::NotFound,
+                message: format!(
+                    "parent run directory not found and session not active in memory for run {}",
+                    req.parent_run_id.0
+                ),
+                retryable: false,
+                details: None,
+                correlation_id: None,
+            });
+        }
+
         let trace_sink = match self.trace_sink(&response.new_session_id, &response.new_run_id) {
             Ok(trace_sink) => trace_sink,
             Err(error) => {
@@ -689,9 +1043,11 @@ impl SessionControlV1 for RuntimeBackedControlHost {
                 return Err(error);
             }
         };
+        let mut config = self.runtime_host.config.clone();
+        config.steering_queue_capacity = Some(self.control.inner.options.queue_capacity);
         if let Err(error) = self.runtime_host.spawn_session_with_trace_sink(
             &response.new_session_id.0,
-            None,
+            Some(config),
             trace_sink,
         ) {
             self.rollback_session(
@@ -715,9 +1071,39 @@ impl SessionControlV1 for RuntimeBackedControlHost {
                 return Err(Self::runtime_error(error));
             }
         };
-        let mut session = parent.session.lock().await.clone();
+
+        let mut session = match runtime
+            .create_session(response.new_session_id.0.clone(), None, None)
+            .await
+        {
+            Ok(session) => session,
+            Err(error) => {
+                self.rollback_session(
+                    &response.new_session_id,
+                    &response.new_run_id,
+                    req.idempotency_key.as_ref(),
+                );
+                return Err(Self::runtime_error(error));
+            }
+        };
+
+        if let Some(analysis) = analysis {
+            session.history = analysis.history;
+            session.context_state = analysis.context_state;
+            session.token_budget = analysis.token_budget;
+        } else if let Some((history, context_state, token_budget)) = parent_session_data {
+            session.history = history;
+            session.context_state = context_state;
+            session.token_budget = token_budget;
+        }
+
         session.id = response.new_session_id.0.clone();
         session.message_namespace = uuid::Uuid::new_v4().to_string();
+
+        let _ = runtime
+            .steering_queue
+            .update_lifecycle(gestalt_core::session_queue::QueueLifecycle::Active)
+            .await;
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -742,16 +1128,7 @@ impl SessionControlV1 for RuntimeBackedControlHost {
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if real.cancellations.contains_key(&run_id) {
-                Some(
-                    real.sessions
-                        .get(&req.session_id)
-                        .cloned()
-                        .ok_or_else(|| InMemoryControl::not_found("runtime session not found"))?,
-                )
-            } else {
-                None
-            }
+            real.sessions.get(&req.session_id).cloned()
         };
         let Some(runtime_session) = runtime_session else {
             return self.control.submit_message(req).await;

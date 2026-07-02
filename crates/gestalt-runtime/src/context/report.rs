@@ -541,13 +541,17 @@ fn redact_json_value(value: &mut serde_json::Value, sensitive: bool) {
         }
         serde_json::Value::Array(items) => {
             for item in items {
-                redact_json_value(item, false);
+                redact_json_value(item, sensitive);
             }
         }
         serde_json::Value::Object(fields) => {
-            for (key, value) in fields {
-                redact_json_value(value, is_sensitive_key(key));
+            for (key, val) in fields {
+                let child_sensitive = sensitive || is_sensitive_key(key);
+                redact_json_value(val, child_sensitive);
             }
+        }
+        serde_json::Value::Number(_) | serde_json::Value::Bool(_) if sensitive => {
+            *value = serde_json::Value::String("[REDACTED]".to_string());
         }
         _ => {}
     }

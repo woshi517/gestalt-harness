@@ -304,6 +304,23 @@ impl InMemoryControlHost {
         }
     }
 
+    pub(crate) fn seed_session(&self, session_id: SessionIdV1, run_id: RunIdV1) {
+        let mut state = self.inner.state.lock().unwrap();
+        state.sessions.insert(
+            session_id.clone(),
+            SessionState {
+                runs: vec![run_id.clone()],
+                active_run: None,
+                queue: Arc::new(
+                    crate::session_queue::InMemorySteeringQueue::active_with_capacity(
+                        self.inner.options.queue_capacity,
+                    ),
+                ),
+            },
+        );
+        state.run_status.insert(run_id, RunStatusV1::Completed);
+    }
+
     pub fn add_approval(&self, approval: ApprovalProjectionV1) {
         self.inner.add_approval(approval);
     }
@@ -976,7 +993,7 @@ macro_rules! impl_control_host {
                     .filter(|event| event.sequence_number >= start)
                     .filter(|event| {
                         req.kinds.as_ref().map_or(true, |kinds| {
-                            let kind = match event.payload {
+                            let kind = match &event.payload {
                                 EventPayloadV1::SessionStarted => "session_started",
                                 EventPayloadV1::MessageQueued { .. } => "message_queued",
                                 EventPayloadV1::RunCompleted => "run_completed",
@@ -984,6 +1001,11 @@ macro_rules! impl_control_host {
                                 EventPayloadV1::ApprovalRequested { .. } => "approval_requested",
                                 EventPayloadV1::RunCancelled => "run_cancelled",
                                 EventPayloadV1::ArtifactCreated { .. } => "artifact_created",
+                                EventPayloadV1::RunStarted => "run_started",
+                                EventPayloadV1::AssistantText { .. } => "assistant_text",
+                                EventPayloadV1::ToolCallProposed { .. } => "tool_call_proposed",
+                                EventPayloadV1::PolicyDecision { .. } => "policy_decision",
+                                EventPayloadV1::ToolResult { .. } => "tool_result",
                                 EventPayloadV1::Unknown => "unknown",
                             };
                             kinds.iter().any(|candidate| candidate == kind)

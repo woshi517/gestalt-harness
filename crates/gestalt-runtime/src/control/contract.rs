@@ -524,6 +524,23 @@ pub enum EventPayloadV1 {
     ArtifactCreated {
         artifact_id: ArtifactIdV1,
     },
+    RunStarted,
+    AssistantText {
+        delta: String,
+    },
+    ToolCallProposed {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    PolicyDecision {
+        tool_call_id: ToolCallIdV1,
+    },
+    ToolResult {
+        id: String,
+        output: String,
+        is_error: bool,
+    },
     #[serde(other)]
     Unknown,
 }
