@@ -287,6 +287,7 @@ impl RuntimeBackedControlHost {
         }
     }
 
+    #[cfg(feature = "trace")]
     fn finalize_run_manifest(
         &self,
         run_id: &RunIdV1,
@@ -330,43 +331,24 @@ impl RuntimeBackedControlHost {
             .ok_or_else(|| InMemoryControl::not_found("active run not found"))
     }
 
+    #[cfg(feature = "trace")]
     fn find_run_dir(&self, run_id: &RunIdV1) -> Option<std::path::PathBuf> {
-        #[cfg(feature = "trace")]
-        {
-            let trace_dir = self.trace_directory.as_ref()?;
-            let entries = std::fs::read_dir(trace_dir).ok()?;
-            let target_suffix = format!("-{}", run_id.0);
-            let mut dirs = Vec::new();
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.ends_with(&target_suffix) {
-                            dirs.push(path);
-                        }
+        let trace_dir = self.trace_directory.as_ref()?;
+        let entries = std::fs::read_dir(trace_dir).ok()?;
+        let target_suffix = format!("-{}", run_id.0);
+        let mut dirs = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.ends_with(&target_suffix) {
+                        dirs.push(path);
                     }
                 }
             }
-            println!("find_run_dir debugging for run_id={:?}:", run_id);
-            println!("  found dirs:");
-            for d in &dirs {
-                println!("    {:?}", d);
-            }
-            dirs.sort();
-            println!("  sorted dirs:");
-            for d in &dirs {
-                println!("    {:?}", d);
-            }
-            if let Some(first) = dirs.first() {
-                println!("  selected: {:?}", first);
-                return Some(first.clone());
-            }
         }
-        #[cfg(not(feature = "trace"))]
-        {
-            let _ = run_id;
-        }
-        None
+        dirs.sort();
+        dirs.first().cloned()
     }
 
     fn project_agent_event(&self, session_id: &SessionIdV1, run_id: &RunIdV1, event: AgentEvent) {
@@ -542,6 +524,7 @@ impl RuntimeBackedControlHost {
             .remove(&run_id);
 
         if cancel_token.is_cancelled() {
+            #[cfg(feature = "trace")]
             self.finalize_run_manifest(
                 &run_id,
                 crate::trace::run_manifest::LifecycleState::Interrupted,
@@ -551,6 +534,7 @@ impl RuntimeBackedControlHost {
         }
         match result {
             Ok(_) => {
+                #[cfg(feature = "trace")]
                 self.finalize_run_manifest(
                     &run_id,
                     crate::trace::run_manifest::LifecycleState::Completed,
@@ -559,6 +543,7 @@ impl RuntimeBackedControlHost {
                 let _ = self.control.complete_run(&session_id, &run_id).await;
             }
             Err(error) => {
+                #[cfg(feature = "trace")]
                 self.finalize_run_manifest(
                     &run_id,
                     crate::trace::run_manifest::LifecycleState::Failed,
@@ -863,9 +848,9 @@ impl SessionControlV1 for RuntimeBackedControlHost {
             let (history, context_state, token_budget) = if let Some(data) = parent_session_data {
                 data
             } else {
-                let run_dir = self
-                    .find_run_dir(&req.run_id)
-                    .ok_or_else(|| ControlErrorV1 {
+                #[cfg(feature = "trace")]
+                {
+                    let run_dir = self.find_run_dir(&req.run_id).ok_or_else(|| ControlErrorV1 {
                         code: ControlErrorCodeV1::NotFound,
                         message: format!("run directory not found for run {}", req.run_id.0),
                         retryable: false,
@@ -873,24 +858,35 @@ impl SessionControlV1 for RuntimeBackedControlHost {
                         correlation_id: None,
                     })?;
 
-                let analysis = crate::trace::ResumeAnalyzer::analyze(&run_dir, None, None);
-                if !analysis.is_safe_to_resume() && !analysis.is_safe_to_continue() {
+                    let analysis = crate::trace::ResumeAnalyzer::analyze(&run_dir, None, None);
+                    if !analysis.is_safe_to_resume() && !analysis.is_safe_to_continue() {
+                        return Err(ControlErrorV1 {
+                            code: ControlErrorCodeV1::Conflict,
+                            message: format!(
+                                "run cannot be resumed due to recovery status {:?}",
+                                analysis.status
+                            ),
+                            retryable: false,
+                            details: None,
+                            correlation_id: None,
+                        });
+                    }
+                    (
+                        analysis.history,
+                        analysis.context_state,
+                        analysis.token_budget,
+                    )
+                }
+                #[cfg(not(feature = "trace"))]
+                {
                     return Err(ControlErrorV1 {
-                        code: ControlErrorCodeV1::Conflict,
-                        message: format!(
-                            "run cannot be resumed due to recovery status {:?}",
-                            analysis.status
-                        ),
+                        code: ControlErrorCodeV1::NotFound,
+                        message: format!("tracing is disabled, cannot recover run {}", req.run_id.0),
                         retryable: false,
                         details: None,
                         correlation_id: None,
                     });
                 }
-                (
-                    analysis.history,
-                    analysis.context_state,
-                    analysis.token_budget,
-                )
             };
 
             // 2. Create trace sink for the NEW run_id
@@ -974,63 +970,67 @@ impl SessionControlV1 for RuntimeBackedControlHost {
             return Ok(response);
         }
 
-        let parent_run_dir = self.find_run_dir(&req.parent_run_id);
-        let analysis = if let Some(ref dir) = parent_run_dir {
-            let analysis = crate::trace::ResumeAnalyzer::analyze(dir, None, None);
-            if !analysis.is_safe_to_resume() && !analysis.is_safe_to_continue() {
-                return Err(ControlErrorV1 {
-                    code: ControlErrorCodeV1::Conflict,
-                    message: format!(
-                        "parent run cannot be branched due to recovery status {:?}",
-                        analysis.status
-                    ),
-                    retryable: false,
-                    details: None,
-                    correlation_id: None,
-                });
+        let (history, context_state, token_budget) = {
+            let mut resolved = None;
+            #[cfg(feature = "trace")]
+            {
+                if let Some(ref dir) = self.find_run_dir(&req.parent_run_id) {
+                    let analysis = crate::trace::ResumeAnalyzer::analyze(dir, None, None);
+                    if !analysis.is_safe_to_resume() && !analysis.is_safe_to_continue() {
+                        return Err(ControlErrorV1 {
+                            code: ControlErrorCodeV1::Conflict,
+                            message: format!(
+                                "parent run cannot be branched due to recovery status {:?}",
+                                analysis.status
+                            ),
+                            retryable: false,
+                            details: None,
+                            correlation_id: None,
+                        });
+                    }
+                    resolved = Some((
+                        analysis.history,
+                        analysis.context_state,
+                        analysis.token_budget,
+                    ));
+                }
             }
-            Some(analysis)
-        } else {
-            None
-        };
-
-        let parent_session_data = if analysis.is_none() {
-            let parent_session_mutex = {
-                let state = self
-                    .state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                state
-                    .sessions
-                    .get(&req.parent_session_id)
-                    .map(|prs| prs.session.clone())
-            };
-            if let Some(session_mutex) = parent_session_mutex {
-                let session = session_mutex.lock().await;
-                Some((
-                    session.history.clone(),
-                    session.context_state.clone(),
-                    session.token_budget.clone(),
-                ))
-            } else {
-                None
+            if resolved.is_none() {
+                let parent_session_mutex = {
+                    let state = self
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    state
+                        .sessions
+                        .get(&req.parent_session_id)
+                        .map(|prs| prs.session.clone())
+                };
+                if let Some(session_mutex) = parent_session_mutex {
+                    let session = session_mutex.lock().await;
+                    resolved = Some((
+                        session.history.clone(),
+                        session.context_state.clone(),
+                        session.token_budget.clone(),
+                    ));
+                }
             }
-        } else {
-            None
+            match resolved {
+                Some(data) => data,
+                None => {
+                    return Err(ControlErrorV1 {
+                        code: ControlErrorCodeV1::NotFound,
+                        message: format!(
+                            "parent run directory not found and session not active in memory for run {}",
+                            req.parent_run_id.0
+                        ),
+                        retryable: false,
+                        details: None,
+                        correlation_id: None,
+                    });
+                }
+            }
         };
-
-        if analysis.is_none() && parent_session_data.is_none() {
-            return Err(ControlErrorV1 {
-                code: ControlErrorCodeV1::NotFound,
-                message: format!(
-                    "parent run directory not found and session not active in memory for run {}",
-                    req.parent_run_id.0
-                ),
-                retryable: false,
-                details: None,
-                correlation_id: None,
-            });
-        }
 
         let trace_sink = match self.trace_sink(&response.new_session_id, &response.new_run_id) {
             Ok(trace_sink) => trace_sink,
@@ -1087,15 +1087,9 @@ impl SessionControlV1 for RuntimeBackedControlHost {
             }
         };
 
-        if let Some(analysis) = analysis {
-            session.history = analysis.history;
-            session.context_state = analysis.context_state;
-            session.token_budget = analysis.token_budget;
-        } else if let Some((history, context_state, token_budget)) = parent_session_data {
-            session.history = history;
-            session.context_state = context_state;
-            session.token_budget = token_budget;
-        }
+        session.history = history;
+        session.context_state = context_state;
+        session.token_budget = token_budget;
 
         session.id = response.new_session_id.0.clone();
         session.message_namespace = uuid::Uuid::new_v4().to_string();
