@@ -850,13 +850,15 @@ impl SessionControlV1 for RuntimeBackedControlHost {
             } else {
                 #[cfg(feature = "trace")]
                 {
-                    let run_dir = self.find_run_dir(&req.run_id).ok_or_else(|| ControlErrorV1 {
-                        code: ControlErrorCodeV1::NotFound,
-                        message: format!("run directory not found for run {}", req.run_id.0),
-                        retryable: false,
-                        details: None,
-                        correlation_id: None,
-                    })?;
+                    let run_dir = self
+                        .find_run_dir(&req.run_id)
+                        .ok_or_else(|| ControlErrorV1 {
+                            code: ControlErrorCodeV1::NotFound,
+                            message: format!("run directory not found for run {}", req.run_id.0),
+                            retryable: false,
+                            details: None,
+                            correlation_id: None,
+                        })?;
 
                     let analysis = crate::trace::ResumeAnalyzer::analyze(&run_dir, None, None);
                     if !analysis.is_safe_to_resume() && !analysis.is_safe_to_continue() {
@@ -881,7 +883,10 @@ impl SessionControlV1 for RuntimeBackedControlHost {
                 {
                     return Err(ControlErrorV1 {
                         code: ControlErrorCodeV1::NotFound,
-                        message: format!("tracing is disabled, cannot recover run {}", req.run_id.0),
+                        message: format!(
+                            "tracing is disabled, cannot recover run {}",
+                            req.run_id.0
+                        ),
                         retryable: false,
                         details: None,
                         correlation_id: None,
@@ -996,6 +1001,34 @@ impl SessionControlV1 for RuntimeBackedControlHost {
                 }
             }
             if resolved.is_none() {
+                let is_active_or_latest = {
+                    let state = self
+                        .control
+                        .inner
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let Some(session) = state.sessions.get(&req.parent_session_id) {
+                        session.active_run.as_ref() == Some(&req.parent_run_id)
+                            || session.runs.last() == Some(&req.parent_run_id)
+                    } else {
+                        false
+                    }
+                };
+
+                if !is_active_or_latest {
+                    return Err(ControlErrorV1 {
+                        code: ControlErrorCodeV1::NotFound,
+                        message: format!(
+                            "parent run boundary {} is not trace-resolvable and does not match the active parent session state",
+                            req.parent_run_id.0
+                        ),
+                        retryable: false,
+                        details: None,
+                        correlation_id: None,
+                    });
+                }
+
                 let parent_session_mutex = {
                     let state = self
                         .state

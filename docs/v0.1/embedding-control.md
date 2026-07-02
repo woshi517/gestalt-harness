@@ -110,6 +110,8 @@ With the `trace` feature enabled, the default constructor writes one JSONL trace
 per run under `<workspace>/.gestalt/runs`. `with_trace_directory` selects a
 different root or explicitly disables trace persistence with `None`.
 
+* When trace analysis is unavailable (due to trace persistence being disabled or the trace directories/files missing), `branch_session` is limited to cloning the live in-memory parent session. In this fallback mode, the requested `parent_run_id` must match the parent session's current active or last completed run ID; if the requested `parent_run_id` does not match the live parent state, the API returns a `NOT_FOUND` error.
+
 The shared conformance suite covers `RuntimeBackedControlHost`,
 `InMemoryControlHost`, and `MockControlHost`. Only the runtime-backed host is an
 embedding implementation; the other two are test support.
