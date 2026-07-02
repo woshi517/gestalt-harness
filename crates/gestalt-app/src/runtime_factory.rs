@@ -19,6 +19,25 @@ pub async fn build_app_runtime(
     approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
     trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
 ) -> Result<AgentRuntime, HarnessError> {
+    build_app_runtime_inner(
+        config,
+        api_key,
+        interaction,
+        approval_override,
+        trace_sink,
+        None,
+    )
+    .await
+}
+
+async fn build_app_runtime_inner(
+    config: &EffectiveConfig,
+    api_key: Option<String>,
+    interaction: Option<Arc<dyn crate::InteractionProvider>>,
+    approval_override: Option<Arc<dyn gestalt_core::ApprovalProvider>>,
+    trace_sink: Option<Arc<dyn gestalt_core::trace::TraceSink>>,
+    mut diagnostics: Option<&mut Vec<AppDiagnosticV1>>,
+) -> Result<AgentRuntime, HarnessError> {
     let resolved_provider = config.resolve_provider()?;
     let resolver = crate::auth::build_credential_resolver(api_key, interaction);
     let lookup_id = resolved_provider
@@ -123,6 +142,15 @@ pub async fn build_app_runtime(
         config.skills.trusted.iter().map(String::as_str).collect();
     for name in &config.skills.active {
         let Some(desc) = discovered_skills.iter().find(|skill| skill.name == *name) else {
+            if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                diagnostics.push(AppDiagnosticV1 {
+                    severity: DiagnosticSeverityV1::Error,
+                    code: "skill_configuration_error".to_string(),
+                    message: format!("Unknown active skill '{name}'"),
+                    correlation_id: None,
+                    details: Some(serde_json::json!({"skill": name, "reason": "unknown"})),
+                });
+            }
             return Err(HarnessError::Config(
                 gestalt_core::ConfigError::InvalidValue {
                     field: "skills.active".to_string(),
@@ -138,6 +166,18 @@ pub async fn build_app_runtime(
                 | gestalt_runtime::unstable::SkillTrustLevel::Workspace
         ) || trusted_names.contains(name.as_str());
         if !trusted {
+            if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                diagnostics.push(AppDiagnosticV1 {
+                    severity: DiagnosticSeverityV1::Error,
+                    code: "skill_trust_error".to_string(),
+                    message: format!("Active skill '{name}' is not trusted"),
+                    correlation_id: None,
+                    details: Some(serde_json::json!({
+                        "skill": name,
+                        "trust_level": format!("{:?}", desc.trust_level)
+                    })),
+                });
+            }
             return Err(HarnessError::Config(
                 gestalt_core::ConfigError::InvalidValue {
                     field: "skills.active".to_string(),
@@ -391,6 +431,21 @@ pub async fn build_app_runtime(
 
             if !is_trusted_by_config {
                 if explicit_instance && !config.extensions.allow_untrusted {
+                    if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                        diagnostics.push(AppDiagnosticV1 {
+                            severity: DiagnosticSeverityV1::Error,
+                            code: "extension_rejected".to_string(),
+                            message: format!(
+                                "Configured extension '{}' is untrusted",
+                                ext.package.descriptor.id
+                            ),
+                            correlation_id: None,
+                            details: Some(serde_json::json!({
+                                "extension_id": ext.package.descriptor.id,
+                                "reason": "missing_exact_trust_pin"
+                            })),
+                        });
+                    }
                     return Err(gestalt_core::ConfigError::InvalidValue {
                         field: "extensions.instances".to_string(),
                         reason: format!(
@@ -401,6 +456,21 @@ pub async fn build_app_runtime(
                     .into());
                 }
                 if !config.extensions.allow_untrusted || !explicit_instance {
+                    if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                        diagnostics.push(AppDiagnosticV1 {
+                            severity: DiagnosticSeverityV1::Warning,
+                            code: "extension_rejected".to_string(),
+                            message: format!(
+                                "Discovered extension '{}' was not activated because it is untrusted",
+                                ext.package.descriptor.id
+                            ),
+                            correlation_id: None,
+                            details: Some(serde_json::json!({
+                                "extension_id": ext.package.descriptor.id,
+                                "reason": "missing_exact_trust_pin"
+                            })),
+                        });
+                    }
                     builder.runtime_event_bus().publish(gestalt_runtime::unstable::RuntimeEvent::ExtensionRejected {
                         extension_id: ext.package.descriptor.id.clone(),
                         reason: "Untrusted extension requires an exact ID/hash trust pin, or both allow_untrusted and an enabled explicit instance.".to_string(),
@@ -461,13 +531,48 @@ pub async fn build_app_runtime(
         builder = builder.trace_sink(sink);
     }
 
-    builder.build().map_err(|e| match e {
+    let runtime = builder.build().map_err(|e| match e {
         gestalt_runtime::unstable::RuntimeError::Harness(he) => he,
         other => HarnessError::Config(gestalt_core::error::ConfigError::InvalidValue {
             field: "runtime".to_string(),
             reason: other.to_string(),
         }),
-    })
+    })?;
+    if let Some(diagnostics) = diagnostics {
+        diagnostics.extend(
+            runtime
+                .extension_snapshot
+                .diagnostics
+                .iter()
+                .map(|diagnostic| AppDiagnosticV1 {
+                    severity: match diagnostic.severity {
+                        gestalt_runtime::unstable::DiagnosticSeverity::Warning => {
+                            DiagnosticSeverityV1::Warning
+                        }
+                        gestalt_runtime::unstable::DiagnosticSeverity::Error => {
+                            DiagnosticSeverityV1::Error
+                        }
+                    },
+                    code: match diagnostic.severity {
+                        gestalt_runtime::unstable::DiagnosticSeverity::Warning => {
+                            "extension_activation_warning"
+                        }
+                        gestalt_runtime::unstable::DiagnosticSeverity::Error => {
+                            "extension_activation_error"
+                        }
+                    }
+                    .to_string(),
+                    message: diagnostic.message.clone(),
+                    correlation_id: None,
+                    details: Some(serde_json::json!({
+                        "extension_id": diagnostic.component_id.package_id,
+                        "component_id": diagnostic.component_id.component_id,
+                        "instance_id": diagnostic.component_id.instance_id
+                    })),
+                }),
+        );
+    }
+    Ok(runtime)
 }
 
 #[allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
@@ -486,32 +591,39 @@ pub async fn build_app_runtime_with_report(
             );
         }
     };
-    let diagnostics = resolved
+    let mut diagnostics = resolved
         .warnings
         .into_iter()
         .map(|warning| AppDiagnosticV1 {
             severity: DiagnosticSeverityV1::Warning,
-            code: "provider_resolution".to_string(),
+            code: match warning.code {
+                crate::config::ConfigWarningCode::ConservativeModelFallback => {
+                    "provider_resolution_warning"
+                }
+                crate::config::ConfigWarningCode::InlineCredential => "auth_resolution_warning",
+                crate::config::ConfigWarningCode::UnknownAdapterOption => "config_warning",
+            }
+            .to_string(),
             message: warning.message,
             correlation_id: None,
-            details: None,
+            details: Some(serde_json::json!({"field": warning.field})),
         })
         .collect();
-    match build_app_runtime(config, api_key, interaction, approval_override, trace_sink).await {
-        Ok(runtime) => ServiceReportV1 {
-            value: Some(runtime),
-            diagnostics,
-            error: None,
-            correlation_id: None,
-        },
-        Err(error) => ServiceReportV1 {
-            value: None,
-            diagnostics,
-            error: Some(crate::reports::AppErrorProjectionV1::from_harness_error(
-                &error,
-            )),
-            correlation_id: None,
-        },
+    match build_app_runtime_inner(
+        config,
+        api_key,
+        interaction,
+        approval_override,
+        trace_sink,
+        Some(&mut diagnostics),
+    )
+    .await
+    {
+        Ok(runtime) => ServiceReportV1::new(runtime).with_diagnostics(diagnostics),
+        Err(error) => ServiceReportV1::failure(
+            crate::reports::AppErrorProjectionV1::from_harness_error(&error),
+        )
+        .with_diagnostics(diagnostics),
     }
 }
 

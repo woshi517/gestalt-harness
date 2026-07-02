@@ -47,24 +47,57 @@ impl AppErrorProjectionV1 {
                     gestalt_core::ConfigError::UnsupportedVersion { .. } => {
                         "CONFIG_VERSION_UNSUPPORTED".to_string()
                     }
+                    gestalt_core::ConfigError::InvalidValue { field, .. }
+                        if field.starts_with("skills.") =>
+                    {
+                        "SKILL_CONFIGURATION_ERROR".to_string()
+                    }
+                    gestalt_core::ConfigError::InvalidValue { field, .. }
+                        if field.starts_with("extensions.") =>
+                    {
+                        "EXTENSION_REJECTED".to_string()
+                    }
                     _ => "CONFIG_ERROR".to_string(),
                 },
                 message: cfg_err.to_string(),
                 retryable,
-                details: None,
+                details: match cfg_err {
+                    gestalt_core::ConfigError::InvalidValue { field, reason } => {
+                        Some(serde_json::json!({"field": field, "reason": reason}))
+                    }
+                    _ => None,
+                },
             },
             gestalt_core::HarnessError::Provider(prov_err) => Self {
-                code: if matches!(prov_err, gestalt_core::ProviderError::UnknownProvider(_)) {
-                    "PROVIDER_NOT_FOUND".to_string()
-                } else {
-                    "PROVIDER_ERROR".to_string()
-                },
+                code: match prov_err {
+                    gestalt_core::ProviderError::UnknownProvider(_) => "PROVIDER_NOT_FOUND",
+                    gestalt_core::ProviderError::AuthFailed { .. } => "AUTH_FAILED",
+                    gestalt_core::ProviderError::RateLimit { .. } => "PROVIDER_RATE_LIMIT",
+                    gestalt_core::ProviderError::ContextTooLong { .. } => "CONTEXT_TOO_LONG",
+                    gestalt_core::ProviderError::InvalidModel { .. } => "MODEL_INVALID",
+                    gestalt_core::ProviderError::Timeout => "PROVIDER_TIMEOUT",
+                    gestalt_core::ProviderError::StreamInterrupted => "PROVIDER_STREAM_INTERRUPTED",
+                    gestalt_core::ProviderError::MalformedToolCall { .. } => {
+                        "PROVIDER_MALFORMED_TOOL_CALL"
+                    }
+                    gestalt_core::ProviderError::UnsupportedCapability { .. } => {
+                        "PROVIDER_UNSUPPORTED_CAPABILITY"
+                    }
+                    gestalt_core::ProviderError::UnexpectedResponse { .. }
+                    | gestalt_core::ProviderError::Transport(_) => "PROVIDER_ERROR",
+                }
+                .to_string(),
                 message: prov_err.to_string(),
                 retryable,
                 details: None,
             },
             gestalt_core::HarnessError::Policy(pol_err) => Self {
-                code: "POLICY_ERROR".to_string(),
+                code: match pol_err {
+                    gestalt_core::PolicyError::Denied(_) => "POLICY_DENIED",
+                    gestalt_core::PolicyError::InvalidPolicy(_) => "POLICY_INVALID",
+                    gestalt_core::PolicyError::Io(_) => "POLICY_ERROR",
+                }
+                .to_string(),
                 message: pol_err.to_string(),
                 retryable,
                 details: None,
@@ -95,7 +128,11 @@ impl AppErrorProjectionV1 {
                 details: None,
             },
             gestalt_core::HarnessError::Approval(approval_err) => Self {
-                code: "APPROVAL_ERROR".to_string(),
+                code: match approval_err {
+                    gestalt_core::ApprovalError::Rejected(_) => "APPROVAL_REJECTED",
+                    gestalt_core::ApprovalError::Io(_) => "APPROVAL_ERROR",
+                }
+                .to_string(),
                 message: approval_err.to_string(),
                 retryable,
                 details: None,
@@ -110,7 +147,7 @@ impl AppErrorProjectionV1 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ServiceReportV1<T> {
     pub value: Option<T>,
     pub diagnostics: Vec<AppDiagnosticV1>,
@@ -135,6 +172,18 @@ impl<T> ServiceReportV1<T> {
             error: Some(error),
             correlation_id: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_diagnostics(mut self, diagnostics: Vec<AppDiagnosticV1>) -> Self {
+        self.diagnostics = diagnostics;
+        self
+    }
+
+    #[must_use]
+    pub fn with_correlation_id(mut self, correlation_id: impl Into<String>) -> Self {
+        self.correlation_id = Some(correlation_id.into());
+        self
     }
 }
 
