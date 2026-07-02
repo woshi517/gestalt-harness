@@ -1,6 +1,6 @@
 ---
 title: Gestalt Runtime Rust API
-status: active
+status: published
 type: version-contract
 target: v0.1
 ---

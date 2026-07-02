@@ -1,6 +1,6 @@
 ---
 title: "Extension Package Contract v1"
-status: active
+status: published
 type: version-contract
 target: v0.1
 owners:
@@ -85,4 +85,3 @@ replaced resources drain only after the last lease is released.
 - `extension_manager_tests`
 - `extension_reload_tests`
 - `runtime_cli_tests`
-

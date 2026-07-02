@@ -19,7 +19,6 @@ promise.
 | Status | Meaning |
 |---|---|
 | published | Implemented, documented, and enforced by the named tests |
-| unpublished | A versioned target exists, but a required gate is incomplete |
 | experimental | Publicly reachable without a v0.1 compatibility promise |
 | internal | Private or `pub(crate)` implementation detail |
 | deprecated/removed | Unsupported; retained only as rejection or historical evidence |
@@ -28,6 +27,9 @@ promise.
 
 | Contract | Specification | Implementation | Enforcing tests |
 |---|---|---|---|
+| Aggregate runtime control | [embedding-control.md](./embedding-control.md) | `RuntimeBackedControlHost` implementing `RuntimeControlV1` over real provider/tool execution | `control_conformance`, `runtime_control_real_run` |
+| Runtime Rust API boundary | [runtime-api.md](./runtime-api.md) | `gestalt_runtime::api::v1`; crate-root leakage and internal builder state are rejected | `public_api_contract` |
+| App service reports | [app-services.md](./app-services.md) | `ServiceReportV1`, stable diagnostics/errors, and `build_app_runtime_with_report` | `report_contract_tests` |
 | `gestalt.json` version 1 | [configuration.md](./configuration.md) | `gestalt_app::config` and `docs/schemas/gestalt.schema.json` | `config_schema_tests`, `config_tests` |
 | Trace envelope and client event version 1 | [trace-events.md](./trace-events.md) | `TraceEventV1`, `ClientEventPayloadV1`, and `project_client_event_line` | `trace_contract_tests` |
 | Context build report version 1 | [context-build-report.md](./context-build-report.md) | `ContextBuildReportV1` and `ContextCaptureMode` | `context_report_contract_tests`, `context_management_tests` |
@@ -36,12 +38,8 @@ promise.
 | Policy and approval | [policy-approval.md](./policy-approval.md) | `ApprovalControlV1`, policy/approval projections, runtime approval broker, and bounded session grants | `control_conformance`, `runtime_control_real_run`, and core approval tests |
 | Bounded artifact access | [embedding-control.md](./embedding-control.md#45-bounded-artifact-reads-h1a-b07) | `ArtifactAccessV1`, configured `ArtifactStore`, logical paths, bounded ranges, integrity, and session isolation | `control_conformance`, `runtime_control_real_run`, and artifact-store tests |
 
-## Unpublished
-
-| Contract target | Missing gate | Current evidence |
-|---|---|---|
-| Aggregate runtime control | Remaining event-projection and aggregate conformance gates | `api::v1` and its compile-fail boundary checks are enforced by `public_api_contract`; policy/approval and bounded artifact access are separately test-backed; in-memory and mock hosts are test support |
-| App service reports | Runtime-factory diagnostics and complete value/error contract tests | `report_contract_tests` |
+No listed v0.1 contract remains unpublished. Public Rust surface not named above
+remains experimental.
 
 ## Experimental and Internal Rust Surface
 

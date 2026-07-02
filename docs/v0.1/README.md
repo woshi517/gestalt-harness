@@ -4,21 +4,24 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 
 The complete current classification is in the
 [contract inventory](./contract-inventory.md). The deliberate Rust boundary is
-documented in [runtime-api.md](./runtime-api.md).
+documented in [runtime-api.md](./runtime-api.md). Users moving from pre-release
+interfaces should read the [v0.1 migration note](./migration.md).
 
 ---
 
 ## 1. Embedding and Runtime Control (RUNTIME-001–RUNTIME-006)
-* **Status:** 🔴 **Unpublished (Remaining Event/Conformance Gates)**
+* **Status:** 🟢 **Published**
 * **Specification:** [embedding-control.md](./embedding-control.md)
+* **Rust API Contract:** [runtime-api.md](./runtime-api.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md), [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
-* **Rust API Target:** `gestalt_runtime::api::v1::{RuntimeBackedControlHost, RuntimeControlV1}`
+* **Rust API:** `gestalt_runtime::api::v1::{RuntimeBackedControlHost, RuntimeControlV1}`
 * **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs), [runtime_control_real_run.rs](../../crates/gestalt-runtime/tests/runtime_control_real_run.rs)
+* **Boundary Tests:** [public_api_contract.rs](../../crates/gestalt-runtime/tests/public_api_contract.rs)
 * **Test Support:** `InMemoryControlHost` and `MockControlHost` are conformance-only implementations.
 
 ## 2. App Services (APP-001–APP-002)
-* **Status:** 🔴 **Unpublished (Diagnostics Integration Required)**
-* **Proposed Specification:** [feature-spec/v0.1-hardening.md](../feature-spec/v0.1-hardening.md#99-app-001-keep-gestalt-app-product-neutral)
+* **Status:** 🟢 **Published**
+* **Specification:** [app-services.md](./app-services.md)
 * **Implementation Plan:** [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
 * **Rust API:** `gestalt_app::reports::{ServiceReportV1, AppDiagnosticV1, AppErrorProjectionV1}` and `gestalt_app::runtime_factory::build_app_runtime_with_report`
 * **Enforcing Tests:** [report_contract_tests.rs](../../crates/gestalt-app/tests/report_contract_tests.rs)

@@ -1,15 +1,20 @@
 ---
 title: Gestalt Embedding and Runtime Control v1
-status: proposed
+status: published
 type: version-contract
 target: v0.1
 owners:
   - gestalt-runtime
 ---
 
-# Gestalt v0.1: Proposed Embedding and Runtime Control Contract
+# Gestalt v0.1: Embedding and Runtime Control Contract
 
-This proposed contract specifies the target v0.1 embedding interface and runtime control semantics for the Gestalt harness. `RuntimeBackedControlHost` drives real provider/tool execution, approval, cancellation, events, and artifact storage. `InMemoryControlHost` and `MockControlHost` are conformance-only test support. Policy/approval and artifact access are test-backed; this aggregate contract still waits for the remaining event-projection and aggregate conformance gates.
+This contract specifies the v0.1 embedding interface and runtime control
+semantics for the Gestalt harness. `RuntimeBackedControlHost` drives real
+provider/tool execution, approval, cancellation, events, and artifact storage.
+`InMemoryControlHost` and `MockControlHost` are conformance-only test support.
+The aggregate contract is enforced by `control_conformance` and
+`runtime_control_real_run`.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 
