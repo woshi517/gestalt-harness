@@ -460,7 +460,7 @@ async fn run_conformance<H: ConformanceHost>(host: H) {
         canonical_tool_id: "builtin:test".to_string(),
         input_hash: "input-hash".to_string(),
         risk_level: RiskLevelV1::Low,
-        execution_mode: ExecutionModeV1::Local,
+        execution_backend: ExecutionBackendV1::Local,
         decision: PolicyDecisionV1::RequiresApproval,
         reason: Some("test".to_string()),
         matched_rule: Some("test-rule".to_string()),
@@ -559,7 +559,8 @@ async fn run_conformance<H: ConformanceHost>(host: H) {
         is_cancelled: false,
         session_grant_terms: Some(SessionGrantTermsV1 {
             tool_name: "builtin:test".to_string(),
-            risk_ceiling: "LOW".to_string(),
+            input_hash: "original".to_string(),
+            risk_ceiling: RiskLevelV1::Low,
             matched_rule: "test-rule".to_string(),
             policy_source: "test".to_string(),
             expires_in_turns: 1,
@@ -682,6 +683,75 @@ async fn mock_host_exposes_controllable_failures() {
     assert_eq!(error.code, ControlErrorCodeV1::Unavailable);
 }
 
+fn lifecycle_approval(
+    id: &str,
+    expires_at: Option<&str>,
+    is_cancelled: bool,
+) -> ApprovalProjectionV1 {
+    ApprovalProjectionV1 {
+        approval_id: ApprovalIdV1(id.to_string()),
+        tool_call_id: ToolCallIdV1(format!("tool-{id}")),
+        correlation_id: None,
+        summary: "lifecycle test".to_string(),
+        editable_input_rules: None,
+        original_hash: "original".to_string(),
+        edited_hash: None,
+        expires_at: expires_at.map(str::to_string),
+        is_cancelled,
+        session_grant_terms: None,
+    }
+}
+
+#[tokio::test]
+async fn approval_expired_rejected() {
+    let host = InMemoryControlHost::new();
+    let approval = lifecycle_approval("expired", Some("1970-01-01T00:00:00Z"), false);
+    host.add_approval(approval.clone());
+
+    let error = host
+        .respond_to_approval(RespondToApprovalRequestV1 {
+            approval_id: approval.approval_id,
+            decision: ApprovalDecisionV1::Approve,
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code, ControlErrorCodeV1::Conflict);
+}
+
+#[tokio::test]
+async fn approval_duplicate_rejected() {
+    let host = InMemoryControlHost::new();
+    let approval = lifecycle_approval("duplicate", None, false);
+    host.add_approval(approval.clone());
+    let request = RespondToApprovalRequestV1 {
+        approval_id: approval.approval_id,
+        decision: ApprovalDecisionV1::Approve,
+    };
+    host.respond_to_approval(request.clone()).await.unwrap();
+
+    let error = host.respond_to_approval(request).await.unwrap_err();
+
+    assert_eq!(error.code, ControlErrorCodeV1::Conflict);
+}
+
+#[tokio::test]
+async fn approval_cancelled_rejected() {
+    let host = InMemoryControlHost::new();
+    let approval = lifecycle_approval("cancelled", None, true);
+    host.add_approval(approval.clone());
+
+    let error = host
+        .respond_to_approval(RespondToApprovalRequestV1 {
+            approval_id: approval.approval_id,
+            decision: ApprovalDecisionV1::Approve,
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code, ControlErrorCodeV1::Conflict);
+}
+
 #[test]
 fn dto_families_accept_unknown_additive_fields() {
     let value = serde_json::json!({
@@ -713,7 +783,7 @@ fn dto_families_round_trip() {
         canonical_tool_id: "builtin:test".to_string(),
         input_hash: "hash".to_string(),
         risk_level: RiskLevelV1::High,
-        execution_mode: ExecutionModeV1::Sandbox,
+        execution_backend: ExecutionBackendV1::Sandbox,
         decision: PolicyDecisionV1::RequiresApproval,
         reason: None,
         matched_rule: None,

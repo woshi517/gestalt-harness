@@ -33,13 +33,13 @@ promise.
 | Context build report version 1 | [context-build-report.md](./context-build-report.md) | `ContextBuildReportV1` and `ContextCaptureMode` | `context_report_contract_tests`, `context_management_tests` |
 | CLI automation envelope and stable command matrix | [cli-automation.md](./cli-automation.md) | `JsonEnvelope`, `CliReport::diagnostics`, and `STABLE_COMMANDS_V1` | `cli_automation_contract_tests`, `h3b_snapshot_tests` |
 | Extension package/activation contract | [extensions.md](./extensions.md) | V2 package discovery, trust pins, explicit instances, effective permissions, and generation leases | extension manifest, instance, permission, manager, reload, command-tool, and runtime CLI tests |
+| Policy and approval | [policy-approval.md](./policy-approval.md) | `ApprovalControlV1`, policy/approval projections, runtime approval broker, and bounded session grants | `control_conformance`, `runtime_control_real_run`, and core approval tests |
 
 ## Unpublished
 
 | Contract target | Missing gate | Current evidence |
 |---|---|---|
-| Runtime control and artifact access | Remaining approval, artifact-security, and event-projection gates | `api::v1` and its compile-fail boundary checks are enforced by `public_api_contract`; `RuntimeBackedControlHost` passes shared conformance plus `runtime_control_real_run`; in-memory and mock hosts are test support |
-| Policy and approval | Real policy-confirmed tool execution through runtime control | DTO and in-memory conformance tests |
+| Runtime control and artifact access | Remaining artifact-security and event-projection gates | `api::v1` and its compile-fail boundary checks are enforced by `public_api_contract`; `RuntimeBackedControlHost` passes shared conformance plus `runtime_control_real_run`; in-memory and mock hosts are test support |
 | App service reports | Runtime-factory diagnostics and complete value/error contract tests | `report_contract_tests` |
 
 ## Experimental and Internal Rust Surface

@@ -17,12 +17,11 @@ use super::contract::{
     InspectSessionResponseV1, ListArtifactsRequestV1, ListArtifactsResponseV1,
     ListPendingApprovalsRequestV1, ListPendingApprovalsResponseV1, ListRunsRequestV1,
     ListRunsResponseV1, ListSessionsRequestV1, ListSessionsResponseV1, MessageIdV1,
-    PolicyDecisionV1, PolicyProjectionV1, PollEventsRequestV1, PollEventsResponseV1,
-    ReadArtifactRangeRequestV1, ReadArtifactRangeResponseV1, RespondToApprovalRequestV1,
-    RespondToApprovalResponseV1, ResumeSessionRequestV1, ResumeSessionResponseV1, RunIdV1,
-    RunQueryV1, RunStatusV1, RuntimeControlV1, RuntimeInspectionV1, SessionControlV1, SessionIdV1,
-    StartSessionRequestV1, StartSessionResponseV1, SubmitMessageRequestV1, SubmitMessageResponseV1,
-    ToolCallIdV1,
+    PolicyProjectionV1, PollEventsRequestV1, PollEventsResponseV1, ReadArtifactRangeRequestV1,
+    ReadArtifactRangeResponseV1, RespondToApprovalRequestV1, RespondToApprovalResponseV1,
+    ResumeSessionRequestV1, ResumeSessionResponseV1, RunIdV1, RunQueryV1, RunStatusV1,
+    RuntimeControlV1, RuntimeInspectionV1, SessionControlV1, SessionIdV1, StartSessionRequestV1,
+    StartSessionResponseV1, SubmitMessageRequestV1, SubmitMessageResponseV1, ToolCallIdV1,
 };
 use crate::session_queue::InMemorySteeringQueue;
 
@@ -839,22 +838,6 @@ macro_rules! impl_control_host {
                 {
                     return Err(InMemoryControl::conflict("approval expired"));
                 }
-                if matches!(req.decision, ApprovalDecisionV1::Edit(_))
-                    && state
-                        .policy_projections
-                        .get(&approval.tool_call_id)
-                        .is_some_and(|projection| {
-                            projection.decision == PolicyDecisionV1::Deny
-                        })
-                {
-                    return Err(ControlErrorV1 {
-                        code: ControlErrorCodeV1::UnauthorizedPolicy,
-                        message: "edited input was denied by policy".to_string(),
-                        retryable: false,
-                        details: None,
-                        correlation_id: approval.correlation_id,
-                    });
-                }
                 let edited_hash = match req.decision {
                     ApprovalDecisionV1::Edit(ref value) => {
                         if approval
@@ -869,9 +852,7 @@ macro_rules! impl_control_host {
                                 "edited input violates editable input rules",
                             ));
                         }
-                        let bytes = serde_json::to_vec(value)
-                            .map_err(|_| InMemoryControl::validation("edited input is invalid"))?;
-                        Some(format!("{:x}", sha2::Sha256::digest(bytes)))
+                        Some(gestalt_core::hash_input(value))
                     }
                     _ => approval.edited_hash,
                 };
@@ -879,7 +860,12 @@ macro_rules! impl_control_host {
                     success: true,
                     original_hash: approval.original_hash,
                     edited_hash,
-                    session_grant_terms: approval.session_grant_terms,
+                    session_grant_terms: matches!(
+                        req.decision,
+                        ApprovalDecisionV1::AlwaysAllowForSession
+                    )
+                    .then_some(approval.session_grant_terms)
+                    .flatten(),
                 };
                 state
                     .answered_approvals

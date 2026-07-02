@@ -1,15 +1,15 @@
 ---
 title: Gestalt Policy and Approval v1
-status: proposed
+status: published
 type: version-contract
 target: v0.1
 owners:
   - gestalt-runtime
 ---
 
-# Gestalt v0.1: Proposed Policy & Approval Contract
+# Gestalt v0.1: Policy & Approval Contract
 
-This document specifies the target v0.1 policy checking and user-in-the-loop approval contract. It remains unpublished until approval responses are proven against real runtime tool execution through the runtime-control boundary.
+This document specifies the v0.1 policy checking and user-in-the-loop approval contract. Runtime-backed tests prove approval responses against real policy evaluation and tool execution through the runtime-control boundary.
 
 These specifications are constrained by the accepted [H0B Architectural Decisions](../plans/v0.1-hardening/h0b-architectural-decisions.md).
 
@@ -23,7 +23,7 @@ Before executing any high-risk action (such as a tool call), the runtime evaluat
 * **`canonical_tool_id`**: The fully qualified name or URI of the tool.
 * **`input_hash`**: A deterministic SHA-256 hash of the normalized tool input.
 * **`risk_level`**: The classified risk level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
-* **`execution_mode`**: The execution model (e.g. `SANDBOX`, `LOCAL`, `REMOTE`).
+* **`execution_backend`**: The execution locality/backend (`SANDBOX`, `LOCAL`, `REMOTE`). This is distinct from the core interaction policy mode (`CONFIRM`, `YOLO`, `HUMAN`, `DRY_RUN`, `REPLAY`).
 * **`decision`**: The policy decision (`ALLOW`, `DENY`, `REQUIRES_APPROVAL`).
 * **`reason`**: Descriptive rationale for the decision.
 * **`matched_rule`**: The rule name or ID that triggered the decision.
@@ -49,7 +49,9 @@ When a policy indicates that an action requires manual approval, a challenge is 
 ### 2.1 Bounded Session Grants (`SessionGrantTermsV1`)
 If a user approves an action with "Always Allow For Session", a bounded grant is created. The grant defines:
 * The specific **tool name**.
+* The exact normalized **input hash**. v0.1 grants do not authorize an editable input range.
 * The **risk ceiling** (the grant will not cover higher risk invocations).
+* The **matched rule** and **policy source** that produced the challenge.
 * A fixed expiration window measured in conversational **turns**. A grant cannot silently broaden itself or persist across sessions.
 
 ---
@@ -69,4 +71,6 @@ To ensure secure execution, the following invariants are enforced:
 3. **Input Revalidation**: When the user edits the input via the `Edit` decision:
    - The edited input must conform to the `editable_input_rules` schema.
    - The edited input is re-evaluated by the policy engine as a completely new request.
-   - If the re-evaluation fails the policy checks, the response is rejected with a `VALIDATION` or `UNAUTHORIZED_POLICY` error, and the tool does not execute.
+   - Runtime-backed control accepts a schema-valid response into the waiting executor. The executor then re-evaluates the edited call under the active policy before execution. A denied or still-confirmed result becomes a policy/approval-denied tool result, and the tool does not execute.
+
+The in-memory and mock control hosts validate DTO lifecycle and edit shape only; they do not claim to execute or re-evaluate tools.

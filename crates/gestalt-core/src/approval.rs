@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn session_grant_respects_risk_ceiling() {
+    fn session_grant_limited_by_tool_and_risk() {
         let grant = SessionGrant::new(
             "bash",
             &json!({"command": "ls"}),
@@ -259,12 +259,13 @@ mod tests {
             usize::MAX,
         );
         assert!(grant.covers("bash", &json!({"command": "ls"}), RiskLevel::Medium, 0));
+        assert!(!grant.covers("read", &json!({"command": "ls"}), RiskLevel::Medium, 0));
         assert!(!grant.covers("bash", &json!({"command": "ls"}), RiskLevel::High, 0));
         assert!(!grant.covers("bash", &json!({"command": "ls"}), RiskLevel::Critical, 0));
     }
 
     #[test]
-    fn session_grant_expires_after_window() {
+    fn session_grant_limited_by_turns() {
         let grant = SessionGrant::new(
             "bash",
             &json!({"command": "ls"}),

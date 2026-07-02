@@ -9,7 +9,7 @@ documented in [runtime-api.md](./runtime-api.md).
 ---
 
 ## 1. Embedding and Runtime Control (RUNTIME-001–RUNTIME-006)
-* **Status:** 🔴 **Unpublished (Remaining Approval/Artifact/API Gates)**
+* **Status:** 🔴 **Unpublished (Remaining Artifact/API Gates)**
 * **Specification:** [embedding-control.md](./embedding-control.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md), [H1B](../plans/v0.1-hardening/H1B-runtime-host-app-boundary-and-conformance.md)
 * **Rust API Target:** `gestalt_runtime::api::v1::{RuntimeBackedControlHost, RuntimeControlV1}`
@@ -44,11 +44,11 @@ documented in [runtime-api.md](./runtime-api.md).
 * **Enforcing Tests:** [trace_contract_tests.rs](../../crates/gestalt-runtime/tests/trace_contract_tests.rs), [sessions_tests.rs](../../crates/gestalt-app/tests/sessions_tests.rs)
 
 ## 6. Policy & Approval (POL-001–POL-004)
-* **Status:** 🔴 **Unpublished (Runtime Integration Required)**
+* **Status:** 🟢 **Published**
 * **Specification:** [policy-approval.md](./policy-approval.md)
 * **Implementation Plan:** [H1A](../plans/v0.1-hardening/H1A-runtime-control-dtos-and-semantics.md)
-* **Rust API Target:** `gestalt_runtime::api::v1::ApprovalControlV1`
-* **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs)
+* **Rust API:** `gestalt_runtime::api::v1::{ApprovalControlV1, PolicyProjectionV1, ApprovalProjectionV1}`
+* **Enforcing Tests:** [control_conformance.rs](../../crates/gestalt-runtime/tests/control_conformance.rs), [runtime_control_real_run.rs](../../crates/gestalt-runtime/tests/runtime_control_real_run.rs), and core session-grant tests
 
 ## 7. Extension Packages & Components (V2-only) (EXT-001–EXT-005)
 * **Status:** 🟢 **Published**
