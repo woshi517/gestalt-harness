@@ -75,6 +75,7 @@ This inventory lists every maintained Markdown file in the repository, assigning
 | `docs/v0.1/app-services.md` | Version Contract | published | v0.1 | gestalt-app | App services | 2 | None | Published and enforced by `report_contract_tests` |
 | `docs/v0.1/cli-automation.md` | Version Contract | published | v0.1 | gestalt-cli | CLI | 2 | None | Published and test-backed |
 | `docs/v0.1/configuration.md` | Version Contract | published | v0.1 | gestalt-app | Configuration | 2 | None | Published and test-backed |
+| `docs/v0.1/conformance-matrix.md` | Conformance Matrix | published | v0.1 | Release Mgmt | Release evidence | 2 | None | Map every published contract ID to implementation and enforcing tests |
 | `docs/v0.1/context-build-report.md` | Version Contract | published | v0.1 | gestalt-runtime | Context | 2 | None | Published and enforced by context report tests |
 | `docs/v0.1/contract-inventory.md` | Inventory | active | v0.1 | Docs Group | Contract status | 2 | None | Keep deny-by-default classification aligned with the version index |
 | `docs/v0.1/embedding-control.md` | Version Contract | published | v0.1 | gestalt-runtime | Runtime control | 2 | None | Published and test-backed |

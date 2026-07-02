@@ -5,7 +5,9 @@ This index maps the stable v0.1 contracts across Gestalt's domain boundaries. No
 The complete current classification is in the
 [contract inventory](./contract-inventory.md). The deliberate Rust boundary is
 documented in [runtime-api.md](./runtime-api.md). Users moving from pre-release
-interfaces should read the [v0.1 migration note](./migration.md).
+interfaces should read the [v0.1 migration note](./migration.md). The
+[conformance matrix](./conformance-matrix.md) maps every published contract ID
+to implementation and test evidence.
 
 ---
 
