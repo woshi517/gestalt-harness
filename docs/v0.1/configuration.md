@@ -38,7 +38,51 @@ redaction state for every reported value.
 
 Provider `api_key` and credential-bearing headers are experimental and always
 redacted from reports. Stable configuration should use `auth_ref` or
-`api_key_env`.
+`api_key_env`. A provider may specify exactly one of `api_key`, `api_key_env`,
+or `auth_ref`; specifying more than one is an error. The removed `secret:`
+auth-reference syntax is rejected.
+
+## Example
+
+```json
+{
+  "$schema": "docs/schemas/gestalt.schema.json",
+  "version": 1,
+  "defaults": {
+    "profile": "default",
+    "mode": "confirm"
+  },
+  "profiles": {
+    "default": {
+      "provider": "openai",
+      "model": "gpt-5.5-preview"
+    }
+  },
+  "providers": {
+    "openai": {
+      "api_key_env": "OPENAI_API_KEY"
+    }
+  },
+  "policies": {
+    "paths": {
+      "allow_read": ["."],
+      "allow_write": ["."]
+    },
+    "bash": {
+      "allow": ["git", "cargo"],
+      "deny": ["sudo"]
+    },
+    "network": {
+      "allow_domains": ["api.openai.com"]
+    }
+  }
+}
+```
+
+When both global and workspace policies define allow lists, every workspace
+entry must already exist in the corresponding global list. This applies to
+path reads, path writes, Bash commands, and network domains. Deny lists are
+combined by union.
 
 `context.management.capture` controls context-report contribution capture.
 Its values are `disabled`, `hash_only`, `redacted`, and `full_for_replay`;
@@ -62,6 +106,10 @@ are never parsed, seeded, rewritten, deleted, or migrated.
 `gestalt.extension.toml` is an extension manifest and is not legacy harness
 configuration.
 
+Removed v1 aliases are also rejected as unknown fields:
+`context.workspace_file`, `context.memory_file`, `policies.bash.yolo_allow`,
+`policies.bash.always_confirm`, and `policies.bash.always_deny`.
+
 ## Future Versions
 
 A future schema version must add an explicit `(from_version, to_version)`
@@ -73,9 +121,9 @@ migration command exists until a second supported schema version is implemented.
 
 | Criteria | Evidence |
 |---|---|
-| H3A-F01, B02 | `config_schema_tests`: generated schema drift, valid fixtures, unknown fields, and distinct version failures |
-| H3A-F02, B06 | `removed_alias.json`, `legacy_secret_auth_ref_is_rejected`, schema absence scan, and no migration command |
+| H3A-F01, B02 | `config_schema_tests`: generated schema drift, default round trip, valid fixtures, unknown fields, and distinct version failures |
+| H3A-F02, B06 | `config_rejects_removed_aliases`, `config_rejects_secret_auth_ref`, schema absence scan, and no migration command |
 | H3A-F03, F07 | This contract's maturity and future-version sections |
-| H3A-F04, B01, B05 | `config_tests::test_config_precedence_and_sources`, `config_tests::explain_config_reports_leaf_provenance_and_redacts_secrets`, and `config_cli_tests::test_config_show_redaction` |
+| H3A-F04, B01, B05 | Config precedence/provenance tests, all policy monotonicity/union tests, credential exclusivity tests, and CLI redaction tests |
 | H3A-F05, F06, B03 | App config/connect tests and CLI workspace/main contract tests for load, mutation, doctor, and projection |
 | H3A-B04 | `runtime_cli_tests` extension-manifest activation fixture |

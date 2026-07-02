@@ -4,9 +4,18 @@ use std::fs;
 use std::path::Path;
 
 #[test]
-fn test_schema_drift() {
+fn schema_matches_default_workspace_config() {
     let generated_schema = schema_for!(WorkspaceConfig);
     let generated_json = serde_json::to_string_pretty(&generated_schema).unwrap();
+    let default_json = serde_json::to_value(WorkspaceConfig::default()).unwrap();
+    let round_trip: WorkspaceConfig = serde_json::from_value(default_json.clone()).unwrap();
+
+    assert_eq!(default_json["version"], 1);
+    assert_eq!(
+        serde_json::to_value(round_trip).unwrap(),
+        default_json,
+        "default config must round-trip through the v1 input model"
+    );
 
     let schema_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -65,7 +74,7 @@ fn test_full_valid_config() {
 }
 
 #[test]
-fn test_unknown_top_level_key_fails() {
+fn config_rejects_unknown_fields() {
     let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -95,7 +104,7 @@ fn test_unknown_nested_key_fails() {
 }
 
 #[test]
-fn test_invalid_version_fails() {
+fn config_rejects_unsupported_version() {
     let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -118,7 +127,7 @@ fn test_invalid_version_fails() {
 }
 
 #[test]
-fn missing_version_has_distinct_error() {
+fn config_rejects_missing_version() {
     let fixture = fixture("missing_version.json");
     let error = WorkspaceConfig::from_file(&fixture).expect_err("missing version must fail");
 
@@ -129,7 +138,7 @@ fn missing_version_has_distinct_error() {
 }
 
 #[test]
-fn invalid_version_type_has_distinct_error() {
+fn config_rejects_non_integer_version() {
     let fixture = fixture("invalid_version_type.json");
     let error = WorkspaceConfig::from_file(&fixture).expect_err("invalid version must fail");
 
@@ -140,10 +149,35 @@ fn invalid_version_type_has_distinct_error() {
 }
 
 #[test]
-fn removed_alias_is_rejected_as_unknown() {
-    let fixture = fixture("removed_alias.json");
+fn config_rejects_removed_aliases() {
+    let removed_fields = [
+        serde_json::json!({"version": 1, "context": {"workspace_file": "workspace.md"}}),
+        serde_json::json!({"version": 1, "context": {"memory_file": "memory.md"}}),
+        serde_json::json!({"version": 1, "policies": {"bash": {"yolo_allow": ["git"]}}}),
+        serde_json::json!({"version": 1, "policies": {"bash": {"always_confirm": ["rm"]}}}),
+        serde_json::json!({"version": 1, "policies": {"bash": {"always_deny": ["sudo"]}}}),
+    ];
 
-    assert!(WorkspaceConfig::from_file(&fixture).is_err());
+    for config in removed_fields {
+        assert!(
+            serde_json::from_value::<WorkspaceConfig>(config).is_err(),
+            "removed aliases must remain outside the v1 input model"
+        );
+    }
+
+    let schema = serde_json::to_string(&schema_for!(WorkspaceConfig)).unwrap();
+    for removed in [
+        "workspace_file",
+        "memory_file",
+        "yolo_allow",
+        "always_confirm",
+        "always_deny",
+    ] {
+        assert!(
+            !schema.contains(&format!("\"{removed}\"")),
+            "removed alias {removed} must not appear in the v1 schema"
+        );
+    }
 }
 
 fn fixture(name: &str) -> std::path::PathBuf {
