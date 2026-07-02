@@ -198,3 +198,63 @@ fn docs_contract_map_matches_status() {
         );
     }
 }
+
+#[test]
+fn docs_conformance_matrix_covers_published_contracts() {
+    let matrix = fs::read_to_string(repository_root().join("docs/v0.1/conformance-matrix.md"))
+        .expect("read v0.1 conformance matrix");
+    let expected = [
+        "RUNTIME-001",
+        "RUNTIME-002",
+        "RUNTIME-003",
+        "RUNTIME-004",
+        "RUNTIME-005",
+        "RUNTIME-006",
+        "APP-001",
+        "APP-002",
+        "CTX-001",
+        "CTX-002",
+        "CTX-003",
+        "CTX-004",
+        "CFG-001",
+        "CFG-002",
+        "CFG-003",
+        "CFG-004",
+        "CFG-005",
+        "EXT-001",
+        "EXT-002",
+        "EXT-003",
+        "EXT-004",
+        "EXT-005",
+        "EVT-001",
+        "EVT-002",
+        "EVT-003",
+        "EVT-004",
+        "EVT-005",
+        "POL-001",
+        "POL-002",
+        "POL-003",
+        "POL-004",
+        "CLI-001",
+        "CLI-002",
+        "CLI-003",
+        "CLI-004",
+    ];
+
+    for contract_id in expected {
+        let prefix = format!("| {contract_id} |");
+        let rows: Vec<_> = matrix
+            .lines()
+            .filter(|line| line.starts_with(&prefix))
+            .collect();
+        assert_eq!(rows.len(), 1, "{contract_id} must have exactly one row");
+        let columns: Vec<_> = rows[0].split('|').map(str::trim).collect();
+        assert_eq!(columns.len(), 9, "{contract_id} has malformed columns");
+        assert!(!columns[4].is_empty(), "{contract_id} lacks implementation");
+        assert!(
+            !columns[5].is_empty(),
+            "{contract_id} lacks enforcing tests"
+        );
+        assert_eq!(columns[6], "published", "{contract_id} status drifted");
+    }
+}
