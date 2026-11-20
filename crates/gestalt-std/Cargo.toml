@@ -1,0 +1,32 @@
+[package]
+name = "gestalt-std"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Optional standard loops, decorators, builders, tools, providers, and surfaces for Gestalt"
+
+[lints]
+workspace = true
+
+[features]
+default = ["loops", "tools", "providers", "surfaces", "tui"]
+loops = []
+tools = ["dep:regex-lite", "dep:ignore", "dep:similar"]
+providers = []
+surfaces = []
+tui = ["surfaces", "dep:ratatui", "dep:crossterm"]
+
+[dependencies]
+gestalt-kernel = { path = "../gestalt-kernel" }
+gestalt-runtime = { path = "../gestalt-runtime" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+regex-lite = { workspace = true, optional = true }
+ignore = { workspace = true, optional = true }
+similar = { workspace = true, optional = true }
+ratatui = { workspace = true, optional = true }
+crossterm = { workspace = true, optional = true }

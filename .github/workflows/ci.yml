@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install OS sandbox & audit tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap ripgrep hyperfine
+          cargo install tokei --locked
+
+      - name: Install audit tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ripgrep hyperfine tokei
+
+      - name: Formatting & Lints
+        run: |
+          cargo fmt --check
+          cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Kernel LOC Budget (<= 2,000 LOC)
+        run: |
+          loc=$(tokei crates/gestalt-kernel/src -o json | jq '.Rust.code // 0')
+          echo "gestalt-kernel Rust code LOC: $loc"
+          test "$loc" -le 2000
+
+      - name: Kernel Dependency Ceiling (<= 2 direct deps)
+        run: |
+          deps=$(cargo tree -p gestalt-kernel --depth 1 --prefix none | tail -n +2 | awk '{print $1}' | sort -u)
+          echo "$deps"
+          for dep in $deps; do
+            if [ "$dep" != "serde" ] && [ "$dep" != "serde_json" ]; then
+              echo "Forbidden direct dependency in gestalt-kernel: $dep"
+              exit 1
+            fi
+          done
+
+      - name: Kernel Purity Check
+        run: |
+          if rg -i "(anthropic|openai|jev|skill\.md|memory\.md|tokio|reqwest)" crates/gestalt-kernel/src; then
+            echo "Kernel purity violation detected"
+            exit 1
+          fi
+
+      - name: Unit & Replay Suite
+        run: cargo test --workspace
+
+      - name: Binary & Startup Budget (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --release -p gestalt-cli
+          size_bytes=$(stat -c%s target/release/gestalt)
+          echo "Stripped binary size: $size_bytes bytes"
+          test "$size_bytes" -le 15728640
+          hyperfine --warmup 3 './target/release/gestalt --version'

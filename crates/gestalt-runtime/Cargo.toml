@@ -1,0 +1,20 @@
+[package]
+name = "gestalt-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Reusable Tokio I/O host, OS sandbox drivers, and capability primitives for Gestalt"
+
+[lints]
+workspace = true
+
+[dependencies]
+gestalt-kernel = { path = "../gestalt-kernel" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
