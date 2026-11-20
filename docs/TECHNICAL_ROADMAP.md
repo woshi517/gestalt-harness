@@ -52,15 +52,16 @@ gestalt-harness/
 │   │       └── replay.rs             # Deterministic offline replay engine + divergence reporter
 │   ├── gestalt-runtime/              # Reusable Tokio I/O host & capability primitives (zero hardcoded features)
 │   │   └── src/
-│   │       ├── lib.rs                # RuntimeHost & RuntimeRegistry wiring KernelRuntime + async handlers
-│   │       ├── driver.rs             # Tokio Effect driver (RequiresVerification, External IPC, Worktree, <= 250ms Abort)
+│   │       ├── lib.rs                # Public API re-exports, RuntimeError, ProviderErrorKind & CancellationToken
+│   │       ├── driver/               # RuntimeHost, RuntimeRegistry, dispatch, session_io (.lock), worktree, replay
 │   │       ├── config.rs             # Global/Workspace gestalt.toml loader, merge precedence & trust gate
 │   │       ├── artifacts.rs          # ArtifactStoreView snapshots, Effect::Save staging/ledger.jsonl & /rollback
+│   │       ├── stdio_rpc.rs          # Shared sandboxed stdio JSON-RPC 2.0 child-process transport
 │   │       ├── ext_ipc.rs            # Out-of-process stdio JSON-RPC extension host (describe, loop/step, /reload)
-│   │       ├── mcp.rs                # Optional stdio MCP bridge (tools/list, tools/call)
+│   │       ├── mcp.rs                # Official MCP 2025-11-25 stdio bridge (negotiate, paginated tools/list, tools/call)
 │   │       ├── blobs.rs              # Content-addressed .gestalt/blobs/<sha256> spill, snapshots & preview
-│   │       ├── credentials.rs        # Host-only CredentialStore (env + 0600 file, sliding-window SSE redaction)
-│   │       ├── provider.rs           # ModelProvider trait, ProviderRegistry, shared HTTP/SSE client
+│   │       ├── credentials/          # Composable CredentialStore (ApiKey/OAuth/Headers/Custom + CredentialResolver) & StreamRedactor
+│   │       ├── provider.rs           # ModelProvider, ProviderContext, ProviderRegistry, SharedHttpClient (JSON/SSE)
 │   │       └── sandbox/
 │   │           ├── mod.rs            # SandboxDriver trait, WorkspacePathGuard (in-process), protected_paths
 │   │           ├── linux_bwrap.rs    # bubblewrap (--unshare-pid/ipc/uts/net, --ro-bind protected_paths)
@@ -94,7 +95,7 @@ gestalt-harness/
 ## 3. Critical Technical Contracts
 
 ### 3.1 Sans-I/O Kernel Execution, Trait Contracts & `DriverDirective`
-`gestalt-kernel` never awaits futures or performs disk/network I/O. The outer `tokio` driver (`gestalt-runtime/src/driver.rs`) drives the state machine in a tight loop:
+`gestalt-kernel` never awaits futures or performs disk/network I/O. The outer `tokio` driver (`gestalt-runtime/src/driver/`) drives the state machine in a tight loop:
 
 ```text
 1. driver polls kernel.next_action(pending_results) -> DriverDirective:
@@ -167,7 +168,8 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
   headless_auto_approve = []       # Explicit Pause reasons/actions allowed in -p mode (default: none)
 
   [providers.anthropic]
-  model = "claude-sonnet-4-5"      # API keys come ONLY from CredentialStore/env
+  adapter = "anthropic"            # Optional: defaults to provider key; lets aliases share an adapter
+  model = "claude-sonnet-4-5"      # API keys/OAuth/custom creds come ONLY from CredentialStore/env
   input_cost_per_mtok_usd = 3.0
   output_cost_per_mtok_usd = 15.0
 
@@ -236,8 +238,8 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 - **Non-Interactive Print (`-p` / `--json`):** Without `--json`, streams assistant text deltas to `stdout` and exits `0`; with `--json`, emits one NDJSON `RunEvent` per line. `Effect::Pause` fails closed (`StepResult::Denied`, exit code `3`) unless its reason/action matches `[policy].headless_auto_approve` in `gestalt.toml`.
 
 ### 3.7 Provider Error Handling, `CredentialStore`, Compaction & `BudgetCap`
-- **Target Resolution & `ModelCapabilities`:** `Effect::Model { target }` resolves `"<provider>/<model>"` or a configured provider alias in `gestalt.toml`. `ModelCapabilities` exposes `{ max_context_tokens, max_output_tokens, supports_prompt_caching, supports_reasoning, supports_vision }`.
-- **`CredentialStore`:** Reads secrets from standard env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `JEV_API_KEY`) or `~/.config/gestalt/credentials.toml` (enforcing `0600` permissions on Unix). Redacts secrets across `SessionTree`, `EventStream`, and `tracing` using a sliding-window buffer so secrets split across SSE chunks never leak.
+- **Target Resolution & `ModelCapabilities`:** `Effect::Model { target }` resolves `"<provider_or_alias>/<model>"` or a configured `[providers.<alias>]` entry in `gestalt.toml` (with optional `adapter = "<provider_id>"` so multiple endpoints/models compose over one provider adapter). `ModelProvider::invoke` receives a `ProviderContext` (`credentials`, `http: SharedHttpClient`, `blobs: BlobStore`, `redactor`, `cancel`) so providers can resolve multimodal blobs and reuse TLS/SSE streaming without changing the trait. `ModelCapabilities` exposes `{ max_context_tokens, max_output_tokens, supports_prompt_caching, supports_reasoning, supports_vision }`.
+- **Composable `CredentialStore`:** Supports extensible `CredentialRecord` variants (`ApiKey`, `OAuth`, `Headers`, `Custom { scheme, fields, secret_fields }`) and pluggable `CredentialResolver`s alongside standard env vars and `~/.config/gestalt/credentials.toml` (enforcing `0600` permissions on Unix). Redacts secrets across `SessionTree`, `EventStream`, and `tracing` using a stateful sliding-window `StreamRedactor` so secrets split across streaming deltas never leak.
 - **Error Classification & Malformed Tool Recovery:** Classifies HTTP/SSE failures into `Retryable` (`429`, `529`, transient `5xx`, network reset), `ContextLengthExceeded` (triggers `compaction` decorator), `AuthError`, and `Fatal`. Unknown tool names or invalid tool argument schemas return `StepResult::Tool { is_error: true, output: "validation error..." }` so the LLM can self-correct on the next Step.
 - **Compaction & Curator (`v0.1` vs `v0.2`):** `compaction` reads `LoopConfig::params["compaction_threshold"]` (default `0.80`), `keep_recent_turns` (default `2`), and `compaction_model` (defaults to the Phase's active LLM target). In `v0.1`, `curator` stages candidate `SKILL.md`/`MEMORY.md` patches via `SaveMode::Stage` and requests human/policy approval (`Effect::Pause(Approval)`) before `SaveMode::Promote`; automated multi-trace replay regression gating prior to promotion lands in `v0.2`.
 - **Monotonic Budget & `Spawn` Accounting:** `Usage` (`cost_micro_usd`) accumulates monotonically per Turn and Session from `[providers.<id>]` rate tables. `Effect::Spawn` child budgets MUST be `<= parent.budget_remaining`, and child usage is deducted upon `SpawnCompleted`. Fallback token estimator: `chars / 4`.
@@ -259,7 +261,7 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 ### 3.9 Two-Layer Sandbox Enforcement & `WorkspaceMode::Worktree` Lifecycle
 - **In-Process File Tools (`read`, `write`, `edit`, `glob`, `grep`):** `WorkspacePathGuard` in `gestalt-runtime/src/sandbox/mod.rs` canonicalizes paths, rejects symlink escapes outside `workspace_root`, blocks `Write`/`Delete` on any `protected_paths` prefix, and dynamically elevates `write` to `SideEffectClass::Irreversible` when overwriting an existing file.
 - **Subprocess Tools (`bash`, external MCP/RPC workers):** Executed inside `SandboxDriver` (`bwrap` on Linux, `sandbox-exec` Seatbelt on macOS) with `protected_paths` bind-mounted read-only and `--unshare-net` by default.
-- **`WorkspaceMode::Worktree` Lifecycle:** `driver.rs` creates a detached git worktree under `.gestalt/worktrees/<spawn_id>/` (returning `StepResult::Error` if the workspace is not a git repo), computes a unified diff blob (`diff_blob_digest`) on `SpawnCompleted`, and prunes clean temporary worktrees on session close.
+- **`WorkspaceMode::Worktree` Lifecycle:** `driver/worktree.rs` creates a detached git worktree under `.gestalt/worktrees/<spawn_id>/` (returning `StepResult::Error` if the workspace is not a git repo), computes a unified diff blob (`diff_blob_digest`) on `SpawnCompleted`, and prunes clean temporary worktrees on session close.
 
 ### 3.10 Core Built-In Tools (`StdToolsExtension`)
 - **8 Registered Tools:** `read` (`path`, `start_line`, `end_line`, `byte_offset`), `write` (`path`, `content`, `overwrite`), `edit` (`path`, `target`, `replacement` → returns structured unified diff metadata for `UISurface`), `glob` (`pattern`, `root`), `grep` (`pattern`, `path`, `glob_filter`), `bash` (`command`, `cwd`, `timeout_ms`, `background: bool`), `bash_output` (`task_id`), `bash_kill` (`task_id`).
@@ -282,15 +284,15 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 
 #### Milestone 0 — Workspace Dependency & Environment Provisioning (Pre-Code)
 **Goal:** Provision, pin, and audit all Rust crates, OS sandbox binaries, and CI tools before writing implementation code.
-- [ ] Verify Rust toolchain (MSRV `1.85+`, Edition 2024), `rustfmt`, `clippy`, and `tokei` (for kernel LOC checks).
-- [ ] Initialize root `Cargo.toml` (`resolver = "2"`, `#![forbid(unsafe_code)]`, strict clippy lints, release `lto = true`, `strip = true`, `codegen-units = 1`) and scaffold `crates/{gestalt-kernel,gestalt-runtime,gestalt-std,gestalt-cli}/Cargo.toml` manifests with pinned dependency ceilings:
+- [x] Verify Rust toolchain (MSRV `1.85+`, Edition 2024), `rustfmt`, `clippy`, and `tokei` (for kernel LOC checks).
+- [x] Initialize root `Cargo.toml` (`resolver = "2"`, `#![forbid(unsafe_code)]`, strict clippy lints, release `lto = true`, `strip = true`, `codegen-units = 1`) and scaffold `crates/{gestalt-kernel,gestalt-runtime,gestalt-std,gestalt-cli}/Cargo.toml` manifests with pinned dependency ceilings:
   - `gestalt-kernel`: `serde`, `serde_json` (**≤ 2** direct dependencies; implements `std::error::Error` + `Display` manually to preserve the 2-dep ceiling).
   - `gestalt-runtime`: `serde`, `serde_json`, `thiserror`, `tokio`, `reqwest` (`rustls-tls`, `stream`; no OpenSSL), `toml`, `tracing`.
   - `gestalt-std`: `serde`, `serde_json`, `thiserror`, `tokio`, plus `regex-lite` (or `regex`), `ignore`, `similar` behind `#[cfg(feature = "tools")]`, `gestalt-runtime` HTTP/SSE client behind `#[cfg(feature = "providers")]`, and `ratatui` + `crossterm` behind `#[cfg(feature = "tui")]`.
   - `gestalt-cli`: `anyhow`, `tokio`, `tracing-subscriber`.
-- [ ] Provision & verify OS runtime/test dependencies: `bwrap` (`bubblewrap` on Linux) / `sandbox-exec` (Seatbelt on macOS) and `git` (for `WorkspaceMode::Worktree` isolation).
-- [ ] Run `cargo fetch` / `cargo check --workspace --all-targets` to generate and audit `Cargo.lock` (no OpenSSL, no heavy proc-macro bloat, no unapproved transitive native C deps).
-- [ ] Create CI workflow (`.github/workflows/ci.yml`) enforcing all 7 gates in Section 5 (`ubuntu-latest` + `macos-latest`).
+- [x] Provision & verify OS runtime/test dependencies: `bwrap` (`bubblewrap` on Linux) / `sandbox-exec` (Seatbelt on macOS) and `git` (for `WorkspaceMode::Worktree` isolation).
+- [x] Run `cargo fetch` / `cargo check --workspace --all-targets` to generate and audit `Cargo.lock` (no OpenSSL, no heavy proc-macro bloat, no unapproved transitive native C deps).
+- [x] Create CI workflow (`.github/workflows/ci.yml`) enforcing all 7 gates in Section 5 (`ubuntu-latest` + `macos-latest`).
 - **Exit Gate:** `cargo check --workspace --all-targets` passes with zero warnings; `cargo tree -p gestalt-kernel --depth 1` lists only `serde` and `serde_json`; `bwrap` (or `sandbox-exec`), `git`, and `tokei` are verified on the host; CI pipeline is active.
 
 ### Phase 1: `v0.1` Proof Gate MVP
@@ -307,12 +309,12 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 
 #### Milestone 1.2 — `gestalt-runtime` Host Primitives & Sandboxes (Target: Weeks 3–4)
 **Goal:** Reusable, feature-agnostic Tokio `Effect` runtime, OS sandboxing, credential isolation, and dynamic extension host.
-- [ ] Implement `config.rs`: Global/Workspace `gestalt.toml` loader, slot merge precedence, monotonic policy validation, and `(workspace_path, config_sha256)` trust gate.
-- [ ] Implement `driver.rs` & `lib.rs`: `RuntimeHost` / `RuntimeRegistry` and Tokio `Effect` runner supporting parallel tool/spawn execution, `WorkspaceMode::Worktree` lifecycle, `PolicyDecision::RequiresVerification`, `InvokeExternalLoop`/`Builder` IPC deferrals, advisory `.lock` file handling, and `<= 250 ms` `CancellationToken` abort handling.
-- [ ] Implement `artifacts.rs`: `ArtifactStoreView` snapshot hashing into `BlobStore`, `Effect::Save` staging (`.gestalt/staging/`), `ApplyDiff` promotion, `.gestalt/ledger.jsonl` rollback snapshots, and `/rollback`.
-- [ ] Implement `ext_ipc.rs` & `mcp.rs`: out-of-process stdio JSON-RPC worker host (`extension/describe`, stateful `loop/step`, `decorator/wrap_step`, `stream/delta`, `/reload <ext>`, per-call IPC timeouts) + optional stdio MCP bridge (defaulting unknown tools to `SideEffectClass::Irreversible`).
-- [ ] Implement `blobs.rs`, `credentials.rs`, and `provider.rs`: content-addressed `.gestalt/blobs/<sha256>` (`32 KB` spill threshold), `CredentialStore` (env + `0600` `~/.config/gestalt/credentials.toml`, sliding-window SSE redaction), `ModelProvider` trait, `ProviderRegistry`, and shared HTTP/SSE client.
-- [ ] Implement `SandboxDriver` (`linux_bwrap.rs`, `macos_seatbelt.rs`) and `WorkspacePathGuard` (`sandbox/mod.rs`) enforcing canonical path + symlink-escape + read-only `protected_paths` checks for in-process tools, default network isolation, `env_clear()`, and fail-closed missing-binary behavior.
+- [x] Implement `config.rs`: Global/Workspace `gestalt.toml` loader, slot merge precedence, monotonic policy validation, and `(workspace_path, config_sha256)` trust gate.
+- [x] Implement `driver/` (`mod.rs`, `dispatch.rs`, `session_io.rs`, `worktree.rs`, `replay.rs`) & `lib.rs`: `RuntimeHost` / `RuntimeRegistry` and Tokio `Effect` runner supporting parallel tool/spawn execution, real child `Effect::Spawn` turns, `WorkspaceMode::Worktree` lifecycle, `PolicyDecision::RequiresVerification`, `InvokeExternalLoop`/`Builder` IPC deferrals, external `decorator/wrap_step` hooks, mid-step `UrgentSteer` preemption, advisory `.lock` file handling with stale-PID reclamation, and `<= 250 ms` `CancellationToken` abort handling.
+- [x] Implement `artifacts.rs`: `ArtifactStoreView` snapshot hashing into `BlobStore`, `Effect::Save` staging (`.gestalt/staging/`), `ApplyDiff` promotion, `.gestalt/ledger.jsonl` rollback snapshots, and `/rollback`.
+- [x] Implement `stdio_rpc.rs`, `ext_ipc.rs` & `mcp.rs`: shared sandboxed stdio JSON-RPC 2.0 transport, out-of-process worker host (`extension/describe`, stateful `loop/step`, `decorator/wrap_step`, `stream/delta`, `/reload <ext>`, per-call IPC timeouts), and official MCP `2025-11-25` stdio bridge (version negotiation, paginated `tools/list`, `tools/call` `content` + `structuredContent`, `ping`, `notifications/cancelled`, defaulting unknown tools to `SideEffectClass::Irreversible`).
+- [x] Implement `blobs.rs`, `credentials/` (`mod.rs`, `redactor.rs`), and `provider.rs`: content-addressed `.gestalt/blobs/<sha256>` (`32 KB` spill threshold), composable `CredentialStore` (`ApiKey`/`OAuth`/`Headers`/`Custom` + pluggable `CredentialResolver`, env + `0600` `~/.config/gestalt/credentials.toml`, stateful sliding-window `StreamRedactor`), composable `ModelProvider` + `ProviderContext`, `ProviderRegistry` (`adapter` aliases), and `SharedHttpClient` (JSON/SSE).
+- [x] Implement `SandboxDriver` (`linux_bwrap.rs`, `macos_seatbelt.rs`) and `WorkspacePathGuard` (`sandbox/mod.rs`) enforcing canonical path + symlink-escape + read-only `protected_paths` checks for in-process tools, default network isolation, `env_clear()`, and fail-closed missing-binary behavior.
 - **Exit Gate:** Fail-closed security & sandbox conformance suite passes 100% on both Linux (`bwrap`) and macOS (`Seatbelt`) CI runners (0 bypasses on `protected_paths`, symlink escapes, and `CredentialStore` reads); `gestalt-runtime` compiles with zero references to `gestalt-std`.
 
 #### Milestone 1.3a — `gestalt-std` Loops, Decorators, Builders, Tools & Providers (Target: Weeks 5–6)
