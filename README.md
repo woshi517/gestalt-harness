@@ -4,7 +4,7 @@ A microkernel AI agent harness for dynamic semantics, written in Rust.
 
 Gestalt separates an invariant, sans-I/O microkernel (`gestalt-kernel`, <= 2,000 LOC, `<= 2` direct dependencies, `#![forbid(unsafe_code)]`) from a reusable Tokio host runtime (`gestalt-runtime`) and an optional, batteries-included userland (`gestalt-std` + `gestalt-cli`). All agent loops, context builders, model paradigms, tools, and UI surfaces run in user space through a unified `Extension` contract.
 
-> **Project Status:** Milestone 0 (workspace scaffold, dependency audit, and CI gates) is complete. Phase 1 (`v0.1` Proof Gate MVP) implementation is underway.
+> **Project Status:** Milestones 0 (workspace scaffold & CI gates), 1.1 (`gestalt-kernel` sans-I/O microkernel), and 1.2 (`gestalt-runtime` host primitives & OS sandboxes) are complete. Next up: Milestone 1.3a (`gestalt-std`).
 
 ## Workspace Architecture
 
