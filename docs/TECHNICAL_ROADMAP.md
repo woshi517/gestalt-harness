@@ -136,6 +136,10 @@ gestalt-harness/
   - `LoopContext` exposes `run_id()`, `turn_id()`, `phase_id()`, `handoff()`, `config()`, `session() -> &SessionSlice`, `artifacts() -> &ArtifactStoreView`, `budget_remaining() -> &BudgetSnapshot`, `build_context(&self, caps: &ModelCapabilities) -> Value`, `drain_steering()`, `now_ms() -> u64`, and `next_id() -> String`.
   - `ExtensionRegistry` in `gestalt-kernel` stores declarative descriptors for all slots: `loops`, `decorators`, `presets`, `builders`, `policies`, `tools: BTreeMap<String, ToolSpec>`, `commands: BTreeMap<String, CommandSpec>`, and `ui: UISurface` (with `UIRendererSpec`, `UIPanelSpec`, `UIDialogSpec`, `UIActionSpec`). `gestalt-runtime::RuntimeRegistry` binds async execution handlers (`ToolHandler`, `CommandHandler`, `ModelProvider`, `SandboxDriver`) by slot name.
   - `SessionSlice` provides read-only access to the active branch's nodes from root to head; `ArtifactStoreView` provides read-only `get(path) -> Option<ArtifactEntry>` backed by live files (during live runs) or blob snapshots (during replay). `ExtensionError` implements `std::error::Error` + `Display` manually in `gestalt-kernel` to keep kernel dependencies at `<= 2`.
+- **Steering Inbox Semantics (`steering.rs`):**
+  - `KernelRuntime` appends the canonical `steering` node to `SessionTree` immediately when a `SteeringSignal` is enqueued (guaranteeing crash-safe durability and deterministic replay).
+  - `ctx.drain_steering()` returns and marks consumed all pending `Steer` / `UrgentSteer` signals for the active `AgentLoop`'s `ContextBuilder`.
+  - Un-drained `Steer` signals carry across `Effect::Switch` into the next Phase; if the Turn ends (`LoopAction::Done`) with un-drained `Steer` signals still in the `Inbox`, `KernelRuntime` auto-promotes them to `FollowUp` for Turn `N+1` so user input is never silently dropped.
 
 ### 3.2 Dynamic `Preset` & `LoopDecorator` Resolution
 When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
