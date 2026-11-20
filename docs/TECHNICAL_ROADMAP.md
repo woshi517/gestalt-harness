@@ -297,12 +297,12 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 
 #### Milestone 1.1 — `gestalt-kernel` Sans-I/O Microkernel (Target: Weeks 1–2)
 **Goal:** Complete, audited, 100% unit-tested sans-I/O microkernel under 2,000 LOC.
-- [ ] Implement `sha256.rs` (pure safe Rust SHA-256 + canonical JSON `BTreeMap` serializer/hasher) so `gestalt-kernel` stays at `<= 2` direct dependencies (`serde`, `serde_json`).
-- [ ] Implement `tree.rs`: pure in-memory + JSONL line parser/serializer for `SessionTree`, content-addressed digests, `/fork`, `/rewind`, namespaced user node kinds, `artifact_snapshots`, and `Spawn` child branch linkage.
-- [ ] Implement `effect.rs` & `steering.rs`: `Effect`, `EffectEnvelope`, `ModelKind`, `SideEffectClass`, `WorkspaceMode`, `StepResult`, `SteeringSignal` (`Steer`, `UrgentSteer`, `FollowUp`, `Abort`) Inbox, and orphan `tool_call` abort synthesis.
-- [ ] Implement `policy.rs`: fail-closed `PolicyGate`, integer `micro_usd` `BudgetCap`/`Usage`, `PolicyRule` (`evaluate` + `evaluate_verification`), `PolicyDecision::RequiresVerification`, and `Spawn` depth/workspace checks.
-- [ ] Implement `extension.rs`: `AgentLoop`, `AgentLoopFactory`, `LoopDecorator`, `LoopContext` (`&mut dyn LoopContext`, `now_ms()`, `build_context()`), `ContextBuilder`, `Preset`, `Extension`, `ExtensionRegistry` (including `ToolSpec`, `CommandSpec`, `UISurface` sub-types), `SessionSlice`, and `ArtifactStoreView`.
-- [ ] Implement `event.rs`, `replay.rs` & `lib.rs`: `RunEvent`, `DriverDirective` (including `InvokeExternalLoop` & `InvokeExternalBuilder`), and deterministic offline replay engine with node-level divergence reporting.
+- [x] Implement `sha256.rs` (pure safe Rust SHA-256 + canonical JSON `BTreeMap` serializer/hasher) so `gestalt-kernel` stays at `<= 2` direct dependencies (`serde`, `serde_json`).
+- [x] Implement `tree.rs`: pure in-memory + JSONL line parser/serializer for `SessionTree`, content-addressed digests, `/fork`, `/rewind`, namespaced user node kinds, `artifact_snapshots`, and `Spawn` child branch linkage.
+- [x] Implement `effect.rs` & `steering.rs`: `Effect`, `EffectEnvelope`, `ModelKind`, `SideEffectClass`, `WorkspaceMode`, `StepResult`, `SteeringSignal` (`Steer`, `UrgentSteer`, `FollowUp`, `Abort`) Inbox, and orphan `tool_call` abort synthesis.
+- [x] Implement `policy.rs`: fail-closed `PolicyGate`, integer `micro_usd` `BudgetCap`/`Usage`, `PolicyRule` (`evaluate` + `evaluate_verification`), `PolicyDecision::RequiresVerification`, and `Spawn` depth/workspace checks.
+- [x] Implement `extension.rs`: `AgentLoop`, `AgentLoopFactory`, `LoopDecorator`, `LoopContext` (`&mut dyn LoopContext`, `now_ms()`, `build_context()`), `ContextBuilder`, `Preset`, `Extension`, `ExtensionRegistry` (including `ToolSpec`, `CommandSpec`, `UISurface` sub-types), `SessionSlice`, and `ArtifactStoreView`.
+- [x] Implement `event.rs`, `replay.rs` & `lib.rs`: `RunEvent`, `DriverDirective` (including `InvokeExternalLoop` & `InvokeExternalBuilder`), and deterministic offline replay engine with node-level divergence reporting.
 - **Exit Gate:** `tokei crates/gestalt-kernel` ≤ 2,000 code LOC; `cargo tree -p gestalt-kernel --depth 1` shows only `serde` + `serde_json`; 100% unit test coverage on policy denial, abort synthesis, and replay determinism.
 
 #### Milestone 1.2 — `gestalt-runtime` Host Primitives & Sandboxes (Target: Weeks 3–4)

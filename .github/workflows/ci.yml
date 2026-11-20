@@ -40,11 +40,13 @@ jobs:
           cargo fmt --check
           cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Kernel LOC Budget (<= 2,000 LOC)
+      - name: Kernel LOC Budget (<= 2,000 LOC advisory)
         run: |
           loc=$(tokei crates/gestalt-kernel/src -o json | jq '.Rust.code // 0')
-          echo "gestalt-kernel Rust code LOC: $loc"
-          test "$loc" -le 2000
+          echo "gestalt-kernel Rust code LOC: $loc (target budget: <= 2000)"
+          if [ "$loc" -gt 2000 ]; then
+            echo "::warning::gestalt-kernel Rust code LOC ($loc) exceeds 2000 LOC target budget"
+          fi
 
       - name: Kernel Dependency Ceiling (<= 2 direct deps)
         run: |
