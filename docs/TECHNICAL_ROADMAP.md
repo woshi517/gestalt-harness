@@ -319,10 +319,10 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 
 #### Milestone 1.3a — `gestalt-std` Loops, Decorators, Builders, Tools & Providers (Target: Weeks 5–6)
 **Goal:** Ship optional core agent loops, context builders, 8 workspace tools, and 3 vendor provider adapters behind Cargo features (`loops`, `tools`, `providers`) with zero private backdoors.
-- [ ] Implement `loops` & `decorators`: `ChatLoop` (`"chat"` with malformed tool-call self-correction), `DecisionRouter` (`"decision_router"` with route table & fallback escalation), `goal_check`, `compaction` (emitting `"std:compaction"` node), and `curator` (`v0.1` staged `Effect::Save(Stage)` + `Pause(Approval)`).
-- [ ] Implement `builders` & `presets`: 3-tier cache-stable `StandardBuilder` (`AGENTS.md`, `MEMORY.md`, `USER.md`, `SKILL.md` budgets), `SlidingWindowBuilder`, `DecisionStateBuilder`, generalized presets (`swe`, `general`, `minimal_shell`), default `protected_paths`, and commands (`/goal`, `/compact`, `/gate`, `/login`).
-- [ ] Implement `tools` (`StdToolsExtension`): `read`, `write`, `edit` (with inline diff metadata), `glob`, `grep`, `bash`, `bash_output`, and `bash_kill` (explicit `cwd`, timeout, process-group abort, scoped background task reaping).
-- [ ] Implement `providers`: `anthropic` (`Llm` + prompt caching + thinking), `openai` (`Llm`), and `jev` (`Decision`) adapters registering into `ProviderRegistry`.
+- [x] Implement `loops` & `decorators`: `ChatLoop` (`"chat"` with malformed tool-call self-correction), `DecisionRouter` (`"decision_router"` with route table & fallback escalation), `goal_check`, `compaction` (emitting `"std:compaction"` node), and `curator` (`v0.1` staged `Effect::Save(Stage)` + `Pause(Approval)`).
+- [x] Implement `builders` & `presets`: 3-tier cache-stable `StandardBuilder` (`AGENTS.md`, `MEMORY.md`, `USER.md`, `SKILL.md` budgets), `SlidingWindowBuilder`, `DecisionStateBuilder`, generalized presets (`swe`, `general`, `minimal_shell`), default `protected_paths`, and commands (`/goal`, `/compact`, `/gate`, `/login`).
+- [x] Implement `tools` (`StdToolsExtension`): `read`, `write`, `edit` (with inline diff metadata), `glob`, `grep`, `bash`, `bash_output`, and `bash_kill` (explicit `cwd`, timeout, process-group abort, scoped background task reaping).
+- [x] Implement `providers`: `anthropic` (`Llm` + prompt caching + thinking), `openai` (`Llm`), and `jev` (`Decision`) adapters registering into `ProviderRegistry`.
 - **Exit Gate:** `StandardBuilder` byte-prefix cache stability tests pass across multi-turn sessions; `ChatLoop` and `DecisionRouter` compose cleanly with `goal_check` and `compaction`; `gestalt-std` builds cleanly under `--no-default-features` and individual feature subsets.
 
 #### Milestone 1.3b — `gestalt-std` Surfaces (`print`, `rpc`, `acp`, `replay`, `tui`) (Target: Week 7)
