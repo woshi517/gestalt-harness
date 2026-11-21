@@ -4,7 +4,7 @@ A microkernel AI agent harness for dynamic semantics, written in Rust.
 
 Gestalt separates an invariant, sans-I/O microkernel (`gestalt-kernel`, <= 2,000 LOC, `<= 2` direct dependencies, `#![forbid(unsafe_code)]`) from a reusable Tokio host runtime (`gestalt-runtime`) and an optional, batteries-included userland (`gestalt-std` + `gestalt-cli`). All agent loops, context builders, model paradigms, tools, and UI surfaces run in user space through a unified `Extension` contract.
 
-> **Project Status:** Milestones 0 (workspace scaffold & CI gates), 1.1 (`gestalt-kernel` sans-I/O microkernel), and 1.2 (`gestalt-runtime` host primitives & OS sandboxes) are complete. Next up: Milestone 1.3a (`gestalt-std`).
+> **Project Status:** Phase 1 (`v0.1` — Milestones 0, 1.1 `gestalt-kernel`, 1.2 `gestalt-runtime`, 1.3a/1.3b `gestalt-std` & surfaces, and 1.4 `gestalt-cli` + `v0.1` Proof Gate) is complete. Next up: Phase 2 (`v0.2` Ecosystem, Triggers & Container Sandboxes).
 
 ## Workspace Architecture
 
@@ -43,9 +43,9 @@ tokei crates/gestalt-kernel/src
 cargo tree -p gestalt-kernel --depth 1
 ```
 
-## Planned CLI & Protocol Surfaces (`v0.1`)
+## CLI & Protocol Surfaces (`v0.1`)
 
-- `gestalt` — Interactive terminal UI (`ratatui` + `crossterm`, gated behind `--features tui`)
+- `gestalt` — Interactive terminal UI (`ratatui` + `crossterm`, gated behind `--features tui`) with Turn/Step transcript cards, per-step and global (`Ctrl+O`) step minimizing, inline diff previews, `/tree` (`Esc Esc`) branch navigation, `/session` (`/resume`) session switcher, `/model` & `/thinking` selector modals, and actionable model/credential/streaming error diagnostics
 - `gestalt -p "<prompt>" [--json] [--preset <name>] [--model <provider/model>]` — Non-interactive print / NDJSON mode
 - `gestalt --mode rpc` — Headless stdio JSON-RPC 2.0 server
 - `gestalt --mode acp` — Agent Client Protocol (ACP v1) stdio server

@@ -23,7 +23,7 @@ Before any code is written, every crate, PR, and extension MUST uphold these fou
    - `Preset { base_loop, decorators, builder, config }` dynamically wires loops, decorators, and context builders. `ChatLoop` (`"chat"`) is simply the optional default option in `gestalt-std`, never bolted into the kernel or runtime.
    - **Self-Extension Without Recompiling Core Crates:** An agent can author new out-of-process extensions (`loops`, `decorators`, `builders`, `tools`, `policies`, `commands`, `ui` `UISurface` specs) or `skills/` via `Effect::Save`, register them in `<workspace>/.gestalt/gestalt.toml` (subject to `PolicyGate` and workspace trust approval), and hot-load them live via `/reload <ext>`.
 3. **Generalized Naming Standard:**
-   - Code identifiers, loop IDs, builder names, and presets MUST use vendor-neutral, generalized names (`chat`, `decision_router`, `swe`, `general`, `minimal_shell`, `DecisionStateBuilder`, `StandardBuilder`, `SlidingWindowBuilder`).
+   - Code identifiers, loop IDs, builder names, and presets MUST use vendor-neutral, generalized names (`chat`, `decision_router`, `general`, `triage`, `DecisionStateBuilder`, `StandardBuilder`).
    - Third-party product names appear **only** inside concrete provider adapter modules in `gestalt-std/src/extensions/providers/` (e.g., `anthropic.rs`, `openai.rs`, `jev.rs`) and in documentation citations.
 4. **Rust Quality, Safety & Minimalism (`AGENTS.md` Compliance):**
    - `#![forbid(unsafe_code)]` across the entire workspace.
@@ -72,8 +72,8 @@ gestalt-harness/
 │   │       ├── extensions/
 │   │       │   ├── loops/            # ChatLoop ("chat"), DecisionRouter ("decision_router")
 │   │       │   ├── decorators/       # goal_check, compaction, curator
-│   │       │   ├── builders/         # StandardBuilder, SlidingWindowBuilder, DecisionStateBuilder
-│   │       │   ├── presets.rs        # swe, general, minimal_shell presets + protected_paths defaults
+│   │       │   ├── builders/         # StandardBuilder (with ~/.agents/skills/ & ~/.gestalt/skills/), DecisionStateBuilder
+│   │       │   ├── presets.rs        # general (default agent) & triage presets + protected_paths defaults
 │   │       │   ├── tools/            # read, write, edit, glob, grep, bash, bash_output, bash_kill
 │   │       │   └── providers/        # anthropic.rs, openai.rs, jev.rs (ModelProvider impls)
 │   │       └── surfaces/
@@ -143,7 +143,7 @@ gestalt-harness/
   - Un-drained `Steer` signals carry across `Effect::Switch` into the next Phase; if the Turn ends (`LoopAction::Done`) with un-drained `Steer` signals still in the `Inbox`, `KernelRuntime` auto-promotes them to `FollowUp` for Turn `N+1` so user input is never silently dropped.
 
 ### 3.2 Dynamic `Preset` & `LoopDecorator` Resolution
-When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
+When opening a `Phase` for a preset (e.g., `general` + `/goal`):
 1. Look up `base_loop` in `ExtensionRegistry::loops` (`AgentLoopFactory::create`).
 2. Fold `preset.decorators` (plus any runtime decorators like `goal_check`) in order via `LoopDecorator::wrap(inner, &config, &registry)`.
 3. Record `{ phase_id, preset_id, base_loop_id, loop_digest, decorator_digests, builder_id, builder_digest, config }` on the `SessionTree` `phase_open` node so offline replay reproduces the exact decorated stack.
@@ -152,7 +152,7 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 - **Complete Reference Schema (`gestalt.toml`):**
   ```toml
   [defaults]
-  preset = "swe"                   # Active default preset
+  preset = "general"               # Active default general-agent preset
   session_dir = ".gestalt/sessions"
 
   [budget]
@@ -162,7 +162,7 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 
   [sandbox]
   network = false                  # Denied by default
-  protected_paths = [".gestalt/memories/", ".gestalt/skills/"]
+  protected_paths = [".gestalt/memories/", ".gestalt/skills/", ".agents/skills/"]
 
   [policy]
   headless_auto_approve = []       # Explicit Pause reasons/actions allowed in -p mode (default: none)
@@ -177,11 +177,11 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
   endpoint = "https://api.typesafe.ai/v1/decision"
   model = "jev-1.13.0"
 
-  [presets.custom_swe]
+  [presets.custom_general]
   base_loop = "chat"
   decorators = ["compaction"]
   builder = "standard"
-  allowed_tools = ["read", "write", "edit", "glob", "grep", "bash"]
+  allowed_tools = ["read", "write", "edit", "glob", "grep", "bash", "bash_output", "bash_kill"]
   max_spawn_depth = 1
 
   [extensions.my_router]
@@ -253,28 +253,55 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
   - `gestalt rollback <stage_id>`
   - Global flags: `--version` (`-V`), `--help` (`-h`), `--ext <cmd>`, `--trust-workspace`, `--unsafe-no-sandbox` (logs visible warning to `SessionTree`).
 - **Slash Commands:**
-  - Kernel-backed: `/mode <preset>`, `/steer [--urgent] <msg>` (`UrgentSteer` cancels in-flight step I/O and injects steering; plain `/steer` applies between steps), `/stop` (Turn abort), `/fork [<node_id>] [--new-file]`, `/rewind <node_id>` (rewinds conversation state only; emits UI notice that disk files are unchanged), `/reload <ext>`, `/rollback <stage_id>`.
-  - Extension-registered (`gestalt-std`): `/goal <criteria>` (activates `goal_check` decorator), `/compact` (triggers immediate compaction), `/gate` (displays active `PolicyGate` rules and `BudgetSnapshot`), `/login <provider>` (prompts via `Effect::Pause(Input)` and writes to `~/.config/gestalt/credentials.toml`).
+  - Kernel & Host-backed (usable by any loop, even without `gestalt-std`):
+    - `/mode [<preset>]`: Switch active preset/loop mid-session (or list/select presets when called with no args).
+    - `/steer [--urgent] <msg>`: `UrgentSteer` cancels in-flight step I/O and injects steering; plain `/steer` applies between steps.
+    - `/stop`: Preemptive Turn abort (`<= 250 ms`).
+    - `/fork [<node_id>] [--new-file]`: Branch `SessionTree` from a historical node or current head.
+    - `/rewind <node_id>`: Rewind conversation state only; emits explicit UI notice that workspace disk files are unchanged.
+    - `/new`: Start a fresh `SessionTree` session in the active workspace.
+    - `/tree`: Open the interactive `SessionTree` navigator (`Esc Esc` shortcut in TUI) to inspect, filter, rewind, or fork any historical node.
+    - `/session` (alias `/resume`): Display active session file path, head node ID, branch, Turn/Phase stats, and `BudgetSnapshot` usage (or open the interactive session switcher in TUI).
+    - `/trust`: Approve and persist workspace trust for `<workspace>/.gestalt/gestalt.toml` in `~/.config/gestalt/trusted_workspaces.json`.
+    - `/reload [<ext>]`: Hot-reload a specific external extension (`/reload <ext>`) or refresh all external extensions and discovered skills/artifacts between Turns.
+    - `/rollback <stage_id>`: Revert a promoted `Effect::Save` stage via `.gestalt/ledger.jsonl`.
+    - `/help` (alias `/hotkeys`): List all registered slash commands and TUI keyboard shortcuts.
+    - `/quit` (alias `/exit`): Cleanly shut down workers and exit the TUI.
+  - Extension-registered (`gestalt-std` default `general` agent — 100% optional/replaceable):
+    - `/model [<provider/model>]`: Switch or inspect the active LLM target (`LoopConfig::params["model"]`) for the current session/preset (or open the interactive model selector in TUI).
+    - `/thinking [<off|low|medium|high|tokens>]`: Configure or toggle extended reasoning token budget (`LoopConfig::params["reasoning_budget_tokens"]`).
+    - `/login <provider>`: Prompt via `Effect::Pause(Input)` (`provider_login` secret-masked dialog) and persist credentials (`ApiKey`/`OAuth`/`Custom`) to `0600` `~/.config/gestalt/credentials.toml`.
+    - `/logout <provider>`: Remove stored credentials for `<provider>` from `CredentialStore` and `~/.config/gestalt/credentials.toml`.
+    - `/compact`: Trigger immediate lossless context compaction into a `"std:compaction"` node.
+    - `/goal <criteria>`: Activate the `goal_check` decorator with exit criteria for the current session/Turn.
+    - `/gate`: Display active `PolicyGate` rules, `allowed_tools`, `protected_paths`, MCP/extension bindings, and `BudgetSnapshot`.
+    - `/skills` (and `/skill:<name> [args]`): List discovered skills across `~/.agents/skills/`, `~/.gestalt/skills/`, `<workspace>/.agents/skills/`, and `<workspace>/.gestalt/skills/`, or explicitly load/invoke a skill by name.
 - **Exit Codes:** `0` (success / replay parity), `1` (runtime/provider error / replay divergence), `2` (CLI/config parse error / corrupt replay JSONL), `3` (policy denial / untrusted workspace / headless pause denied), `130` (SIGINT / aborted Turn).
 - **Wire-Safe Observability:** All `tracing` diagnostics write strictly to `stderr` (or `.gestalt/logs/`), **never** `stdout`, and pass through the `CredentialStore` redactor.
 
 ### 3.9 Two-Layer Sandbox Enforcement & `WorkspaceMode::Worktree` Lifecycle
-- **In-Process File Tools (`read`, `write`, `edit`, `glob`, `grep`):** `WorkspacePathGuard` in `gestalt-runtime/src/sandbox/mod.rs` canonicalizes paths, rejects symlink escapes outside `workspace_root`, blocks `Write`/`Delete` on any `protected_paths` prefix, and dynamically elevates `write` to `SideEffectClass::Irreversible` when overwriting an existing file.
+- **In-Process File Tools (`read`, `write`, `edit`, `glob`, `grep`):** `WorkspacePathGuard` in `gestalt-runtime/src/sandbox/mod.rs` canonicalizes paths, rejects symlink escapes outside `workspace_root` (while permitting read-only access to global skill directories `~/.agents/skills/` and `~/.gestalt/skills/`), blocks `Write`/`Delete` on any `protected_paths` prefix, and dynamically elevates `write` to `SideEffectClass::Irreversible` when overwriting an existing file.
 - **Subprocess Tools (`bash`, external MCP/RPC workers):** Executed inside `SandboxDriver` (`bwrap` on Linux, `sandbox-exec` Seatbelt on macOS) with `protected_paths` bind-mounted read-only and `--unshare-net` by default.
 - **`WorkspaceMode::Worktree` Lifecycle:** `driver/worktree.rs` creates a detached git worktree under `.gestalt/worktrees/<spawn_id>/` (returning `StepResult::Error` if the workspace is not a git repo), computes a unified diff blob (`diff_blob_digest`) on `SpawnCompleted`, and prunes clean temporary worktrees on session close.
 
-### 3.10 Core Built-In Tools (`StdToolsExtension`)
-- **8 Registered Tools:** `read` (`path`, `start_line`, `end_line`, `byte_offset`), `write` (`path`, `content`, `overwrite`), `edit` (`path`, `target`, `replacement` → returns structured unified diff metadata for `UISurface`), `glob` (`pattern`, `root`), `grep` (`pattern`, `path`, `glob_filter`), `bash` (`command`, `cwd`, `timeout_ms`, `background: bool`), `bash_output` (`task_id`), `bash_kill` (`task_id`).
+### 3.10 Core Built-In Tools & MCP Integration (`StdToolsExtension`)
+- **8 Registered Core Tools:** `read` (`path`, `start_line`, `end_line`, `byte_offset`), `write` (`path`, `content`, `overwrite`), `edit` (`path`, `target`, `replacement` → returns structured unified diff metadata for `UISurface`), `glob` (`pattern`, `root`), `grep` (`pattern`, `path`, `glob_filter`), `bash` (`command`, `cwd`, `timeout_ms`, `background: bool`), `bash_output` (`task_id`), `bash_kill` (`task_id`).
+- **MCP Tool Bridge (`mcp.rs`):** Stdio MCP `2025-11-25` servers configured in `gestalt.toml` (`protocol = "mcp"`) or via `--ext mcp:<cmd>` automatically expose discovered tools to the `"general"` agent through `ExtensionRegistry::tools` and `PolicyGate`.
 - **Background Task Reaping:** Background `bash` tasks default to Turn-scoped (`scope: "turn" | "session"`), buffer output up to the 32 KB inline spill threshold (spilling excess to `BlobStore`), and are automatically reaped (`SIGKILL` to process group) when their scope ends.
 
-### 3.11 Workspace Artifacts (`AGENTS.md`, `MEMORY.md`, `USER.md`, `SKILL.md`)
+### 3.11 Workspace & Multi-Source Skill Artifacts (`AGENTS.md`, `MEMORY.md`, `USER.md`, `SKILL.md`)
 - **Tier 2 (`context`):** `<workspace>/AGENTS.md` (capped at 16 KB inline).
-- **Tier 3 (`volatile`):** `<workspace>/.gestalt/memories/MEMORY.md` and `USER.md` (8 KB cap each), plus `<workspace>/.gestalt/skills/<name>/SKILL.md` (YAML frontmatter `{ name, description, triggers }` indexed in Tier 3; full body loaded on demand).
+- **Tier 3 (`volatile`):** `<workspace>/.gestalt/memories/MEMORY.md` and `USER.md` (8 KB cap each), plus multi-source Agent Skills discovered in precedence order:
+  1. `~/.agents/skills/<skill_name>/SKILL.md` (user-global Agent Skills standard)
+  2. `~/.gestalt/skills/<skill_name>/SKILL.md` (and `$XDG_CONFIG_HOME/gestalt/skills/<skill_name>/SKILL.md`)
+  3. `<workspace>/.agents/skills/<skill_name>/SKILL.md` (workspace Agent Skills standard)
+  4. `<workspace>/.gestalt/skills/<skill_name>/SKILL.md` (workspace Gestalt skills; later sources override earlier sources on `<skill_name>` collision)
+  - YAML frontmatter (`{ name, description, triggers, disable-model-invocation }`) is indexed in Tier 3 (excluding skills with `disable-model-invocation: true`, which remain invokable via `/skill:<name>`); full `SKILL.md` bodies are loaded on demand via `read` and snapshotted into `BlobStore` (`turn_start.artifact_snapshots`) for hermetic offline replay.
 
 ### 3.12 `DecisionRouter` & Jev (`ModelKind::Decision`) Contract
 - **Jev Request (`DecisionStateBuilder`):** `{ "state": Value, "choices": Vec<{ id, description }>, "rubric": Option<String> }` POSTed to `[providers.jev].endpoint`.
 - **Jev Response (`DecisionOutput`):** `{ "choice": String, "confidence": f64, "latency_ms": u64 }`.
-- **Fast-Path Action Mapping:** `LoopConfig::params["routes"]` maps each `choice` ID to `{ "action": "tool", "name": "...", "args": {...} }` or `{ "action": "switch", "preset": "..." }`. If `confidence < threshold` (default `0.85`) or if the deterministic `Effect::Tool` returns `is_error: true`, `DecisionRouter` yields `Effect::Switch` to the fallback preset (`swe` / `chat`).
+- **Fast-Path Action Mapping:** `LoopConfig::params["routes"]` maps each `choice` ID to `{ "action": "tool", "name": "...", "args": {...} }` or `{ "action": "switch", "preset": "..." }`. If `confidence < threshold` (default `0.85`) or if the deterministic `Effect::Tool` returns `is_error: true`, `DecisionRouter` yields `Effect::Switch` to the fallback preset (`general` / `chat`).
 
 ---
 
@@ -320,7 +347,7 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 #### Milestone 1.3a — `gestalt-std` Loops, Decorators, Builders, Tools & Providers (Target: Weeks 5–6)
 **Goal:** Ship optional core agent loops, context builders, 8 workspace tools, and 3 vendor provider adapters behind Cargo features (`loops`, `tools`, `providers`) with zero private backdoors.
 - [x] Implement `loops` & `decorators`: `ChatLoop` (`"chat"` with malformed tool-call self-correction), `DecisionRouter` (`"decision_router"` with route table & fallback escalation), `goal_check`, `compaction` (emitting `"std:compaction"` node), and `curator` (`v0.1` staged `Effect::Save(Stage)` + `Pause(Approval)`).
-- [x] Implement `builders` & `presets`: 3-tier cache-stable `StandardBuilder` (`AGENTS.md`, `MEMORY.md`, `USER.md`, `SKILL.md` budgets), `SlidingWindowBuilder`, `DecisionStateBuilder`, generalized presets (`swe`, `general`, `minimal_shell`), default `protected_paths`, and commands (`/goal`, `/compact`, `/gate`, `/login`).
+- [x] Implement `builders` & `presets`: 3-tier cache-stable `StandardBuilder` (`AGENTS.md`, `MEMORY.md`, `USER.md`, and multi-source `SKILL.md` discovery across `~/.agents/skills/`, `~/.gestalt/skills/`, `<workspace>/.agents/skills/`, `<workspace>/.gestalt/skills/`), `DecisionStateBuilder`, the single default `general` agent preset + `triage` preset, default `protected_paths`, and general-agent commands (`/model`, `/thinking`, `/login`, `/logout`, `/compact`, `/goal`, `/gate`, `/skills`).
 - [x] Implement `tools` (`StdToolsExtension`): `read`, `write`, `edit` (with inline diff metadata), `glob`, `grep`, `bash`, `bash_output`, and `bash_kill` (explicit `cwd`, timeout, process-group abort, scoped background task reaping).
 - [x] Implement `providers`: `anthropic` (`Llm` + prompt caching + thinking), `openai` (`Llm`), and `jev` (`Decision`) adapters registering into `ProviderRegistry`.
 - **Exit Gate:** `StandardBuilder` byte-prefix cache stability tests pass across multi-turn sessions; `ChatLoop` and `DecisionRouter` compose cleanly with `goal_check` and `compaction`; `gestalt-std` builds cleanly under `--no-default-features` and individual feature subsets.
@@ -328,17 +355,18 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 #### Milestone 1.3b — `gestalt-std` Surfaces (`print`, `rpc`, `acp`, `replay`, `tui`) (Target: Week 7)
 **Goal:** Ship all 5 user-facing and protocol surfaces behind `surfaces` and `tui` Cargo features.
 - [x] Implement `-p` / `--json` (`print.rs`), `--mode rpc` (`rpc.rs` with full parity methods & JSON-RPC error codes), `--mode acp` (`acp.rs` ACP v1 server), and `replay` (`replay.rs` default + `--reexecute-ext` modes).
-- [x] Implement interactive TUI (`#[cfg(feature = "tui")]`, `ratatui` + `crossterm`) with transcript viewport, keybindings, empty/loading states, scroll-offset-aware mouse hit-testing (`AGENTS.md`), inline diff previews, and `UISurface` dialog/panel rendering.
+- [x] Implement interactive TUI (`#[cfg(feature = "tui")]`, `ratatui` + `crossterm`) with Turn/Step transcript viewport, per-step and global (`Ctrl+O`) step minimizing, keybindings, empty/loading states, actionable model/credential/streaming error notices, scroll-offset-aware mouse hit-testing (`AGENTS.md`), inline diff previews, interactive overlays (`/tree` via `Esc Esc`, `/session` / `/resume`, `/model`, `/thinking`), `/` slash-command autocomplete (`/mode`, `/steer`, `/stop`, `/fork`, `/rewind`, `/tree`, `/new`, `/session`, `/resume`, `/trust`, `/reload`, `/rollback`, `/help`, `/quit`, `/model`, `/thinking`, `/login`, `/logout`, `/compact`, `/goal`, `/gate`, `/skills`), and `UISurface` dialog/panel rendering.
 - **Exit Gate:** ACP v1 & JSON-RPC 2.0 conformance suites pass; TUI mouse click-offset and keyboard navigation unit tests pass.
 
-#### Milestone 1.4 — `gestalt-cli` Composition Root, Self-Extension & Proof Gate (Target: Week 8)
-**Goal:** Ship the thin `gestalt` binary and pass all 5 `v0.1` Proof Gate criteria, including live self-extension and the 50-task System One Triage benchmark.
-- [ ] Implement `gestalt-cli/src/main.rs`: minimal CLI parser (`--version`, `--help`, `--model`, `--preset`, `--mode`, `replay`, `rollback`, `--ext`, `--trust-workspace`, `--unsafe-no-sandbox`) wiring `gestalt-runtime` + `gestalt-std` features.
-- [ ] Implement 50-task System One Triage benchmark suite (`tests/integration/triage_benchmark.rs`) verifying `DecisionRouter` (≥ 85% routing accuracy, ≤ 150 ms median triage latency, ≥ 30% token cost reduction).
-- [ ] Verify **Self-Extension Flow**: agent writes an out-of-process extension (custom loop + tool + `UISurface` spec) into `.gestalt/extensions/`, registers it in `.gestalt/gestalt.toml`, receives trust approval, and activates it live via `/reload <ext>` without recompiling core crates.
+#### Milestone 1.4 — `gestalt-cli` Composition Root, Usable General Agent Polishing, Self-Extension & Proof Gate (Target: Week 8)
+**Goal:** Align `gestalt-std` around the single default `general` agent (multi-source `~/.agents/skills/` & `~/.gestalt/skills/` `SKILL.md` support, `/model`, `/logout`, `/thinking`, `/skills`, `/new`, `/session`, `/trust`, `/help`, `/quit`), ship the thin `gestalt` binary, and pass all 5 `v0.1` Proof Gate criteria, including live self-extension and the 50-task System One Triage benchmark.
+- [x] Consolidate `gestalt-std` presets to the single default `general` agent preset (+ `triage`), add multi-source `SKILL.md` discovery (`~/.agents/skills/`, `~/.gestalt/skills/`, `<workspace>/.agents/skills/`, `<workspace>/.gestalt/skills/`), and complete the usable slash-command set (`/model`, `/thinking`, `/logout`, `/skills`, `/skill:<name>`, `/tree`, `/new`, `/session`, `/resume`, `/trust`, `/help`, `/quit`) and Turn/Step TUI session interface.
+- [x] Implement `gestalt-cli/src/main.rs`: minimal CLI parser (`--version`, `--help`, `--model`, `--preset`, `--mode`, `replay`, `rollback`, `--ext`, `--trust-workspace`, `--unsafe-no-sandbox`) wiring `gestalt-runtime` + `gestalt-std` features.
+- [x] Implement 50-task System One Triage benchmark suite (`tests/integration/triage_benchmark.rs`) verifying `DecisionRouter` (`triage` -> `general` escalation, ≥ 85% routing accuracy, ≤ 150 ms median triage latency, ≥ 30% token cost reduction).
+- [x] Verify **Self-Extension Flow**: agent writes an out-of-process extension (custom loop + tool + `UISurface` spec) into `.gestalt/extensions/`, registers it in `.gestalt/gestalt.toml`, receives trust approval, and activates it live via `/reload <ext>` without recompiling core crates.
 - **Exit Gate (`v0.1` Proof Gate):**
   1. `gestalt-kernel` ≤ 2,000 LOC, ≤ 2 direct deps, `#![forbid(unsafe_code)]`.
-  2. `ChatLoop`, `DecisionRouter`, decorators (`goal_check`, `compaction`), and presets (`swe`, `general`, `minimal_shell`) run unmodified and switch mid-session with 100% history preservation.
+  2. Default `general` agent (`ChatLoop`), `DecisionRouter` (`triage`), and decorators (`goal_check`, `compaction`, `curator`) run unmodified and switch mid-session with 100% history preservation.
   3. External Rust extension AND external out-of-process `--ext` script add custom loops, decorators, tools, and `UISurface` renderers without modifying core crates.
   4. 100% pass rate on fail-closed `PolicyGate` + OS sandbox adversarial suite.
   5. ≥ 10 golden multi-Phase `SessionTree` JSONL fixtures replay offline with 0 network calls and 100% `Effect` parity; ACP v1 conformance tests pass; cold startup ≤ 25 ms, stripped binary ≤ 15 MB, idle RSS ≤ 30 MB.
