@@ -484,6 +484,22 @@ impl CredentialStore {
         self.set_record(provider, CredentialRecord::ApiKey { key: secret })
     }
 
+    /// Remove stored credentials for `provider` from memory and `credentials.toml`.
+    ///
+    /// Returns `true` if a credential record or runtime override existed and was removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if persisting the updated `credentials.toml` fails.
+    pub fn remove_credential(&mut self, provider: &str) -> Result<bool, RuntimeError> {
+        let removed_file = self.file_records.remove(provider).is_some();
+        let removed_override = self.runtime_overrides.remove(provider).is_some();
+        if removed_file {
+            self.persist_file()?;
+        }
+        Ok(removed_file || removed_override)
+    }
+
     /// Return all known non-empty secret strings across stored records,
     /// registered resolvers, and host secret env vars for redaction.
     #[must_use]

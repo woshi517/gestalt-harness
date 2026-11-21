@@ -485,38 +485,44 @@ impl<'a> ReplayEngine<'a> {
                                 _ => break,
                             }
                         }
-                        let slice = tree.slice_to(Some(&nodes[idx].id))?;
-                        let builder = self
-                            .registry
-                            .builders
-                            .get(&current_builder_id)
-                            .map(AsRef::as_ref);
-                        let mut ctx = ReplayLoopContext {
-                            run_id: "replay",
-                            turn_id: nodes[idx].turn_id.as_deref().unwrap_or(""),
-                            phase_id: nodes[idx].phase_id.as_deref().unwrap_or(""),
-                            handoff: &current_handoff,
-                            config: &current_config,
-                            session: slice.clone(),
-                            artifacts: &current_artifacts,
-                            budget: &budget,
-                            builder,
-                            inbox: &mut inbox,
-                            now_ms: nodes[idx].timestamp_ms,
-                            id_seq: idx as u64,
-                            pending_custom_nodes: Vec::new(),
-                        };
-                        let action = lp.step(&mut ctx, Some(batch_results));
-                        self.verify_action_against_trace(
-                            nodes,
-                            idx + 1,
-                            &action,
-                            &ctx.pending_custom_nodes,
-                            &current_config,
-                            &budget,
-                            &slice,
-                            &mut report,
-                        );
+                        let aborted_before_next_step = batch_results
+                            .iter()
+                            .any(|r| matches!(r, crate::StepResult::Aborted { .. }))
+                            && nodes.get(idx + 1).is_some_and(|n| n.kind == "phase_seal");
+                        if !aborted_before_next_step {
+                            let slice = tree.slice_to(Some(&nodes[idx].id))?;
+                            let builder = self
+                                .registry
+                                .builders
+                                .get(&current_builder_id)
+                                .map(AsRef::as_ref);
+                            let mut ctx = ReplayLoopContext {
+                                run_id: "replay",
+                                turn_id: nodes[idx].turn_id.as_deref().unwrap_or(""),
+                                phase_id: nodes[idx].phase_id.as_deref().unwrap_or(""),
+                                handoff: &current_handoff,
+                                config: &current_config,
+                                session: slice.clone(),
+                                artifacts: &current_artifacts,
+                                budget: &budget,
+                                builder,
+                                inbox: &mut inbox,
+                                now_ms: nodes[idx].timestamp_ms,
+                                id_seq: idx as u64,
+                                pending_custom_nodes: Vec::new(),
+                            };
+                            let action = lp.step(&mut ctx, Some(batch_results));
+                            self.verify_action_against_trace(
+                                nodes,
+                                idx + 1,
+                                &action,
+                                &ctx.pending_custom_nodes,
+                                &current_config,
+                                &budget,
+                                &slice,
+                                &mut report,
+                            );
+                        }
                     }
                 }
                 NodePayload::TurnEnd { .. } => {

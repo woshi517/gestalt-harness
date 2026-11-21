@@ -174,6 +174,7 @@ fn setup_std_host(
         Arc::new(HeadlessPauseHandler::default()),
     )
     .expect("host");
+    host.set_extra_read_roots(gestalt_std::extensions::builders::discover_global_skill_roots());
     host.set_tracked_artifact_paths(discover_tracked_artifact_paths(&canon));
     (host, replay_reg, replay_gate)
 }
@@ -215,7 +216,7 @@ async fn print_e2e_streams_ndjson_and_replay_surface_verifies_parity() {
         &mut host,
         PrintOptions {
             prompt: json!("change 1 to 2"),
-            preset: "swe".into(),
+            preset: "general".into(),
             extra_decorators: Vec::new(),
             json_mode: true,
             headless_auto_approve: Vec::new(),
@@ -278,7 +279,7 @@ async fn rpc_e2e_parity_commands_and_fast_mid_turn_cancel() {
     let (cin, sin) = tokio::io::duplex(8192);
     let (sout, cout) = tokio::io::duplex(8192);
     let server = tokio::spawn(async move {
-        run_rpc_surface(host, "swe".into(), BufReader::new(sin), sout).await
+        run_rpc_surface(host, "general".into(), BufReader::new(sin), sout).await
     });
 
     let mut cin = cin;
@@ -379,7 +380,7 @@ async fn acp_e2e_prompt_updates_slash_mode_and_cancel() {
     let (cin, sin) = tokio::io::duplex(8192);
     let (sout, cout) = tokio::io::duplex(8192);
     let server = tokio::spawn(async move {
-        run_acp_surface(host, "swe".into(), BufReader::new(sin), sout).await
+        run_acp_surface(host, "general".into(), BufReader::new(sin), sout).await
     });
 
     let mut cin = cin;
@@ -390,14 +391,14 @@ async fn acp_e2e_prompt_updates_slash_mode_and_cancel() {
         .unwrap();
     let _ = cout.next_line().await.unwrap().unwrap();
 
-    cin.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/set_mode\",\"params\":{\"modeId\":\"general\"}}\n")
+    cin.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/set_mode\",\"params\":{\"modeId\":\"triage\"}}\n")
         .await
         .unwrap();
     let mut mode_updated = false;
     while let Some(line) = cout.next_line().await.unwrap() {
         let v: Value = serde_json::from_str(&line).unwrap();
         if v["params"]["update"]["sessionUpdate"] == "current_mode_update" {
-            assert_eq!(v["params"]["update"]["currentModeId"], "general");
+            assert_eq!(v["params"]["update"]["currentModeId"], "triage");
             mode_updated = true;
         }
         if v["id"] == 2 {
@@ -406,8 +407,8 @@ async fn acp_e2e_prompt_updates_slash_mode_and_cancel() {
     }
     assert!(mode_updated);
 
-    // Switch back to swe via slash prefix in session/prompt
-    cin.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"session/prompt\",\"params\":{\"prompt\":[{\"type\":\"text\",\"text\":\"/mode swe\"}]}}\n")
+    // Switch back to general via slash prefix in session/prompt
+    cin.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"session/prompt\",\"params\":{\"prompt\":[{\"type\":\"text\",\"text\":\"/mode general\"}]}}\n")
         .await
         .unwrap();
     while let Some(line) = cout.next_line().await.unwrap() {
@@ -470,7 +471,7 @@ fn tui_e2e_renders_std_ui_surface_and_inspector_panels() {
     StdExtension.register(&mut reg).expect("std");
     StdToolsExtension.register(&mut reg).expect("tools");
 
-    let mut state = TuiAppState::new("gestalt-harness", "swe");
+    let mut state = TuiAppState::new("gestalt-harness", "general");
     state.sync_from_registry(
         &reg,
         Default::default(),
@@ -514,4 +515,85 @@ fn tui_e2e_renders_std_ui_surface_and_inspector_panels() {
     }
     assert!(screen.contains("PolicyGate"));
     assert!(screen.contains("Budget Meter"));
+}
+
+#[cfg(feature = "tui")]
+#[tokio::test]
+async fn tui_e2e_hydrates_live_session_turns_steps_and_switches_sessions() {
+    use gestalt_std::surfaces::tui::{
+        TranscriptItem, TuiAppState, TuiComponentRegistry, render_tui,
+    };
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    let dir = std::env::temp_dir().join(format!("gestalt_tui_hydrate_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+
+    let sse1 = concat!(
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tu_1\",\"name\":\"read\"}}\n\n",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"src/lib.rs\\\"}\"}}\n\n",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":8}}\n\n",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    ).to_string();
+    let sse2 = concat!(
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Read complete.\"}}\n\n",
+        "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    ).to_string();
+
+    let addr = spawn_mock_sse_server(vec![sse1, sse2]).await;
+    let (mut host, _, _) = setup_std_host(&dir, addr, "s1");
+    let first_session_path = host.session_path().to_path_buf();
+
+    let outcome = host
+        .run_turn(
+            json!("inspect src/lib.rs"),
+            "general",
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("turn");
+    assert!(matches!(
+        outcome,
+        gestalt_runtime::TurnOutcome::Completed { .. }
+    ));
+
+    let mut state = TuiAppState::new("repo", "general");
+    state.hydrate_from_tree(host.kernel().session_tree());
+    assert!(state.items.iter().any(|i| matches!(
+        i,
+        TranscriptItem::TurnHeader { turn_number: 1, prompt, .. } if prompt == "inspect src/lib.rs"
+    )));
+    assert!(state.items.iter().any(|i| matches!(
+        i,
+        TranscriptItem::StepToolCall { tool_name, .. } if tool_name == "read"
+    )));
+
+    let backend = TestBackend::new(100, 24);
+    let mut terminal = Terminal::new(backend).expect("term");
+    let comp_reg = TuiComponentRegistry::default();
+    terminal
+        .draw(|f| render_tui(f, &mut state, &comp_reg))
+        .expect("draw");
+
+    // Start a fresh /new session, then switch back to first_session_path via switch_session.
+    let second_path = dir.join(".gestalt/sessions/s2.jsonl");
+    host.reset_new_session(second_path).expect("reset");
+    state.hydrate_from_tree(host.kernel().session_tree());
+    assert!(state.items.is_empty());
+
+    host.switch_session(first_session_path)
+        .expect("switch back");
+    state.hydrate_from_tree(host.kernel().session_tree());
+    assert!(state.items.iter().any(|i| matches!(
+        i,
+        TranscriptItem::StepToolCall { tool_name, .. } if tool_name == "read"
+    )));
+
+    let _ = fs::remove_dir_all(&dir);
 }

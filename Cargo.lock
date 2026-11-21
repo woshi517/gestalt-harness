@@ -346,6 +346,7 @@ dependencies = [
  "gestalt-kernel",
  "gestalt-runtime",
  "gestalt-std",
+ "serde_json",
  "tokio",
  "tracing-subscriber",
 ]

@@ -218,9 +218,15 @@ async fn multi_turn_standard_builder_cache_stability_tools_and_replay() {
     )
     .expect("host");
 
+    host.set_extra_read_roots(gestalt_std::extensions::builders::discover_global_skill_roots());
     host.set_tracked_artifact_paths(discover_tracked_artifact_paths(&canon));
     let out1 = host
-        .run_turn(json!("change 1 to 2"), "swe", &[], CancellationToken::new())
+        .run_turn(
+            json!("change 1 to 2"),
+            "general",
+            &[],
+            CancellationToken::new(),
+        )
         .await
         .expect("turn 1");
     assert!(matches!(out1, TurnOutcome::Completed { .. }));
@@ -235,6 +241,7 @@ async fn multi_turn_standard_builder_cache_stability_tools_and_replay() {
         "v2 memory updated\n",
     )
     .expect("mem2");
+    host.set_extra_read_roots(gestalt_std::extensions::builders::discover_global_skill_roots());
     host.set_tracked_artifact_paths(discover_tracked_artifact_paths(&canon));
     let (tx, rx) = mpsc::unbounded_channel();
     let _ = tx.send(LiveSteeringMessage {
@@ -245,7 +252,7 @@ async fn multi_turn_standard_builder_cache_stability_tools_and_replay() {
     let out2 = host
         .run_turn_with_steering(
             json!("verify"),
-            "swe",
+            "general",
             &[],
             CancellationToken::new(),
             Some(rx),

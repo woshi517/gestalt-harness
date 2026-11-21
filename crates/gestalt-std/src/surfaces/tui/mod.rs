@@ -5,7 +5,9 @@ pub mod components;
 pub mod render;
 pub mod state;
 
-use std::io;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +16,9 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use gestalt_kernel::{RunEvent, SteeringKind, SteeringSource};
+use gestalt_kernel::{
+    NodePayload, RunEvent, SessionNode, SessionTree, SteeringKind, SteeringSource,
+};
 use gestalt_runtime::{
     CancellationToken, LiveSteeringMessage, LiveTurnControl, RuntimeError, RuntimeHost,
     TurnOutcome, current_epoch_ms,
@@ -28,7 +32,10 @@ pub use components::{
     DockSlot, SelectListItem, SelectListState, TuiComponent, TuiComponentRegistry, TuiDockWidget,
 };
 pub use render::render_tui;
-pub use state::{ActiveOverlay, TranscriptItem, TuiAppState, TuiEffect, TuiLayoutRects};
+pub use state::{
+    ActiveOverlay, ModelConfigStatus, SelectorKind, SessionFileItem, TranscriptItem, TuiAppState,
+    TuiEffect, TuiLayoutRects,
+};
 
 use crate::surfaces::{
     ChannelEventSink, InteractivePauseBridge, PausePrompt, PendingCommandPause, SlashCommand,
@@ -92,8 +99,12 @@ pub async fn run_tui_surface(
 
     let mut session_state = SurfaceSessionState::new(initial_preset.clone());
     let mut app = TuiAppState::new(ws_label, initial_preset);
+    app.hydrate_from_tree(host.kernel().session_tree());
     sync_app_from_host(&mut app, &host);
 
+    let mut active_session_path = host.session_path().to_path_buf();
+    let mut session_read_offset: u64 =
+        std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
     let mut host_slot: Option<RuntimeHost> = Some(host);
     let mut active_turn: Option<ActiveTuiTurn> = None;
     let mut pending_cmd_pause: Option<PendingCommandPause> = None;
@@ -121,6 +132,9 @@ pub async fn run_tui_surface(
         tokio::select! {
             biased;
             Some(ev) = event_rx.recv() => {
+                if matches!(ev, RunEvent::NodeAppended { .. }) {
+                    ingest_new_session_lines(&active_session_path, &mut session_read_offset, &mut app);
+                }
                 app.apply_run_event(&ev);
             }
             Some(prompt) = pause_rx.recv() => {
@@ -134,10 +148,20 @@ pub async fn run_tui_surface(
             } => {
                 active_turn = None;
                 app.is_running = false;
+                app.active_status_message = None;
                 if let Ok((mut returned_host, res)) = turn_done {
                     while let Ok(ev) = event_rx.try_recv() {
+                        if matches!(ev, RunEvent::NodeAppended { .. }) {
+                            ingest_new_session_lines(&active_session_path, &mut session_read_offset, &mut app);
+                        }
                         app.apply_run_event(&ev);
                     }
+                    if let Ok(slice) = returned_host.kernel().session_tree().slice_to(None) {
+                        for node in slice.nodes() {
+                            app.ingest_node(node);
+                        }
+                    }
+                    session_read_offset = std::fs::metadata(&active_session_path).map_or(session_read_offset, |m| m.len());
                     sync_app_from_host(&mut app, &returned_host);
                     match res {
                         Ok(TurnOutcome::Completed { .. }) => {
@@ -162,8 +186,10 @@ pub async fn run_tui_surface(
                             host_slot = Some(returned_host);
                         }
                         Err(err) => {
-                            app.items.push(TranscriptItem::Notice {
-                                text: format!("Error: {err}"),
+                            app.items.push(TranscriptItem::ErrorNotice {
+                                title: "Turn Error".to_string(),
+                                message: err.to_string(),
+                                hint: state::classify_error_hint(&err.to_string()),
                             });
                             exit_code = SurfaceExitCode::from_runtime_error(&err);
                             host_slot = Some(returned_host);
@@ -201,6 +227,7 @@ pub async fn run_tui_surface(
                             if let Some(host) = host_slot.as_mut() {
                                 match complete_command_pause(host, &cmd_pause, &resolution) {
                                     Ok(_) => {
+                                        sync_app_from_host(&mut app, host);
                                         app.items.push(TranscriptItem::Notice {
                                             text: "Stored credentials securely.".to_string(),
                                         });
@@ -227,6 +254,84 @@ pub async fn run_tui_surface(
                             });
                         } else {
                             pause_bridge.deny(&pause_id, reason);
+                        }
+                    }
+                    TuiEffect::OpenTreeSelector => {
+                        if let Some(host) = host_slot.as_ref() {
+                            app.open_tree_selector(host.kernel().session_tree());
+                        }
+                    }
+                    TuiEffect::RewindToNode(node_id) => {
+                        if let Some(host) = host_slot.as_mut() {
+                            match host.rewind_session("main".to_string(), &node_id) {
+                                Ok(()) => {
+                                    app.hydrate_from_tree(host.kernel().session_tree());
+                                    session_read_offset =
+                                        std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
+                                    sync_app_from_host(&mut app, host);
+                                    app.items.push(TranscriptItem::Notice {
+                                        text: format!(
+                                            "Rewound to '{node_id}'. Workspace files on disk were not modified."
+                                        ),
+                                    });
+                                }
+                                Err(err) => {
+                                    app.items.push(TranscriptItem::ErrorNotice {
+                                        title: "Rewind Failed".to_string(),
+                                        message: err.to_string(),
+                                        hint: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    TuiEffect::ForkFromNode(node_id) => {
+                        if let Some(host) = host_slot.as_mut() {
+                            let branch = format!("fork_{}", current_epoch_ms());
+                            match host.fork_session(branch.clone(), Some(&node_id), None) {
+                                Ok(_) => {
+                                    app.hydrate_from_tree(host.kernel().session_tree());
+                                    session_read_offset =
+                                        std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
+                                    sync_app_from_host(&mut app, host);
+                                    app.items.push(TranscriptItem::Notice {
+                                        text: format!("Forked branch '{branch}' from '{node_id}'."),
+                                    });
+                                }
+                                Err(err) => {
+                                    app.items.push(TranscriptItem::ErrorNotice {
+                                        title: "Fork Failed".to_string(),
+                                        message: err.to_string(),
+                                        hint: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    TuiEffect::SwitchSession(path) => {
+                        if let Some(host) = host_slot.as_mut() {
+                            match host.switch_session(path.clone()) {
+                                Ok(()) => {
+                                    active_session_path = host.session_path().to_path_buf();
+                                    session_read_offset =
+                                        std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
+                                    app.hydrate_from_tree(host.kernel().session_tree());
+                                    sync_app_from_host(&mut app, host);
+                                    app.items.push(TranscriptItem::Notice {
+                                        text: format!(
+                                            "Switched session to '{}'.",
+                                            active_session_path.display()
+                                        ),
+                                    });
+                                }
+                                Err(err) => {
+                                    app.items.push(TranscriptItem::ErrorNotice {
+                                        title: "Session Switch Failed".to_string(),
+                                        message: err.to_string(),
+                                        hint: None,
+                                    });
+                                }
+                            }
                         }
                     }
                     TuiEffect::TriggerAction(cmd) | TuiEffect::SubmitInput(cmd) => {
@@ -265,37 +370,127 @@ pub async fn run_tui_surface(
                                         });
                                     }
                                 }
-                            } else if let Some(host) = host_slot.as_mut() {
-                                match execute_slash_command_idle(
-                                    host,
-                                    &mut session_state,
-                                    parsed,
-                                )
-                                .await
-                                {
-                                    Ok(res) => {
-                                        app.active_preset = session_state.active_preset.clone();
-                                        sync_app_from_host(&mut app, host);
-                                        if let Some(pending) = res.pending_pause {
-                                            app.open_pause_dialog(PausePrompt {
-                                                pause_id: pending.pause_id.clone(),
-                                                effect_id: pending.pause_id.clone(),
-                                                reason: pending.reason,
-                                                payload: pending.payload.clone(),
+                            } else {
+                                let mut skill_turn_prompt: Option<String> = None;
+                                if let Some(host) = host_slot.as_mut() {
+                                    match &parsed {
+                                        SlashCommand::Tree => {
+                                            app.open_tree_selector(host.kernel().session_tree());
+                                            continue;
+                                        }
+                                        SlashCommand::Session => {
+                                            let sessions = discover_session_files(host);
+                                            app.open_session_selector(
+                                                sessions,
+                                                host.session_path().to_path_buf(),
+                                            );
+                                            continue;
+                                        }
+                                        SlashCommand::Extension { name, args }
+                                            if name == "model" && args.trim().is_empty() =>
+                                        {
+                                            let items = build_model_selector_items(host);
+                                            app.open_selector_modal(
+                                                "Select Model",
+                                                SelectorKind::Model,
+                                                items,
+                                            );
+                                            continue;
+                                        }
+                                        SlashCommand::Extension { name, args }
+                                            if name == "thinking" && args.trim().is_empty() =>
+                                        {
+                                            app.open_selector_modal(
+                                                "Select Thinking Budget",
+                                                SelectorKind::Thinking,
+                                                build_thinking_selector_items(),
+                                            );
+                                            continue;
+                                        }
+                                        _ => {}
+                                    }
+
+                                    let was_rewind = matches!(parsed, SlashCommand::Rewind { .. });
+                                    match execute_slash_command_idle(
+                                        host,
+                                        &mut session_state,
+                                        parsed,
+                                    )
+                                    .await
+                                    {
+                                        Ok(res) => {
+                                            if res.data.get("quit").and_then(Value::as_bool)
+                                                == Some(true)
+                                            {
+                                                break;
+                                            }
+                                            if res.data.get("new_session").and_then(Value::as_bool)
+                                                == Some(true)
+                                            {
+                                                active_session_path =
+                                                    host.session_path().to_path_buf();
+                                                session_read_offset =
+                                                    std::fs::metadata(&active_session_path)
+                                                        .map_or(0, |m| m.len());
+                                                app.hydrate_from_tree(host.kernel().session_tree());
+                                            } else if was_rewind {
+                                                app.hydrate_from_tree(host.kernel().session_tree());
+                                                session_read_offset =
+                                                    std::fs::metadata(&active_session_path)
+                                                        .map_or(0, |m| m.len());
+                                            }
+                                            app.active_preset = session_state.active_preset.clone();
+                                            sync_app_from_host(&mut app, host);
+                                            if let Some(pending) = res.pending_pause {
+                                                app.open_pause_dialog(PausePrompt {
+                                                    pause_id: pending.pause_id.clone(),
+                                                    effect_id: pending.pause_id.clone(),
+                                                    reason: pending.reason,
+                                                    payload: pending.payload.clone(),
+                                                });
+                                                pending_cmd_pause = Some(pending);
+                                            } else {
+                                                app.items.push(TranscriptItem::Notice {
+                                                    text: res.message,
+                                                });
+                                            }
+                                            if let Some(notice) = res.notice {
+                                                app.items
+                                                    .push(TranscriptItem::Notice { text: notice });
+                                            }
+                                            if res.data.get("loaded_skill").is_some() {
+                                                skill_turn_prompt = res
+                                                    .data
+                                                    .get("steering")
+                                                    .and_then(Value::as_str)
+                                                    .map(ToString::to_string);
+                                            }
+                                        }
+                                        Err(err) => {
+                                            app.items.push(TranscriptItem::ErrorNotice {
+                                                title: "Command Error".to_string(),
+                                                message: err.to_string(),
+                                                hint: state::classify_error_hint(&err.to_string()),
                                             });
-                                            pending_cmd_pause = Some(pending);
-                                        } else {
-                                            app.items.push(TranscriptItem::Notice { text: res.message });
-                                        }
-                                        if let Some(notice) = res.notice {
-                                            app.items.push(TranscriptItem::Notice { text: notice });
                                         }
                                     }
-                                    Err(err) => {
-                                        app.items.push(TranscriptItem::Notice {
-                                            text: format!("Command error: {err}"),
-                                        });
-                                    }
+                                }
+                                if let Some(prompt_text) = skill_turn_prompt
+                                    && check_preflight_model(&mut app)
+                                    && let Some(turn_host) = host_slot.take()
+                                {
+                                    app.is_running = true;
+                                    let (control_tx, cancel, done_rx) = spawn_surface_turn(
+                                        turn_host,
+                                        Value::String(prompt_text),
+                                        session_state.active_preset.clone(),
+                                        session_state.extra_decorators.clone(),
+                                    );
+                                    active_turn = Some(ActiveTuiTurn {
+                                        control_tx,
+                                        cancel,
+                                        done_rx,
+                                    });
                                 }
                             }
                         } else if let Some(handle) = active_turn.as_ref() {
@@ -307,20 +502,25 @@ pub async fn run_tui_surface(
                                     source: SteeringSource::User,
                                 },
                             ));
-                        } else if let Some(host) = host_slot.take() {
-                            app.items.push(TranscriptItem::UserPrompt { text: cmd.clone() });
-                            app.is_running = true;
-                            let (control_tx, cancel, done_rx) = spawn_surface_turn(
-                                host,
-                                Value::String(cmd),
-                                session_state.active_preset.clone(),
-                                session_state.extra_decorators.clone(),
-                            );
-                            active_turn = Some(ActiveTuiTurn {
-                                control_tx,
-                                cancel,
-                                done_rx,
-                            });
+                        } else if host_slot.is_some() {
+                            if !check_preflight_model(&mut app) {
+                                app.items.push(TranscriptItem::UserPrompt { text: cmd });
+                                continue;
+                            }
+                            if let Some(host) = host_slot.take() {
+                                app.is_running = true;
+                                let (control_tx, cancel, done_rx) = spawn_surface_turn(
+                                    host,
+                                    Value::String(cmd),
+                                    session_state.active_preset.clone(),
+                                    session_state.extra_decorators.clone(),
+                                );
+                                active_turn = Some(ActiveTuiTurn {
+                                    control_tx,
+                                    cancel,
+                                    done_rx,
+                                });
+                            }
                         }
                     }
                 }
@@ -360,4 +560,262 @@ fn sync_app_from_host(app: &mut TuiAppState, host: &RuntimeHost) {
         *host.kernel().budget_snapshot(),
         policy_summary,
     );
+    app.model_status = compute_model_status(host, app.active_model.as_deref());
+}
+
+fn compute_model_status(host: &RuntimeHost, active_model: Option<&str>) -> ModelConfigStatus {
+    let target = active_model.unwrap_or("default_llm");
+    let Ok(resolved) = host.runtime().providers.resolve_target(target) else {
+        return match active_model {
+            None => ModelConfigStatus::Unconfigured,
+            Some(t) => ModelConfigStatus::UnknownTarget {
+                target: t.to_string(),
+            },
+        };
+    };
+
+    let provider_id = resolved.provider.id();
+    let env_key = resolved
+        .config
+        .as_ref()
+        .and_then(|c| c.env_key.as_deref())
+        .or(match provider_id {
+            "anthropic" => Some("ANTHROPIC_API_KEY"),
+            "openai" => Some("OPENAI_API_KEY"),
+            _ => None,
+        });
+    let requires_auth = matches!(provider_id, "anthropic" | "openai") || env_key.is_some();
+    if requires_auth
+        && host
+            .credentials()
+            .get_record(provider_id, env_key)
+            .is_none()
+    {
+        return ModelConfigStatus::MissingCredential {
+            provider: provider_id.to_string(),
+            target: format!("{provider_id}/{}", resolved.model),
+        };
+    }
+
+    ModelConfigStatus::Ready {
+        target: active_model.map_or_else(
+            || format!("{provider_id}/{}", resolved.model),
+            ToString::to_string,
+        ),
+    }
+}
+
+fn check_preflight_model(app: &mut TuiAppState) -> bool {
+    match &app.model_status {
+        ModelConfigStatus::Ready { .. } => true,
+        ModelConfigStatus::Unconfigured => {
+            app.items.push(TranscriptItem::ErrorNotice {
+                title: "No Model Configured".to_string(),
+                message: "Cannot start a Turn because no LLM model is configured.".to_string(),
+                hint: Some(
+                    "Run /model <provider/model> (e.g. /model anthropic/claude-sonnet-4-6) and /login <provider>."
+                        .to_string(),
+                ),
+            });
+            false
+        }
+        ModelConfigStatus::UnknownTarget { target } => {
+            app.items.push(TranscriptItem::ErrorNotice {
+                title: "Unknown Model Target".to_string(),
+                message: format!("Model target '{target}' does not match any registered provider."),
+                hint: Some("Run /model to select a valid provider/model.".to_string()),
+            });
+            false
+        }
+        ModelConfigStatus::MissingCredential { provider, target } => {
+            app.items.push(TranscriptItem::ErrorNotice {
+                title: "Missing Credentials".to_string(),
+                message: format!(
+                    "Model '{target}' requires credentials for provider '{provider}'."
+                ),
+                hint: Some(format!(
+                    "Run /login {provider} or set the provider API key environment variable."
+                )),
+            });
+            false
+        }
+    }
+}
+
+fn ingest_new_session_lines(session_path: &Path, offset: &mut u64, app: &mut TuiAppState) {
+    let Ok(mut file) = File::open(session_path) else {
+        return;
+    };
+    if file.seek(SeekFrom::Start(*offset)).is_err() {
+        return;
+    }
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    while let Ok(bytes) = reader.read_line(&mut line) {
+        if bytes == 0 {
+            break;
+        }
+        *offset = offset.saturating_add(bytes as u64);
+        let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && let Ok(node) = serde_json::from_str::<SessionNode>(trimmed)
+        {
+            app.ingest_node(&node);
+        }
+        line.clear();
+    }
+}
+
+fn discover_session_files(host: &RuntimeHost) -> Vec<SessionFileItem> {
+    let dir = host
+        .session_path()
+        .parent()
+        .unwrap_or_else(|| host.workspace_root());
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("session.jsonl")
+            .to_string();
+        let modified_secs = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        let (node_count, turn_count, preview) = match SessionTree::from_jsonl_str(&raw) {
+            Ok((tree, _)) => {
+                let mut turns = 0usize;
+                let mut first_prompt = None;
+                for n in tree.all_nodes() {
+                    if let Ok(NodePayload::TurnStart { prompt, .. }) = n.decode_payload() {
+                        turns += 1;
+                        if first_prompt.is_none() {
+                            let s = match &prompt {
+                                Value::String(t) => t.clone(),
+                                other => other.to_string(),
+                            };
+                            first_prompt = Some(s.chars().take(48).collect::<String>());
+                        }
+                    }
+                }
+                (
+                    tree.all_nodes().len(),
+                    turns,
+                    first_prompt.unwrap_or_else(|| "(empty session)".to_string()),
+                )
+            }
+            Err(_) => (0, 0, "(unreadable)".to_string()),
+        };
+        out.push(SessionFileItem {
+            path,
+            filename,
+            modified_secs,
+            turn_count,
+            node_count,
+            preview,
+        });
+    }
+    out.sort_by_key(|a| std::cmp::Reverse(a.modified_secs));
+    out
+}
+
+fn build_model_selector_items(host: &RuntimeHost) -> Vec<SelectListItem> {
+    let mut items = Vec::new();
+    let creds = host.credentials();
+    let reg = &host.runtime().providers;
+
+    let known_defaults: &[(&str, &str, &str, &str)] = &[
+        (
+            "anthropic",
+            "anthropic/claude-sonnet-4-6",
+            "Anthropic Claude Sonnet 4.6",
+            "ANTHROPIC_API_KEY",
+        ),
+        (
+            "anthropic",
+            "anthropic/claude-opus-4-6",
+            "Anthropic Claude Opus 4.6",
+            "ANTHROPIC_API_KEY",
+        ),
+        (
+            "anthropic",
+            "anthropic/claude-haiku-4-5",
+            "Anthropic Claude Haiku 4.5",
+            "ANTHROPIC_API_KEY",
+        ),
+        ("openai", "openai/gpt-5", "OpenAI GPT-5", "OPENAI_API_KEY"),
+        (
+            "openai",
+            "openai/gpt-5-mini",
+            "OpenAI GPT-5 Mini",
+            "OPENAI_API_KEY",
+        ),
+        ("openai", "openai/o3", "OpenAI o3", "OPENAI_API_KEY"),
+    ];
+
+    for &(prov, target, desc, env_key) in known_defaults {
+        if reg.get_provider(prov).is_some() {
+            let status = if creds.get_record(prov, Some(env_key)).is_some() {
+                "[ready]"
+            } else {
+                "[needs /login]"
+            };
+            items.push(SelectListItem {
+                value: format!("/model {target}"),
+                label: target.to_string(),
+                description: format!("{desc} {status}"),
+            });
+        }
+    }
+
+    for (alias, cfg) in reg.configured_aliases() {
+        let target = if cfg.model.is_empty() {
+            alias.clone()
+        } else {
+            format!("{alias}/{}", cfg.model)
+        };
+        if !items.iter().any(|i| i.label == target) {
+            items.push(SelectListItem {
+                value: format!("/model {target}"),
+                label: target,
+                description: "Configured in gestalt.toml".to_string(),
+            });
+        }
+    }
+    items
+}
+
+fn build_thinking_selector_items() -> Vec<SelectListItem> {
+    vec![
+        SelectListItem {
+            value: "/thinking off".to_string(),
+            label: "off".to_string(),
+            description: "Disable extended reasoning".to_string(),
+        },
+        SelectListItem {
+            value: "/thinking low".to_string(),
+            label: "low".to_string(),
+            description: "1,024 thinking tokens".to_string(),
+        },
+        SelectListItem {
+            value: "/thinking medium".to_string(),
+            label: "medium".to_string(),
+            description: "4,096 thinking tokens".to_string(),
+        },
+        SelectListItem {
+            value: "/thinking high".to_string(),
+            label: "high".to_string(),
+            description: "16,384 thinking tokens".to_string(),
+        },
+    ]
 }

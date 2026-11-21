@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Composable higher-order [`LoopDecorator`] implementations (`goal_check`,
+//! Composable higher-order [`gestalt_kernel::LoopDecorator`] implementations (`goal_check`,
 //! `compaction`, `curator`) that wrap any `Box<dyn AgentLoop>`.
 
 pub mod compaction;

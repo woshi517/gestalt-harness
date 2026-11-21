@@ -10,13 +10,34 @@ description = "Thin CLI entrypoint for the Gestalt agent harness"
 name = "gestalt"
 path = "src/main.rs"
 
+[[test]]
+name = "triage_benchmark"
+path = "../../tests/integration/triage_benchmark.rs"
+
+[[test]]
+name = "self_extension_proof"
+path = "../../tests/integration/self_extension_proof.rs"
+
+[[test]]
+name = "proof_gate_suite"
+path = "../../tests/integration/proof_gate_suite.rs"
+
 [lints]
 workspace = true
+
+[features]
+default = ["loops", "tools", "providers", "surfaces", "tui"]
+loops = ["gestalt-std/loops"]
+tools = ["gestalt-std/tools"]
+providers = ["gestalt-std/providers"]
+surfaces = ["gestalt-std/surfaces"]
+tui = ["surfaces", "gestalt-std/tui"]
 
 [dependencies]
 anyhow.workspace = true
 gestalt-kernel = { path = "../gestalt-kernel" }
 gestalt-runtime = { path = "../gestalt-runtime" }
-gestalt-std = { path = "../gestalt-std" }
+gestalt-std = { path = "../gestalt-std", default-features = false }
+serde_json.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true

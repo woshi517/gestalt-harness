@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Pi-inspired composable TUI component traits, registry, and `SelectList`.
+//! Composable TUI component traits, registry, and `SelectList`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -77,7 +77,7 @@ pub struct SelectListItem {
     pub description: String,
 }
 
-/// Filterable, scrollable list state modeled on Pi's `SelectList` component.
+/// Filterable, scrollable list state for command autocomplete and selection menus.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectListState {
     items: Vec<SelectListItem>,

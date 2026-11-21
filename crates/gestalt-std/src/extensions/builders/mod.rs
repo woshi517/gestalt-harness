@@ -9,7 +9,7 @@ pub mod standard;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gestalt_kernel::{
     ArtifactStoreView, Effect, LoopConfig, ModelKind, NodePayload, SessionSlice, SteeringKind,
@@ -38,13 +38,15 @@ pub const USER_MD_PATH: &str = ".gestalt/memories/USER.md";
 /// Inline byte cap for `USER.md` (8 KB).
 pub const MAX_USER_MD_BYTES: usize = 8 * 1024;
 
-/// Workspace-relative prefix for progressive-disclosure skill definitions.
+/// Workspace-relative prefix for Gestalt skill definitions.
 pub const SKILLS_PREFIX: &str = ".gestalt/skills/";
+/// Workspace-relative prefix for Agent Skills standard definitions.
+pub const AGENTS_SKILLS_PREFIX: &str = ".agents/skills/";
 
 /// Parsed YAML frontmatter metadata from a `SKILL.md` file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkillIndexEntry {
-    /// Workspace-relative path to `SKILL.md`.
+    /// Path to `SKILL.md` (workspace-relative or global read-only skill path).
     pub path: String,
     /// Skill name.
     pub name: String,
@@ -52,6 +54,8 @@ pub struct SkillIndexEntry {
     pub description: String,
     /// Optional trigger phrases.
     pub triggers: Vec<String>,
+    /// When `true`, omit from automatic Tier 3 prompt indexing (invokable only via `/skill:<name>`).
+    pub disable_model_invocation: bool,
 }
 
 /// Truncate UTF-8 text cleanly at a character boundary so it never exceeds
@@ -84,6 +88,7 @@ pub fn parse_skill_frontmatter(path: &str, content: &str) -> Option<SkillIndexEn
     let mut name = None;
     let mut description = None;
     let mut triggers = Vec::new();
+    let mut disable_model_invocation = false;
     let mut in_triggers_list = false;
 
     for raw_line in yaml_block.lines() {
@@ -110,6 +115,12 @@ pub fn parse_skill_frontmatter(path: &str, content: &str) -> Option<SkillIndexEn
                 "description" => {
                     description = Some(v.trim_matches('"').trim_matches('\'').to_string());
                 }
+                "disable-model-invocation" | "disable_model_invocation" => {
+                    disable_model_invocation = v
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .eq_ignore_ascii_case("true");
+                }
                 "triggers" => {
                     if v.starts_with('[') && v.ends_with(']') {
                         let inner = &v[1..v.len() - 1];
@@ -128,33 +139,137 @@ pub fn parse_skill_frontmatter(path: &str, content: &str) -> Option<SkillIndexEn
         }
     }
 
-    let skill_name = name.filter(|n| !n.is_empty())?;
+    let fallback_name = Path::new(path)
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(ToString::to_string);
+    let skill_name = name.filter(|n| !n.is_empty()).or(fallback_name)?;
     Some(SkillIndexEntry {
         path: path.to_string(),
         name: skill_name,
         description: description.unwrap_or_default(),
         triggers,
+        disable_model_invocation,
     })
 }
 
-/// Collect sorted [`SkillIndexEntry`] metadata from `ArtifactStoreView` without
-/// loading full `SKILL.md` bodies into the prompt.
-#[must_use]
-pub fn collect_skill_index(artifacts: &ArtifactStoreView) -> Vec<SkillIndexEntry> {
-    let mut entries = Vec::new();
-    for (path, art) in artifacts.entries() {
-        if path.starts_with(SKILLS_PREFIX)
-            && path.ends_with("/SKILL.md")
-            && let Some(parsed) = parse_skill_frontmatter(path, &art.content)
-        {
-            entries.push(parsed);
-        }
+fn skill_path_precedence(path: &str) -> Option<u8> {
+    if !path.ends_with("/SKILL.md") {
+        return None;
     }
-    entries
+    if path.starts_with(SKILLS_PREFIX) {
+        return Some(4);
+    }
+    if path.starts_with(AGENTS_SKILLS_PREFIX) {
+        return Some(3);
+    }
+    if path.contains("/.gestalt/skills/") || path.contains("/gestalt/skills/") {
+        return Some(2);
+    }
+    if path.contains("/.agents/skills/") {
+        return Some(1);
+    }
+    None
 }
 
-/// Discover existing workspace-relative artifact paths (`AGENTS.md`, `MEMORY.md`,
-/// `USER.md`, and `.gestalt/skills/*/SKILL.md`) for Turn-start `BlobStore` snapshotting.
+/// Collect all discovered [`SkillIndexEntry`] metadata from `ArtifactStoreView`,
+/// applying precedence (`~/.agents/skills` < `~/.gestalt/skills` <
+/// `<workspace>/.agents/skills` < `<workspace>/.gestalt/skills`).
+#[must_use]
+pub fn collect_all_skills(artifacts: &ArtifactStoreView) -> Vec<SkillIndexEntry> {
+    let mut by_name: BTreeMap<String, (u8, SkillIndexEntry)> = BTreeMap::new();
+    for (path, art) in artifacts.entries() {
+        let Some(prec) = skill_path_precedence(path) else {
+            continue;
+        };
+        if let Some(parsed) = parse_skill_frontmatter(path, &art.content) {
+            match by_name.get(&parsed.name) {
+                Some((existing_prec, _)) if *existing_prec > prec => {}
+                _ => {
+                    by_name.insert(parsed.name.clone(), (prec, parsed));
+                }
+            }
+        }
+    }
+    by_name.into_values().map(|(_, entry)| entry).collect()
+}
+
+/// Collect sorted [`SkillIndexEntry`] metadata from `ArtifactStoreView` for
+/// automatic Tier 3 prompt indexing (excluding `disable-model-invocation: true`).
+#[must_use]
+pub fn collect_skill_index(artifacts: &ArtifactStoreView) -> Vec<SkillIndexEntry> {
+    collect_all_skills(artifacts)
+        .into_iter()
+        .filter(|entry| !entry.disable_model_invocation)
+        .collect()
+}
+
+fn scan_skill_dir_into(dir: &Path, use_abs: bool, prefix: &str, out: &mut Vec<String>) {
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut found = Vec::new();
+    for entry in read_dir.flatten() {
+        if entry.path().is_dir()
+            && let Some(name) = entry.file_name().to_str()
+        {
+            let skill_file = entry.path().join("SKILL.md");
+            if skill_file.is_file() {
+                if use_abs {
+                    found.push(skill_file.to_string_lossy().to_string());
+                } else {
+                    found.push(format!("{prefix}{name}/SKILL.md"));
+                }
+            }
+        }
+    }
+    found.sort();
+    out.extend(found);
+}
+
+/// Return existing user-global Agent Skills root directories in precedence order
+/// (`~/.agents/skills`, `~/.gestalt/skills`, `$XDG_CONFIG_HOME/gestalt/skills`).
+#[must_use]
+pub fn discover_global_skill_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("HOME").filter(|v| !v.is_empty()) {
+        let home_dir = PathBuf::from(home);
+        roots.push(home_dir.join(".agents").join("skills"));
+        roots.push(home_dir.join(".gestalt").join("skills"));
+    }
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+        roots.push(PathBuf::from(xdg).join("gestalt").join("skills"));
+    }
+    roots.into_iter().filter(|p| p.is_dir()).collect()
+}
+
+/// Discover existing global and workspace skill directories in precedence order
+/// (`~/.agents/skills`, `~/.gestalt/skills`, `<workspace>/.agents/skills`,
+/// `<workspace>/.gestalt/skills`).
+#[must_use]
+pub fn discover_skill_paths(workspace_root: &Path) -> Vec<String> {
+    let mut paths = Vec::new();
+    for root in discover_global_skill_roots() {
+        scan_skill_dir_into(&root, true, "", &mut paths);
+    }
+    scan_skill_dir_into(
+        &workspace_root.join(".agents").join("skills"),
+        false,
+        AGENTS_SKILLS_PREFIX,
+        &mut paths,
+    );
+    scan_skill_dir_into(
+        &workspace_root.join(".gestalt").join("skills"),
+        false,
+        SKILLS_PREFIX,
+        &mut paths,
+    );
+    paths
+}
+
+/// Discover existing artifact paths (`AGENTS.md`, `MEMORY.md`, `USER.md`, and
+/// global/workspace `SKILL.md` files) for Turn-start `BlobStore` snapshotting.
 #[must_use]
 pub fn discover_tracked_artifact_paths(workspace_root: &Path) -> Vec<String> {
     let mut paths = Vec::new();
@@ -163,22 +278,7 @@ pub fn discover_tracked_artifact_paths(workspace_root: &Path) -> Vec<String> {
             paths.push(fixed.to_string());
         }
     }
-    let skills_dir = workspace_root.join(".gestalt").join("skills");
-    if let Ok(read_dir) = fs::read_dir(&skills_dir) {
-        let mut skill_names = Vec::new();
-        for entry in read_dir.flatten() {
-            if entry.path().is_dir()
-                && let Some(name) = entry.file_name().to_str()
-            {
-                let skill_file = entry.path().join("SKILL.md");
-                if skill_file.is_file() {
-                    skill_names.push(format!("{SKILLS_PREFIX}{name}/SKILL.md"));
-                }
-            }
-        }
-        skill_names.sort();
-        paths.extend(skill_names);
-    }
+    paths.extend(discover_skill_paths(workspace_root));
     paths
 }
 

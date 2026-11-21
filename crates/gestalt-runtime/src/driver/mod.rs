@@ -25,6 +25,7 @@ use gestalt_kernel::{
     DriverDirective, DriverResponse, Effect, EffectEnvelope, ExtensionRegistry, KernelError,
     KernelRuntime, LoopConfig, ModelKind, PauseReason, PolicyDecision, PolicyGate, PolicyRule,
     RunEvent, SandboxPolicy, SessionSlice, SteeringKind, SteeringSource, StepResult, Usage,
+    sha256_hex,
 };
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
@@ -32,7 +33,7 @@ use tokio::task::JoinSet;
 
 use crate::artifacts::{ArtifactManager, LedgerEntry};
 use crate::blobs::BlobStore;
-use crate::config::{ExtensionProtocol, ResolvedRuntimeConfig};
+use crate::config::{ExtensionProtocol, GestaltConfig, ResolvedRuntimeConfig, WorkspaceTrustStore};
 use crate::credentials::{CredentialStore, StreamRedactor};
 use crate::ext_ipc::{
     ExtIpcHost, ExternalBuilderRequest, ExternalDecoratorStepRequest, ExternalLoopStepRequest,
@@ -342,24 +343,50 @@ impl RuntimeRegistry {
                     }
                 }
                 ExtensionProtocol::Mcp => {
-                    let mut client = McpClient::connect(
-                        name.clone(),
+                    self.connect_or_reload_mcp(
+                        name,
                         ext_cfg,
                         workspace_root,
                         &sandbox_policy,
-                        &self.sandbox_driver,
                         redactor.clone(),
+                        registry,
                     )
                     .await?;
-                    let tool_names = client.register_tools(registry).await?;
-                    for t in tool_names {
-                        self.mcp_tool_owners.insert(t, name.clone());
-                    }
-                    self.mcp_clients
-                        .insert(name.clone(), Arc::new(Mutex::new(client)));
                 }
             }
         }
+        Ok(())
+    }
+
+    pub(crate) async fn connect_or_reload_mcp(
+        &mut self,
+        name: &str,
+        ext_cfg: &crate::config::ExternalExtensionConfig,
+        workspace_root: &Path,
+        sandbox_policy: &SandboxPolicy,
+        redactor: StreamRedactor,
+        registry: &mut ExtensionRegistry,
+    ) -> Result<(), RuntimeError> {
+        if let Some(old_client) = self.mcp_clients.remove(name) {
+            let mut guard = old_client.lock().await;
+            let _ = guard.shutdown().await;
+        }
+        self.mcp_tool_owners.retain(|_, owner| owner != name);
+        let mut client = McpClient::connect(
+            name.to_string(),
+            ext_cfg,
+            workspace_root,
+            sandbox_policy,
+            &self.sandbox_driver,
+            redactor,
+        )
+        .await?;
+        let tool_names = client.register_tools(registry).await?;
+        for t in tool_names {
+            self.mcp_tool_owners.insert(t, name.to_string());
+        }
+        self.mcp_clients
+            .insert(name.to_string(), Arc::new(Mutex::new(client)));
         Ok(())
     }
 
@@ -414,6 +441,7 @@ pub struct RuntimeHost {
     event_sink: Option<Arc<dyn EventSink>>,
     pause_handler: Arc<dyn PauseHandler>,
     tracked_artifact_paths: Vec<String>,
+    auto_trust_workspace: bool,
 }
 
 impl RuntimeHost {
@@ -467,6 +495,7 @@ impl RuntimeHost {
             event_sink,
             pause_handler,
             tracked_artifact_paths: Vec::new(),
+            auto_trust_workspace: false,
         };
         host.flush_kernel_outputs(&redactor)?;
         Ok(host)
@@ -517,6 +546,7 @@ impl RuntimeHost {
             event_sink,
             pause_handler,
             tracked_artifact_paths: Vec::new(),
+            auto_trust_workspace: false,
         })
     }
 
@@ -524,6 +554,12 @@ impl RuntimeHost {
     /// at the start of every Turn.
     pub fn set_tracked_artifact_paths(&mut self, paths: Vec<String>) {
         self.tracked_artifact_paths = paths;
+    }
+
+    /// Configure additional read-only directory roots outside `workspace_root`
+    /// permitted for Turn-start artifact snapshotting and read-only tools.
+    pub fn set_extra_read_roots(&mut self, roots: Vec<PathBuf>) {
+        self.artifacts.set_extra_read_roots(roots);
     }
 
     /// Borrow the underlying [`KernelRuntime`].
@@ -743,14 +779,103 @@ impl RuntimeHost {
         }))
     }
 
-    /// Hot-reload an out-of-process JSON-RPC extension between Turns/Phases (`/reload <ext>`).
+    /// Configure whether `.gestalt/gestalt.toml` is implicitly trusted (e.g.
+    /// when `--trust-workspace` is passed on the CLI or `/trust` was run).
+    pub fn set_auto_trust_workspace(&mut self, auto_trust: bool) {
+        self.auto_trust_workspace = auto_trust;
+    }
+
+    /// Approve `<workspace>/.gestalt/gestalt.toml` in [`WorkspaceTrustStore`]
+    /// and enable workspace trust for subsequent `/reload` calls.
+    ///
+    /// Returns `Ok(Some(sha256_digest))` when `.gestalt/gestalt.toml` exists,
+    /// or `Ok(None)` when no workspace config file is present.
     ///
     /// # Errors
     ///
-    /// Returns [`RuntimeError`] if shutdown, unload, respawn, or `extension/describe` fails.
+    /// Returns [`RuntimeError`] if reading or persisting the trust store fails.
+    pub fn trust_workspace(&mut self) -> Result<Option<String>, RuntimeError> {
+        let ws_toml = self.workspace_root.join(".gestalt").join("gestalt.toml");
+        self.auto_trust_workspace = true;
+        if !ws_toml.exists() {
+            return Ok(None);
+        }
+        let raw_bytes = fs::read(&ws_toml)?;
+        let mut trust_store = WorkspaceTrustStore::load_default()?;
+        let digest = trust_store.trust_workspace(&self.workspace_root, &raw_bytes)?;
+        Ok(Some(digest))
+    }
+
+    /// Start a fresh `SessionTree` file on disk (`/new`), preserving the active
+    /// `ExtensionRegistry` and `PolicyGate`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on lock contention, file creation, or kernel initialization error.
+    pub fn reset_new_session(&mut self, new_session_path: PathBuf) -> Result<(), RuntimeError> {
+        let lock = SessionLockGuard::acquire(&new_session_path)?;
+        if let Some(parent) = new_session_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let session_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&new_session_path)?;
+        self.kernel.reset_session(
+            self.run_id.clone(),
+            self.workspace_root.to_string_lossy().to_string(),
+            current_epoch_ms(),
+        )?;
+        self.session_path = new_session_path;
+        self.session_file = session_file;
+        self._lock = lock;
+        let redactor = self.credentials.redactor();
+        self.flush_kernel_outputs(&redactor)?;
+        Ok(())
+    }
+
+    /// Switch the active session to an existing `SessionTree` JSONL file on disk,
+    /// repairing any truncated trailing line and acquiring its advisory `.lock`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on lock contention, corrupt interior nodes, or I/O failure.
+    pub fn switch_session(&mut self, session_path: PathBuf) -> Result<(), RuntimeError> {
+        let lock = SessionLockGuard::acquire(&session_path)?;
+        let (tree, session_file) = session_io::load_and_repair_session_file(&session_path)?;
+        self.kernel.replace_tree(tree, current_epoch_ms());
+        self.session_path = session_path;
+        self.session_file = session_file;
+        self._lock = lock;
+        Ok(())
+    }
+
+    /// Hot-reload an out-of-process JSON-RPC or MCP extension between Turns/Phases (`/reload <ext>`).
+    ///
+    /// Dynamically re-reads `<workspace>/.gestalt/gestalt.toml` (enforcing
+    /// [`WorkspaceTrustStore`] and monotonic [`PolicyGate`] checks) so newly
+    /// authored `[extensions.<ext>]` entries can be loaded live without restarting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if workspace trust is missing or shutdown, unload,
+    /// respawn, or `extension/describe` / MCP initialization fails.
     pub async fn reload_external_extension(&mut self, ext_name: &str) -> Result<(), RuntimeError> {
+        let ws_cfg = self.apply_verified_workspace_presets()?;
         let sandbox_policy = self.kernel.policy_gate().sandbox().clone();
         let redactor = self.credentials.redactor();
+
+        if let Some(cfg) = ws_cfg.as_ref().and_then(|c| c.extensions.get(ext_name)) {
+            if cfg.protocol == ExtensionProtocol::Mcp {
+                return self
+                    .reconnect_mcp_extension(ext_name, cfg, &sandbox_policy, redactor)
+                    .await;
+            }
+            let mut ipc = self.runtime.ext_ipc.lock().await;
+            ipc.upsert_config(ext_name.to_string(), cfg.clone());
+        }
+
         let mut ipc = self.runtime.ext_ipc.lock().await;
         ipc.reload_extension(
             ext_name,
@@ -762,6 +887,114 @@ impl RuntimeHost {
         )
         .await?;
         Ok(())
+    }
+
+    /// Hot-reload all configured and newly discovered external extensions (`/reload`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if workspace trust is missing or reloading any extension fails.
+    pub async fn reload_all_external_extensions(&mut self) -> Result<Vec<String>, RuntimeError> {
+        let ws_cfg = self.apply_verified_workspace_presets()?;
+        let sandbox_policy = self.kernel.policy_gate().sandbox().clone();
+        let redactor = self.credentials.redactor();
+        let mut reloaded = Vec::new();
+
+        if let Some(cfg) = &ws_cfg {
+            for (name, ext_cfg) in &cfg.extensions {
+                match ext_cfg.protocol {
+                    ExtensionProtocol::Mcp => {
+                        self.reconnect_mcp_extension(
+                            name,
+                            ext_cfg,
+                            &sandbox_policy,
+                            redactor.clone(),
+                        )
+                        .await?;
+                        reloaded.push(name.clone());
+                    }
+                    ExtensionProtocol::Rpc => {
+                        let mut ipc = self.runtime.ext_ipc.lock().await;
+                        ipc.upsert_config(name.clone(), ext_cfg.clone());
+                    }
+                }
+            }
+        }
+
+        let mut ipc = self.runtime.ext_ipc.lock().await;
+        let names = ipc.configured_extensions();
+        for ext_name in names {
+            ipc.reload_extension(
+                &ext_name,
+                self.workspace_root.clone(),
+                sandbox_policy.clone(),
+                self.runtime.sandbox_driver.clone(),
+                redactor.clone(),
+                self.kernel.registry_mut(),
+            )
+            .await?;
+            reloaded.push(ext_name);
+        }
+        Ok(reloaded)
+    }
+
+    async fn reconnect_mcp_extension(
+        &mut self,
+        name: &str,
+        cfg: &crate::config::ExternalExtensionConfig,
+        sandbox_policy: &SandboxPolicy,
+        redactor: StreamRedactor,
+    ) -> Result<(), RuntimeError> {
+        self.runtime
+            .connect_or_reload_mcp(
+                name,
+                cfg,
+                &self.workspace_root,
+                sandbox_policy,
+                redactor,
+                self.kernel.registry_mut(),
+            )
+            .await
+    }
+
+    fn apply_verified_workspace_presets(&mut self) -> Result<Option<GestaltConfig>, RuntimeError> {
+        let ws_cfg = self.load_verified_workspace_config()?;
+        if let Some(cfg) = &ws_cfg {
+            for (id, preset_cfg) in &cfg.presets {
+                let preset = preset_cfg.to_preset()?;
+                self.kernel
+                    .registry_mut()
+                    .presets
+                    .insert(id.clone(), preset);
+            }
+        }
+        Ok(ws_cfg)
+    }
+
+    fn load_verified_workspace_config(&self) -> Result<Option<GestaltConfig>, RuntimeError> {
+        let ws_toml = self.workspace_root.join(".gestalt").join("gestalt.toml");
+        if !ws_toml.exists() {
+            return Ok(None);
+        }
+        let raw_bytes = fs::read(&ws_toml)?;
+        let trust_store = WorkspaceTrustStore::load_default()?;
+        if !self.auto_trust_workspace
+            && !trust_store.is_trusted(&self.workspace_root, &raw_bytes)?
+        {
+            return Err(RuntimeError::UntrustedWorkspace {
+                workspace_root: self.workspace_root.to_string_lossy().to_string(),
+                config_digest: sha256_hex(&raw_bytes),
+            });
+        }
+        let raw_str = String::from_utf8(raw_bytes).map_err(|err| {
+            RuntimeError::ArtifactError(format!("workspace gestalt.toml is not UTF-8: {err}"))
+        })?;
+        let ws_cfg = GestaltConfig::from_toml_str(&raw_str)?;
+        let _ = ws_cfg.to_policy_override(
+            &self.kernel.policy_gate().baseline_budget(),
+            self.kernel.policy_gate().sandbox(),
+        )?;
+        Ok(Some(ws_cfg))
     }
 
     /// Revert a previously promoted [`Effect::Save`] stage via `.gestalt/ledger.jsonl`.
@@ -1445,6 +1678,20 @@ mod tests {
                 KernelError::UnresolvedExtensionSlot { .. }
             ))
         ));
+
+        // Create a second session file with a truncated trailing line, then switch back to main.
+        let s2_path = dir.join(".gestalt/sessions/s2.jsonl");
+        let _ = fs::copy(host.session_path(), &s2_path).expect("copy");
+        {
+            let mut f = OpenOptions::new()
+                .append(true)
+                .open(&s2_path)
+                .expect("open");
+            writeln!(f, "{{\"id\":\"partial\"").expect("write truncated");
+        }
+        host.switch_session(s2_path.clone()).expect("switch s2");
+        assert_eq!(host.session_path(), s2_path.as_path());
+        assert!(host.kernel().session_tree().get(&ping_node).is_some());
 
         let _ = fs::remove_dir_all(&dir);
     }

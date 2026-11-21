@@ -229,6 +229,44 @@ impl KernelRuntime {
         Ok(rt)
     }
 
+    /// Reset this [`KernelRuntime`] to a fresh `SessionTree` with a new
+    /// `session_open` root node while preserving `registry` and `policy_gate`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KernelError`] if `session_open` serialization fails.
+    pub fn reset_session(
+        &mut self,
+        run_id: String,
+        workspace_root: String,
+        created_at_ms: u64,
+    ) -> Result<(), KernelError> {
+        self.run_id = run_id;
+        self.tree = SessionTree::new();
+        self.inbox = SteeringInbox::new();
+        self.events = EventStream::new();
+        self.artifacts = ArtifactStoreView::default();
+        self.budget = BudgetSnapshot {
+            cap: self.policy_gate.baseline_budget(),
+            ..BudgetSnapshot::default()
+        };
+        self.spawn_depth = 0;
+        self.now_ms = created_at_ms;
+        self.id_seq = 0;
+        self.pending_jsonl.clear();
+        self.active_turn = None;
+        self.append_node(
+            None,
+            None,
+            NodePayload::SessionOpen {
+                schema_version: SESSION_SCHEMA_VERSION,
+                workspace_root,
+                created_at_ms,
+            },
+        )?;
+        Ok(())
+    }
+
     /// Resume a [`KernelRuntime`] from an already-validated [`SessionTree`].
     #[must_use]
     pub fn from_tree(
@@ -238,26 +276,51 @@ impl KernelRuntime {
         policy_gate: PolicyGate,
         now_ms: u64,
     ) -> Self {
-        let id_seq = tree.all_nodes().len() as u64;
-        let budget = BudgetSnapshot {
-            cap: policy_gate.baseline_budget(),
-            ..BudgetSnapshot::default()
-        };
-        Self {
+        let mut rt = Self {
             run_id,
-            tree,
+            tree: SessionTree::new(),
             registry,
             policy_gate,
             inbox: SteeringInbox::new(),
             events: EventStream::new(),
             artifacts: ArtifactStoreView::default(),
-            budget,
+            budget: BudgetSnapshot::default(),
             spawn_depth: 0,
             now_ms,
-            id_seq,
+            id_seq: 0,
             pending_jsonl: Vec::new(),
             active_turn: None,
+        };
+        rt.replace_tree(tree, now_ms);
+        rt
+    }
+
+    /// Replace the active [`SessionTree`] (e.g., when switching sessions in a
+    /// surface) while preserving `registry` and `policy_gate` and recomputing
+    /// `budget` usage from the active branch.
+    pub fn replace_tree(&mut self, tree: SessionTree, now_ms: u64) {
+        self.id_seq = tree.all_nodes().len() as u64;
+        self.inbox = SteeringInbox::new();
+        self.events = EventStream::new();
+        self.artifacts = ArtifactStoreView::default();
+        self.spawn_depth = 0;
+        self.now_ms = now_ms;
+        self.pending_jsonl.clear();
+        self.active_turn = None;
+
+        let mut budget = BudgetSnapshot {
+            cap: self.policy_gate.baseline_budget(),
+            ..BudgetSnapshot::default()
+        };
+        if let Ok(slice) = tree.slice_to(None) {
+            for node in slice.nodes() {
+                if let Ok(NodePayload::StepResult(res)) = node.decode_payload() {
+                    budget.record_step(res.usage());
+                }
+            }
         }
+        self.budget = budget;
+        self.tree = tree;
     }
 
     /// Update the deterministic kernel clock supplied by `gestalt-runtime`.

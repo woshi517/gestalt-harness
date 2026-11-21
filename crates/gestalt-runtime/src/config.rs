@@ -396,7 +396,7 @@ pub fn load_and_merge_config(
     registry: &mut ExtensionRegistry,
 ) -> Result<ResolvedRuntimeConfig, RuntimeError> {
     let mut resolved = ResolvedRuntimeConfig {
-        default_preset: "swe".to_string(),
+        default_preset: "general".to_string(),
         session_dir: ".gestalt/sessions".to_string(),
         headless_auto_approve: Vec::new(),
         providers: BTreeMap::new(),

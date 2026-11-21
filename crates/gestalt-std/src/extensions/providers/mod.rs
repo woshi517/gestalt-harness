@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Concrete vendor [`ModelProvider`] adapters (`anthropic`, `openai`, `jev`)
+//! Concrete vendor [`gestalt_runtime::ModelProvider`] adapters (`anthropic`, `openai`, `jev`)
 //! registering into `gestalt-runtime`'s [`ProviderRegistry`].
 
 pub mod anthropic;
