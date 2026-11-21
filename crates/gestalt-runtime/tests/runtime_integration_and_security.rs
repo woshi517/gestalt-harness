@@ -941,3 +941,129 @@ done
     host.shutdown().await;
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn tool_execution_context_emits_redacted_tool_ui_events() {
+    struct UiEmittingTool;
+    impl ToolHandler for UiEmittingTool {
+        fn execute<'a>(
+            &'a self,
+            _args: &'a Value,
+            ctx: &'a ToolExecutionContext,
+            _on_delta: StreamDeltaFn<'a>,
+        ) -> Pin<Box<dyn Future<Output = Result<ToolOutcome, RuntimeError>> + Send + 'a>> {
+            Box::pin(async move {
+                ctx.emit_tool_ui(
+                    "diff_preview",
+                    json!({ "patch": "secret_ui_token_12345 updated" }),
+                );
+                Ok(ToolOutcome {
+                    output: json!({"ok": true}),
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    struct UiLoop(bool);
+    impl AgentLoop for UiLoop {
+        fn id(&self) -> &str {
+            "ui_loop"
+        }
+        fn digest(&self) -> &str {
+            "ui_v1"
+        }
+        fn step(
+            &mut self,
+            _ctx: &mut dyn LoopContext,
+            _results: Option<Vec<StepResult>>,
+        ) -> LoopAction {
+            if !self.0 {
+                self.0 = true;
+                LoopAction::Yield(vec![Effect::Tool {
+                    name: "ui_tool".into(),
+                    args: json!({}),
+                    side_effect: SideEffectClass::Read,
+                }])
+            } else {
+                LoopAction::Done(json!({"done": true}))
+            }
+        }
+    }
+    struct UiLoopFactory;
+    impl AgentLoopFactory for UiLoopFactory {
+        fn id(&self) -> &str {
+            "ui_loop"
+        }
+        fn digest(&self) -> &str {
+            "ui_v1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(UiLoop(false))
+        }
+    }
+
+    let dir = std::env::temp_dir().join(format!("gestalt_tool_ui_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    let canon = fs::canonicalize(&dir).expect("canon");
+
+    let mut reg = ExtensionRegistry::new();
+    reg.builders
+        .insert("dummy_builder".into(), Box::new(DummyBuilder));
+    reg.loops.insert("ui_loop".into(), Box::new(UiLoopFactory));
+    reg.tools.insert(
+        "ui_tool".into(),
+        ToolSpec {
+            name: "ui_tool".into(),
+            description: "emits tool ui".into(),
+            parameters_schema: json!({"type": "object"}),
+            default_side_effect: SideEffectClass::Read,
+            source_extension: None,
+        },
+    );
+
+    let mut rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
+    rt.tools.insert("ui_tool".into(), Arc::new(UiEmittingTool));
+
+    let mut creds = CredentialStore::default();
+    creds.insert_runtime_secret("ui", "secret_ui_token_12345");
+
+    let sink = Arc::new(CollectingSink::default());
+    let mut host = RuntimeHost::new(
+        "run_ui".into(),
+        &canon,
+        canon.join(".gestalt/sessions/ui.jsonl"),
+        reg,
+        PolicyGate::default(),
+        rt,
+        creds,
+        Some(sink.clone()),
+        Arc::new(HeadlessPauseHandler::default()),
+    )
+    .expect("host");
+
+    let out = host
+        .run_turn(json!("go"), "ui_loop", &[], CancellationToken::new())
+        .await
+        .expect("turn");
+    assert!(matches!(out, TurnOutcome::Completed { .. }));
+
+    {
+        let events = sink.events.lock().expect("lock");
+        let tool_ui = events
+            .iter()
+            .find_map(|e| match e {
+                RunEvent::ToolUi { renderer, data, .. } => Some((renderer, data)),
+                _ => None,
+            })
+            .expect("expected RunEvent::ToolUi");
+        assert_eq!(tool_ui.0, "diff_preview");
+        let data_str = tool_ui.1.to_string();
+        assert!(!data_str.contains("secret_ui_token_12345"));
+        assert!(data_str.contains("[REDACTED]"));
+    }
+
+    host.shutdown().await;
+    let _ = fs::remove_dir_all(&dir);
+}

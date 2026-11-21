@@ -78,6 +78,27 @@ pub struct ToolExecutionContext {
     pub blob_store: BlobStore,
     /// Cooperative cancellation token for `<= 250 ms` abort.
     pub cancel: CancellationToken,
+    /// Optional event sink for transient `RunEvent::ToolUi` emissions.
+    pub event_sink: Option<Arc<dyn EventSink>>,
+    /// Host stream redactor applied to `ToolUi` payloads.
+    pub redactor: StreamRedactor,
+}
+
+impl ToolExecutionContext {
+    /// Emit a transient, secret-redacted [`RunEvent::ToolUi`] payload targeting
+    /// a registered `UISurface` renderer (e.g., `"diff_preview"`).
+    pub fn emit_tool_ui(&self, renderer: &str, mut data: Value) {
+        let Some(ref sink) = self.event_sink else {
+            return;
+        };
+        self.redactor.redact_json(&mut data);
+        sink.on_event(&RunEvent::ToolUi {
+            turn_id: self.turn_id.clone(),
+            effect_id: self.effect_id.clone(),
+            renderer: renderer.to_string(),
+            data,
+        });
+    }
 }
 
 /// Async handler contract for registered tools in [`RuntimeRegistry`].

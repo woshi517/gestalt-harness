@@ -272,6 +272,8 @@ async fn execute_tool_effect(
             sandbox_driver: ctx.sandbox_driver.clone(),
             blob_store: ctx.blob_store.clone(),
             cancel: ctx.cancel.clone(),
+            event_sink: ctx.event_sink.clone(),
+            redactor: ctx.redactor.clone(),
         };
 
         return match handler.execute(args, &tool_ctx, &on_delta).await {

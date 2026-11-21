@@ -806,3 +806,117 @@ fn external_builder_deferral_and_custom_node_persistence() {
     let custom_node = rt.session_tree().get(&custom_id).expect("get custom node");
     assert_eq!(custom_node.kind, "custom:std:compaction");
 }
+
+#[test]
+fn emit_custom_node_updates_slice_immediately_and_replays_with_parity() {
+    struct CustomNodeBuilder;
+    impl ContextBuilder for CustomNodeBuilder {
+        fn id(&self) -> &str {
+            "custom_b"
+        }
+        fn digest(&self) -> &str {
+            "cb1"
+        }
+        fn build(
+            &self,
+            session: &SessionSlice,
+            _artifacts: &ArtifactStoreView,
+            _caps: &ModelCapabilities,
+        ) -> Value {
+            let has_summary = session
+                .nodes()
+                .iter()
+                .any(|n| n.kind == "custom:test:summary");
+            json!({ "has_summary": has_summary })
+        }
+    }
+
+    struct CustomEmittingLoop;
+    impl AgentLoop for CustomEmittingLoop {
+        fn id(&self) -> &str {
+            "custom_emit"
+        }
+        fn digest(&self) -> &str {
+            "ce1"
+        }
+        fn step(
+            &mut self,
+            ctx: &mut dyn LoopContext,
+            results: Option<Vec<StepResult>>,
+        ) -> LoopAction {
+            if results.is_none() {
+                ctx.emit_custom_node("test:summary", json!({"v": 1}));
+                let built = ctx.build_context(&ModelCapabilities::default());
+                assert_eq!(built["has_summary"], true);
+                LoopAction::Yield(vec![Effect::Model {
+                    target: "mock/m".into(),
+                    kind: ModelKind::Llm,
+                    input: built,
+                    schema: None,
+                }])
+            } else {
+                LoopAction::Done(json!({"ok": true}))
+            }
+        }
+    }
+    struct CustomEmitFactory;
+    impl AgentLoopFactory for CustomEmitFactory {
+        fn id(&self) -> &str {
+            "custom_emit"
+        }
+        fn digest(&self) -> &str {
+            "ce1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(CustomEmittingLoop)
+        }
+    }
+
+    let mut reg = setup_registry();
+    reg.builders
+        .insert("custom_b".into(), Box::new(CustomNodeBuilder));
+    reg.loops
+        .insert("custom_emit".into(), Box::new(CustomEmitFactory));
+    reg.presets.insert(
+        "custom_preset".into(),
+        Preset {
+            base_loop: "custom_emit".into(),
+            decorators: vec![],
+            builder: "custom_b".into(),
+            config: LoopConfig::default(),
+        },
+    );
+
+    let mut gate = setup_gate();
+    gate.add_rule(Box::new(VerificationGateRule));
+    assert_eq!(gate.rule_ids(), vec!["verify_read"]);
+
+    let mut rt = KernelRuntime::new("r7".into(), "/repo".into(), 600, reg, gate).expect("init");
+    rt.start_turn(
+        json!("go"),
+        "custom_preset",
+        &[],
+        ArtifactStoreView::default(),
+        601,
+    )
+    .expect("start");
+    let d1 = rt.next_action(DriverResponse::Poll).expect("d1");
+    let eff1 = match d1 {
+        DriverDirective::DispatchEffects { effects } => effects[0].effect_id.clone(),
+        other => panic!("expected dispatch, got {other:?}"),
+    };
+    let d2 = rt
+        .next_action(DriverResponse::EffectResults(vec![StepResult::Model {
+            effect_id: eff1,
+            kind: ModelKind::Llm,
+            output: json!({"text": "done"}),
+            usage: Usage::default(),
+        }]))
+        .expect("d2");
+    assert!(matches!(d2, DriverDirective::TurnComplete { .. }));
+
+    let report = ReplayEngine::new(rt.registry(), rt.policy_gate())
+        .replay(rt.session_tree(), ReplayMode::Default, |_| None)
+        .expect("replay");
+    assert!(report.is_parity(), "divergences: {:?}", report.divergences);
+}

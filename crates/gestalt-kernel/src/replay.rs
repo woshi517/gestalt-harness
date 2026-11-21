@@ -104,13 +104,14 @@ struct ReplayLoopContext<'a> {
     phase_id: &'a str,
     handoff: &'a Value,
     config: &'a LoopConfig,
-    session: &'a SessionSlice,
+    session: SessionSlice,
     artifacts: &'a ArtifactStoreView,
     budget: &'a BudgetSnapshot,
     builder: Option<&'a dyn ContextBuilder>,
     inbox: &'a mut SteeringInbox,
     now_ms: u64,
     id_seq: u64,
+    pending_custom_nodes: Vec<(String, Value)>,
 }
 
 impl LoopContext for ReplayLoopContext<'_> {
@@ -130,7 +131,7 @@ impl LoopContext for ReplayLoopContext<'_> {
         self.config
     }
     fn session(&self) -> &SessionSlice {
-        self.session
+        &self.session
     }
     fn artifacts(&self) -> &ArtifactStoreView {
         self.artifacts
@@ -140,7 +141,7 @@ impl LoopContext for ReplayLoopContext<'_> {
     }
     fn build_context(&self, caps: &ModelCapabilities) -> Value {
         match self.builder {
-            Some(b) => b.build(self.session, self.artifacts, caps),
+            Some(b) => b.build(&self.session, self.artifacts, caps),
             None => Value::Null,
         }
     }
@@ -153,6 +154,18 @@ impl LoopContext for ReplayLoopContext<'_> {
     fn next_id(&mut self) -> String {
         self.id_seq += 1;
         format!("replay_{}_{}", self.run_id, self.id_seq)
+    }
+    fn emit_custom_node(&mut self, namespace: &str, data: Value) {
+        self.session.push_custom_preview(
+            self.turn_id,
+            self.phase_id,
+            self.now_ms,
+            self.pending_custom_nodes.len(),
+            namespace,
+            data.clone(),
+        );
+        self.pending_custom_nodes
+            .push((namespace.to_string(), data));
     }
 }
 
@@ -364,7 +377,28 @@ impl<'a> ReplayEngine<'a> {
                                 == Some("switched")
                     });
                     if !is_switch_target && let Some(ref mut lp) = current_loop {
-                        let slice = tree.slice_to(Some(&node.id))?;
+                        while idx + 1 < nodes.len() && nodes[idx + 1].kind == "steering" {
+                            if let NodePayload::Steering {
+                                id,
+                                kind,
+                                content,
+                                source,
+                            } = nodes[idx + 1].decode_payload()?
+                            {
+                                let ts = nodes[idx + 1].timestamp_ms;
+                                idx += 1;
+                                inbox.enqueue(SteeringSignal {
+                                    id,
+                                    kind,
+                                    content,
+                                    source,
+                                    timestamp_ms: ts,
+                                });
+                            } else {
+                                break;
+                            }
+                        }
+                        let slice = tree.slice_to(Some(&nodes[idx].id))?;
                         let builder = self
                             .registry
                             .builders
@@ -372,23 +406,25 @@ impl<'a> ReplayEngine<'a> {
                             .map(AsRef::as_ref);
                         let mut ctx = ReplayLoopContext {
                             run_id: "replay",
-                            turn_id: node.turn_id.as_deref().unwrap_or(""),
-                            phase_id: node.phase_id.as_deref().unwrap_or(""),
+                            turn_id: nodes[idx].turn_id.as_deref().unwrap_or(""),
+                            phase_id: nodes[idx].phase_id.as_deref().unwrap_or(""),
                             handoff: &current_handoff,
                             config: &current_config,
-                            session: &slice,
+                            session: slice.clone(),
                             artifacts: &current_artifacts,
                             budget: &budget,
                             builder,
                             inbox: &mut inbox,
-                            now_ms: node.timestamp_ms,
+                            now_ms: nodes[idx].timestamp_ms,
                             id_seq: idx as u64,
+                            pending_custom_nodes: Vec::new(),
                         };
                         let action = lp.step(&mut ctx, None);
                         self.verify_action_against_trace(
                             nodes,
                             idx + 1,
                             &action,
+                            &ctx.pending_custom_nodes,
                             &current_config,
                             &budget,
                             &slice,
@@ -407,18 +443,47 @@ impl<'a> ReplayEngine<'a> {
                     budget.record_step(None);
                     // Feed completed step results back into active in-process loop.
                     if let Some(ref mut lp) = current_loop {
-                        // Collect contiguous StepResult nodes for this batch.
+                        // Collect contiguous StepResult nodes for this batch (including any
+                        // intra-batch `steering` nodes enqueued while effects were in flight).
                         let mut batch_results = vec![res];
-                        while idx + 1 < nodes.len()
-                            && nodes[idx + 1].kind == "step_result"
-                            && let NodePayload::StepResult(next_res) =
-                                nodes[idx + 1].decode_payload()?
-                        {
-                            idx += 1;
-                            if let Some(u) = next_res.usage() {
-                                budget.record_usage(u);
+                        while idx + 1 < nodes.len() {
+                            match nodes[idx + 1].kind.as_str() {
+                                "step_result" => {
+                                    if let NodePayload::StepResult(next_res) =
+                                        nodes[idx + 1].decode_payload()?
+                                    {
+                                        idx += 1;
+                                        if let Some(u) = next_res.usage() {
+                                            budget.record_usage(u);
+                                        }
+                                        batch_results.push(next_res);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                "steering" => {
+                                    if let NodePayload::Steering {
+                                        id,
+                                        kind,
+                                        content,
+                                        source,
+                                    } = nodes[idx + 1].decode_payload()?
+                                    {
+                                        let ts = nodes[idx + 1].timestamp_ms;
+                                        idx += 1;
+                                        inbox.enqueue(SteeringSignal {
+                                            id,
+                                            kind,
+                                            content,
+                                            source,
+                                            timestamp_ms: ts,
+                                        });
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                _ => break,
                             }
-                            batch_results.push(next_res);
                         }
                         let slice = tree.slice_to(Some(&nodes[idx].id))?;
                         let builder = self
@@ -432,19 +497,21 @@ impl<'a> ReplayEngine<'a> {
                             phase_id: nodes[idx].phase_id.as_deref().unwrap_or(""),
                             handoff: &current_handoff,
                             config: &current_config,
-                            session: &slice,
+                            session: slice.clone(),
                             artifacts: &current_artifacts,
                             budget: &budget,
                             builder,
                             inbox: &mut inbox,
                             now_ms: nodes[idx].timestamp_ms,
                             id_seq: idx as u64,
+                            pending_custom_nodes: Vec::new(),
                         };
                         let action = lp.step(&mut ctx, Some(batch_results));
                         self.verify_action_against_trace(
                             nodes,
                             idx + 1,
                             &action,
+                            &ctx.pending_custom_nodes,
                             &current_config,
                             &budget,
                             &slice,
@@ -470,16 +537,21 @@ impl<'a> ReplayEngine<'a> {
         nodes: &[crate::tree::SessionNode],
         start_idx: usize,
         action: &LoopAction,
+        emitted_custom: &[(String, Value)],
         phase_config: &LoopConfig,
         budget: &BudgetSnapshot,
         slice: &SessionSlice,
         report: &mut ReplayReport,
     ) {
+        let mut recorded_custom = Vec::new();
         let mut recorded_effects = Vec::new();
         let mut cursor = start_idx;
         while cursor < nodes.len() {
             let n = &nodes[cursor];
-            if n.kind == "effect" {
+            if n.kind.starts_with("custom:") && recorded_effects.is_empty() {
+                recorded_custom.push(n);
+                cursor += 1;
+            } else if n.kind == "effect" {
                 if let Ok(NodePayload::Effect { envelope, .. }) = n.decode_payload() {
                     recorded_effects.push((
                         n.id.clone(),
@@ -493,6 +565,47 @@ impl<'a> ReplayEngine<'a> {
                 cursor += 1;
             } else {
                 break;
+            }
+        }
+
+        if emitted_custom.len() != recorded_custom.len() {
+            let node_id = recorded_custom
+                .first()
+                .map_or_else(|| "eof".to_string(), |n| n.id.clone());
+            report.divergences.push(ReplayDivergence {
+                node_id,
+                turn_id: slice.head().and_then(|h| h.turn_id.clone()),
+                phase_id: slice.head().and_then(|h| h.phase_id.clone()),
+                kind: DivergenceKind::EffectSequenceMismatch,
+                expected: Value::from(recorded_custom.len()),
+                actual: Value::from(emitted_custom.len()),
+                message: format!(
+                    "custom node count mismatch: recorded {}, replayed {}",
+                    recorded_custom.len(),
+                    emitted_custom.len()
+                ),
+            });
+        } else {
+            for ((ns, data), rec_node) in emitted_custom.iter().zip(recorded_custom.iter()) {
+                let expected_kind = if ns.starts_with("custom:") {
+                    ns.clone()
+                } else {
+                    format!("custom:{ns}")
+                };
+                if rec_node.kind != expected_kind || &rec_node.payload != data {
+                    report.divergences.push(ReplayDivergence {
+                        node_id: rec_node.id.clone(),
+                        turn_id: rec_node.turn_id.clone(),
+                        phase_id: rec_node.phase_id.clone(),
+                        kind: DivergenceKind::EffectPayloadMismatch,
+                        expected: rec_node.payload.clone(),
+                        actual: data.clone(),
+                        message: format!(
+                            "replayed custom node '{expected_kind}' diverged from '{}'",
+                            rec_node.kind
+                        ),
+                    });
+                }
             }
         }
 
