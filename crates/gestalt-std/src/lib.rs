@@ -8,6 +8,8 @@
 //! contracts as external user-space crates, with zero private kernel backdoors.
 
 pub mod extensions;
+#[cfg(feature = "surfaces")]
+pub mod surfaces;
 
 pub use extensions::{
     ChatMessage, ChatRole, ContentBlock, DEFAULT_PROTECTED_PATHS, DecisionChoice, DecisionInput,

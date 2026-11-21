@@ -327,8 +327,8 @@ When opening a `Phase` for a preset (e.g., `swe` + `/goal`):
 
 #### Milestone 1.3b — `gestalt-std` Surfaces (`print`, `rpc`, `acp`, `replay`, `tui`) (Target: Week 7)
 **Goal:** Ship all 5 user-facing and protocol surfaces behind `surfaces` and `tui` Cargo features.
-- [ ] Implement `-p` / `--json` (`print.rs`), `--mode rpc` (`rpc.rs` with full parity methods & JSON-RPC error codes), `--mode acp` (`acp.rs` ACP v1 server), and `replay` (`replay.rs` default + `--reexecute-ext` modes).
-- [ ] Implement interactive TUI (`#[cfg(feature = "tui")]`, `ratatui` + `crossterm`) with transcript viewport, keybindings, empty/loading states, scroll-offset-aware mouse hit-testing (`AGENTS.md`), inline diff previews, and `UISurface` dialog/panel rendering.
+- [x] Implement `-p` / `--json` (`print.rs`), `--mode rpc` (`rpc.rs` with full parity methods & JSON-RPC error codes), `--mode acp` (`acp.rs` ACP v1 server), and `replay` (`replay.rs` default + `--reexecute-ext` modes).
+- [x] Implement interactive TUI (`#[cfg(feature = "tui")]`, `ratatui` + `crossterm`) with transcript viewport, keybindings, empty/loading states, scroll-offset-aware mouse hit-testing (`AGENTS.md`), inline diff previews, and `UISurface` dialog/panel rendering.
 - **Exit Gate:** ACP v1 & JSON-RPC 2.0 conformance suites pass; TUI mouse click-offset and keyboard navigation unit tests pass.
 
 #### Milestone 1.4 — `gestalt-cli` Composition Root, Self-Extension & Proof Gate (Target: Week 8)
