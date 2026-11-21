@@ -15,15 +15,16 @@ pub mod worktree;
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::future::Future;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use gestalt_kernel::{
-    DriverDirective, DriverResponse, Effect, EffectEnvelope, ExtensionRegistry, KernelRuntime,
-    ModelKind, PauseReason, PolicyDecision, PolicyGate, PolicyRule, RunEvent, SandboxPolicy,
-    SessionSlice, SteeringKind, SteeringSource, StepResult, Usage,
+    DriverDirective, DriverResponse, Effect, EffectEnvelope, ExtensionRegistry, KernelError,
+    KernelRuntime, LoopConfig, ModelKind, PauseReason, PolicyDecision, PolicyGate, PolicyRule,
+    RunEvent, SandboxPolicy, SessionSlice, SteeringKind, SteeringSource, StepResult, Usage,
 };
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
@@ -244,6 +245,22 @@ pub struct LiveSteeringMessage {
     pub content: Value,
     /// Entity that issued the signal.
     pub source: SteeringSource,
+}
+
+/// Asynchronous mid-turn control message delivered to [`RuntimeHost::run_turn_with_controls`].
+#[derive(Debug, Clone)]
+pub enum LiveTurnControl {
+    /// Inject a live steering or abort signal.
+    Steering(LiveSteeringMessage),
+    /// Switch the active Phase mid-turn at the next safe step boundary.
+    SwitchMode {
+        /// Target preset or loop ID.
+        preset_or_loop: String,
+        /// Typed handoff JSON passed to the next Phase.
+        handoff: Value,
+        /// Optional `LoopConfig` overrides.
+        config_override: Option<LoopConfig>,
+    },
 }
 
 /// Host registry binding async runtime handlers (`ToolHandler`, `CommandHandler`,
@@ -549,10 +566,181 @@ impl RuntimeHost {
         &self.credentials
     }
 
+    /// Mutably borrow the [`CredentialStore`] (e.g., for `/login` persistence).
+    pub fn credentials_mut(&mut self) -> &mut CredentialStore {
+        &mut self.credentials
+    }
+
+    /// Return the canonical workspace root path.
+    #[must_use]
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
+    }
+
+    /// Replace the active [`EventSink`].
+    pub fn set_event_sink(&mut self, sink: Option<Arc<dyn EventSink>>) {
+        self.event_sink = sink;
+    }
+
+    /// Replace the active [`PauseHandler`].
+    pub fn set_pause_handler(&mut self, handler: Arc<dyn PauseHandler>) {
+        self.pause_handler = handler;
+    }
+
     /// Return the active session JSONL file path.
     #[must_use]
     pub fn session_path(&self) -> &Path {
         &self.session_path
+    }
+
+    /// Flush any pending `SessionTree` JSONL lines to disk and emit buffered
+    /// [`RunEvent`]s through the secret redactor and active [`EventSink`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on disk write/sync failure.
+    pub fn flush_pending(&mut self) -> Result<(), RuntimeError> {
+        let redactor = self.credentials.redactor();
+        self.flush_kernel_outputs(&redactor)
+    }
+
+    /// Fork the session from `from_node_id` (or active head) into `branch_id`,
+    /// optionally writing the forked branch prefix to `new_file_path` (`--new-file`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if `from_node_id` is missing or file I/O fails.
+    pub fn fork_session(
+        &mut self,
+        branch_id: String,
+        from_node_id: Option<&str>,
+        new_file_path: Option<&Path>,
+    ) -> Result<String, RuntimeError> {
+        let audit_id = self
+            .kernel
+            .fork_session(branch_id, from_node_id, current_epoch_ms())?;
+        self.flush_pending()?;
+
+        if let Some(dest) = new_file_path {
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let slice = self.kernel.session_tree().slice_to(from_node_id)?;
+            let redactor = self.credentials.redactor();
+            let tmp = dest.with_extension(format!("jsonl.fork.{}", std::process::id()));
+            {
+                let mut f = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(&tmp)?;
+                for node in slice.nodes() {
+                    let line = node.to_jsonl_line()?;
+                    let safe = redactor.redact_str(&line);
+                    writeln!(f, "{safe}")?;
+                }
+                f.flush()?;
+                f.sync_data()?;
+            }
+            fs::rename(&tmp, dest)?;
+        }
+
+        Ok(audit_id)
+    }
+
+    /// Rewind the active conversation head to `target_node_id` without modifying
+    /// any workspace files on disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if `target_node_id` is missing or flushing fails.
+    pub fn rewind_session(
+        &mut self,
+        branch_id: String,
+        target_node_id: &str,
+    ) -> Result<(), RuntimeError> {
+        self.kernel
+            .rewind_session(branch_id, target_node_id, current_epoch_ms())?;
+        self.flush_pending()
+    }
+
+    /// Switch the active Phase mid-turn (`/mode <preset>`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if no Turn is active or `preset_or_loop` is unresolved.
+    pub fn switch_mode(
+        &mut self,
+        preset_or_loop: &str,
+        handoff: Value,
+        config_override: Option<LoopConfig>,
+    ) -> Result<String, RuntimeError> {
+        let phase_id = self.kernel.switch_mode(
+            preset_or_loop,
+            handoff,
+            config_override,
+            current_epoch_ms(),
+        )?;
+        self.flush_pending()?;
+        Ok(phase_id)
+    }
+
+    /// Execute a registered in-process or out-of-process extension slash command.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if the command is not registered or execution fails.
+    pub async fn execute_command(
+        &mut self,
+        command: &str,
+        args: &str,
+    ) -> Result<Value, RuntimeError> {
+        if let Some(handler) = self.runtime.commands.get(command).cloned() {
+            let out = handler.execute(args, &mut self.kernel).await?;
+            self.flush_pending()?;
+            return Ok(out);
+        }
+
+        let ext_owner = {
+            let ipc = self.runtime.ext_ipc.lock().await;
+            ipc.owner_of_command(command).map(str::to_string)
+        };
+        if let Some(ext_name) = ext_owner {
+            let head_node = self
+                .kernel
+                .session_tree()
+                .head_id()
+                .and_then(|id| self.kernel.session_tree().get(id))
+                .cloned();
+            let args_val = Value::String(args.to_string());
+            let resp = {
+                let mut ipc = self.runtime.ext_ipc.lock().await;
+                let worker =
+                    ipc.worker_mut(&ext_name)
+                        .ok_or_else(|| RuntimeError::IpcProtocol {
+                            ext_name: ext_name.clone(),
+                            message: "external command worker not running".to_string(),
+                        })?;
+                worker
+                    .command_run(command, &args_val, head_node.as_ref())
+                    .await?
+            };
+            if let Some(steer) = resp.steering {
+                self.kernel.enqueue_steering(
+                    SteeringKind::Steer,
+                    steer,
+                    SteeringSource::User,
+                    current_epoch_ms(),
+                )?;
+            }
+            self.flush_pending()?;
+            return Ok(resp.output);
+        }
+
+        Err(RuntimeError::Kernel(KernelError::UnresolvedExtensionSlot {
+            slot: "command".to_string(),
+            name: command.to_string(),
+        }))
     }
 
     /// Hot-reload an out-of-process JSON-RPC extension between Turns/Phases (`/reload <ext>`).
@@ -613,7 +801,45 @@ impl RuntimeHost {
         preset_or_loop: &str,
         extra_decorators: &[String],
         cancel: CancellationToken,
-        mut steering_rx: Option<mpsc::UnboundedReceiver<LiveSteeringMessage>>,
+        steering_rx: Option<mpsc::UnboundedReceiver<LiveSteeringMessage>>,
+    ) -> Result<TurnOutcome, RuntimeError> {
+        let ctrl = match steering_rx {
+            Some(rx) => ControlReceiver::Steering(rx),
+            None => ControlReceiver::None,
+        };
+        self.run_turn_inner(prompt, preset_or_loop, extra_decorators, cancel, ctrl)
+            .await
+    }
+
+    /// Drive one Turn while accepting live steering and mid-turn `SwitchMode`
+    /// controls over `control_rx`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on unrecoverable kernel, lock, or pause-denial failures.
+    pub async fn run_turn_with_controls(
+        &mut self,
+        prompt: Value,
+        preset_or_loop: &str,
+        extra_decorators: &[String],
+        cancel: CancellationToken,
+        control_rx: Option<mpsc::UnboundedReceiver<LiveTurnControl>>,
+    ) -> Result<TurnOutcome, RuntimeError> {
+        let ctrl = match control_rx {
+            Some(rx) => ControlReceiver::Controls(rx),
+            None => ControlReceiver::None,
+        };
+        self.run_turn_inner(prompt, preset_or_loop, extra_decorators, cancel, ctrl)
+            .await
+    }
+
+    async fn run_turn_inner(
+        &mut self,
+        prompt: Value,
+        preset_or_loop: &str,
+        extra_decorators: &[String],
+        cancel: CancellationToken,
+        mut control_rx: ControlReceiver,
     ) -> Result<TurnOutcome, RuntimeError> {
         let artifacts_view = self
             .artifacts
@@ -632,18 +858,32 @@ impl RuntimeHost {
 
         loop {
             self.kernel.set_now_ms(current_epoch_ms());
-            // Drain any queued live steering messages before stepping.
-            if let Some(ref mut rx) = steering_rx {
-                while let Ok(msg) = rx.try_recv() {
-                    let _ = self.kernel.enqueue_steering(
-                        msg.kind,
-                        msg.content,
-                        msg.source,
-                        current_epoch_ms(),
-                    );
+            // Drain any queued live steering or mode-switch controls before stepping.
+            while let Some(ctrl) = control_rx.try_recv() {
+                match ctrl {
+                    LiveTurnControl::Steering(msg) => {
+                        let _ = self.kernel.enqueue_steering(
+                            msg.kind,
+                            msg.content,
+                            msg.source,
+                            current_epoch_ms(),
+                        );
+                    }
+                    LiveTurnControl::SwitchMode {
+                        preset_or_loop: target_preset,
+                        handoff,
+                        config_override,
+                    } => {
+                        let _ = self.kernel.switch_mode(
+                            &target_preset,
+                            handoff,
+                            config_override,
+                            current_epoch_ms(),
+                        );
+                    }
                 }
-                self.flush_kernel_outputs(&redactor)?;
             }
+            self.flush_kernel_outputs(&redactor)?;
             if cancel.is_cancelled() {
                 let _ = self.kernel.enqueue_steering(
                     SteeringKind::Abort,
@@ -790,12 +1030,7 @@ impl RuntimeHost {
                 }
                 DriverDirective::DispatchEffects { effects } => {
                     let batch_outcome = self
-                        .execute_effect_batch(
-                            &turn_id,
-                            effects,
-                            cancel.clone(),
-                            steering_rx.as_mut(),
-                        )
+                        .execute_effect_batch(&turn_id, effects, cancel.clone(), &mut control_rx)
                         .await?;
                     match batch_outcome {
                         BatchOutcome::Completed(results) => {
@@ -940,7 +1175,7 @@ impl RuntimeHost {
         turn_id: &str,
         effects: Vec<EffectEnvelope>,
         cancel: CancellationToken,
-        mut steering_rx: Option<&mut mpsc::UnboundedReceiver<LiveSteeringMessage>>,
+        control_rx: &mut ControlReceiver,
     ) -> Result<BatchOutcome, RuntimeError> {
         let phase_id = self
             .kernel
@@ -1002,13 +1237,6 @@ impl RuntimeHost {
         }
 
         loop {
-            let steering_fut = async {
-                match steering_rx.as_mut() {
-                    Some(rx) => rx.recv().await,
-                    None => std::future::pending().await,
-                }
-            };
-
             tokio::select! {
                 biased;
                 () = cancel.cancelled() => {
@@ -1025,21 +1253,37 @@ impl RuntimeHost {
                     );
                     return Ok(BatchOutcome::Interrupted);
                 }
-                Some(msg) = steering_fut => {
-                    let is_preemptive = matches!(msg.kind, SteeringKind::Abort | SteeringKind::UrgentSteer);
-                    let _ = self.kernel.enqueue_steering(
-                        msg.kind,
-                        msg.content,
-                        msg.source,
-                        current_epoch_ms(),
-                    );
-                    if is_preemptive {
-                        step_cancel.cancel();
-                        let _ = tokio::time::timeout(Duration::from_millis(50), async {
-                            while join_set.join_next().await.is_some() {}
-                        }).await;
-                        join_set.abort_all();
-                        return Ok(BatchOutcome::Interrupted);
+                Some(ctrl) = control_rx.recv() => {
+                    match ctrl {
+                        LiveTurnControl::Steering(msg) => {
+                            let is_preemptive = matches!(msg.kind, SteeringKind::Abort | SteeringKind::UrgentSteer);
+                            let _ = self.kernel.enqueue_steering(
+                                msg.kind,
+                                msg.content,
+                                msg.source,
+                                current_epoch_ms(),
+                            );
+                            if is_preemptive {
+                                step_cancel.cancel();
+                                let _ = tokio::time::timeout(Duration::from_millis(50), async {
+                                    while join_set.join_next().await.is_some() {}
+                                }).await;
+                                join_set.abort_all();
+                                return Ok(BatchOutcome::Interrupted);
+                            }
+                        }
+                        LiveTurnControl::SwitchMode {
+                            preset_or_loop,
+                            handoff,
+                            config_override,
+                        } => {
+                            let _ = self.kernel.switch_mode(
+                                &preset_or_loop,
+                                handoff,
+                                config_override,
+                                current_epoch_ms(),
+                            );
+                        }
                     }
                 }
                 next_res = join_set.join_next() => {
@@ -1062,7 +1306,146 @@ impl RuntimeHost {
     }
 }
 
+enum ControlReceiver {
+    None,
+    Steering(mpsc::UnboundedReceiver<LiveSteeringMessage>),
+    Controls(mpsc::UnboundedReceiver<LiveTurnControl>),
+}
+
+impl ControlReceiver {
+    fn try_recv(&mut self) -> Option<LiveTurnControl> {
+        match self {
+            Self::None => None,
+            Self::Steering(rx) => rx.try_recv().ok().map(LiveTurnControl::Steering),
+            Self::Controls(rx) => rx.try_recv().ok(),
+        }
+    }
+
+    async fn recv(&mut self) -> Option<LiveTurnControl> {
+        match self {
+            Self::None => std::future::pending().await,
+            Self::Steering(rx) => rx.recv().await.map(LiveTurnControl::Steering),
+            Self::Controls(rx) => rx.recv().await,
+        }
+    }
+}
+
 enum BatchOutcome {
     Completed(Vec<StepResult>),
     Interrupted,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::UnsandboxedFallbackDriver;
+    use gestalt_kernel::{
+        AgentLoop, AgentLoopFactory, BudgetCap, ExtensionRegistry, LoopAction, LoopContext,
+    };
+
+    struct PingCmd;
+    impl CommandHandler for PingCmd {
+        fn execute<'a>(
+            &'a self,
+            args: &'a str,
+            kernel: &'a mut KernelRuntime,
+        ) -> Pin<Box<dyn Future<Output = Result<Value, RuntimeError>> + Send + 'a>> {
+            Box::pin(async move {
+                let id = kernel.append_custom_node(
+                    "test:ping".into(),
+                    json!({ "args": args }),
+                    current_epoch_ms(),
+                )?;
+                Ok(json!({ "node_id": id, "pong": args }))
+            })
+        }
+    }
+
+    struct DoneLoop;
+    impl AgentLoop for DoneLoop {
+        fn id(&self) -> &str {
+            "done"
+        }
+        fn digest(&self) -> &str {
+            "d1"
+        }
+        fn step(
+            &mut self,
+            _ctx: &mut dyn LoopContext,
+            _results: Option<Vec<StepResult>>,
+        ) -> LoopAction {
+            LoopAction::Done(json!("ok"))
+        }
+    }
+
+    struct DoneFactory;
+    impl AgentLoopFactory for DoneFactory {
+        fn id(&self) -> &str {
+            "done"
+        }
+        fn digest(&self) -> &str {
+            "d1"
+        }
+        fn create(
+            &self,
+            _config: &LoopConfig,
+            _registry: &ExtensionRegistry,
+        ) -> Box<dyn AgentLoop> {
+            Box::new(DoneLoop)
+        }
+    }
+
+    #[tokio::test]
+    async fn host_fork_new_file_rewind_and_execute_command_work() {
+        let dir =
+            std::env::temp_dir().join(format!("gestalt_rt_host_seams_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+
+        let mut reg = ExtensionRegistry::new();
+        reg.loops.insert("done".into(), Box::new(DoneFactory));
+        let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
+        let mut rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
+        rt.commands.insert("ping".into(), Arc::new(PingCmd));
+
+        let session_path = dir.join(".gestalt/sessions/main.jsonl");
+        let mut host = RuntimeHost::new(
+            "r_seam".into(),
+            &dir,
+            session_path,
+            reg,
+            gate,
+            rt,
+            CredentialStore::default(),
+            None,
+            Arc::new(HeadlessPauseHandler::default()),
+        )
+        .expect("host");
+
+        let cmd_out = host.execute_command("ping", "hello").await.expect("cmd");
+        assert_eq!(cmd_out["pong"], "hello");
+        let ping_node = cmd_out["node_id"].as_str().expect("node id").to_string();
+
+        let fork_file = dir.join(".gestalt/sessions/forked.jsonl");
+        host.fork_session("branch_1".into(), Some(&ping_node), Some(&fork_file))
+            .expect("fork");
+        assert!(fork_file.exists());
+        let fork_raw = fs::read_to_string(&fork_file).expect("read fork");
+        let (fork_tree, warn) =
+            gestalt_kernel::SessionTree::from_jsonl_str(&fork_raw).expect("parse");
+        assert!(warn.is_none());
+        assert!(!fork_tree.all_nodes().is_empty());
+
+        host.rewind_session("main".into(), &ping_node)
+            .expect("rewind");
+        let missing = host.execute_command("missing_cmd", "").await;
+        assert!(matches!(
+            missing,
+            Err(RuntimeError::Kernel(
+                KernelError::UnresolvedExtensionSlot { .. }
+            ))
+        ));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
