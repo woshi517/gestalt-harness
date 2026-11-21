@@ -206,6 +206,12 @@ impl PolicyGate {
         self.baseline_allowed_tools.as_ref()
     }
 
+    /// Return registered [`PolicyRule`] IDs in deterministic sorted order.
+    #[must_use]
+    pub fn rule_ids(&self) -> Vec<&str> {
+        self.rules_by_id.keys().map(String::as_str).collect()
+    }
+
     /// Add an additive [`PolicyRule`] (rules can only further restrict effects).
     pub fn add_rule(&mut self, rule: Box<dyn PolicyRule>) {
         let id = rule.id().to_string();

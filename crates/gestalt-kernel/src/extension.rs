@@ -275,6 +275,9 @@ pub trait LoopContext {
     fn now_ms(&self) -> u64;
     /// Deterministic monotonic ID generator for replay-safe user-space logic.
     fn next_id(&mut self) -> String;
+    /// Append a user-space namespaced node (`"custom:<namespace>"`) to the
+    /// active `SessionTree` branch and make it immediately visible in `session()`.
+    fn emit_custom_node(&mut self, namespace: &str, data: Value);
 }
 
 /// Resumable sans-I/O state-machine action returned by `AgentLoop::step`.

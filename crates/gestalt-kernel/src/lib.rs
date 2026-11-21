@@ -89,7 +89,7 @@ struct PhaseLoopContext<'a> {
     phase_id: &'a str,
     handoff: &'a Value,
     config: &'a LoopConfig,
-    session: &'a SessionSlice,
+    session: SessionSlice,
     artifacts: &'a ArtifactStoreView,
     budget: &'a BudgetSnapshot,
     builder: Option<&'a dyn ContextBuilder>,
@@ -97,6 +97,7 @@ struct PhaseLoopContext<'a> {
     inbox: &'a mut SteeringInbox,
     now_ms: u64,
     id_counter: &'a mut u64,
+    pending_custom_nodes: Vec<(String, Value)>,
 }
 
 impl LoopContext for PhaseLoopContext<'_> {
@@ -121,7 +122,7 @@ impl LoopContext for PhaseLoopContext<'_> {
     }
 
     fn session(&self) -> &SessionSlice {
-        self.session
+        &self.session
     }
 
     fn artifacts(&self) -> &ArtifactStoreView {
@@ -137,7 +138,7 @@ impl LoopContext for PhaseLoopContext<'_> {
             return pre.clone();
         }
         match self.builder {
-            Some(b) => b.build(self.session, self.artifacts, caps),
+            Some(b) => b.build(&self.session, self.artifacts, caps),
             None => Value::Null,
         }
     }
@@ -153,6 +154,19 @@ impl LoopContext for PhaseLoopContext<'_> {
     fn next_id(&mut self) -> String {
         *self.id_counter += 1;
         format!("id_{}_{}", self.run_id, *self.id_counter)
+    }
+
+    fn emit_custom_node(&mut self, namespace: &str, data: Value) {
+        self.session.push_custom_preview(
+            self.turn_id,
+            self.phase_id,
+            self.now_ms,
+            self.pending_custom_nodes.len(),
+            namespace,
+            data.clone(),
+        );
+        self.pending_custom_nodes
+            .push((namespace.to_string(), data));
     }
 }
 
@@ -881,14 +895,14 @@ impl KernelRuntime {
             .map(AsRef::as_ref);
         let precomputed = turn.phase.cached_external_context.take();
         let mut id_counter = self.id_seq;
-        let action = {
+        let (action, emitted_custom) = {
             let mut ctx = PhaseLoopContext {
                 run_id: &self.run_id,
                 turn_id: &turn.turn_id,
                 phase_id: &turn.phase.phase_id,
                 handoff: &turn.phase.handoff,
                 config: &turn.phase.config,
-                session: &slice,
+                session: slice,
                 artifacts: &self.artifacts,
                 budget: &self.budget,
                 builder,
@@ -896,12 +910,23 @@ impl KernelRuntime {
                 inbox: &mut self.inbox,
                 now_ms: self.now_ms,
                 id_counter: &mut id_counter,
+                pending_custom_nodes: Vec::new(),
             };
-            loop_impl.step(&mut ctx, results)
+            let action = loop_impl.step(&mut ctx, results);
+            (action, ctx.pending_custom_nodes)
         };
         self.id_seq = id_counter;
+        let turn_id_for_custom = turn.turn_id.clone();
+        let phase_id_for_custom = turn.phase.phase_id.clone();
         turn.phase.in_process_loop = Some(loop_impl);
         self.active_turn = Some(turn);
+        for (namespace, data) in emitted_custom {
+            self.append_node(
+                Some(turn_id_for_custom.clone()),
+                Some(phase_id_for_custom.clone()),
+                NodePayload::Custom { namespace, data },
+            )?;
+        }
         self.handle_loop_action(action)
     }
 

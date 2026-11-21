@@ -297,6 +297,33 @@ impl SessionSlice {
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
+
+    pub(crate) fn push_custom_preview(
+        &mut self,
+        turn_id: &str,
+        phase_id: &str,
+        now_ms: u64,
+        seq: usize,
+        namespace: &str,
+        data: Value,
+    ) {
+        let kind = if namespace.starts_with("custom:") {
+            namespace.to_string()
+        } else {
+            format!("custom:{namespace}")
+        };
+        let parent_id = self.nodes.last().map(|n| n.id.clone());
+        self.nodes.push(SessionNode {
+            id: format!("custom_preview_{seq}"),
+            parent_id,
+            turn_id: Some(turn_id.to_string()),
+            phase_id: Some(phase_id.to_string()),
+            timestamp_ms: now_ms,
+            kind,
+            payload: data,
+            digest: String::new(),
+        });
+    }
 }
 
 /// Content-addressed, append-only DAG storing full session history and branches.
