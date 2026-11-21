@@ -345,6 +345,18 @@ impl KernelRuntime {
         Ok(signal)
     }
 
+    /// Pop the next queued `FollowUp` signal (including any un-drained `Steer`
+    /// auto-promoted at Turn end) to initiate Turn `N + 1`.
+    pub fn pop_next_follow_up(&mut self) -> Option<SteeringSignal> {
+        self.inbox.pop_next_follow_up()
+    }
+
+    /// Return the number of queued `FollowUp` signals waiting for the next Turn.
+    #[must_use]
+    pub fn pending_follow_up_count(&self) -> usize {
+        self.inbox.pending_follow_up_count()
+    }
+
     /// Fork the session from `from_node_id` (or active head) into `branch_id`.
     ///
     /// # Errors
@@ -1241,4 +1253,85 @@ fn merge_batch_results(
         }
     }
     ordered.into_iter().flatten().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn follow_up_queue_accessors_expose_promoted_and_queued_signals() {
+        let mut reg = ExtensionRegistry::new();
+        struct DoneLoop;
+        impl AgentLoop for DoneLoop {
+            fn id(&self) -> &str {
+                "done"
+            }
+            fn digest(&self) -> &str {
+                "d1"
+            }
+            fn step(
+                &mut self,
+                _ctx: &mut dyn LoopContext,
+                _results: Option<Vec<StepResult>>,
+            ) -> LoopAction {
+                LoopAction::Done(json!("ok"))
+            }
+        }
+        struct DoneFactory;
+        impl AgentLoopFactory for DoneFactory {
+            fn id(&self) -> &str {
+                "done"
+            }
+            fn digest(&self) -> &str {
+                "d1"
+            }
+            fn create(
+                &self,
+                _config: &LoopConfig,
+                _registry: &ExtensionRegistry,
+            ) -> Box<dyn AgentLoop> {
+                Box::new(DoneLoop)
+            }
+        }
+        struct NullBuilder;
+        impl ContextBuilder for NullBuilder {
+            fn id(&self) -> &str {
+                "default"
+            }
+            fn digest(&self) -> &str {
+                "b1"
+            }
+            fn build(
+                &self,
+                _session: &SessionSlice,
+                _artifacts: &ArtifactStoreView,
+                _caps: &ModelCapabilities,
+            ) -> Value {
+                Value::Null
+            }
+        }
+        reg.loops.insert("done".into(), Box::new(DoneFactory));
+        reg.builders.insert("default".into(), Box::new(NullBuilder));
+        let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
+        let mut rt = KernelRuntime::new("r1".into(), "/ws".into(), 100, reg, gate).expect("init");
+        rt.start_turn(json!("hi"), "done", &[], ArtifactStoreView::default(), 101)
+            .expect("start");
+        // Enqueue a Steer without draining it before Done
+        rt.enqueue_steering(
+            SteeringKind::Steer,
+            json!("follow me"),
+            SteeringSource::User,
+            102,
+        )
+        .expect("steer");
+        let dir = rt.next_action(DriverResponse::Poll).expect("poll");
+        assert!(matches!(dir, DriverDirective::TurnComplete { .. }));
+        assert_eq!(rt.pending_follow_up_count(), 1);
+        let sig = rt.pop_next_follow_up().expect("promoted follow up");
+        assert_eq!(sig.kind, SteeringKind::FollowUp);
+        assert_eq!(sig.content, json!("follow me"));
+        assert_eq!(rt.pending_follow_up_count(), 0);
+    }
 }

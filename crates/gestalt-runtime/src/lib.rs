@@ -30,8 +30,8 @@ pub use credentials::{
 };
 pub use driver::{
     CommandHandler, EventSink, ExternalPolicyBridgeRule, ExternalReplayOptions,
-    HeadlessPauseHandler, LiveSteeringMessage, PauseHandler, RuntimeHost, RuntimeRegistry,
-    SessionLockGuard, ToolExecutionContext, ToolHandler, ToolOutcome, TurnOutcome,
+    HeadlessPauseHandler, LiveSteeringMessage, LiveTurnControl, PauseHandler, RuntimeHost,
+    RuntimeRegistry, SessionLockGuard, ToolExecutionContext, ToolHandler, ToolOutcome, TurnOutcome,
     capture_worktree_diff_blob, create_worktree, current_epoch_ms, prune_clean_worktrees,
     replay_session_tree, validate_tool_args,
 };
