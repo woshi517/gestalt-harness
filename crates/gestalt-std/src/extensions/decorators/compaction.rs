@@ -256,7 +256,7 @@ mod tests {
         reg.decorators
             .insert("compaction".into(), Box::new(CompactionDecorator));
         reg.presets.insert(
-            "swe".into(),
+            "general".into(),
             Preset {
                 base_loop: "chat".into(),
                 decorators: vec!["compaction".into()],
@@ -275,7 +275,7 @@ mod tests {
         // Turn 1 completes normally
         rt.start_turn(
             json!("turn 1"),
-            "swe",
+            "general",
             &[],
             ArtifactStoreView::default(),
             11,
@@ -298,7 +298,7 @@ mod tests {
         // Turn 2 hits ContextLengthExceeded -> CompactionDecorator intercepts and compacts
         rt.start_turn(
             json!("turn 2"),
-            "swe",
+            "general",
             &[],
             ArtifactStoreView::default(),
             20,

@@ -18,7 +18,7 @@ use crate::extensions::loops::{
 
 const DEFAULT_DECISION_MODEL: &str = "default_decision";
 const DEFAULT_CONFIDENCE_THRESHOLD: f64 = 0.85;
-const DEFAULT_FALLBACK_PRESET: &str = "swe";
+const DEFAULT_FALLBACK_PRESET: &str = "general";
 
 /// Configured route action inside `LoopConfig::params["routes"][<choice_id>]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ impl AgentLoopFactory for DecisionRouterFactory {
 /// Invokes `ModelKind::Decision` via `DecisionStateBuilder`. If confidence meets
 /// `confidence_threshold` (default `0.85`) and a route matches, executes the
 /// deterministic tool or switches to the target preset; otherwise escalates via
-/// `Effect::Switch` to `fallback_preset` (default `"swe"`).
+/// `Effect::Switch` to `fallback_preset` (default `"general"`).
 #[derive(Debug, Clone)]
 pub struct DecisionRouter {
     allowed_tools: BTreeMap<String, ToolSpec>,
@@ -252,7 +252,7 @@ mod tests {
                     allowed_tools: Some(vec!["bash".into()]),
                     params: json!({
                         "confidence_threshold": 0.85,
-                        "fallback_preset": "swe",
+                        "fallback_preset": "general",
                         "routes": {
                             "run_tests": { "action": "tool", "name": "bash", "args": { "command": "cargo test" } }
                         }
@@ -262,7 +262,7 @@ mod tests {
             },
         );
         reg.presets.insert(
-            "swe".into(),
+            "general".into(),
             Preset {
                 base_loop: "chat".into(),
                 decorators: vec![],

@@ -158,69 +158,19 @@ impl Extension for StdExtension {
             .insert("decision_state".to_string(), Box::new(DecisionStateBuilder));
 
         registry.presets.insert(
-            "swe".to_string(),
-            Preset {
-                base_loop: "chat".to_string(),
-                decorators: vec!["compaction".to_string()],
-                builder: "standard".to_string(),
-                config: LoopConfig {
-                    allowed_tools: Some(vec![
-                        "read".to_string(),
-                        "write".to_string(),
-                        "edit".to_string(),
-                        "glob".to_string(),
-                        "grep".to_string(),
-                        "bash".to_string(),
-                        "bash_output".to_string(),
-                        "bash_kill".to_string(),
-                    ]),
-                    max_spawn_depth: Some(1),
-                    budget: None,
-                    params: json!({
-                        "compaction_threshold": 0.80,
-                        "keep_recent_turns": 2,
-                    }),
-                },
-            },
-        );
-
-        registry.presets.insert(
             "general".to_string(),
             Preset {
                 base_loop: "chat".to_string(),
                 decorators: vec!["compaction".to_string()],
                 builder: "standard".to_string(),
                 config: LoopConfig {
-                    allowed_tools: Some(vec![
-                        "read".to_string(),
-                        "glob".to_string(),
-                        "grep".to_string(),
-                    ]),
+                    allowed_tools: None,
                     max_spawn_depth: Some(1),
                     budget: None,
                     params: json!({
                         "compaction_threshold": 0.80,
                         "keep_recent_turns": 2,
                     }),
-                },
-            },
-        );
-
-        registry.presets.insert(
-            "minimal_shell".to_string(),
-            Preset {
-                base_loop: "chat".to_string(),
-                decorators: Vec::new(),
-                builder: "sliding_window".to_string(),
-                config: LoopConfig {
-                    allowed_tools: Some(vec![
-                        "bash".to_string(),
-                        "bash_output".to_string(),
-                        "bash_kill".to_string(),
-                    ]),
-                    max_spawn_depth: Some(0),
-                    budget: None,
-                    params: json!({ "window_steps": 12 }),
                 },
             },
         );
@@ -242,13 +192,23 @@ impl Extension for StdExtension {
                     budget: None,
                     params: json!({
                         "confidence_threshold": 0.85,
-                        "fallback_preset": "swe",
+                        "fallback_preset": "general",
                     }),
                 },
             },
         );
 
         for (name, description, usage) in [
+            (
+                "model",
+                "Inspect or switch the active provider/model for the current session",
+                "/model [<provider/model>]",
+            ),
+            (
+                "thinking",
+                "Configure or toggle extended reasoning token budget",
+                "/thinking [<off|low|medium|high|tokens>]",
+            ),
             (
                 "goal",
                 "Activate goal_check exit criteria for the current session/turn",
@@ -268,6 +228,16 @@ impl Extension for StdExtension {
                 "login",
                 "Store provider API key or token into 0600 credentials.toml via Pause(Input)",
                 "/login <provider>",
+            ),
+            (
+                "logout",
+                "Remove stored credentials for a provider from credentials.toml",
+                "/logout <provider>",
+            ),
+            (
+                "skills",
+                "List discovered global & workspace Agent Skills or load one via /skill:<name>",
+                "/skills",
             ),
         ] {
             registry.commands.insert(
@@ -295,16 +265,19 @@ mod tests {
         let mut reg = ExtensionRegistry::new();
         StdExtension.register(&mut reg).expect("register std");
 
-        for preset_name in ["swe", "general", "minimal_shell", "triage"] {
+        for preset_name in ["general", "triage"] {
             let stack = reg
                 .resolve_phase_stack(preset_name, &[], None)
                 .expect("resolve preset");
             assert!(stack.in_process_loop.is_some());
         }
-        assert!(reg.commands.contains_key("goal"));
-        assert!(reg.commands.contains_key("compact"));
-        assert!(reg.commands.contains_key("gate"));
-        assert!(reg.commands.contains_key("login"));
+        assert!(!reg.presets.contains_key("swe"));
+        assert!(!reg.presets.contains_key("minimal_shell"));
+        for cmd in [
+            "model", "thinking", "goal", "compact", "gate", "login", "logout", "skills",
+        ] {
+            assert!(reg.commands.contains_key(cmd), "missing command {cmd}");
+        }
         assert!(reg.ui.renderers.contains_key("decision_route"));
         assert!(reg.ui.dialogs.contains_key("provider_login"));
     }

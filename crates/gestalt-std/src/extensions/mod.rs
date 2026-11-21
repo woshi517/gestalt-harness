@@ -44,7 +44,8 @@ pub use tools::{
 
 /// Default workspace-relative protected paths registered by `gestalt-std` so
 /// regular shell/file tools cannot mutate memory or skill artifacts directly.
-pub const DEFAULT_PROTECTED_PATHS: &[&str] = &[".gestalt/memories/", ".gestalt/skills/"];
+pub const DEFAULT_PROTECTED_PATHS: &[&str] =
+    &[".gestalt/memories/", ".gestalt/skills/", ".agents/skills/"];
 
 /// Construct a default [`SandboxPolicy`] with network disabled, `max_spawn_depth = 1`,
 /// and [`DEFAULT_PROTECTED_PATHS`] enforced read-only.

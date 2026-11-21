@@ -133,7 +133,7 @@ mod tests {
             2,
             &NodePayload::PhaseOpen {
                 phase_id: "p0".into(),
-                preset_id: Some("minimal_shell".into()),
+                preset_id: Some("general".into()),
                 base_loop_id: "chat".into(),
                 loop_digest: "d1".into(),
                 decorator_digests: vec![],

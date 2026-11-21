@@ -204,7 +204,7 @@ mod tests {
             3,
             &NodePayload::PhaseOpen {
                 phase_id: "p1".into(),
-                preset_id: Some("swe".into()),
+                preset_id: Some("general".into()),
                 base_loop_id: "chat".into(),
                 loop_digest: "d1".into(),
                 decorator_digests: vec![],

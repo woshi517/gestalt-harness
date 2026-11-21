@@ -405,6 +405,18 @@ impl ExtIpcHost {
         Ok(spec)
     }
 
+    /// Insert or update the configuration for an external extension without
+    /// spawning it yet (used by live `/reload` discovery from `gestalt.toml`).
+    pub fn upsert_config(&mut self, ext_name: impl Into<String>, config: ExternalExtensionConfig) {
+        self.configs.insert(ext_name.into(), config);
+    }
+
+    /// List all configured external extension names.
+    #[must_use]
+    pub fn configured_extensions(&self) -> Vec<String> {
+        self.configs.keys().cloned().collect()
+    }
+
     /// Hot-reload an external extension worker between Turns/Phases (`/reload <ext>`).
     ///
     /// # Errors

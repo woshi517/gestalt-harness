@@ -142,6 +142,18 @@ impl ProviderRegistry {
         self.configs.get(id)
     }
 
+    /// List all registered provider adapter IDs in deterministic order.
+    #[must_use]
+    pub fn registered_provider_ids(&self) -> Vec<String> {
+        self.providers.keys().cloned().collect()
+    }
+
+    /// Borrow all configured provider entries/aliases from `gestalt.toml`.
+    #[must_use]
+    pub fn configured_aliases(&self) -> &BTreeMap<String, ProviderConfig> {
+        &self.configs
+    }
+
     /// Resolve a target string (`"<provider_or_alias>/<model>"` or configured alias)
     /// into a [`ResolvedProviderTarget`].
     ///

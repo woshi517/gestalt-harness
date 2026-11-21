@@ -212,6 +212,61 @@ impl PauseHandler for InteractivePauseBridge {
     }
 }
 
+/// Built-in kernel/host slash command specs `(command, usage, description)`
+/// shared between `/help` and TUI `/` autocomplete.
+pub const KERNEL_COMMAND_SPECS: &[(&str, &str, &str)] = &[
+    (
+        "/mode",
+        "/mode <preset>",
+        "Switch active preset or loop mid-session",
+    ),
+    (
+        "/steer",
+        "/steer [--urgent] <msg>",
+        "Redirect an active Turn between or mid-step",
+    ),
+    ("/stop", "/stop", "Abort the active Turn cleanly"),
+    (
+        "/fork",
+        "/fork [<node_id>] [--new-file]",
+        "Branch SessionTree from a node",
+    ),
+    (
+        "/rewind",
+        "/rewind <node_id>",
+        "Rewind conversation state (disk files unchanged)",
+    ),
+    (
+        "/tree",
+        "/tree",
+        "Browse SessionTree branches, rewind, or fork",
+    ),
+    (
+        "/reload",
+        "/reload [<ext>]",
+        "Hot-reload external extension(s) and refresh skills",
+    ),
+    (
+        "/rollback",
+        "/rollback <stage_id>",
+        "Revert a promoted Effect::Save stage",
+    ),
+    ("/new", "/new", "Start a fresh SessionTree"),
+    (
+        "/session",
+        "/session",
+        "Browse/switch sessions or inspect active session",
+    ),
+    ("/resume", "/resume", "Switch to an existing saved session"),
+    (
+        "/trust",
+        "/trust",
+        "Approve workspace .gestalt/gestalt.toml",
+    ),
+    ("/help", "/help", "Show available commands and hotkeys"),
+    ("/quit", "/quit", "Exit the interactive session"),
+];
+
 /// Parsed kernel-backed or extension-registered slash command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashCommand {
@@ -241,9 +296,9 @@ pub enum SlashCommand {
         /// Historical node ID to rewind conversation state to.
         node_id: String,
     },
-    /// `/reload <ext>`
+    /// `/reload [<ext>]`
     Reload {
-        /// Configured external extension name to hot-reload.
+        /// Optional external extension name to hot-reload (empty reloads all + skills).
         ext_name: String,
     },
     /// `/rollback <stage_id>`
@@ -251,7 +306,19 @@ pub enum SlashCommand {
         /// Promoted `Effect::Save` stage ID to revert.
         stage_id: String,
     },
-    /// Extension-registered slash command (`/goal`, `/compact`, `/gate`, `/login`, or custom).
+    /// `/new` — start a fresh SessionTree
+    New,
+    /// `/tree` — browse SessionTree DAG, rewind, or fork
+    Tree,
+    /// `/session` (alias `/resume`) — inspect or switch active session
+    Session,
+    /// `/trust` — approve workspace `.gestalt/gestalt.toml`
+    Trust,
+    /// `/help` (alias `/hotkeys`)
+    Help,
+    /// `/quit` (alias `/exit`)
+    Quit,
+    /// Extension-registered slash command (`/model`, `/thinking`, `/goal`, `/compact`, `/gate`, `/login`, `/logout`, `/skills`, `/skill:<name>`, or custom).
     Extension {
         /// Command name without leading `/`.
         name: String,
@@ -318,10 +385,29 @@ pub fn parse_slash_command(input: &str) -> Option<SlashCommand> {
         "rollback" => Some(SlashCommand::Rollback {
             stage_id: raw_args.to_string(),
         }),
-        _ => Some(SlashCommand::Extension {
-            name: cmd.to_string(),
-            args: raw_args.to_string(),
-        }),
+        "new" => Some(SlashCommand::New),
+        "tree" => Some(SlashCommand::Tree),
+        "session" | "resume" => Some(SlashCommand::Session),
+        "trust" => Some(SlashCommand::Trust),
+        "help" | "hotkeys" => Some(SlashCommand::Help),
+        "quit" | "exit" => Some(SlashCommand::Quit),
+        _ => {
+            if let Some(skill_name) = cmd.strip_prefix("skill:") {
+                let args = if raw_args.is_empty() {
+                    format!("load:{skill_name}")
+                } else {
+                    format!("load:{skill_name} {raw_args}")
+                };
+                return Some(SlashCommand::Extension {
+                    name: "skills".to_string(),
+                    args,
+                });
+            }
+            Some(SlashCommand::Extension {
+                name: cmd.to_string(),
+                args: raw_args.to_string(),
+            })
+        }
     }
 }
 
@@ -497,18 +583,30 @@ pub async fn execute_slash_command_idle(
             })
         }
         SlashCommand::Reload { ext_name } => {
+            host.set_extra_read_roots(crate::extensions::builders::discover_global_skill_roots());
+            let paths =
+                crate::extensions::builders::discover_tracked_artifact_paths(host.workspace_root());
+            host.set_tracked_artifact_paths(paths);
             if ext_name.is_empty() {
-                return Err(RuntimeError::ArtifactError(
-                    "usage: /reload <ext>".to_string(),
-                ));
+                let reloaded = host.reload_all_external_extensions().await?;
+                Ok(CommandDispatchResult {
+                    message: format!(
+                        "Reloaded {} external extension(s) and refreshed skills/artifacts.",
+                        reloaded.len()
+                    ),
+                    data: json!({ "reloaded": reloaded, "skills_refreshed": true }),
+                    notice: None,
+                    pending_pause: None,
+                })
+            } else {
+                host.reload_external_extension(&ext_name).await?;
+                Ok(CommandDispatchResult {
+                    message: format!("Reloaded external extension '{ext_name}'."),
+                    data: json!({ "reloaded": ext_name }),
+                    notice: None,
+                    pending_pause: None,
+                })
             }
-            host.reload_external_extension(&ext_name).await?;
-            Ok(CommandDispatchResult {
-                message: format!("Reloaded external extension '{ext_name}'."),
-                data: json!({ "reloaded": ext_name }),
-                notice: None,
-                pending_pause: None,
-            })
         }
         SlashCommand::Rollback { stage_id } => {
             if stage_id.is_empty() {
@@ -524,8 +622,127 @@ pub async fn execute_slash_command_idle(
                 pending_pause: None,
             })
         }
+        SlashCommand::New => {
+            let ts = current_epoch_ms();
+            let dir = host
+                .session_path()
+                .parent()
+                .unwrap_or_else(|| host.workspace_root());
+            let new_path = dir.join(format!("session_{ts}.jsonl"));
+            host.reset_new_session(new_path.clone())?;
+            state.extra_decorators.clear();
+            Ok(CommandDispatchResult {
+                message: format!("Started fresh session '{}'.", new_path.display()),
+                data: json!({
+                    "new_session": true,
+                    "session_path": new_path.display().to_string(),
+                }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        SlashCommand::Tree => {
+            let tree = host.kernel().session_tree();
+            Ok(CommandDispatchResult {
+                message: format!(
+                    "SessionTree has {} node(s) (head: {}). Use /rewind <node_id> or /fork [<node_id>].",
+                    tree.all_nodes().len(),
+                    tree.head_id().unwrap_or("none")
+                ),
+                data: json!({
+                    "total_nodes": tree.all_nodes().len(),
+                    "head_node_id": tree.head_id(),
+                }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        SlashCommand::Session => {
+            let tree = host.kernel().session_tree();
+            let total_nodes = tree.all_nodes().len();
+            let budget = host.kernel().budget_snapshot();
+            let head = tree.head_id();
+            Ok(CommandDispatchResult {
+                message: format!(
+                    "Session '{}' | preset={} | nodes={} | tokens={}",
+                    host.session_path().display(),
+                    state.active_preset,
+                    total_nodes,
+                    budget.tokens_used,
+                ),
+                data: json!({
+                    "session_path": host.session_path().display().to_string(),
+                    "workspace_root": host.workspace_root().display().to_string(),
+                    "active_preset": state.active_preset,
+                    "head_node_id": head,
+                    "total_nodes": total_nodes,
+                    "budget": budget,
+                }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        SlashCommand::Trust => {
+            let digest = host.trust_workspace()?;
+            Ok(CommandDispatchResult {
+                message: match &digest {
+                    Some(d) => format!("Approved workspace .gestalt/gestalt.toml (sha256: {d})."),
+                    None => {
+                        "Workspace trust enabled (no .gestalt/gestalt.toml present).".to_string()
+                    }
+                },
+                data: json!({ "trusted": true, "config_digest": digest }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        SlashCommand::Help => {
+            let mut cmds: Vec<String> = KERNEL_COMMAND_SPECS
+                .iter()
+                .map(|(_, usage, _)| (*usage).to_string())
+                .collect();
+            for spec in host.kernel().registry().commands.values() {
+                cmds.push(spec.usage.clone());
+            }
+            Ok(CommandDispatchResult {
+                message: format!("Commands: {}", cmds.join(" | ")),
+                data: json!({ "commands": cmds }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        SlashCommand::Quit => Ok(CommandDispatchResult {
+            message: "Exiting session.".to_string(),
+            data: json!({ "quit": true }),
+            notice: None,
+            pending_pause: None,
+        }),
         SlashCommand::Extension { name, args } => {
-            let out = host.execute_command(&name, &args).await?;
+            let mut out = host.execute_command(&name, &args).await?;
+            if out.get("command").and_then(Value::as_str) == Some("logout")
+                && let Some(provider) = out
+                    .get("provider")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string)
+            {
+                let host_removed = host.credentials_mut().remove_credential(&provider)?;
+                if host_removed && let Some(obj) = out.as_object_mut() {
+                    obj.insert("removed".to_string(), Value::Bool(true));
+                    obj.insert(
+                        "message".to_string(),
+                        Value::String(format!("Removed stored credentials for '{provider}'.")),
+                    );
+                }
+            }
+            if let Some(steer) = out.get("steering").and_then(Value::as_str) {
+                host.kernel_mut().enqueue_steering(
+                    SteeringKind::Steer,
+                    Value::String(steer.to_string()),
+                    SteeringSource::User,
+                    current_epoch_ms(),
+                )?;
+                host.flush_pending()?;
+            }
             if let Some(decs) = out.get("extra_decorators").and_then(Value::as_array) {
                 for d in decs {
                     if let Some(s) = d.as_str()
@@ -566,8 +783,14 @@ pub async fn execute_slash_command_idle(
                 }
             });
 
+            let message = out
+                .get("message")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .unwrap_or_else(|| format!("Executed '/{name}'."));
+
             Ok(CommandDispatchResult {
-                message: format!("Executed '/{name}'."),
+                message,
                 data: out,
                 notice: None,
                 pending_pause,
@@ -811,9 +1034,25 @@ mod tests {
         assert_eq!(parse_slash_command("hello world"), None);
         assert_eq!(parse_slash_command("/"), None);
         assert_eq!(
-            parse_slash_command("/mode swe"),
+            parse_slash_command("/mode general"),
             Some(SlashCommand::Mode {
-                preset: "swe".into()
+                preset: "general".into()
+            })
+        );
+        assert_eq!(parse_slash_command("/new"), Some(SlashCommand::New));
+        assert_eq!(parse_slash_command("/tree"), Some(SlashCommand::Tree));
+        assert_eq!(parse_slash_command("/session"), Some(SlashCommand::Session));
+        assert_eq!(parse_slash_command("/resume"), Some(SlashCommand::Session));
+        assert_eq!(parse_slash_command("/trust"), Some(SlashCommand::Trust));
+        assert_eq!(parse_slash_command("/help"), Some(SlashCommand::Help));
+        assert_eq!(parse_slash_command("/hotkeys"), Some(SlashCommand::Help));
+        assert_eq!(parse_slash_command("/quit"), Some(SlashCommand::Quit));
+        assert_eq!(parse_slash_command("/exit"), Some(SlashCommand::Quit));
+        assert_eq!(
+            parse_slash_command("/skill:deploy prod"),
+            Some(SlashCommand::Extension {
+                name: "skills".into(),
+                args: "load:deploy prod".into(),
             })
         );
         assert_eq!(

@@ -200,7 +200,7 @@ mod tests {
             },
         );
         reg.presets.insert(
-            "swe".into(),
+            "general".into(),
             Preset {
                 base_loop: "chat".into(),
                 decorators: vec![],
@@ -217,7 +217,7 @@ mod tests {
         let mut rt = KernelRuntime::new("r1".into(), "/repo".into(), 100, reg, gate).expect("init");
         rt.start_turn(
             json!("check main.rs"),
-            "swe",
+            "general",
             &[],
             ArtifactStoreView::default(),
             101,

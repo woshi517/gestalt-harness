@@ -38,11 +38,13 @@ pub const INTERNAL_PROTECTED_PREFIXES: &[&str] = &[
 const SAFE_ENV_ALLOWLIST: &[&str] = &["PATH", "HOME", "TERM", "LANG", "LC_ALL", "TMPDIR"];
 
 /// In-process path guard enforcing workspace confinement, symlink-escape rejection,
-/// read-only `protected_paths`, and dynamic `Irreversible` elevation on file overwrite.
+/// read-only `protected_paths`, optional read-only external roots, and dynamic
+/// `Irreversible` elevation on file overwrite.
 #[derive(Debug, Clone)]
 pub struct WorkspacePathGuard {
     workspace_root: PathBuf,
     protected_prefixes: BTreeSet<String>,
+    extra_read_roots: Vec<PathBuf>,
 }
 
 impl WorkspacePathGuard {
@@ -69,7 +71,27 @@ impl WorkspacePathGuard {
         Ok(Self {
             workspace_root: canon_root,
             protected_prefixes,
+            extra_read_roots: Vec::new(),
         })
+    }
+
+    /// Attach additional read-only directory roots (e.g. user-global skill dirs).
+    /// Writes and deletes remain strictly confined to `workspace_root`.
+    #[must_use]
+    pub fn with_extra_read_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.extra_read_roots = roots;
+        self
+    }
+
+    /// Replace configured read-only directory roots outside `workspace_root`.
+    pub fn set_extra_read_roots(&mut self, roots: Vec<PathBuf>) {
+        self.extra_read_roots = roots;
+    }
+
+    /// Return configured read-only directory roots outside `workspace_root`.
+    #[must_use]
+    pub fn extra_read_roots(&self) -> &[PathBuf] {
+        &self.extra_read_roots
     }
 
     /// Return the canonical workspace root path.
@@ -85,13 +107,23 @@ impl WorkspacePathGuard {
     }
 
     /// Resolve a candidate path for reading, rejecting `..` or symlink escapes
-    /// outside `workspace_root`.
+    /// outside `workspace_root` unless the path resides within a configured
+    /// read-only extra root.
     ///
     /// # Errors
     ///
-    /// Returns [`RuntimeError::SandboxViolation`] if the path escapes `workspace_root`.
+    /// Returns [`RuntimeError::SandboxViolation`] if the path escapes `workspace_root`
+    /// and is not inside a configured read-only extra root.
     pub fn resolve_read(&self, raw_path: &str) -> Result<PathBuf, RuntimeError> {
-        self.resolve_confined(raw_path)
+        match self.resolve_confined(raw_path) {
+            Ok(path) => Ok(path),
+            Err(err) => {
+                if let Some(allowed) = self.resolve_extra_read_root(raw_path) {
+                    return Ok(allowed);
+                }
+                Err(err)
+            }
+        }
     }
 
     /// Resolve a candidate path for writing, rejecting `..`/symlink escapes and
@@ -228,6 +260,37 @@ impl WorkspacePathGuard {
                 }
             }
         }
+    }
+    fn resolve_extra_read_root(&self, raw_path: &str) -> Option<PathBuf> {
+        if self.extra_read_roots.is_empty() || raw_path.contains('\0') {
+            return None;
+        }
+        let path = Path::new(raw_path);
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return None;
+        }
+        let canon = fs::canonicalize(path).ok()?;
+        if !canon.is_file() {
+            return None;
+        }
+        for root in &self.extra_read_roots {
+            if !root.exists() {
+                continue;
+            }
+            let canon_root = fs::canonicalize(root).ok();
+            if path.starts_with(root)
+                || canon_root
+                    .as_ref()
+                    .is_some_and(|cr| path.starts_with(cr) || canon.starts_with(cr))
+            {
+                return Some(canon);
+            }
+        }
+        None
     }
 }
 

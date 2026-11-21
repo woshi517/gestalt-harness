@@ -87,6 +87,18 @@ impl ArtifactManager {
         &self.blob_store
     }
 
+    /// Configure additional read-only directory roots outside `workspace_root`
+    /// permitted for artifact snapshotting and read-only tool access.
+    pub fn set_extra_read_roots(&mut self, roots: Vec<PathBuf>) {
+        self.path_guard.set_extra_read_roots(roots);
+    }
+
+    /// Return configured read-only directory roots outside `workspace_root`.
+    #[must_use]
+    pub fn extra_read_roots(&self) -> &[PathBuf] {
+        self.path_guard.extra_read_roots()
+    }
+
     /// Snapshot existing workspace artifact files into [`BlobStore`] and return
     /// an [`ArtifactStoreView`] ready for `turn_start.artifact_snapshots`.
     ///
@@ -99,7 +111,11 @@ impl ArtifactManager {
     ) -> Result<ArtifactStoreView, RuntimeError> {
         let mut entries = BTreeMap::new();
         for rel in relative_paths {
-            let norm = normalize_rel_prefix(rel);
+            let norm = if Path::new(rel).is_absolute() {
+                rel.clone()
+            } else {
+                normalize_rel_prefix(rel)
+            };
             let resolved = self.path_guard.resolve_read(&norm)?;
             if !resolved.is_file() {
                 continue;

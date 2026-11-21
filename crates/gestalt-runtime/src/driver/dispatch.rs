@@ -252,7 +252,7 @@ async fn execute_tool_effect(
         let path_guard =
             match WorkspacePathGuard::new(&ctx.workspace_root, &ctx.sandbox_policy.protected_paths)
             {
-                Ok(g) => g,
+                Ok(g) => g.with_extra_read_roots(ctx.artifacts.extra_read_roots().to_vec()),
                 Err(err) => {
                     return StepResult::Error {
                         effect_id: env.effect_id.clone(),
