@@ -21,9 +21,9 @@ use tokio::sync::watch;
 pub use artifacts::{ArtifactManager, LedgerEntry, StageManifest};
 pub use blobs::{BlobStore, DEFAULT_INLINE_SPILL_BYTES};
 pub use config::{
-    BudgetConfig, ConfigLoadOptions, DefaultsConfig, ExtensionProtocol, ExternalExtensionConfig,
-    GestaltConfig, PolicyConfig, PresetConfig, ProviderConfig, ResolvedRuntimeConfig,
-    SandboxConfig, WorkspaceTrustStore, load_and_merge_config,
+    ArtifactsConfig, BudgetConfig, ConfigLoadOptions, DefaultsConfig, ExtensionProtocol,
+    ExternalExtensionConfig, GestaltConfig, PolicyConfig, PresetConfig, ProviderConfig,
+    ResolvedRuntimeConfig, SandboxConfig, WorkspaceTrustStore, load_and_merge_config,
 };
 pub use credentials::{
     CredentialRecord, CredentialRequest, CredentialResolver, CredentialStore, REDACTED_MARKER,
@@ -31,14 +31,16 @@ pub use credentials::{
 };
 pub use driver::{
     CommandHandler, EventSink, ExternalPolicyBridgeRule, ExternalReplayOptions,
-    HeadlessPauseHandler, LiveSteeringMessage, LiveTurnControl, PauseHandler, RuntimeHost,
-    RuntimeRegistry, SessionLockGuard, ToolExecutionContext, ToolHandler, ToolOutcome, TurnOutcome,
-    capture_worktree_diff_blob, create_worktree, current_epoch_ms, prune_clean_worktrees,
-    replay_session_tree, validate_tool_args,
+    HeadlessPauseHandler, LiveSteeringMessage, LiveTurnControl, PauseHandler, ReplayOverlayOptions,
+    RuntimeHost, RuntimeRegistry, SessionLockGuard, ToolExecutionContext, ToolHandler, ToolOutcome,
+    TurnOutcome, capture_worktree_diff_blob, create_worktree, current_epoch_ms,
+    prune_clean_worktrees, replay_session_tree, replay_session_tree_with_overlay,
+    validate_tool_args,
 };
 pub use ext_ipc::{
-    ExtIpcHost, ExtIpcWorker, ExternalBuilderRequest, ExternalCommandResponse,
-    ExternalDecoratorStepRequest, ExternalLoopStepRequest, ExternalLoopStepResponse,
+    ExtIpcHost, ExtIpcWorker, ExternalBuilderLayerRequest, ExternalBuilderRequest,
+    ExternalCommandResponse, ExternalDecoratorStepRequest, ExternalLoopStepRequest,
+    ExternalLoopStepResponse,
 };
 pub use mcp::{MCP_PROTOCOL_VERSION, McpClient, McpServerInfo};
 pub use provider::{
@@ -53,8 +55,8 @@ pub use sandbox::{
     default_sandbox_driver, select_sandbox_driver,
 };
 pub use trigger::{
-    TriggerContext, TriggerEvent, TriggerHandler, TriggerInstanceConfig, TriggerManager,
-    TriggerStatus,
+    ActivityTracker, TriggerContext, TriggerEvent, TriggerHandler, TriggerInstanceConfig,
+    TriggerManager, TriggerStatus,
 };
 
 /// Classification of provider HTTP/SSE failures for retry and compaction handling.

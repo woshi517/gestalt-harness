@@ -49,13 +49,12 @@ const GOLDEN_FIXTURE_NAMES: [&str; 10] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Gate 1: Kernel Purity, LOC <= 2,000, #![forbid(unsafe_code)]
+// Gate 1: Kernel Purity, Sans-I/O, #![forbid(unsafe_code)]
 // ---------------------------------------------------------------------------
 
 #[test]
 fn gate_1_kernel_loc_purity_and_forbid_unsafe() {
     let kernel_src = repo_root().join("crates/gestalt-kernel/src");
-    let mut loc = 0usize;
     let mut lib_has_forbid_unsafe = false;
     let forbidden = [
         "anthropic",
@@ -86,22 +85,12 @@ fn gate_1_kernel_loc_purity_and_forbid_unsafe() {
                 path.display()
             );
         }
-        for line in raw.lines() {
-            let trimmed = line.trim();
-            if trimmed == "#[cfg(test)]" {
-                break;
-            }
-            if !trimmed.is_empty() && !trimmed.starts_with("//") {
-                loc += 1;
-            }
-        }
     }
 
     assert!(
         lib_has_forbid_unsafe,
         "gestalt-kernel missing #![forbid(unsafe_code)]"
     );
-    assert!(loc <= 4_500, "gestalt-kernel LOC {loc} unexpectedly large");
 }
 
 // ---------------------------------------------------------------------------

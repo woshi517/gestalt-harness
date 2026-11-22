@@ -548,14 +548,31 @@ async fn build_host(cli: &CliArgs) -> std::result::Result<BuiltHost, RuntimeErro
     )?;
 
     host.set_auto_trust_workspace(cli.trust_workspace);
+    host.set_writable_artifact_roots(
+        resolved
+            .writable_artifact_roots
+            .iter()
+            .map(PathBuf::from)
+            .collect(),
+    );
     host.start_configured_triggers(&resolved).await?;
 
+    let mut tracked: Vec<String> = resolved.tracked_artifact_paths.clone();
+    for path in &host.kernel().registry().tracked_artifacts {
+        if !tracked.contains(path) {
+            tracked.push(path.clone());
+        }
+    }
     #[cfg(feature = "loops")]
     {
         host.set_extra_read_roots(gestalt_std::extensions::builders::discover_global_skill_roots());
-        let tracked = gestalt_std::discover_tracked_artifact_paths(&workspace_root);
-        host.set_tracked_artifact_paths(tracked);
+        for path in gestalt_std::discover_tracked_artifact_paths(&workspace_root) {
+            if !tracked.contains(&path) {
+                tracked.push(path);
+            }
+        }
     }
+    host.set_tracked_artifact_paths(tracked);
 
     if cli.unsafe_no_sandbox {
         host.kernel_mut()

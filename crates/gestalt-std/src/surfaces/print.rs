@@ -311,9 +311,10 @@ mod tests {
         let mut reg = ExtensionRegistry::new();
         reg.loops.insert(
             "print_loop".into(),
-            Box::new(PrintLoopFactory { yield_pause }),
+            std::sync::Arc::new(PrintLoopFactory { yield_pause }),
         );
-        reg.builders.insert("default".into(), Box::new(NullBuilder));
+        reg.builders
+            .insert("default".into(), std::sync::Arc::new(NullBuilder));
         let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
         let mut rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
         rt.providers.register_provider(Arc::new(StreamMockProvider));

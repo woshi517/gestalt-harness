@@ -9,9 +9,8 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use gestalt_kernel::{
-    AgentLoop, AgentLoopFactory, ArtifactStoreView, BudgetCap, ContextBuilder, Effect,
-    EffectEnvelope, ExtensionRegistry, LoopConfig, ModelCapabilities, PolicyGate, PolicyOverride,
-    RunEvent, SandboxPolicy, SaveMode, SessionSlice, StepResult, ToolSpec, WorkspaceMode,
+    Effect, EffectEnvelope, ExtensionRegistry, LoopConfig, PolicyGate, PolicyOverride, RunEvent,
+    SandboxPolicy, SaveMode, StepResult, ToolSpec, WorkspaceMode,
 };
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
@@ -354,67 +353,6 @@ async fn execute_tool_effect(
     }
 }
 
-/// One-shot `AgentLoopFactory` wrapping an already-instantiated `Box<dyn AgentLoop>`
-/// so a parent `RuntimeHost` can execute an in-process child subagent inside
-/// `Effect::Spawn`.
-struct PrebuiltLoopFactory {
-    id: String,
-    digest: String,
-    inner: StdMutex<Option<Box<dyn AgentLoop>>>,
-}
-
-impl AgentLoopFactory for PrebuiltLoopFactory {
-    fn id(&self) -> &str {
-        &self.id
-    }
-    fn digest(&self) -> &str {
-        &self.digest
-    }
-    fn create(&self, _config: &LoopConfig, _registry: &ExtensionRegistry) -> Box<dyn AgentLoop> {
-        if let Ok(mut guard) = self.inner.lock()
-            && let Some(lp) = guard.take()
-        {
-            return lp;
-        }
-        Box::new(ExhaustedSpawnLoop)
-    }
-}
-
-struct ExhaustedSpawnLoop;
-impl AgentLoop for ExhaustedSpawnLoop {
-    fn id(&self) -> &str {
-        "exhausted_spawn"
-    }
-    fn digest(&self) -> &str {
-        "es0"
-    }
-    fn step(
-        &mut self,
-        _ctx: &mut dyn gestalt_kernel::LoopContext,
-        _r: Option<Vec<StepResult>>,
-    ) -> gestalt_kernel::LoopAction {
-        gestalt_kernel::LoopAction::Done(Value::Null)
-    }
-}
-
-struct NullContextBuilder;
-impl ContextBuilder for NullContextBuilder {
-    fn id(&self) -> &str {
-        "default"
-    }
-    fn digest(&self) -> &str {
-        "null_v1"
-    }
-    fn build(
-        &self,
-        _session: &SessionSlice,
-        _artifacts: &ArtifactStoreView,
-        _caps: &ModelCapabilities,
-    ) -> Value {
-        Value::Null
-    }
-}
-
 /// Parameters needed to execute a real isolated child subagent for `Effect::Spawn`.
 pub(crate) struct SpawnTaskSpec {
     pub effect_id: String,
@@ -426,49 +364,17 @@ pub(crate) struct SpawnTaskSpec {
     pub parent_sink: Option<Arc<dyn EventSink>>,
     pub child_runtime: RuntimeRegistry,
     pub child_registry: ExtensionRegistry,
+    pub child_gate: PolicyGate,
+    pub tracked_artifact_paths: Vec<String>,
+    pub extra_read_roots: Vec<PathBuf>,
     pub loop_id: String,
     pub input: Value,
-    pub budget: BudgetCap,
+    pub config: Option<LoopConfig>,
     pub child_depth: u8,
     pub workspace_mode: WorkspaceMode,
     pub cancel: CancellationToken,
 }
 
-/// Build a child [`ExtensionRegistry`] carrying a pre-instantiated loop (if
-/// in-process) plus all declarative external/tool/preset descriptors.
-pub(crate) fn prepare_child_registry(
-    parent_reg: &ExtensionRegistry,
-    loop_id: &str,
-    config_override: Option<&LoopConfig>,
-) -> Result<ExtensionRegistry, RuntimeError> {
-    let mut child_reg = ExtensionRegistry::new();
-    child_reg.tools = parent_reg.tools.clone();
-    child_reg.commands = parent_reg.commands.clone();
-    child_reg.ui = parent_reg.ui.clone();
-    child_reg.external_loops = parent_reg.external_loops.clone();
-    child_reg.external_builders = parent_reg.external_builders.clone();
-    child_reg.external_decorators = parent_reg.external_decorators.clone();
-    child_reg.external_policies = parent_reg.external_policies.clone();
-    child_reg
-        .builders
-        .insert("default".to_string(), Box::new(NullContextBuilder));
-
-    if let Ok(stack) = parent_reg.resolve_phase_stack(loop_id, &[], config_override)
-        && let Some(lp) = stack.in_process_loop
-    {
-        child_reg.loops.insert(
-            loop_id.to_string(),
-            Box::new(PrebuiltLoopFactory {
-                id: stack.base_loop_id,
-                digest: stack.loop_digest,
-                inner: StdMutex::new(Some(lp)),
-            }),
-        );
-    }
-    Ok(child_reg)
-}
-
-/// Execute an isolated child subagent Turn for `Effect::Spawn`, honoring
 /// Executes a spawned child turn in isolation with its own `RuntimeHost`,
 /// `WorkspaceMode` (`ReadOnly`, `Shared`, `Worktree`), `budget`, and `child_depth`.
 ///
@@ -497,15 +403,20 @@ pub(crate) fn execute_spawn_effect(
             WorkspaceMode::ReadOnly | WorkspaceMode::Shared => (spec.parent_ws.clone(), None),
         };
 
-        let mut child_gate = PolicyGate::new(spec.budget, None, spec.parent_sandbox.clone());
+        let mut child_gate = spec.child_gate;
         if spec.workspace_mode == WorkspaceMode::ReadOnly {
             let mut ro_sandbox = spec.parent_sandbox.clone();
             ro_sandbox.protected_paths.insert(".".to_string());
-            let _ = child_gate.apply_monotonic_override(&PolicyOverride {
+            if let Err(err) = child_gate.apply_monotonic_override(&PolicyOverride {
                 budget: None,
                 allowed_tools: None,
                 sandbox: Some(ro_sandbox),
-            });
+            }) {
+                return StepResult::Denied {
+                    effect_id: spec.effect_id,
+                    reason: err.to_string(),
+                };
+            }
         }
 
         let child_session_path = spec
@@ -538,9 +449,17 @@ pub(crate) fn execute_spawn_effect(
             }
         };
         child_host.kernel_mut().set_spawn_depth(spec.child_depth);
+        child_host.set_tracked_artifact_paths(spec.tracked_artifact_paths);
+        child_host.set_extra_read_roots(spec.extra_read_roots);
 
         let outcome: Result<TurnOutcome, RuntimeError> = child_host
-            .run_turn(spec.input, &spec.loop_id, &[], spec.cancel)
+            .run_turn_with_config(
+                spec.input,
+                &spec.loop_id,
+                &[],
+                spec.config.as_ref(),
+                spec.cancel,
+            )
             .await;
 
         let child_head_id = child_host

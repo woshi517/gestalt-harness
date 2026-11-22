@@ -203,6 +203,7 @@ mod tests {
             credentials: creds.clone(),
             http: SharedHttpClient::new(5).expect("http"),
             redactor: creds.redactor(),
+            activity: gestalt_runtime::ActivityTracker::default(),
         };
 
         // Non-loopback without allow_external fails closed

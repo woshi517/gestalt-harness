@@ -18,20 +18,24 @@ pub mod steering;
 pub mod tree;
 
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::Value;
 
 pub use effect::{
     ArtifactPatch, BudgetCap, BudgetSnapshot, DiffHunk, Effect, EffectEnvelope, LoopConfig,
-    ModelKind, PauseReason, SaveMode, SideEffectClass, StepResult, Usage, WorkspaceMode,
+    ModelKind, PauseReason, SaveMode, SideEffectClass, SpawnNotifyMode, StepResult, Usage,
+    WorkspaceMode,
 };
 pub use error::{ExtensionError, KernelError};
 pub use event::{DriverDirective, DriverResponse, EventStream, RunEvent};
 pub use extension::{
-    AgentLoop, AgentLoopFactory, ArtifactEntry, ArtifactStoreView, CommandSpec, ContextBuilder,
-    Extension, ExtensionRegistry, ExternalBinding, ExternalComponentSpec, ExternalExtensionSpec,
-    LoopAction, LoopContext, LoopDecorator, ModelCapabilities, Preset, ResolvedPhaseStack,
-    ToolSpec, TriggerSpec, UIActionSpec, UIDialogSpec, UIPanelSpec, UIRendererSpec, UISurface,
+    AgentLoop, AgentLoopFactory, ArtifactEntry, ArtifactStoreView, BridgedExternalSlot,
+    BuilderLayerLink, CommandSpec, ContextBuilder, ContextLayer, DecoratorLink, Extension,
+    ExtensionRegistry, ExternalBinding, ExternalComponentSpec, ExternalExtensionSpec,
+    ExternalProviderSpec, LoopAction, LoopContext, LoopDecorator, ModelCapabilities, Preset,
+    ResolvedPhaseStack, ToolSpec, TriggerSpec, UIActionSpec, UIDialogSpec, UIPanelSpec,
+    UIRendererSpec, UISurface,
 };
 pub use policy::{
     BatchItemDecision, PolicyDecision, PolicyGate, PolicyOverride, PolicyRule, SandboxPolicy,
@@ -51,9 +55,17 @@ struct ActivePhase {
     handoff: Value,
     config: LoopConfig,
     builder_id: String,
+    builder_layers: Vec<BuilderLayerLink>,
     external_builder: Option<ExternalBinding>,
     cached_external_context: Option<Value>,
+    context_ready: bool,
+    pending_layer_idx: usize,
+    pending_step_results: Option<Vec<StepResult>>,
+    decorator_links: Vec<DecoratorLink>,
+    external_decorator_tokens: BTreeMap<String, Value>,
+    pending_decorator_idx: Option<usize>,
     in_process_loop: Option<Box<dyn AgentLoop>>,
+    bridged_external_slot: Option<Arc<StdMutex<BridgedExternalSlot>>>,
     external_loop: Option<ExternalBinding>,
     external_state_token: Option<Value>,
 }
@@ -93,6 +105,7 @@ struct PhaseLoopContext<'a> {
     artifacts: &'a ArtifactStoreView,
     budget: &'a BudgetSnapshot,
     builder: Option<&'a dyn ContextBuilder>,
+    builder_layers: &'a [BuilderLayerLink],
     precomputed_context: Option<&'a Value>,
     inbox: &'a mut SteeringInbox,
     now_ms: u64,
@@ -137,10 +150,16 @@ impl LoopContext for PhaseLoopContext<'_> {
         if let Some(pre) = self.precomputed_context {
             return pre.clone();
         }
-        match self.builder {
+        let mut val = match self.builder {
             Some(b) => b.build(&self.session, self.artifacts, caps),
             None => Value::Null,
+        };
+        for layer in self.builder_layers {
+            if let BuilderLayerLink::InProcess(l) = layer {
+                val = l.apply(val, &self.session, self.artifacts, caps);
+            }
         }
+        val
     }
 
     fn drain_steering(&mut self) -> Vec<SteeringSignal> {
@@ -328,6 +347,12 @@ impl KernelRuntime {
         self.now_ms = now_ms;
     }
 
+    /// Return the current subagent spawn nesting depth (`0` for root session).
+    #[must_use]
+    pub fn spawn_depth(&self) -> u8 {
+        self.spawn_depth
+    }
+
     /// Set the current spawn nesting depth (used when instantiating child runtimes).
     pub fn set_spawn_depth(&mut self, depth: u8) {
         self.spawn_depth = depth;
@@ -343,6 +368,22 @@ impl KernelRuntime {
     #[must_use]
     pub fn registry(&self) -> &ExtensionRegistry {
         &self.registry
+    }
+
+    /// Mutably borrow the [`PolicyGate`] (for adding trusted boot-time rules/roots).
+    pub fn policy_gate_mut(&mut self) -> &mut PolicyGate {
+        &mut self.policy_gate
+    }
+
+    /// Update or insert an [`ArtifactEntry`] in the active [`ArtifactStoreView`]
+    /// (e.g., immediately after `SaveMode::Promote`).
+    pub fn upsert_artifact_entry(&mut self, entry: ArtifactEntry) {
+        self.artifacts.insert_entry(entry);
+    }
+
+    /// Remove an [`ArtifactEntry`] from the active [`ArtifactStoreView`].
+    pub fn remove_artifact_entry(&mut self, path: &str) {
+        self.artifacts.remove_entry(path);
     }
 
     /// Mutably borrow the [`ExtensionRegistry`] (e.g., for `/reload <ext>` between Turns).
@@ -505,6 +546,34 @@ impl KernelRuntime {
         artifacts: ArtifactStoreView,
         timestamp_ms: u64,
     ) -> Result<String, KernelError> {
+        self.start_turn_with_config(
+            prompt,
+            preset_or_loop,
+            extra_decorators,
+            None,
+            artifacts,
+            timestamp_ms,
+        )
+    }
+
+    /// Start a new user-facing Turn using `preset_or_loop` with an optional
+    /// monotonic [`LoopConfig`] override.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KernelError::InvalidState`] if a Turn is already active,
+    /// [`KernelError::UnresolvedExtensionSlot`] if the preset/loop is missing,
+    /// or [`KernelError::PolicyRelaxationForbidden`] if `config_override`
+    /// widens preset restrictions.
+    pub fn start_turn_with_config(
+        &mut self,
+        prompt: Value,
+        preset_or_loop: &str,
+        extra_decorators: &[String],
+        config_override: Option<&LoopConfig>,
+        artifacts: ArtifactStoreView,
+        timestamp_ms: u64,
+    ) -> Result<String, KernelError> {
         if self.active_turn.is_some() {
             return Err(KernelError::InvalidState(
                 "cannot start turn while another turn is active".to_string(),
@@ -513,9 +582,9 @@ impl KernelRuntime {
         self.now_ms = timestamp_ms;
         let turn_id = self.next_id();
         let phase_id = self.next_id();
-        let stack = self
-            .registry
-            .resolve_phase_stack(preset_or_loop, extra_decorators, None)?;
+        let stack =
+            self.registry
+                .resolve_phase_stack(preset_or_loop, extra_decorators, config_override)?;
         self.artifacts = artifacts;
 
         self.append_node(
@@ -537,9 +606,17 @@ impl KernelRuntime {
                 handoff: Value::Null,
                 config: stack.config,
                 builder_id: stack.builder_id,
+                builder_layers: stack.builder_layers,
                 external_builder: stack.external_builder,
                 cached_external_context: None,
+                context_ready: false,
+                pending_layer_idx: 0,
+                pending_step_results: None,
+                decorator_links: stack.decorator_links,
+                external_decorator_tokens: BTreeMap::new(),
+                pending_decorator_idx: None,
                 in_process_loop: stack.in_process_loop,
+                bridged_external_slot: stack.bridged_external_slot,
                 external_loop: stack.external_loop,
                 external_state_token: None,
             },
@@ -593,9 +670,17 @@ impl KernelRuntime {
                 handoff,
                 config: stack.config,
                 builder_id: stack.builder_id,
+                builder_layers: stack.builder_layers,
                 external_builder: stack.external_builder,
                 cached_external_context: None,
+                context_ready: false,
+                pending_layer_idx: 0,
+                pending_step_results: None,
+                decorator_links: stack.decorator_links,
+                external_decorator_tokens: BTreeMap::new(),
+                pending_decorator_idx: None,
                 in_process_loop: stack.in_process_loop,
+                bridged_external_slot: stack.bridged_external_slot,
                 external_loop: stack.external_loop,
                 external_state_token: None,
             };
@@ -675,17 +760,82 @@ impl KernelRuntime {
             DriverResponse::ExternalLoopOutput {
                 action,
                 state_token,
+                custom_nodes,
             } => {
-                if let Some(turn) = self.active_turn.as_mut() {
+                let (turn_id, phase_id, has_bridge, bridged_results) = {
+                    let turn = self.active_turn.as_mut().ok_or_else(|| {
+                        KernelError::InvalidState("missing active turn".to_string())
+                    })?;
                     turn.phase.external_state_token = state_token;
+                    let has_bridge = if let Some(ref slot) = turn.phase.bridged_external_slot {
+                        if let Ok(mut guard) = slot.lock() {
+                            guard.buffered_action = Some(action.clone());
+                        }
+                        turn.phase.context_ready = true;
+                        true
+                    } else {
+                        false
+                    };
+                    (
+                        turn.turn_id.clone(),
+                        turn.phase.phase_id.clone(),
+                        has_bridge,
+                        turn.phase.pending_step_results.take(),
+                    )
+                };
+                for (namespace, data) in custom_nodes {
+                    self.append_node(
+                        Some(turn_id.clone()),
+                        Some(phase_id.clone()),
+                        NodePayload::Custom { namespace, data },
+                    )?;
                 }
-                self.handle_loop_action(action)
+                if has_bridge {
+                    self.step_active_loop(bridged_results)
+                } else {
+                    self.finish_loop_step_with_external_decorators(action, 0)
+                }
+            }
+            DriverResponse::ExternalDecoratorOutput {
+                action,
+                state_token,
+                custom_nodes,
+            } => {
+                let (turn_id, phase_id, next_idx) = {
+                    let turn = self.active_turn.as_mut().ok_or_else(|| {
+                        KernelError::InvalidState("missing active turn".to_string())
+                    })?;
+                    let pending_idx = turn.phase.pending_decorator_idx.take().ok_or_else(|| {
+                        KernelError::InvalidState("missing pending decorator chain".to_string())
+                    })?;
+                    if let Some(DecoratorLink::External(ext)) =
+                        turn.phase.decorator_links.get(pending_idx)
+                    {
+                        if let Some(tok) = state_token {
+                            turn.phase
+                                .external_decorator_tokens
+                                .insert(ext.id.clone(), tok);
+                        } else {
+                            turn.phase.external_decorator_tokens.remove(&ext.id);
+                        }
+                    }
+                    (
+                        turn.turn_id.clone(),
+                        turn.phase.phase_id.clone(),
+                        pending_idx + 1,
+                    )
+                };
+                for (namespace, data) in custom_nodes {
+                    self.append_node(
+                        Some(turn_id.clone()),
+                        Some(phase_id.clone()),
+                        NodePayload::Custom { namespace, data },
+                    )?;
+                }
+                self.finish_loop_step_with_external_decorators(action, next_idx)
             }
             DriverResponse::ExternalBuilderOutput { model_input } => {
-                if let Some(turn) = self.active_turn.as_mut() {
-                    turn.phase.cached_external_context = Some(model_input);
-                }
-                self.step_active_loop(None)
+                self.advance_external_builder_layers(model_input)
             }
             DriverResponse::PauseResolution {
                 pause_id,
@@ -917,16 +1067,139 @@ impl KernelRuntime {
         self.step_active_loop(Some(vec![res]))
     }
 
+    fn advance_external_builder_layers(
+        &mut self,
+        mut val: Value,
+    ) -> Result<DriverDirective, KernelError> {
+        let slice = self.tree.slice_to(None)?;
+        let mut turn = self
+            .active_turn
+            .take()
+            .ok_or_else(|| KernelError::InvalidState("missing active turn".to_string()))?;
+        while turn.phase.pending_layer_idx < turn.phase.builder_layers.len() {
+            let idx = turn.phase.pending_layer_idx;
+            turn.phase.pending_layer_idx += 1;
+            match &turn.phase.builder_layers[idx] {
+                BuilderLayerLink::InProcess(layer) => {
+                    val = layer.apply(val, &slice, &self.artifacts, &ModelCapabilities::default());
+                }
+                BuilderLayerLink::External(ext_layer) => {
+                    let directive = DriverDirective::InvokeExternalBuilderLayer {
+                        ext_name: ext_layer.ext_name.clone(),
+                        layer_id: ext_layer.id.clone(),
+                        input: val,
+                        session_slice: slice.nodes().to_vec(),
+                        artifacts: self.artifacts.entries().clone(),
+                        caps: ModelCapabilities::default(),
+                    };
+                    self.active_turn = Some(turn);
+                    return Ok(directive);
+                }
+            }
+        }
+        turn.phase.cached_external_context = Some(val);
+        turn.phase.context_ready = true;
+        let results = turn.phase.pending_step_results.take();
+        self.active_turn = Some(turn);
+        self.step_active_loop(results)
+    }
+
+    fn finish_loop_step_with_external_decorators(
+        &mut self,
+        action: LoopAction,
+        start_idx: usize,
+    ) -> Result<DriverDirective, KernelError> {
+        let slice = self.tree.slice_to(None)?;
+        let mut turn = self
+            .active_turn
+            .take()
+            .ok_or_else(|| KernelError::InvalidState("missing active turn".to_string()))?;
+        for idx in start_idx..turn.phase.decorator_links.len() {
+            if let DecoratorLink::External(ext) = &turn.phase.decorator_links[idx] {
+                let state_token = turn.phase.external_decorator_tokens.get(&ext.id).cloned();
+                let directive = DriverDirective::InvokeExternalDecorator {
+                    ext_name: ext.ext_name.clone(),
+                    decorator_id: ext.id.clone(),
+                    phase_id: turn.phase.phase_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    inner_action: action.clone(),
+                    config: turn.phase.config.clone(),
+                    state_token,
+                    session_slice: slice.nodes().to_vec(),
+                    artifacts: self.artifacts.entries().clone(),
+                    budget_remaining: self.budget,
+                    now_ms: self.now_ms,
+                };
+                turn.phase.pending_decorator_idx = Some(idx);
+                self.active_turn = Some(turn);
+                return Ok(directive);
+            }
+        }
+        self.active_turn = Some(turn);
+        self.handle_loop_action(action)
+    }
+
     fn step_active_loop(
         &mut self,
         results: Option<Vec<StepResult>>,
     ) -> Result<DriverDirective, KernelError> {
+        let slice = self.tree.slice_to(None)?;
         let mut turn = self
             .active_turn
             .take()
             .ok_or_else(|| KernelError::InvalidState("missing active turn".to_string()))?;
 
-        if let Some(ext) = turn.phase.external_loop.clone() {
+        if !turn.phase.context_ready {
+            let has_ext_layer = turn
+                .phase
+                .builder_layers
+                .iter()
+                .any(|l| matches!(l, BuilderLayerLink::External(_)));
+            if let Some(ref ext_b) = turn.phase.external_builder {
+                turn.phase.pending_step_results = results;
+                turn.phase.pending_layer_idx = 0;
+                let directive = DriverDirective::InvokeExternalBuilder {
+                    ext_name: ext_b.ext_name.clone(),
+                    builder_id: ext_b.id.clone(),
+                    session_slice: slice.nodes().to_vec(),
+                    artifacts: self.artifacts.entries().clone(),
+                    caps: ModelCapabilities::default(),
+                };
+                self.active_turn = Some(turn);
+                return Ok(directive);
+            }
+            if has_ext_layer || turn.phase.external_loop.is_some() {
+                let mut val = self
+                    .registry
+                    .builders
+                    .get(&turn.phase.builder_id)
+                    .map(|b| b.build(&slice, &self.artifacts, &ModelCapabilities::default()))
+                    .unwrap_or(Value::Null);
+                if has_ext_layer {
+                    turn.phase.pending_step_results = results;
+                    turn.phase.pending_layer_idx = 0;
+                    self.active_turn = Some(turn);
+                    return self.advance_external_builder_layers(val);
+                }
+                for layer in &turn.phase.builder_layers {
+                    if let BuilderLayerLink::InProcess(l) = layer {
+                        val = l.apply(val, &slice, &self.artifacts, &ModelCapabilities::default());
+                    }
+                }
+                turn.phase.cached_external_context = Some(val);
+            }
+        }
+        turn.phase.context_ready = false;
+
+        if turn.phase.in_process_loop.is_none()
+            && let Some(ext) = turn.phase.external_loop.clone()
+        {
+            let steering = self.inbox.drain_steering();
+            let context = turn
+                .phase
+                .cached_external_context
+                .take()
+                .unwrap_or(Value::Null);
             let directive = DriverDirective::InvokeExternalLoop {
                 ext_name: ext.ext_name,
                 loop_id: ext.id,
@@ -936,22 +1209,12 @@ impl KernelRuntime {
                 config: turn.phase.config.clone(),
                 state_token: turn.phase.external_state_token.clone(),
                 results,
-            };
-            self.active_turn = Some(turn);
-            return Ok(directive);
-        }
-
-        let slice = self.tree.slice_to(None)?;
-        if results.is_none()
-            && turn.phase.cached_external_context.is_none()
-            && let Some(ref ext_b) = turn.phase.external_builder
-        {
-            let directive = DriverDirective::InvokeExternalBuilder {
-                ext_name: ext_b.ext_name.clone(),
-                builder_id: ext_b.id.clone(),
                 session_slice: slice.nodes().to_vec(),
                 artifacts: self.artifacts.entries().clone(),
-                caps: ModelCapabilities::default(),
+                budget_remaining: self.budget,
+                steering,
+                now_ms: self.now_ms,
+                context,
             };
             self.active_turn = Some(turn);
             return Ok(directive);
@@ -968,7 +1231,7 @@ impl KernelRuntime {
             .builders
             .get(&turn.phase.builder_id)
             .map(AsRef::as_ref);
-        let precomputed = turn.phase.cached_external_context.take();
+        let precomputed = turn.phase.cached_external_context.clone();
         let mut id_counter = self.id_seq;
         let (action, emitted_custom) = {
             let mut ctx = PhaseLoopContext {
@@ -977,10 +1240,11 @@ impl KernelRuntime {
                 phase_id: &turn.phase.phase_id,
                 handoff: &turn.phase.handoff,
                 config: &turn.phase.config,
-                session: slice,
+                session: slice.clone(),
                 artifacts: &self.artifacts,
                 budget: &self.budget,
                 builder,
+                builder_layers: &turn.phase.builder_layers,
                 precomputed_context: precomputed.as_ref(),
                 inbox: &mut self.inbox,
                 now_ms: self.now_ms,
@@ -991,8 +1255,55 @@ impl KernelRuntime {
             (action, ctx.pending_custom_nodes)
         };
         self.id_seq = id_counter;
+
+        let bridged_captured = if let Some(ref slot) = turn.phase.bridged_external_slot
+            && let Ok(mut guard) = slot.lock()
+            && guard.requested_inner
+        {
+            guard.requested_inner = false;
+            Some(guard.captured_results.take())
+        } else {
+            None
+        };
+        if let Some(captured) = bridged_captured
+            && let Some(ext) = turn.phase.external_loop.clone()
+        {
+            turn.phase.pending_step_results = captured.clone();
+            turn.phase.in_process_loop = Some(loop_impl);
+            let steering = self.inbox.drain_steering();
+            let context = turn
+                .phase
+                .cached_external_context
+                .take()
+                .unwrap_or(Value::Null);
+            let directive = DriverDirective::InvokeExternalLoop {
+                ext_name: ext.ext_name,
+                loop_id: ext.id,
+                phase_id: turn.phase.phase_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                handoff: turn.phase.handoff.clone(),
+                config: turn.phase.config.clone(),
+                state_token: turn.phase.external_state_token.clone(),
+                results: captured,
+                session_slice: slice.nodes().to_vec(),
+                artifacts: self.artifacts.entries().clone(),
+                budget_remaining: self.budget,
+                steering,
+                now_ms: self.now_ms,
+                context,
+            };
+            self.active_turn = Some(turn);
+            return Ok(directive);
+        }
+        turn.phase.cached_external_context = None;
         let turn_id_for_custom = turn.turn_id.clone();
         let phase_id_for_custom = turn.phase.phase_id.clone();
+        let start_ext_dec_idx = turn
+            .phase
+            .decorator_links
+            .iter()
+            .position(|l| matches!(l, DecoratorLink::External(_)))
+            .unwrap_or(turn.phase.decorator_links.len());
         turn.phase.in_process_loop = Some(loop_impl);
         self.active_turn = Some(turn);
         for (namespace, data) in emitted_custom {
@@ -1002,7 +1313,7 @@ impl KernelRuntime {
                 NodePayload::Custom { namespace, data },
             )?;
         }
-        self.handle_loop_action(action)
+        self.finish_loop_step_with_external_decorators(action, start_ext_dec_idx)
     }
 
     fn handle_loop_action(&mut self, action: LoopAction) -> Result<DriverDirective, KernelError> {
@@ -1246,6 +1557,7 @@ impl KernelRuntime {
                 decorator_digests: stack.decorator_digests.clone(),
                 builder_id: stack.builder_id.clone(),
                 builder_digest: stack.builder_digest.clone(),
+                builder_layer_digests: stack.builder_layer_digests.clone(),
                 config: stack.config.clone(),
             },
         )?;
@@ -1320,6 +1632,8 @@ fn merge_batch_results(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use serde_json::json;
 
@@ -1375,8 +1689,8 @@ mod tests {
                 Value::Null
             }
         }
-        reg.loops.insert("done".into(), Box::new(DoneFactory));
-        reg.builders.insert("default".into(), Box::new(NullBuilder));
+        reg.loops.insert("done".into(), Arc::new(DoneFactory));
+        reg.builders.insert("default".into(), Arc::new(NullBuilder));
         let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
         let mut rt = KernelRuntime::new("r1".into(), "/ws".into(), 100, reg, gate).expect("init");
         rt.start_turn(json!("hi"), "done", &[], ArtifactStoreView::default(), 101)

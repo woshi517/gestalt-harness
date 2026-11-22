@@ -250,17 +250,23 @@ mod tests {
     #[test]
     fn compaction_emits_custom_node_on_context_length_exceeded_and_replays() {
         let mut reg = ExtensionRegistry::new();
-        reg.builders
-            .insert("standard".into(), Box::new(StandardBuilder::default()));
-        reg.loops.insert("chat".into(), Box::new(ChatLoopFactory));
-        reg.decorators
-            .insert("compaction".into(), Box::new(CompactionDecorator));
+        reg.builders.insert(
+            "standard".into(),
+            std::sync::Arc::new(StandardBuilder::default()),
+        );
+        reg.loops
+            .insert("chat".into(), std::sync::Arc::new(ChatLoopFactory));
+        reg.decorators.insert(
+            "compaction".into(),
+            std::sync::Arc::new(CompactionDecorator),
+        );
         reg.presets.insert(
             "general".into(),
             Preset {
                 base_loop: "chat".into(),
                 decorators: vec!["compaction".into()],
                 builder: "standard".into(),
+                builder_layers: vec![],
                 config: LoopConfig {
                     params: json!({ "keep_recent_turns": 1 }),
                     ..LoopConfig::default()

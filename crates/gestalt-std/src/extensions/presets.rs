@@ -3,6 +3,7 @@
 //! declarative [`UISurface`] specs, and [`StdExtension`].
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use gestalt_kernel::{
     CommandSpec, Extension, ExtensionError, ExtensionRegistry, LoopConfig, PauseReason, Preset,
@@ -148,32 +149,32 @@ impl Extension for StdExtension {
     fn register(&self, registry: &mut ExtensionRegistry) -> Result<(), ExtensionError> {
         registry
             .loops
-            .insert("chat".to_string(), Box::new(ChatLoopFactory));
+            .insert("chat".to_string(), Arc::new(ChatLoopFactory));
         registry.loops.insert(
             "decision_router".to_string(),
-            Box::new(DecisionRouterFactory),
+            Arc::new(DecisionRouterFactory),
         );
 
         registry
             .decorators
-            .insert("goal_check".to_string(), Box::new(GoalCheckDecorator));
+            .insert("goal_check".to_string(), Arc::new(GoalCheckDecorator));
         registry
             .decorators
-            .insert("compaction".to_string(), Box::new(CompactionDecorator));
+            .insert("compaction".to_string(), Arc::new(CompactionDecorator));
         registry
             .decorators
-            .insert("curator".to_string(), Box::new(CuratorDecorator));
+            .insert("curator".to_string(), Arc::new(CuratorDecorator));
 
         registry
             .builders
-            .insert("standard".to_string(), Box::new(StandardBuilder::default()));
+            .insert("standard".to_string(), Arc::new(StandardBuilder::default()));
         registry.builders.insert(
             "sliding_window".to_string(),
-            Box::new(SlidingWindowBuilder::default()),
+            Arc::new(SlidingWindowBuilder::default()),
         );
         registry
             .builders
-            .insert("decision_state".to_string(), Box::new(DecisionStateBuilder));
+            .insert("decision_state".to_string(), Arc::new(DecisionStateBuilder));
 
         registry.presets.insert(
             "general".to_string(),
@@ -181,6 +182,7 @@ impl Extension for StdExtension {
                 base_loop: "chat".to_string(),
                 decorators: vec!["compaction".to_string()],
                 builder: "standard".to_string(),
+                builder_layers: Vec::new(),
                 config: LoopConfig {
                     allowed_tools: None,
                     max_spawn_depth: Some(1),
@@ -199,6 +201,7 @@ impl Extension for StdExtension {
                 base_loop: "decision_router".to_string(),
                 decorators: Vec::new(),
                 builder: "decision_state".to_string(),
+                builder_layers: Vec::new(),
                 config: LoopConfig {
                     allowed_tools: Some(vec![
                         "read".to_string(),

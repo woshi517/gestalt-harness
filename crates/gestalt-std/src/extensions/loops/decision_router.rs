@@ -225,13 +225,20 @@ mod tests {
 
     fn setup_triage_kernel() -> KernelRuntime {
         let mut reg = ExtensionRegistry::new();
-        reg.builders
-            .insert("decision_state".into(), Box::new(DecisionStateBuilder));
-        reg.builders
-            .insert("standard".into(), Box::new(StandardBuilder::default()));
+        reg.builders.insert(
+            "decision_state".into(),
+            std::sync::Arc::new(DecisionStateBuilder),
+        );
+        reg.builders.insert(
+            "standard".into(),
+            std::sync::Arc::new(StandardBuilder::default()),
+        );
+        reg.loops.insert(
+            "decision_router".into(),
+            std::sync::Arc::new(DecisionRouterFactory),
+        );
         reg.loops
-            .insert("decision_router".into(), Box::new(DecisionRouterFactory));
-        reg.loops.insert("chat".into(), Box::new(ChatLoopFactory));
+            .insert("chat".into(), std::sync::Arc::new(ChatLoopFactory));
         reg.tools.insert(
             "bash".into(),
             ToolSpec {
@@ -248,6 +255,7 @@ mod tests {
                 base_loop: "decision_router".into(),
                 decorators: vec![],
                 builder: "decision_state".into(),
+                builder_layers: vec![],
                 config: LoopConfig {
                     allowed_tools: Some(vec!["bash".into()]),
                     params: json!({
@@ -267,6 +275,7 @@ mod tests {
                 base_loop: "chat".into(),
                 decorators: vec![],
                 builder: "standard".into(),
+                builder_layers: vec![],
                 config: LoopConfig::default(),
             },
         );

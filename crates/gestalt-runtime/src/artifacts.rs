@@ -62,6 +62,7 @@ pub struct ArtifactManager {
     workspace_root: PathBuf,
     blob_store: BlobStore,
     path_guard: WorkspacePathGuard,
+    writable_roots: Vec<PathBuf>,
 }
 
 impl ArtifactManager {
@@ -78,7 +79,20 @@ impl ArtifactManager {
             workspace_root: canon_root,
             blob_store,
             path_guard,
+            writable_roots: Vec::new(),
         })
+    }
+
+    /// Configure policy-gated directory roots outside `workspace_root`
+    /// permitted for `Effect::Save` (`Stage` / `Promote`).
+    pub fn set_writable_roots(&mut self, roots: Vec<PathBuf>) {
+        self.writable_roots = roots;
+    }
+
+    /// Return configured directory roots outside `workspace_root` permitted for `Effect::Save`.
+    #[must_use]
+    pub fn writable_roots(&self) -> &[PathBuf] {
+        &self.writable_roots
     }
 
     /// Borrow the underlying [`BlobStore`].
@@ -198,7 +212,8 @@ impl ArtifactManager {
         let stage_dir = self.staging_dir().join(stage_id);
         fs::create_dir_all(&stage_dir)?;
         if let Some(ref text) = next_content {
-            let staged_file = stage_dir.join("files").join(&norm_rel);
+            let staged_rel = norm_rel.strip_prefix('/').unwrap_or(&norm_rel);
+            let staged_file = stage_dir.join("files").join(staged_rel);
             if let Some(parent) = staged_file.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -389,6 +404,77 @@ impl ArtifactManager {
         Ok(())
     }
 
+    /// Load a staged `.gestalt/staging/<stage_id>/` artifact into a standalone
+    /// [`ArtifactStoreView`] overlay without mutating live workspace files.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if `stage_id` is invalid, the manifest is missing,
+    /// or staged file reads fail.
+    pub fn load_staged_overlay(&self, stage_id: &str) -> Result<ArtifactStoreView, RuntimeError> {
+        if stage_id.is_empty()
+            || stage_id.contains('/')
+            || stage_id.contains('\\')
+            || stage_id.contains("..")
+            || stage_id.contains('\0')
+        {
+            return Err(RuntimeError::SandboxViolation(format!(
+                "invalid stage_id '{stage_id}'"
+            )));
+        }
+        let stage_dir = self.staging_dir().join(stage_id);
+        let manifest_path = stage_dir.join("manifest.json");
+        if !manifest_path.is_file() {
+            return Err(RuntimeError::ArtifactError(format!(
+                "missing stage manifest for '{stage_id}'"
+            )));
+        }
+        let raw_manifest = fs::read_to_string(&manifest_path)?;
+        let manifest: StageManifest = serde_json::from_str(&raw_manifest)?;
+        let mut entries = BTreeMap::new();
+        if !manifest.is_delete {
+            let staged_rel = manifest
+                .artifact
+                .strip_prefix('/')
+                .unwrap_or(&manifest.artifact);
+            let staged_file = stage_dir.join("files").join(staged_rel);
+            let content = fs::read_to_string(&staged_file)?;
+            let blob_digest = sha256_hex(content.as_bytes());
+            entries.insert(
+                manifest.artifact.clone(),
+                ArtifactEntry {
+                    path: manifest.artifact,
+                    content,
+                    blob_digest,
+                },
+            );
+        }
+        Ok(ArtifactStoreView::from_entries(entries))
+    }
+
+    /// Snapshot a single artifact target into [`BlobStore`] and return an
+    /// [`ArtifactEntry`] if the file exists (or `None` if deleted).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if path validation or I/O fails.
+    pub fn snapshot_single_entry(
+        &self,
+        target: &str,
+    ) -> Result<Option<ArtifactEntry>, RuntimeError> {
+        let (norm, resolved) = self.resolve_artifact_target(target)?;
+        if !resolved.is_file() {
+            return Ok(None);
+        }
+        let content = fs::read_to_string(&resolved)?;
+        let blob_digest = self.blob_store.put_bytes(content.as_bytes())?;
+        Ok(Some(ArtifactEntry {
+            path: norm,
+            content,
+            blob_digest,
+        }))
+    }
+
     fn resolve_artifact_target(&self, raw_path: &str) -> Result<(String, PathBuf), RuntimeError> {
         if raw_path.contains('\0') {
             return Err(RuntimeError::SandboxViolation(
@@ -396,16 +482,32 @@ impl ArtifactManager {
             ));
         }
         let p = Path::new(raw_path);
-        if p.is_absolute()
-            || p.components().any(|c| {
-                matches!(
-                    c,
-                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
-                )
-            })
-        {
+        if p.components().any(|c| matches!(c, Component::ParentDir)) {
             return Err(RuntimeError::SandboxViolation(format!(
-                "artifact path '{raw_path}' must be workspace-relative without '..'"
+                "artifact path '{raw_path}' cannot contain '..'"
+            )));
+        }
+        if p.is_absolute() {
+            for root in &self.writable_roots {
+                let Ok(canon_root) = fs::canonicalize(root) else {
+                    continue;
+                };
+                if p.starts_with(&canon_root) || p.starts_with(root) {
+                    let guard = WorkspacePathGuard::new(&canon_root, &BTreeSet::new())?;
+                    let rel = p
+                        .strip_prefix(&canon_root)
+                        .or_else(|_| p.strip_prefix(root))
+                        .map_err(|_| {
+                            RuntimeError::SandboxViolation(format!(
+                                "artifact path '{raw_path}' escapes writable root"
+                            ))
+                        })?;
+                    let resolved = guard.resolve_read(&rel.to_string_lossy())?;
+                    return Ok((resolved.to_string_lossy().to_string(), resolved));
+                }
+            }
+            return Err(RuntimeError::SandboxViolation(format!(
+                "absolute artifact path '{raw_path}' is not inside any configured writable_root"
             )));
         }
         // Validate symlink confinement via `path_guard.resolve_read` (which does not

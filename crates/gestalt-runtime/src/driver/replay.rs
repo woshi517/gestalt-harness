@@ -30,8 +30,37 @@ pub struct ExternalReplayOptions<'a> {
     pub sandbox_driver: &'a Arc<dyn SandboxDriver>,
 }
 
+/// Options for [`replay_session_tree_with_overlay`].
+pub struct ReplayOverlayOptions<'a> {
+    /// Target `ExtensionRegistry` to verify against.
+    pub registry: &'a ExtensionRegistry,
+    /// `PolicyGate` invariants for replay.
+    pub policy_gate: &'a PolicyGate,
+    /// Content-addressed blob store for artifact snapshots.
+    pub blob_store: &'a BlobStore,
+    /// Replay execution mode (`Default` or `ReexecuteExternal`).
+    pub mode: ReplayMode,
+    /// External extension options when `mode == ReplayMode::ReexecuteExternal`.
+    pub ext_opts: Option<ExternalReplayOptions<'a>>,
+    /// Optional staged [`gestalt_kernel::ArtifactStoreView`] overlay.
+    pub overlay: Option<&'a gestalt_kernel::ArtifactStoreView>,
+}
+
 /// Replay a recorded [`SessionTree`] offline, optionally re-executing out-of-process
 /// extension workers inside a network-disabled OS sandbox (`--reexecute-ext`).
+///
+/// # Arguments
+///
+/// * `tree` - Validated `SessionTree` to replay
+/// * `registry` - Extension registry providing loop, builder, and layer implementations
+/// * `policy_gate` - Policy gate invariants for replay verification
+/// * `blob_store` - Content-addressed blob store for artifact snapshots
+/// * `mode` - Replay mode (`Default` or `ReexecuteExternal`)
+/// * `ext_opts` - Optional external worker config for `ReexecuteExternal`
+///
+/// # Returns
+///
+/// Structured [`ReplayReport`] summarizing replayed turns, phases, and any divergences.
 ///
 /// # Errors
 ///
@@ -44,8 +73,68 @@ pub async fn replay_session_tree(
     mode: ReplayMode,
     ext_opts: Option<ExternalReplayOptions<'_>>,
 ) -> Result<ReplayReport, RuntimeError> {
+    replay_session_tree_with_overlay(
+        tree,
+        ReplayOverlayOptions {
+            registry,
+            policy_gate,
+            blob_store,
+            mode,
+            ext_opts,
+            overlay: None,
+        },
+    )
+    .await
+}
+
+/// Replay a recorded [`SessionTree`] offline with an optional staged
+/// [`gestalt_kernel::ArtifactStoreView`] overlay (used by `replay_verify`).
+///
+/// # Arguments
+///
+/// * `tree` - Validated `SessionTree` to replay
+/// * `opts` - Bundled [`ReplayOverlayOptions`] including registry, gate, blob store, and overlay
+///
+/// # Returns
+///
+/// Structured [`ReplayReport`] summarizing replayed turns, phases, and any divergences.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError`] if structural decode, sandbox spawn, or IPC fails.
+pub async fn replay_session_tree_with_overlay(
+    tree: &SessionTree,
+    opts: ReplayOverlayOptions<'_>,
+) -> Result<ReplayReport, RuntimeError> {
+    let ReplayOverlayOptions {
+        registry,
+        policy_gate,
+        blob_store,
+        mode,
+        ext_opts,
+        overlay,
+    } = opts;
+    let mut overlay_by_digest: BTreeMap<String, String> = BTreeMap::new();
+    if let Some(ov) = overlay {
+        for node in tree.all_nodes() {
+            if let Ok(NodePayload::TurnStart {
+                artifact_snapshots, ..
+            }) = node.decode_payload()
+            {
+                for (path, recorded_digest) in artifact_snapshots {
+                    if let Some(entry) = ov.get(&path) {
+                        overlay_by_digest.insert(recorded_digest, entry.content.clone());
+                    }
+                }
+            }
+        }
+    }
+
     let mut report =
         ReplayEngine::new(registry, policy_gate).replay(tree, ReplayMode::Default, |digest| {
+            if let Some(ov_text) = overlay_by_digest.get(digest) {
+                return Some(ov_text.clone());
+            }
             blob_store.get_utf8(digest).ok()
         })?;
 
@@ -106,6 +195,12 @@ pub async fn replay_session_tree(
                             config,
                             state_token: None,
                             results: None,
+                            session_slice: nodes[..=idx].to_vec(),
+                            artifacts: BTreeMap::new(),
+                            budget_remaining: gestalt_kernel::BudgetSnapshot::default(),
+                            steering: Vec::new(),
+                            now_ms: node.timestamp_ms,
+                            context: Value::Null,
                         };
                         let out = worker.loop_step(&req, CancellationToken::new()).await?;
                         verify_ext_action_against_trace(nodes, idx + 1, &out.action, &mut report);
@@ -142,6 +237,12 @@ pub async fn replay_session_tree(
                             config: config.clone(),
                             state_token,
                             results: Some(batch),
+                            session_slice: nodes[..=idx].to_vec(),
+                            artifacts: BTreeMap::new(),
+                            budget_remaining: gestalt_kernel::BudgetSnapshot::default(),
+                            steering: Vec::new(),
+                            now_ms: nodes[idx].timestamp_ms,
+                            context: Value::Null,
                         };
                         let out = worker.loop_step(&req, CancellationToken::new()).await?;
                         verify_ext_action_against_trace(nodes, idx + 1, &out.action, &mut report);

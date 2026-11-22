@@ -233,8 +233,10 @@ mod tests {
         fs::create_dir_all(&dir).expect("mkdir");
 
         let mut reg = ExtensionRegistry::new();
-        reg.loops.insert("done".into(), Box::new(DoneFactory));
-        reg.builders.insert("default".into(), Box::new(NullBuilder));
+        reg.loops
+            .insert("done".into(), std::sync::Arc::new(DoneFactory));
+        reg.builders
+            .insert("default".into(), std::sync::Arc::new(NullBuilder));
         let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
         let rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
         let session_path = dir.join(".gestalt/sessions/r.jsonl");
@@ -255,11 +257,11 @@ mod tests {
             host.kernel_mut()
                 .registry_mut()
                 .loops
-                .insert("done".into(), Box::new(DoneFactory));
+                .insert("done".into(), Arc::new(DoneFactory));
             host.kernel_mut()
                 .registry_mut()
                 .builders
-                .insert("default".into(), Box::new(NullBuilder));
+                .insert("default".into(), Arc::new(NullBuilder));
             let _ = host
                 .run_turn(json!("hi"), "done", &[], Default::default())
                 .await
@@ -301,10 +303,10 @@ mod tests {
         let mut reg_drift = ExtensionRegistry::new();
         reg_drift
             .loops
-            .insert("done".into(), Box::new(DriftFactory));
+            .insert("done".into(), Arc::new(DriftFactory));
         reg_drift
             .builders
-            .insert("default".into(), Box::new(NullBuilder));
+            .insert("default".into(), Arc::new(NullBuilder));
         let mut out_div = Vec::new();
         let res_div = run_replay_surface(
             ReplaySurfaceOptions {

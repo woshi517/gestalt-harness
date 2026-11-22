@@ -210,6 +210,7 @@ mod tests {
                 decorator_digests: vec![],
                 builder_id: "standard".into(),
                 builder_digest: builder.digest().into(),
+                builder_layer_digests: vec![],
                 config: LoopConfig::default(),
             },
         )

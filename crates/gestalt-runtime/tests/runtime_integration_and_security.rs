@@ -299,10 +299,10 @@ async fn runtime_host_parallel_spill_save_rollback_redaction_and_replay() {
 
     let mut reg = ExtensionRegistry::new();
     reg.builders
-        .insert("dummy_builder".to_string(), Box::new(DummyBuilder));
+        .insert("dummy_builder".to_string(), Arc::new(DummyBuilder));
     reg.loops.insert(
         "parallel_save_loop".to_string(),
-        Box::new(ParallelToolAndSaveFactory),
+        Arc::new(ParallelToolAndSaveFactory),
     );
     reg.tools.insert(
         "big_echo".to_string(),
@@ -324,6 +324,7 @@ async fn runtime_host_parallel_spill_save_rollback_redaction_and_replay() {
             base_loop: "parallel_save_loop".to_string(),
             decorators: Vec::new(),
             builder: "dummy_builder".to_string(),
+            builder_layers: Vec::new(),
             config: LoopConfig::default(),
         },
     );
@@ -429,9 +430,9 @@ async fn runtime_host_preemptive_abort_urgent_steer_and_verification_fail_closed
     // 1. Preemptive UrgentSteer cancels slow tool <= 250ms and pivots loop to Done
     let mut reg = ExtensionRegistry::new();
     reg.builders
-        .insert("dummy_builder".to_string(), Box::new(DummyBuilder));
+        .insert("dummy_builder".to_string(), Arc::new(DummyBuilder));
     reg.loops
-        .insert("slow_loop".to_string(), Box::new(SlowLoopFactory));
+        .insert("slow_loop".to_string(), Arc::new(SlowLoopFactory));
     reg.tools.insert(
         "slow_tool".to_string(),
         ToolSpec {
@@ -496,7 +497,7 @@ async fn runtime_host_preemptive_abort_urgent_steer_and_verification_fail_closed
     // 2. RequiresVerification fails closed when decision provider errors
     let mut reg2 = ExtensionRegistry::new();
     reg2.builders
-        .insert("dummy_builder".to_string(), Box::new(DummyBuilder));
+        .insert("dummy_builder".to_string(), Arc::new(DummyBuilder));
     reg2.tools.insert(
         "slow_tool".to_string(),
         ToolSpec {
@@ -549,9 +550,9 @@ async fn runtime_host_preemptive_abort_urgent_steer_and_verification_fail_closed
     }
 
     reg2.loops
-        .insert("oneshot".to_string(), Box::new(OneShotFactory));
+        .insert("oneshot".to_string(), Arc::new(OneShotFactory));
     let mut gate2 = PolicyGate::default();
-    gate2.add_rule(Box::new(VerifierDecisionRule));
+    gate2.add_rule(Arc::new(VerifierDecisionRule));
 
     let mut rt2 = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
     rt2.providers
@@ -700,6 +701,8 @@ async fn real_spawn_execution_and_worktree_lifecycle() {
                     depth_limit: 1,
                     workspace_mode: WorkspaceMode::Worktree,
                     config: None,
+                    detached: false,
+                    notify_on_complete: Default::default(),
                 }])
             } else {
                 let res = results.unwrap_or_default();
@@ -732,11 +735,11 @@ async fn real_spawn_execution_and_worktree_lifecycle() {
 
     let mut reg = ExtensionRegistry::new();
     reg.builders
-        .insert("dummy_builder".to_string(), Box::new(DummyBuilder));
+        .insert("dummy_builder".to_string(), Arc::new(DummyBuilder));
     reg.loops
-        .insert("child_worker".to_string(), Box::new(ChildWorkerFactory));
+        .insert("child_worker".to_string(), Arc::new(ChildWorkerFactory));
     reg.loops
-        .insert("parent_spawner".to_string(), Box::new(ParentSpawnerFactory));
+        .insert("parent_spawner".to_string(), Arc::new(ParentSpawnerFactory));
 
     let mut host = RuntimeHost::new(
         "run_spawn".to_string(),
@@ -782,10 +785,13 @@ async fn reexecute_ext_offline_replay_and_headless_pause_denied() {
         &script,
         r#"#!/bin/sh
 while IFS= read -r line; do
-  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
   case "$line" in
     *'"method":"extension/describe"'*)
       printf '{"jsonrpc":"2.0","id":%s,"result":{"name":"ext_replay","loops":[{"id":"rloop","digest":"rd1"}],"builders":[{"id":"rbuild","digest":"rb1"}]}}\n' "$id"
+      ;;
+    *'"method":"builder/build"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"
       ;;
     *'"method":"loop/step"'*)
       case "$line" in
@@ -885,6 +891,7 @@ done
             decorator_digests: vec![],
             builder_id: "rbuild".into(),
             builder_digest: "rb1".into(),
+            builder_layer_digests: vec![],
             config: LoopConfig::default(),
         },
     );
@@ -1010,8 +1017,8 @@ async fn tool_execution_context_emits_redacted_tool_ui_events() {
 
     let mut reg = ExtensionRegistry::new();
     reg.builders
-        .insert("dummy_builder".into(), Box::new(DummyBuilder));
-    reg.loops.insert("ui_loop".into(), Box::new(UiLoopFactory));
+        .insert("dummy_builder".into(), Arc::new(DummyBuilder));
+    reg.loops.insert("ui_loop".into(), Arc::new(UiLoopFactory));
     reg.tools.insert(
         "ui_tool".into(),
         ToolSpec {
@@ -1259,5 +1266,1018 @@ exit 0
         RuntimeError::Kernel(gestalt_kernel::KernelError::PolicyRelaxationForbidden(_))
     ));
 
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn spawned_child_inherits_builders_presets_switch_and_parent_policy_rules() {
+    use gestalt_kernel::{
+        AgentLoop, AgentLoopFactory, ContextBuilder, EffectEnvelope, LoopAction, LoopConfig,
+        LoopContext, ModelCapabilities, PolicyDecision, PolicyRule, Preset, SessionSlice,
+        SideEffectClass, ToolSpec,
+    };
+    use gestalt_runtime::{ToolExecutionContext, ToolHandler, ToolOutcome};
+
+    let dir = std::env::temp_dir().join(format!(
+        "gestalt_spawn_inherit_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create dir");
+    let canon = fs::canonicalize(&dir).expect("canon");
+
+    struct RichBuilder;
+    impl ContextBuilder for RichBuilder {
+        fn id(&self) -> &str {
+            "rich_builder"
+        }
+        fn digest(&self) -> &str {
+            "rb1"
+        }
+        fn build(
+            &self,
+            _session: &SessionSlice,
+            _artifacts: &gestalt_kernel::ArtifactStoreView,
+            _caps: &ModelCapabilities,
+        ) -> Value {
+            json!({ "injected": "from_parent_builder" })
+        }
+    }
+
+    struct DenyBashRule;
+    impl PolicyRule for DenyBashRule {
+        fn id(&self) -> &str {
+            "deny_bash"
+        }
+        fn evaluate(&self, env: &EffectEnvelope, _session: &SessionSlice) -> PolicyDecision {
+            if let Effect::Tool { name, .. } = &env.effect
+                && name == "bash"
+            {
+                return PolicyDecision::Deny {
+                    reason: "bash blocked by parent rule".to_string(),
+                };
+            }
+            PolicyDecision::Allow
+        }
+    }
+
+    struct ChildSwitchLoop {
+        step_idx: usize,
+        saw_context: Option<Value>,
+        tool_denied: bool,
+    }
+    impl AgentLoop for ChildSwitchLoop {
+        fn id(&self) -> &str {
+            "child_switch"
+        }
+        fn digest(&self) -> &str {
+            "csw1"
+        }
+        fn step(
+            &mut self,
+            ctx: &mut dyn LoopContext,
+            results: Option<Vec<StepResult>>,
+        ) -> LoopAction {
+            match self.step_idx {
+                0 => {
+                    self.step_idx = 1;
+                    self.saw_context = Some(ctx.build_context(&ModelCapabilities::default()));
+                    LoopAction::Yield(vec![Effect::Tool {
+                        name: "bash".to_string(),
+                        args: json!({}),
+                        side_effect: SideEffectClass::Idempotent,
+                    }])
+                }
+                1 => {
+                    self.step_idx = 2;
+                    self.tool_denied = matches!(
+                        results.and_then(|v| v.into_iter().next()),
+                        Some(StepResult::Denied { .. })
+                    );
+                    LoopAction::Yield(vec![Effect::Switch {
+                        next_loop: "child_final".to_string(),
+                        handoff: json!({
+                            "saw_context": self.saw_context,
+                            "tool_denied": self.tool_denied,
+                        }),
+                        config: None,
+                    }])
+                }
+                _ => LoopAction::Done(Value::Null),
+            }
+        }
+    }
+    struct ChildSwitchFactory;
+    impl AgentLoopFactory for ChildSwitchFactory {
+        fn id(&self) -> &str {
+            "child_switch"
+        }
+        fn digest(&self) -> &str {
+            "csw1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(ChildSwitchLoop {
+                step_idx: 0,
+                saw_context: None,
+                tool_denied: false,
+            })
+        }
+    }
+
+    struct ChildFinalLoop;
+    impl AgentLoop for ChildFinalLoop {
+        fn id(&self) -> &str {
+            "child_final"
+        }
+        fn digest(&self) -> &str {
+            "cf1"
+        }
+        fn step(&mut self, ctx: &mut dyn LoopContext, _r: Option<Vec<StepResult>>) -> LoopAction {
+            LoopAction::Done(ctx.handoff().clone())
+        }
+    }
+    struct ChildFinalFactory;
+    impl AgentLoopFactory for ChildFinalFactory {
+        fn id(&self) -> &str {
+            "child_final"
+        }
+        fn digest(&self) -> &str {
+            "cf1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(ChildFinalLoop)
+        }
+    }
+
+    struct ParentSpawnerLoop {
+        spawned: bool,
+    }
+    impl AgentLoop for ParentSpawnerLoop {
+        fn id(&self) -> &str {
+            "parent_spawner_inherit"
+        }
+        fn digest(&self) -> &str {
+            "psi1"
+        }
+        fn step(
+            &mut self,
+            _ctx: &mut dyn LoopContext,
+            results: Option<Vec<StepResult>>,
+        ) -> LoopAction {
+            if !self.spawned {
+                self.spawned = true;
+                return LoopAction::Yield(vec![Effect::Spawn {
+                    loop_id: "child_preset".to_string(),
+                    input: json!("go"),
+                    budget: BudgetCap {
+                        max_steps: Some(10),
+                        max_tokens: Some(10_000),
+                        max_cost_micro_usd: None,
+                    },
+                    depth_limit: 1,
+                    workspace_mode: WorkspaceMode::ReadOnly,
+                    config: None,
+                    detached: false,
+                    notify_on_complete: Default::default(),
+                }]);
+            }
+            match results.and_then(|v| v.into_iter().next()) {
+                Some(StepResult::SpawnCompleted { output, .. }) => LoopAction::Done(output),
+                other => LoopAction::Done(json!({ "unexpected": format!("{other:?}") })),
+            }
+        }
+    }
+    struct ParentSpawnerFactory;
+    impl AgentLoopFactory for ParentSpawnerFactory {
+        fn id(&self) -> &str {
+            "parent_spawner_inherit"
+        }
+        fn digest(&self) -> &str {
+            "psi1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(ParentSpawnerLoop { spawned: false })
+        }
+    }
+
+    struct DummyBash;
+    impl ToolHandler for DummyBash {
+        fn execute<'a>(
+            &'a self,
+            _args: &'a Value,
+            _ctx: &'a ToolExecutionContext,
+            _on_delta: StreamDeltaFn<'a>,
+        ) -> Pin<Box<dyn Future<Output = Result<ToolOutcome, RuntimeError>> + Send + 'a>> {
+            Box::pin(async move {
+                Ok(ToolOutcome {
+                    output: json!("ran"),
+                    is_error: false,
+                })
+            })
+        }
+    }
+
+    let mut reg = ExtensionRegistry::new();
+    reg.builders
+        .insert("rich_builder".into(), Arc::new(RichBuilder));
+    reg.loops
+        .insert("child_switch".into(), Arc::new(ChildSwitchFactory));
+    reg.loops
+        .insert("child_final".into(), Arc::new(ChildFinalFactory));
+    reg.loops.insert(
+        "parent_spawner_inherit".into(),
+        Arc::new(ParentSpawnerFactory),
+    );
+    reg.presets.insert(
+        "child_preset".into(),
+        Preset {
+            base_loop: "child_switch".into(),
+            decorators: vec![],
+            builder: "rich_builder".into(),
+            builder_layers: vec![],
+            config: LoopConfig::default(),
+        },
+    );
+    reg.tools.insert(
+        "bash".into(),
+        ToolSpec {
+            name: "bash".into(),
+            description: "bash".into(),
+            parameters_schema: json!({"type": "object"}),
+            default_side_effect: SideEffectClass::Idempotent,
+            source_extension: None,
+        },
+    );
+
+    let mut rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
+    rt.tools.insert("bash".into(), Arc::new(DummyBash));
+
+    let mut gate = PolicyGate::new(
+        BudgetCap {
+            max_steps: Some(20),
+            max_tokens: Some(100_000),
+            max_cost_micro_usd: None,
+        },
+        None,
+        SandboxPolicy::default(),
+    );
+    gate.add_rule(Arc::new(DenyBashRule));
+
+    let mut host = RuntimeHost::new(
+        "run_spawn_inherit".into(),
+        &canon,
+        canon.join("session.jsonl"),
+        reg,
+        gate,
+        rt,
+        CredentialStore::default(),
+        None,
+        Arc::new(HeadlessPauseHandler::default()),
+    )
+    .expect("host");
+
+    let outcome = host
+        .run_turn(
+            json!("start"),
+            "parent_spawner_inherit",
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("turn");
+    match outcome {
+        TurnOutcome::Completed { output, .. } => {
+            assert_eq!(
+                output["saw_context"],
+                json!({ "injected": "from_parent_builder" })
+            );
+            assert_eq!(output["tool_denied"], json!(true));
+        }
+        other => panic!("expected completed turn, got {other:?}"),
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn configurable_artifacts_writable_roots_and_mid_turn_promote_refresh() {
+    use gestalt_kernel::{
+        AgentLoop, AgentLoopFactory, ContextBuilder, LoopAction, LoopConfig, LoopContext,
+        ModelCapabilities, Preset, SessionSlice,
+    };
+
+    let dir = std::env::temp_dir().join(format!(
+        "gestalt_u5_artifacts_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let global_skill_dir = std::env::temp_dir().join(format!(
+        "gestalt_u5_global_skills_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&global_skill_dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    fs::create_dir_all(&global_skill_dir).expect("mkdir global");
+    let canon = fs::canonicalize(&dir).expect("canon");
+    let canon_global = fs::canonicalize(&global_skill_dir).expect("canon global");
+
+    fs::write(canon.join("SOUL.md"), "initial soul\n").expect("write soul");
+    let global_toml = canon.join("global.toml");
+    let ws_toml = canon.join("ws.toml");
+    fs::write(
+        &global_toml,
+        format!(
+            "[artifacts]\ntracked_paths = [\"SOUL.md\"]\nwritable_roots = [\"{}\"]\n",
+            canon_global.to_string_lossy()
+        ),
+    )
+    .expect("write global");
+    fs::write(&ws_toml, "[artifacts]\ntracked_paths = [\"EXTRA.md\"]\n").expect("write ws");
+
+    let mut gate = PolicyGate::default();
+    let mut reg = ExtensionRegistry::new();
+    let trust = WorkspaceTrustStore::default();
+    let resolved = load_and_merge_config(
+        ConfigLoadOptions {
+            workspace_root: &canon,
+            global_toml_path: Some(&global_toml),
+            workspace_toml_path: Some(&ws_toml),
+            cli_extensions: BTreeMap::new(),
+            trust_store: &trust,
+            auto_trust_workspace: true,
+        },
+        &mut gate,
+        &mut reg,
+    )
+    .expect("merge");
+    assert_eq!(resolved.tracked_artifact_paths, vec!["SOUL.md", "EXTRA.md"]);
+
+    // Workspace trying to add an unapproved writable_root must fail closed
+    let bad_ws_toml = canon.join("bad_ws.toml");
+    fs::write(&bad_ws_toml, "[artifacts]\nwritable_roots = [\"/etc\"]\n").expect("write bad ws");
+    let mut gate_bad = PolicyGate::default();
+    let mut reg_bad = ExtensionRegistry::new();
+    let err = load_and_merge_config(
+        ConfigLoadOptions {
+            workspace_root: &canon,
+            global_toml_path: Some(&global_toml),
+            workspace_toml_path: Some(&bad_ws_toml),
+            cli_extensions: BTreeMap::new(),
+            trust_store: &trust,
+            auto_trust_workspace: true,
+        },
+        &mut gate_bad,
+        &mut reg_bad,
+    )
+    .expect_err("workspace writable_roots must be rejected");
+    assert!(matches!(
+        err,
+        RuntimeError::Kernel(gestalt_kernel::KernelError::PolicyRelaxationForbidden(_))
+    ));
+
+    // Mid-Turn Save(Promote) refreshes ArtifactStoreView for Step 2
+    struct SoulEchoBuilder;
+    impl ContextBuilder for SoulEchoBuilder {
+        fn id(&self) -> &str {
+            "soul_echo"
+        }
+        fn digest(&self) -> &str {
+            "se1"
+        }
+        fn build(
+            &self,
+            _session: &SessionSlice,
+            artifacts: &ArtifactStoreView,
+            _caps: &ModelCapabilities,
+        ) -> Value {
+            json!({
+                "soul": artifacts.get("SOUL.md").map(|e| e.content.clone()),
+            })
+        }
+    }
+    struct PromoteAndReadLoop {
+        step: usize,
+        global_target: String,
+    }
+    impl AgentLoop for PromoteAndReadLoop {
+        fn id(&self) -> &str {
+            "promote_read"
+        }
+        fn digest(&self) -> &str {
+            "pr1"
+        }
+        fn step(&mut self, ctx: &mut dyn LoopContext, _r: Option<Vec<StepResult>>) -> LoopAction {
+            if self.step == 0 {
+                self.step = 1;
+                return LoopAction::Yield(vec![
+                    Effect::Save {
+                        artifact: "SOUL.md".to_string(),
+                        patch: ArtifactPatch::WriteFile {
+                            content: "evolved soul\n".to_string(),
+                        },
+                        mode: SaveMode::Promote,
+                    },
+                    Effect::Save {
+                        artifact: self.global_target.clone(),
+                        patch: ArtifactPatch::WriteFile {
+                            content: "# Global Skill\n".to_string(),
+                        },
+                        mode: SaveMode::Promote,
+                    },
+                ]);
+            }
+            let ctx_val = ctx.build_context(&ModelCapabilities::default());
+            LoopAction::Done(ctx_val)
+        }
+    }
+    struct PromoteAndReadFactory(String);
+    impl AgentLoopFactory for PromoteAndReadFactory {
+        fn id(&self) -> &str {
+            "promote_read"
+        }
+        fn digest(&self) -> &str {
+            "pr1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(PromoteAndReadLoop {
+                step: 0,
+                global_target: self.0.clone(),
+            })
+        }
+    }
+
+    let global_skill_file = canon_global.join("my_skill.md");
+    reg.builders
+        .insert("soul_echo".into(), Arc::new(SoulEchoBuilder));
+    reg.loops.insert(
+        "promote_read".into(),
+        Arc::new(PromoteAndReadFactory(
+            global_skill_file.to_string_lossy().to_string(),
+        )),
+    );
+    reg.presets.insert(
+        "pr_preset".into(),
+        Preset {
+            base_loop: "promote_read".into(),
+            decorators: vec![],
+            builder: "soul_echo".into(),
+            builder_layers: vec![],
+            config: LoopConfig::default(),
+        },
+    );
+
+    let rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
+    let mut host = RuntimeHost::new(
+        "run_u5".into(),
+        &canon,
+        canon.join("session.jsonl"),
+        reg,
+        gate,
+        rt,
+        CredentialStore::default(),
+        None,
+        Arc::new(HeadlessPauseHandler::default()),
+    )
+    .expect("host");
+    host.set_tracked_artifact_paths(resolved.tracked_artifact_paths);
+    host.set_writable_artifact_roots(vec![canon_global.clone()]);
+
+    match host
+        .run_turn(json!("go"), "pr_preset", &[], CancellationToken::new())
+        .await
+        .expect("turn")
+    {
+        TurnOutcome::Completed { output, .. } => {
+            assert_eq!(output["soul"], json!("evolved soul\n"));
+        }
+        other => panic!("expected completed turn, got {other:?}"),
+    }
+    assert_eq!(
+        fs::read_to_string(&global_skill_file).expect("global skill"),
+        "# Global Skill\n"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&global_skill_dir);
+}
+
+#[tokio::test]
+async fn detached_spawn_passive_and_opt_in_followup() {
+    use gestalt_kernel::{
+        AgentLoop, AgentLoopFactory, LoopAction, LoopConfig, LoopContext, SpawnNotifyMode,
+    };
+
+    let dir = std::env::temp_dir().join(format!(
+        "gestalt_u7_detached_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    let canon = fs::canonicalize(&dir).expect("canon");
+
+    struct QuickChild;
+    impl AgentLoop for QuickChild {
+        fn id(&self) -> &str {
+            "quick_child"
+        }
+        fn digest(&self) -> &str {
+            "qc1"
+        }
+        fn step(&mut self, _ctx: &mut dyn LoopContext, _r: Option<Vec<StepResult>>) -> LoopAction {
+            LoopAction::Done(json!({ "child": "ok" }))
+        }
+    }
+    struct QuickChildFactory;
+    impl AgentLoopFactory for QuickChildFactory {
+        fn id(&self) -> &str {
+            "quick_child"
+        }
+        fn digest(&self) -> &str {
+            "qc1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(QuickChild)
+        }
+    }
+
+    struct DetachedParent {
+        notify: SpawnNotifyMode,
+        yielded: bool,
+    }
+    impl AgentLoop for DetachedParent {
+        fn id(&self) -> &str {
+            "det_parent"
+        }
+        fn digest(&self) -> &str {
+            "dp1"
+        }
+        fn step(
+            &mut self,
+            _ctx: &mut dyn LoopContext,
+            results: Option<Vec<StepResult>>,
+        ) -> LoopAction {
+            if !self.yielded {
+                self.yielded = true;
+                return LoopAction::Yield(vec![Effect::Spawn {
+                    loop_id: "quick_child".to_string(),
+                    input: json!("bg"),
+                    budget: BudgetCap {
+                        max_steps: Some(4),
+                        max_tokens: Some(1_000),
+                        max_cost_micro_usd: None,
+                    },
+                    depth_limit: 1,
+                    workspace_mode: WorkspaceMode::ReadOnly,
+                    config: None,
+                    detached: true,
+                    notify_on_complete: self.notify,
+                }]);
+            }
+            match results.and_then(|v| v.into_iter().next()) {
+                Some(StepResult::SpawnCompleted {
+                    child_head_id,
+                    output,
+                    ..
+                }) => LoopAction::Done(json!({
+                    "child_head_id": child_head_id,
+                    "output": output,
+                })),
+                other => panic!("expected SpawnCompleted, got {other:?}"),
+            }
+        }
+    }
+    struct DetachedParentFactory(SpawnNotifyMode);
+    impl AgentLoopFactory for DetachedParentFactory {
+        fn id(&self) -> &str {
+            "det_parent"
+        }
+        fn digest(&self) -> &str {
+            "dp1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(DetachedParent {
+                notify: self.0,
+                yielded: false,
+            })
+        }
+    }
+
+    // 1. Passive default records custom:spawn:completed without queuing FollowUp
+    let mut reg = ExtensionRegistry::new();
+    reg.builders
+        .insert("dummy_builder".into(), Arc::new(DummyBuilder));
+    reg.loops
+        .insert("quick_child".into(), Arc::new(QuickChildFactory));
+    reg.loops.insert(
+        "det_passive".into(),
+        Arc::new(DetachedParentFactory(SpawnNotifyMode::Passive)),
+    );
+    reg.loops.insert(
+        "det_followup".into(),
+        Arc::new(DetachedParentFactory(SpawnNotifyMode::FollowUp)),
+    );
+
+    let mut host = RuntimeHost::new(
+        "run_det".into(),
+        &canon,
+        canon.join("session.jsonl"),
+        reg,
+        PolicyGate::default(),
+        RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver)),
+        CredentialStore::default(),
+        None,
+        Arc::new(HeadlessPauseHandler::default()),
+    )
+    .expect("host");
+
+    match host
+        .run_turn(json!("start"), "det_passive", &[], CancellationToken::new())
+        .await
+        .expect("turn")
+    {
+        TurnOutcome::Completed { output, .. } => {
+            assert_eq!(output["child_head_id"], json!("detached"));
+            assert_eq!(output["output"]["status"], json!("detached"));
+        }
+        other => panic!("expected completed turn, got {other:?}"),
+    }
+    for _ in 0..50 {
+        if host.poll_detached_spawns().expect("poll") > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        host.kernel().pending_follow_up_count(),
+        0,
+        "passive detached spawn must not enqueue FollowUp"
+    );
+    assert!(
+        host.kernel()
+            .session_tree()
+            .all_nodes()
+            .iter()
+            .any(|n| n.kind == "custom:spawn:completed")
+    );
+
+    // 2. Opt-in FollowUp enqueues a SteeringKind::FollowUp
+    let _ = host
+        .run_turn(
+            json!("start2"),
+            "det_followup",
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("turn2");
+    for _ in 0..50 {
+        if host.poll_detached_spawns().expect("poll") > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(host.kernel().pending_follow_up_count(), 1);
+    assert_eq!(host.activity().completed_turn_count(), 2);
+    assert!(!host.activity().turn_in_progress());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn ext_ipc_parity_heterogeneous_decorators_triggers_and_external_provider() {
+    use gestalt_kernel::{
+        AgentLoop, AgentLoopFactory, LoopAction, LoopConfig, LoopContext, LoopDecorator,
+    };
+
+    let dir = std::env::temp_dir().join(format!(
+        "gestalt_ext_parity_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join(".gestalt")).expect("mkdir");
+    let canon = fs::canonicalize(&dir).expect("canon");
+
+    let script = canon.join("parity_worker.py");
+    fs::write(
+        &script,
+        r#"#!/usr/bin/env python3
+import json, sys
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    req_id = msg.get("id")
+    method = msg.get("method")
+    params = msg.get("params", {})
+
+    if method == "extension/describe":
+        res = {
+            "name": "parity_ext",
+            "loops": [{"id": "ext_echo_loop", "digest": "el1"}],
+            "builders": [{"id": "ext_b", "digest": "eb1"}],
+            "builder_layers": [{"id": "ext_layer", "digest": "ely1"}],
+            "decorators": [{"id": "ext_dec", "digest": "ed1"}],
+            "triggers": [{"id": "t_ext", "kind": "ext_tick", "description": "External tick"}],
+            "providers": [{
+                "id": "ext_prov",
+                "kinds": ["decision"],
+                "capabilities": {
+                    "max_context_tokens": 32000,
+                    "max_output_tokens": 512,
+                    "supports_prompt_caching": False,
+                    "supports_reasoning": False,
+                    "supports_vision": False
+                }
+            }]
+        }
+    elif method == "builder/build":
+        res = {
+            "built_step_nodes": len(params.get("session_slice", [])),
+            "caps_max_ctx": params.get("caps", {}).get("max_context_tokens", 0)
+        }
+    elif method == "builder/layer":
+        inp = params.get("input", {})
+        inp["layered"] = True
+        res = inp
+    elif method == "loop/step":
+        if params.get("results") is None:
+            res = {
+                "action": {
+                    "action": "yield",
+                    "payload": [{
+                        "op": "model",
+                        "target": "ext_prov/v1",
+                        "kind": "decision",
+                        "input": params.get("context", {}),
+                        "schema": None
+                    }]
+                },
+                "state_token": {"step": 1},
+                "custom_nodes": [["ext:trace", {"saw_slice": len(params.get("session_slice", []))}]]
+            }
+        else:
+            res = {
+                "action": {
+                    "action": "done",
+                    "payload": {
+                        "context": params.get("context"),
+                        "results_len": len(params.get("results", []))
+                    }
+                }
+            }
+    elif method == "decorator/wrap_step":
+        act = params.get("inner_action", {})
+        if act.get("action") == "done" and isinstance(act.get("payload"), dict):
+            act["payload"]["wrapped_by_ext_dec"] = True
+        res = {"action": act}
+    elif method == "model/call":
+        sys.stdout.write(json.dumps({
+            "jsonrpc": "2.0",
+            "method": "stream/delta",
+            "params": {"channel": "text", "payload": "chunk1"}
+        }) + "\n")
+        sys.stdout.flush()
+        res = {
+            "kind": "decision",
+            "output": {"choice": "ok", "confidence": 0.99},
+            "usage": {"input_units": 5, "output_units": 2, "cost_micro_usd": 1}
+        }
+    elif method == "trigger/start":
+        sys.stdout.write(json.dumps({
+            "jsonrpc": "2.0",
+            "method": "trigger/fire",
+            "params": {
+                "trigger_id": params.get("trigger_id", "t_ext"),
+                "kind": "ext_tick",
+                "prompt": "fired from ext",
+                "timestamp_ms": 12345
+            }
+        }) + "\n")
+        sys.stdout.flush()
+        res = {"started": True}
+    elif method == "trigger/stop":
+        res = {"stopped": True}
+    elif method == "extension/shutdown":
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": {}}) + "\n")
+        sys.stdout.flush()
+        break
+    else:
+        res = {}
+
+    if req_id is not None:
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": res}) + "\n")
+        sys.stdout.flush()
+"#,
+    )
+    .expect("write worker");
+
+    let ws_toml = canon.join(".gestalt/gestalt.toml");
+    fs::write(
+        &ws_toml,
+        format!(
+            "[extensions.parity_ext]\nprotocol = \"rpc\"\ncommand = [\"python3\", \"{}\"]\ntimeout_ms = 5000\n\n\
+             [presets.ext_with_in_dec]\nbase_loop = \"ext_echo_loop\"\ndecorators = [\"in_tag\"]\nbuilder = \"ext_b\"\nbuilder_layers = [\"ext_layer\"]\nparams = {{ \"model\" = \"ext_prov/v1\" }}\n\n\
+             [presets.in_with_ext_dec]\nbase_loop = \"in_done\"\ndecorators = [\"ext_dec\"]\nbuilder = \"ext_b\"\nbuilder_layers = [\"ext_layer\"]\n",
+            script.display()
+        ),
+    )
+    .expect("write toml");
+
+    struct InTagDecorator;
+    impl LoopDecorator for InTagDecorator {
+        fn id(&self) -> &str {
+            "in_tag"
+        }
+        fn digest(&self) -> &str {
+            "it1"
+        }
+        fn wrap(
+            &self,
+            inner: Box<dyn AgentLoop>,
+            _c: &LoopConfig,
+            _r: &ExtensionRegistry,
+        ) -> Box<dyn AgentLoop> {
+            struct Wrapped(Box<dyn AgentLoop>);
+            impl AgentLoop for Wrapped {
+                fn id(&self) -> &str {
+                    self.0.id()
+                }
+                fn digest(&self) -> &str {
+                    self.0.digest()
+                }
+                fn step(
+                    &mut self,
+                    ctx: &mut dyn LoopContext,
+                    results: Option<Vec<StepResult>>,
+                ) -> LoopAction {
+                    match self.0.step(ctx, results) {
+                        LoopAction::Done(mut val) => {
+                            if let Some(obj) = val.as_object_mut() {
+                                obj.insert("wrapped_by_in_dec".to_string(), json!(true));
+                            }
+                            LoopAction::Done(val)
+                        }
+                        other => other,
+                    }
+                }
+            }
+            Box::new(Wrapped(inner))
+        }
+    }
+
+    struct InDoneFactory;
+    impl AgentLoopFactory for InDoneFactory {
+        fn id(&self) -> &str {
+            "in_done"
+        }
+        fn digest(&self) -> &str {
+            "id1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            struct L;
+            impl AgentLoop for L {
+                fn id(&self) -> &str {
+                    "in_done"
+                }
+                fn digest(&self) -> &str {
+                    "id1"
+                }
+                fn step(
+                    &mut self,
+                    _ctx: &mut dyn LoopContext,
+                    _r: Option<Vec<StepResult>>,
+                ) -> LoopAction {
+                    LoopAction::Done(json!({"from_in_loop": true}))
+                }
+            }
+            Box::new(L)
+        }
+    }
+
+    let mut reg = ExtensionRegistry::new();
+    reg.decorators
+        .insert("in_tag".into(), Arc::new(InTagDecorator));
+    reg.loops.insert("in_done".into(), Arc::new(InDoneFactory));
+
+    let mut gate = PolicyGate::default();
+    let trust = WorkspaceTrustStore::default();
+    let resolved = load_and_merge_config(
+        ConfigLoadOptions {
+            workspace_root: &canon,
+            global_toml_path: None,
+            workspace_toml_path: Some(&ws_toml),
+            cli_extensions: BTreeMap::new(),
+            trust_store: &trust,
+            auto_trust_workspace: true,
+        },
+        &mut gate,
+        &mut reg,
+    )
+    .expect("load config");
+
+    let creds = CredentialStore::default();
+    let mut runtime = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
+    runtime
+        .connect_configured_extensions(&canon, &resolved, &creds.redactor(), &mut gate, &mut reg)
+        .await
+        .expect("connect");
+
+    let mut host = RuntimeHost::new(
+        "run_parity".into(),
+        &canon,
+        canon.join(".gestalt/sessions/parity.jsonl"),
+        reg,
+        gate,
+        runtime,
+        creds,
+        None,
+        Arc::new(HeadlessPauseHandler::default()),
+    )
+    .expect("host");
+
+    // 1. External loop + in-process decorator + external per-step builder + external layer + external ModelProvider
+    match host
+        .run_turn(
+            json!("go"),
+            "ext_with_in_dec",
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("ext_with_in_dec")
+    {
+        TurnOutcome::Completed { output, .. } => {
+            assert_eq!(output["wrapped_by_in_dec"], json!(true));
+            assert_eq!(output["results_len"], json!(1));
+            assert_eq!(output["context"]["layered"], json!(true));
+            assert_eq!(output["context"]["caps_max_ctx"], json!(32000));
+            assert!(output["context"]["built_step_nodes"].as_u64().unwrap_or(0) >= 4);
+        }
+        other => panic!("expected completed, got {other:?}"),
+    }
+    assert!(
+        host.kernel()
+            .session_tree()
+            .all_nodes()
+            .iter()
+            .any(|n| n.kind == "custom:ext:trace")
+    );
+
+    // 2. In-process loop + external decorator
+    match host
+        .run_turn(
+            json!("go2"),
+            "in_with_ext_dec",
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("in_with_ext_dec")
+    {
+        TurnOutcome::Completed { output, .. } => {
+            assert_eq!(output["from_in_loop"], json!(true));
+            assert_eq!(output["wrapped_by_ext_dec"], json!(true));
+        }
+        other => panic!("expected completed, got {other:?}"),
+    }
+
+    // 3. External trigger/start + unsolicited trigger/fire notification -> TriggerManager receiver
+    let mut rx = host.take_trigger_receiver().await.expect("rx");
+    host.start_trigger(gestalt_runtime::TriggerInstanceConfig {
+        id: "t_ext".into(),
+        kind: "ext_tick".into(),
+        enabled: true,
+        prompt: json!("ignored"),
+        preset: None,
+        extra_decorators: vec![],
+        config: json!({}),
+    })
+    .await
+    .expect("start_trigger");
+    let ev = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("timeout")
+        .expect("trigger event");
+    assert_eq!(ev.trigger_id, "t_ext");
+    assert_eq!(ev.prompt, json!("fired from ext"));
+
+    host.shutdown().await;
     let _ = fs::remove_dir_all(&dir);
 }

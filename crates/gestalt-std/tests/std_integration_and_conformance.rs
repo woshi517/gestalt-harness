@@ -169,6 +169,9 @@ async fn multi_turn_standard_builder_cache_stability_tools_and_replay() {
     let mut reg = ExtensionRegistry::new();
     StdExtension.register(&mut reg).expect("std");
     StdToolsExtension.register(&mut reg).expect("tools");
+    gestalt_std::EvolutionToolsExtension
+        .register(&mut reg)
+        .expect("evolution tools");
 
     let mut gate = PolicyGate::new(Default::default(), None, default_std_sandbox_policy());
     let ws_toml = canon.join(".gestalt/gestalt.toml");
@@ -358,12 +361,16 @@ async fn decision_router_triage_escalation_with_goal_check_and_curator_rollback(
     let mut reg = ExtensionRegistry::new();
     StdExtension.register(&mut reg).expect("std");
     StdToolsExtension.register(&mut reg).expect("tools");
+    gestalt_std::EvolutionToolsExtension
+        .register(&mut reg)
+        .expect("evolution tools");
     reg.presets.insert(
         "swe_goal_curated".into(),
         gestalt_kernel::Preset {
             base_loop: "chat".into(),
             decorators: vec!["goal_check".into(), "curator".into()],
             builder: "standard".into(),
+            builder_layers: vec![],
             config: LoopConfig {
                 params: json!({
                     "goal_criteria": "Must verify output",
@@ -470,6 +477,163 @@ async fn decision_router_triage_escalation_with_goal_check_and_curator_rollback(
         })
         .expect("replay");
     assert!(report.is_parity(), "divergences: {:?}", report.divergences);
+
+    host.shutdown().await;
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn replay_verify_tool_verifies_staged_curator_patch_offline() {
+    use gestalt_kernel::{BudgetCap, ModelCapabilities, ModelKind, Usage};
+    use gestalt_runtime::{
+        HeadlessPauseHandler, ModelProvider, ModelRequest, ModelResponse, ProviderContext,
+        StreamDeltaFn,
+    };
+
+    struct MockEndProvider;
+    impl ModelProvider for MockEndProvider {
+        fn id(&self) -> &str {
+            "default_llm"
+        }
+        fn capabilities(&self, _model: &str) -> ModelCapabilities {
+            ModelCapabilities::default()
+        }
+        fn invoke<'a>(
+            &'a self,
+            _req: &'a ModelRequest,
+            _ctx: &'a ProviderContext<'a>,
+            _on_delta: StreamDeltaFn<'a>,
+        ) -> Pin<Box<dyn Future<Output = Result<ModelResponse, RuntimeError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                Ok(ModelResponse {
+                    kind: ModelKind::Llm,
+                    output: json!({
+                        "text": "ok",
+                        "reasoning": [],
+                        "tool_calls": [],
+                        "stop_reason": "end_turn"
+                    }),
+                    usage: Usage::default(),
+                })
+            })
+        }
+    }
+
+    let dir = std::env::temp_dir().join(format!(
+        "gestalt_u8_replay_verify_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    let canon = fs::canonicalize(&dir).expect("canon");
+    let session_path = canon.join(".gestalt/sessions/seed.jsonl");
+    fs::create_dir_all(session_path.parent().expect("parent")).expect("mkdir");
+
+    let mut reg = ExtensionRegistry::new();
+    StdExtension.register(&mut reg).expect("std");
+    StdToolsExtension.register(&mut reg).expect("tools");
+    gestalt_std::EvolutionToolsExtension
+        .register(&mut reg)
+        .expect("evolution tools");
+    reg.presets.insert(
+        "curated_verified".into(),
+        gestalt_kernel::Preset {
+            base_loop: "chat".into(),
+            decorators: vec!["curator".into()],
+            builder: "standard".into(),
+            builder_layers: vec![],
+            config: LoopConfig {
+                params: json!({
+                    "curator_candidate": {
+                        "artifact": ".gestalt/memories/MEMORY.md",
+                        "patch": { "patch_kind": "write_file", "content": "Verified lesson\n" }
+                    },
+                    "curator_verify_sessions": [".gestalt/sessions/seed.jsonl"]
+                }),
+                ..LoopConfig::default()
+            },
+        },
+    );
+
+    let mut runtime = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
+    let _tasks = register_std_tools(&mut runtime);
+    runtime
+        .providers
+        .register_provider(Arc::new(MockEndProvider));
+
+    let gate = PolicyGate::new(
+        BudgetCap {
+            max_steps: Some(20),
+            max_tokens: Some(100_000),
+            max_cost_micro_usd: None,
+        },
+        None,
+        default_std_sandbox_policy(),
+    );
+
+    // 1. Record a seed session
+    {
+        let mut seed_host = RuntimeHost::new(
+            "run_seed".into(),
+            &canon,
+            session_path.clone(),
+            reg.clone(),
+            gate.clone(),
+            RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver)),
+            CredentialStore::default(),
+            None,
+            Arc::new(HeadlessPauseHandler::default()),
+        )
+        .expect("seed host");
+        seed_host
+            .runtime_mut()
+            .providers
+            .register_provider(Arc::new(MockEndProvider));
+        let _ = seed_host
+            .run_turn(json!("seed"), "general", &[], CancellationToken::new())
+            .await
+            .expect("seed turn");
+        seed_host.shutdown().await;
+    }
+
+    // 2. Run curated_verified -> stages -> runs replay_verify -> pauses with replay_verify report -> promotes
+    let mut host = RuntimeHost::new(
+        "run_curated".into(),
+        &canon,
+        canon.join(".gestalt/sessions/curated.jsonl"),
+        reg,
+        gate,
+        runtime,
+        CredentialStore::default(),
+        None,
+        Arc::new(HeadlessPauseHandler {
+            auto_approve: vec!["approval".to_string()],
+        }),
+    )
+    .expect("host");
+    let outcome = host
+        .run_turn(
+            json!("hello"),
+            "curated_verified",
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("turn");
+    match outcome {
+        TurnOutcome::Completed { output, .. } => {
+            assert_eq!(output["curator"]["promoted"], json!(true));
+        }
+        other => panic!("expected completed, got {other:?}"),
+    }
+    assert_eq!(
+        fs::read_to_string(canon.join(".gestalt/memories/MEMORY.md")).expect("mem"),
+        "Verified lesson\n"
+    );
 
     host.shutdown().await;
     let _ = fs::remove_dir_all(&dir);

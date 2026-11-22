@@ -380,10 +380,7 @@ fn render_transcript_item(
                 out.extend(custom.render_lines(width, data));
                 return;
             }
-            out.push(Line::from(Span::styled(
-                format!("[{title}] {data}"),
-                Style::default().fg(Color::Blue),
-            )));
+            out.extend(render_declarative_ui_blocks(title, data));
         }
         TranscriptItem::PhaseDivider {
             phase_id,
@@ -1330,6 +1327,117 @@ fn format_collapsed_tool_summary(
     }
 }
 
+fn render_declarative_ui_blocks(title: &str, data: &Value) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(Span::styled(
+        format!("[{title}]"),
+        Style::default()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::BOLD),
+    ))];
+    let blocks: Vec<&Value> = if let Some(arr) = data.get("blocks").and_then(Value::as_array) {
+        arr.iter().collect()
+    } else if data.get("kind").and_then(Value::as_str).is_some() {
+        vec![data]
+    } else {
+        let pretty = serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string());
+        for line in pretty.lines() {
+            lines.push(Line::from(format!("  {line}")));
+        }
+        return lines;
+    };
+
+    for block in blocks {
+        match block.get("kind").and_then(Value::as_str) {
+            Some("markdown") => {
+                let text = block
+                    .get("text")
+                    .or_else(|| block.get("content"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                for l in text.lines() {
+                    lines.push(Line::from(format!("  {l}")));
+                }
+            }
+            Some("kv_table") => {
+                if let Some(rows) = block
+                    .get("rows")
+                    .or_else(|| block.get("entries"))
+                    .and_then(Value::as_object)
+                {
+                    for (k, v) in rows {
+                        let val_str = match v {
+                            Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("  {k}: "),
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::raw(val_str),
+                        ]));
+                    }
+                }
+            }
+            Some("diff") => {
+                let diff = block
+                    .get("unified_diff")
+                    .or_else(|| block.get("diff"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                for l in diff.lines() {
+                    let style = if l.starts_with('+') && !l.starts_with("+++") {
+                        Style::default().fg(Color::Green)
+                    } else if l.starts_with('-') && !l.starts_with("---") {
+                        Style::default().fg(Color::Red)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    lines.push(Line::from(Span::styled(format!("  {l}"), style)));
+                }
+            }
+            Some("badge") => {
+                let label = block.get("label").and_then(Value::as_str).unwrap_or("");
+                let color = match block.get("tone").and_then(Value::as_str) {
+                    Some("success") => Color::Green,
+                    Some("warn") => Color::Yellow,
+                    Some("error") => Color::Red,
+                    _ => Color::Cyan,
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  [{label}]"),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )));
+            }
+            Some("progress") => {
+                let label = block
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Progress");
+                let pct = block
+                    .get("ratio")
+                    .and_then(Value::as_f64)
+                    .map(|r| (r.clamp(0.0, 1.0) * 100.0).round() as u64)
+                    .unwrap_or(0);
+                lines.push(Line::from(Span::styled(
+                    format!("  {label}: {pct}%"),
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+            _ => {
+                let pretty =
+                    serde_json::to_string_pretty(block).unwrap_or_else(|_| block.to_string());
+                for l in pretty.lines() {
+                    lines.push(Line::from(format!("  {l}")));
+                }
+            }
+        }
+    }
+    lines
+}
+
 fn collect_bash_output_text(streaming_output: &str, result_output: Option<&Value>) -> String {
     if let Some(res) = result_output {
         let stdout = res.get("stdout").and_then(Value::as_str).unwrap_or("");
@@ -1914,5 +2022,34 @@ mod tests {
             .expect("draw tree");
         let eff = state.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(matches!(eff, TuiEffect::RewindToNode(ref id) if id == "n3"));
+    }
+
+    #[test]
+    fn renders_declarative_ui_blocks_markdown_kv_diff_badge_progress() {
+        let data = json!({
+            "blocks": [
+                { "kind": "markdown", "text": "Curator summary line" },
+                { "kind": "kv_table", "rows": { "stage_id": "stg_1" } },
+                { "kind": "diff", "unified_diff": "+new line\n-old line" },
+                { "kind": "badge", "label": "PASSED", "tone": "success" },
+                { "kind": "progress", "label": "Replay", "ratio": 0.75 }
+            ]
+        });
+        let lines = render_declarative_ui_blocks("Curator Card", &data);
+        let rendered: Vec<String> = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+        assert!(rendered.iter().any(|l| l.contains("[Curator Card]")));
+        assert!(rendered.iter().any(|l| l.contains("Curator summary line")));
+        assert!(rendered.iter().any(|l| l.contains("stage_id: stg_1")));
+        assert!(rendered.iter().any(|l| l.contains("+new line")));
+        assert!(rendered.iter().any(|l| l.contains("[PASSED]")));
+        assert!(rendered.iter().any(|l| l.contains("Replay: 75%")));
     }
 }

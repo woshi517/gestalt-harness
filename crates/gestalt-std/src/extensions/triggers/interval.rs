@@ -163,6 +163,7 @@ mod tests {
             credentials: CredentialStore::default(),
             http: SharedHttpClient::new(5).expect("http"),
             redactor: StreamRedactor::default(),
+            activity: gestalt_runtime::ActivityTracker::default(),
         };
         let (tx, mut rx) = mpsc::unbounded_channel();
         let cancel = CancellationToken::new();

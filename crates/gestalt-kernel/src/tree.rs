@@ -83,6 +83,9 @@ pub enum NodePayload {
         builder_id: String,
         /// Deterministic digest of the active `ContextBuilder`.
         builder_digest: String,
+        /// Ordered deterministic digests of applied `ContextLayer`s.
+        #[serde(default)]
+        builder_layer_digests: Vec<String>,
         /// Effective `LoopConfig` for this Phase.
         config: LoopConfig,
     },

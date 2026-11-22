@@ -139,6 +139,7 @@ mod tests {
                 decorator_digests: vec![],
                 builder_id: "sliding_window".into(),
                 builder_digest: builder.digest().into(),
+                builder_layer_digests: vec![],
                 config: LoopConfig {
                     params: json!({ "window_steps": 2 }),
                     ..LoopConfig::default()

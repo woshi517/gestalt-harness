@@ -4,7 +4,7 @@
 
 use gestalt_kernel::{
     AgentLoop, ArtifactPatch, Effect, ExtensionRegistry, LoopAction, LoopConfig, LoopContext,
-    LoopDecorator, ModelKind, PauseReason, SaveMode, StepResult,
+    LoopDecorator, ModelKind, PauseReason, SaveMode, SideEffectClass, StepResult,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -57,6 +57,12 @@ enum CuratorState {
     Proposing,
     Staging {
         proposal: CandidateProposal,
+    },
+    Verifying {
+        proposal: CandidateProposal,
+        stage_id: String,
+        diff_summary: String,
+        digest: String,
     },
     AwaitingApproval {
         proposal: CandidateProposal,
@@ -178,6 +184,28 @@ impl AgentLoop for CuratorLoop {
                     ..
                 }) = res_list.first()
                 {
+                    if let Some(verify_sessions) = ctx
+                        .config()
+                        .params
+                        .get("curator_verify_sessions")
+                        .and_then(Value::as_array)
+                        .filter(|arr| !arr.is_empty())
+                    {
+                        self.state = CuratorState::Verifying {
+                            proposal,
+                            stage_id: stage_id.clone(),
+                            diff_summary: diff_summary.clone(),
+                            digest: digest.clone(),
+                        };
+                        return LoopAction::Yield(vec![Effect::Tool {
+                            name: "replay_verify".to_string(),
+                            args: json!({
+                                "stage_id": stage_id,
+                                "session_paths": verify_sessions,
+                            }),
+                            side_effect: SideEffectClass::Read,
+                        }]);
+                    }
                     let pause = Effect::Pause {
                         reason: PauseReason::Approval,
                         payload: json!({
@@ -196,6 +224,32 @@ impl AgentLoop for CuratorLoop {
                     return LoopAction::Yield(vec![pause]);
                 }
                 LoopAction::Done(self.final_output.take().unwrap_or(Value::Null))
+            }
+            CuratorState::Verifying {
+                proposal,
+                stage_id,
+                diff_summary,
+                digest,
+            } => {
+                let res_list = results.unwrap_or_default();
+                let replay_report = match res_list.first() {
+                    Some(StepResult::Tool { output, .. }) => output.clone(),
+                    other => json!({ "error": format!("{other:?}") }),
+                };
+                let pause = Effect::Pause {
+                    reason: PauseReason::Approval,
+                    payload: json!({
+                        "dialog": "curator_approval",
+                        "action": "curator_promote",
+                        "stage_id": stage_id,
+                        "artifact": proposal.artifact,
+                        "diff_summary": diff_summary,
+                        "digest": digest,
+                        "replay_verify": replay_report,
+                    }),
+                };
+                self.state = CuratorState::AwaitingApproval { proposal, stage_id };
+                LoopAction::Yield(vec![pause])
             }
             CuratorState::AwaitingApproval { proposal, stage_id } => {
                 let res_list = results.unwrap_or_default();
@@ -248,17 +302,21 @@ mod tests {
     #[test]
     fn curator_stages_pauses_and_promotes_only_when_approved() {
         let mut reg = ExtensionRegistry::new();
-        reg.builders
-            .insert("standard".into(), Box::new(StandardBuilder::default()));
-        reg.loops.insert("chat".into(), Box::new(ChatLoopFactory));
+        reg.builders.insert(
+            "standard".into(),
+            std::sync::Arc::new(StandardBuilder::default()),
+        );
+        reg.loops
+            .insert("chat".into(), std::sync::Arc::new(ChatLoopFactory));
         reg.decorators
-            .insert("curator".into(), Box::new(CuratorDecorator));
+            .insert("curator".into(), std::sync::Arc::new(CuratorDecorator));
         reg.presets.insert(
             "swe_curated".into(),
             Preset {
                 base_loop: "chat".into(),
                 decorators: vec!["curator".into()],
                 builder: "standard".into(),
+                builder_layers: vec![],
                 config: LoopConfig {
                     params: json!({
                         "curator_candidate": {

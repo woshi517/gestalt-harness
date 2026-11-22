@@ -42,13 +42,16 @@ use crate::mcp::McpClient;
 use crate::provider::{ProviderRegistry, SharedHttpClient, StreamDeltaFn};
 use crate::sandbox::{SandboxDriver, WorkspacePathGuard};
 use crate::trigger::{
-    TriggerContext, TriggerEvent, TriggerHandler, TriggerInstanceConfig, TriggerManager,
-    TriggerStatus,
+    ActivityTracker, TriggerContext, TriggerEvent, TriggerHandler, TriggerInstanceConfig,
+    TriggerManager, TriggerStatus,
 };
 use crate::{CancellationToken, RuntimeError};
 
 pub use dispatch::validate_tool_args;
-pub use replay::{ExternalReplayOptions, replay_session_tree};
+pub use replay::{
+    ExternalReplayOptions, ReplayOverlayOptions, replay_session_tree,
+    replay_session_tree_with_overlay,
+};
 pub use session_io::{SessionLockGuard, current_epoch_ms};
 pub use worktree::{capture_worktree_diff_blob, create_worktree, prune_clean_worktrees};
 
@@ -271,6 +274,104 @@ pub enum LiveTurnControl {
     Trigger(TriggerEvent),
 }
 
+struct ExternalModelProvider {
+    id: String,
+    capabilities: gestalt_kernel::ModelCapabilities,
+    ext_name: String,
+    ext_ipc: Arc<Mutex<ExtIpcHost>>,
+}
+
+impl crate::provider::ModelProvider for ExternalModelProvider {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn capabilities(&self, _model: &str) -> gestalt_kernel::ModelCapabilities {
+        self.capabilities
+    }
+
+    fn invoke<'a>(
+        &'a self,
+        req: &'a crate::provider::ModelRequest,
+        ctx: &'a crate::provider::ProviderContext<'a>,
+        on_delta: StreamDeltaFn<'a>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<crate::provider::ModelResponse, RuntimeError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let mut ipc = self.ext_ipc.lock().await;
+            let worker =
+                ipc.worker_mut(&self.ext_name)
+                    .ok_or_else(|| RuntimeError::IpcProtocol {
+                        ext_name: self.ext_name.clone(),
+                        message: format!(
+                            "external provider worker '{}' not running",
+                            self.ext_name
+                        ),
+                    })?;
+            worker.model_call(req, on_delta, ctx.cancel.clone()).await
+        })
+    }
+}
+
+struct ExternalTriggerHandler {
+    kind: String,
+    description: String,
+    ext_name: String,
+    ext_ipc: Arc<Mutex<ExtIpcHost>>,
+}
+
+impl TriggerHandler for ExternalTriggerHandler {
+    fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn validate(&self, _config: &Value) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
+    fn start(
+        &self,
+        instance: TriggerInstanceConfig,
+        _ctx: TriggerContext,
+        _event_tx: mpsc::UnboundedSender<TriggerEvent>,
+        cancel: CancellationToken,
+    ) -> Result<tokio::task::JoinHandle<()>, RuntimeError> {
+        let ext_name = self.ext_name.clone();
+        let ext_ipc = self.ext_ipc.clone();
+        let trigger_id = instance.id;
+        let config = instance.config;
+        Ok(tokio::spawn(async move {
+            {
+                let mut ipc = ext_ipc.lock().await;
+                if let Some(worker) = ipc.worker_mut(&ext_name)
+                    && let Err(err) = worker
+                        .trigger_start(&trigger_id, &config, cancel.clone())
+                        .await
+                {
+                    tracing::warn!(ext = %ext_name, trigger = %trigger_id, "external trigger/start failed: {err}");
+                    return;
+                }
+            }
+            cancel.cancelled().await;
+            let mut ipc = ext_ipc.lock().await;
+            if let Some(worker) = ipc.worker_mut(&ext_name) {
+                let _ = worker
+                    .trigger_stop(&trigger_id, CancellationToken::new())
+                    .await;
+            }
+        }))
+    }
+}
+
 /// Host registry binding async runtime handlers (`ToolHandler`, `CommandHandler`,
 /// `ProviderRegistry`, `SandboxDriver`, `SharedHttpClient`, `ExtIpcHost`, `McpClient`).
 pub struct RuntimeRegistry {
@@ -302,17 +403,20 @@ impl RuntimeRegistry {
     pub fn new(sandbox_driver: Arc<dyn SandboxDriver>) -> Self {
         let http = SharedHttpClient::new(120)
             .unwrap_or_else(|_| SharedHttpClient::new(0).expect("reqwest client init"));
+        let mut ext_ipc_host = ExtIpcHost::new();
+        let trigger_manager = TriggerManager::new();
+        ext_ipc_host.set_trigger_event_sender(trigger_manager.event_sender());
         Self {
             tools: BTreeMap::new(),
             commands: BTreeMap::new(),
             providers: ProviderRegistry::new(),
             http,
             sandbox_driver,
-            ext_ipc: Arc::new(Mutex::new(ExtIpcHost::new())),
+            ext_ipc: Arc::new(Mutex::new(ext_ipc_host)),
             mcp_clients: BTreeMap::new(),
             mcp_tool_owners: BTreeMap::new(),
             trigger_handlers: BTreeMap::new(),
-            trigger_manager: Arc::new(Mutex::new(TriggerManager::new())),
+            trigger_manager: Arc::new(Mutex::new(trigger_manager)),
         }
     }
 
@@ -352,8 +456,9 @@ impl RuntimeRegistry {
                         .await?
                     };
                     for pol in &spec.policies {
-                        policy_gate.add_rule(Box::new(ExternalPolicyBridgeRule::new(&pol.id)));
+                        policy_gate.add_rule(Arc::new(ExternalPolicyBridgeRule::new(&pol.id)));
                     }
+                    self.register_external_spec_handlers(&spec);
                 }
                 ExtensionProtocol::Mcp => {
                     self.connect_or_reload_mcp(
@@ -369,6 +474,29 @@ impl RuntimeRegistry {
             }
         }
         Ok(())
+    }
+
+    fn register_external_spec_handlers(&mut self, spec: &gestalt_kernel::ExternalExtensionSpec) {
+        for prov in &spec.providers {
+            self.providers
+                .register_provider(Arc::new(ExternalModelProvider {
+                    id: prov.id.clone(),
+                    capabilities: prov.capabilities,
+                    ext_name: spec.name.clone(),
+                    ext_ipc: self.ext_ipc.clone(),
+                }));
+        }
+        for trig in &spec.triggers {
+            self.trigger_handlers.insert(
+                trig.kind.clone(),
+                Arc::new(ExternalTriggerHandler {
+                    kind: trig.kind.clone(),
+                    description: trig.description.clone(),
+                    ext_name: spec.name.clone(),
+                    ext_ipc: self.ext_ipc.clone(),
+                }),
+            );
+        }
     }
 
     pub(crate) async fn connect_or_reload_mcp(
@@ -457,6 +585,18 @@ pub struct RuntimeHost {
     pause_handler: Arc<dyn PauseHandler>,
     tracked_artifact_paths: Vec<String>,
     auto_trust_workspace: bool,
+    activity: ActivityTracker,
+    detached_cancel: CancellationToken,
+    detached_spawns: JoinSet<()>,
+    detached_tx: mpsc::UnboundedSender<(String, gestalt_kernel::SpawnNotifyMode, StepResult)>,
+    detached_rx: mpsc::UnboundedReceiver<(String, gestalt_kernel::SpawnNotifyMode, StepResult)>,
+}
+
+impl Drop for RuntimeHost {
+    fn drop(&mut self) {
+        self.detached_cancel.cancel();
+        self.detached_spawns.abort_all();
+    }
 }
 
 impl RuntimeHost {
@@ -496,6 +636,7 @@ impl RuntimeHost {
         let artifacts = ArtifactManager::new(&canon_ws)?;
         let blob_store = BlobStore::new(&canon_ws);
 
+        let (detached_tx, detached_rx) = mpsc::unbounded_channel();
         let mut host = Self {
             run_id,
             workspace_root: canon_ws,
@@ -511,6 +652,11 @@ impl RuntimeHost {
             pause_handler,
             tracked_artifact_paths: Vec::new(),
             auto_trust_workspace: false,
+            activity: ActivityTracker::new(),
+            detached_cancel: CancellationToken::new(),
+            detached_spawns: JoinSet::new(),
+            detached_tx,
+            detached_rx,
         };
         host.flush_kernel_outputs(&redactor)?;
         Ok(host)
@@ -547,6 +693,7 @@ impl RuntimeHost {
         let artifacts = ArtifactManager::new(&canon_ws)?;
         let blob_store = BlobStore::new(&canon_ws);
 
+        let (detached_tx, detached_rx) = mpsc::unbounded_channel();
         Ok(Self {
             run_id,
             workspace_root: canon_ws,
@@ -562,6 +709,11 @@ impl RuntimeHost {
             pause_handler,
             tracked_artifact_paths: Vec::new(),
             auto_trust_workspace: false,
+            activity: ActivityTracker::new(),
+            detached_cancel: CancellationToken::new(),
+            detached_spawns: JoinSet::new(),
+            detached_tx,
+            detached_rx,
         })
     }
 
@@ -575,6 +727,21 @@ impl RuntimeHost {
     /// permitted for Turn-start artifact snapshotting and read-only tools.
     pub fn set_extra_read_roots(&mut self, roots: Vec<PathBuf>) {
         self.artifacts.set_extra_read_roots(roots);
+    }
+
+    /// Configure policy-gated directory roots outside `workspace_root`
+    /// permitted for `Effect::Save`.
+    ///
+    /// # Arguments
+    ///
+    /// * `roots` - Canonical or workspace-external directory roots permitted for `Effect::Save`
+    pub fn set_writable_artifact_roots(&mut self, roots: Vec<PathBuf>) {
+        for r in &roots {
+            self.kernel
+                .policy_gate_mut()
+                .add_writable_root(r.to_string_lossy().to_string());
+        }
+        self.artifacts.set_writable_roots(roots);
     }
 
     /// Borrow the underlying [`KernelRuntime`].
@@ -891,16 +1058,19 @@ impl RuntimeHost {
             ipc.upsert_config(ext_name.to_string(), cfg.clone());
         }
 
-        let mut ipc = self.runtime.ext_ipc.lock().await;
-        ipc.reload_extension(
-            ext_name,
-            self.workspace_root.clone(),
-            sandbox_policy,
-            self.runtime.sandbox_driver.clone(),
-            redactor,
-            self.kernel.registry_mut(),
-        )
-        .await?;
+        let spec = {
+            let mut ipc = self.runtime.ext_ipc.lock().await;
+            ipc.reload_extension(
+                ext_name,
+                self.workspace_root.clone(),
+                sandbox_policy,
+                self.runtime.sandbox_driver.clone(),
+                redactor,
+                self.kernel.registry_mut(),
+            )
+            .await?
+        };
+        self.runtime.register_external_spec_handlers(&spec);
         Ok(())
     }
 
@@ -936,20 +1106,29 @@ impl RuntimeHost {
             }
         }
 
-        let mut ipc = self.runtime.ext_ipc.lock().await;
-        let names = ipc.configured_extensions();
-        for ext_name in names {
-            ipc.reload_extension(
-                &ext_name,
-                self.workspace_root.clone(),
-                sandbox_policy.clone(),
-                self.runtime.sandbox_driver.clone(),
-                redactor.clone(),
-                self.kernel.registry_mut(),
-            )
-            .await?;
-            reloaded.push(ext_name);
+        let (names, specs) = {
+            let mut ipc = self.runtime.ext_ipc.lock().await;
+            let names = ipc.configured_extensions();
+            let mut specs = Vec::with_capacity(names.len());
+            for ext_name in &names {
+                let spec = ipc
+                    .reload_extension(
+                        ext_name,
+                        self.workspace_root.clone(),
+                        sandbox_policy.clone(),
+                        self.runtime.sandbox_driver.clone(),
+                        redactor.clone(),
+                        self.kernel.registry_mut(),
+                    )
+                    .await?;
+                specs.push(spec);
+            }
+            (names, specs)
+        };
+        for spec in &specs {
+            self.runtime.register_external_spec_handlers(spec);
         }
+        reloaded.extend(names);
         Ok(reloaded)
     }
 
@@ -1036,7 +1215,77 @@ impl RuntimeHost {
             credentials: self.credentials.clone(),
             http: self.runtime.http.clone(),
             redactor: self.credentials.redactor(),
+            activity: self.activity.clone(),
         }
+    }
+
+    /// Borrow the read-only session [`ActivityTracker`].
+    #[must_use]
+    pub fn activity(&self) -> &ActivityTracker {
+        &self.activity
+    }
+
+    /// Drain any completed detached `Effect::Spawn` background tasks, recording
+    /// `custom:spawn:completed` nodes on `SessionTree` and enqueuing `FollowUp`
+    /// signals for tasks configured with `SpawnNotifyMode::FollowUp`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if `SessionTree` persistence fails.
+    pub fn poll_detached_spawns(&mut self) -> Result<usize, RuntimeError> {
+        let mut count = 0usize;
+        while let Ok((child_run_id, notify_mode, sr)) = self.detached_rx.try_recv() {
+            let now = current_epoch_ms();
+            let payload = match &sr {
+                StepResult::SpawnCompleted {
+                    child_head_id,
+                    worktree_path,
+                    diff_blob_digest,
+                    output,
+                    usage,
+                    ..
+                } => json!({
+                    "child_run_id": child_run_id,
+                    "status": "completed",
+                    "child_head_id": child_head_id,
+                    "worktree_path": worktree_path,
+                    "diff_blob_digest": diff_blob_digest,
+                    "output": output,
+                    "usage": usage,
+                }),
+                StepResult::Aborted { reason, .. } => json!({
+                    "child_run_id": child_run_id,
+                    "status": "aborted",
+                    "reason": reason,
+                }),
+                StepResult::Error { message, .. } => json!({
+                    "child_run_id": child_run_id,
+                    "status": "error",
+                    "message": message,
+                }),
+                other => json!({
+                    "child_run_id": child_run_id,
+                    "status": "other",
+                    "result": other,
+                }),
+            };
+            self.kernel
+                .append_custom_node("spawn:completed".to_string(), payload.clone(), now)?;
+            if notify_mode == gestalt_kernel::SpawnNotifyMode::FollowUp {
+                let _ = self.kernel.enqueue_steering(
+                    gestalt_kernel::SteeringKind::FollowUp,
+                    payload,
+                    gestalt_kernel::SteeringSource::Supervisor,
+                    now,
+                )?;
+            }
+            count += 1;
+        }
+        if count > 0 {
+            let redactor = self.credentials.redactor();
+            self.flush_kernel_outputs(&redactor)?;
+        }
+        Ok(count)
     }
 
     /// Take the single [`mpsc::UnboundedReceiver<TriggerEvent>`] for surface
@@ -1280,8 +1529,44 @@ impl RuntimeHost {
         extra_decorators: &[String],
         cancel: CancellationToken,
     ) -> Result<TurnOutcome, RuntimeError> {
-        self.run_turn_with_steering(prompt, preset_or_loop, extra_decorators, cancel, None)
+        self.run_turn_with_config(prompt, preset_or_loop, extra_decorators, None, cancel)
             .await
+    }
+
+    /// Drive one Turn with an optional monotonic [`LoopConfig`] override.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - Initial user prompt or trigger payload
+    /// * `preset_or_loop` - Target preset or base loop ID
+    /// * `extra_decorators` - Additional decorator IDs to layer onto the Phase
+    /// * `config_override` - Optional monotonic `LoopConfig` override
+    /// * `cancel` - Cooperative cancellation token
+    ///
+    /// # Returns
+    ///
+    /// [`TurnOutcome::Completed`] or [`TurnOutcome::Aborted`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on unrecoverable kernel, lock, or pause-denial failures.
+    pub async fn run_turn_with_config(
+        &mut self,
+        prompt: Value,
+        preset_or_loop: &str,
+        extra_decorators: &[String],
+        config_override: Option<&gestalt_kernel::LoopConfig>,
+        cancel: CancellationToken,
+    ) -> Result<TurnOutcome, RuntimeError> {
+        self.run_turn_inner(
+            prompt,
+            preset_or_loop,
+            extra_decorators,
+            config_override,
+            cancel,
+            ControlReceiver::None,
+        )
+        .await
     }
 
     /// Drive one Turn while accepting live intra-turn steering (`Steer`,
@@ -1302,7 +1587,7 @@ impl RuntimeHost {
             Some(rx) => ControlReceiver::Steering(rx),
             None => ControlReceiver::None,
         };
-        self.run_turn_inner(prompt, preset_or_loop, extra_decorators, cancel, ctrl)
+        self.run_turn_inner(prompt, preset_or_loop, extra_decorators, None, cancel, ctrl)
             .await
     }
 
@@ -1324,7 +1609,7 @@ impl RuntimeHost {
             Some(rx) => ControlReceiver::Controls(rx),
             None => ControlReceiver::None,
         };
-        self.run_turn_inner(prompt, preset_or_loop, extra_decorators, cancel, ctrl)
+        self.run_turn_inner(prompt, preset_or_loop, extra_decorators, None, cancel, ctrl)
             .await
     }
 
@@ -1333,16 +1618,43 @@ impl RuntimeHost {
         prompt: Value,
         preset_or_loop: &str,
         extra_decorators: &[String],
+        config_override: Option<&gestalt_kernel::LoopConfig>,
+        cancel: CancellationToken,
+        control_rx: ControlReceiver,
+    ) -> Result<TurnOutcome, RuntimeError> {
+        self.activity.mark_turn_started(current_epoch_ms());
+        let res = self
+            .run_turn_loop(
+                prompt,
+                preset_or_loop,
+                extra_decorators,
+                config_override,
+                cancel,
+                control_rx,
+            )
+            .await;
+        self.activity.mark_turn_ended(current_epoch_ms());
+        res
+    }
+
+    async fn run_turn_loop(
+        &mut self,
+        prompt: Value,
+        preset_or_loop: &str,
+        extra_decorators: &[String],
+        config_override: Option<&gestalt_kernel::LoopConfig>,
         cancel: CancellationToken,
         mut control_rx: ControlReceiver,
     ) -> Result<TurnOutcome, RuntimeError> {
+        let _ = self.poll_detached_spawns()?;
         let artifacts_view = self
             .artifacts
             .snapshot_artifacts(&self.tracked_artifact_paths)?;
-        let turn_id = self.kernel.start_turn(
+        let turn_id = self.kernel.start_turn_with_config(
             prompt,
             preset_or_loop,
             extra_decorators,
+            config_override,
             artifacts_view,
             current_epoch_ms(),
         )?;
@@ -1439,11 +1751,13 @@ impl RuntimeHost {
                     artifacts,
                     caps,
                 } => {
+                    let resolved_caps =
+                        self.resolve_active_model_capabilities(&session_slice, caps);
                     let req = ExternalBuilderRequest {
                         builder_id,
                         session_slice,
                         artifacts,
-                        caps,
+                        caps: resolved_caps,
                     };
                     let mut ipc = self.runtime.ext_ipc.lock().await;
                     let worker =
@@ -1455,6 +1769,33 @@ impl RuntimeHost {
                     let model_input = worker.builder_build(&req, cancel.clone()).await?;
                     response = DriverResponse::ExternalBuilderOutput { model_input };
                 }
+                DriverDirective::InvokeExternalBuilderLayer {
+                    ext_name,
+                    layer_id,
+                    input,
+                    session_slice,
+                    artifacts,
+                    caps,
+                } => {
+                    let resolved_caps =
+                        self.resolve_active_model_capabilities(&session_slice, caps);
+                    let req = crate::ext_ipc::ExternalBuilderLayerRequest {
+                        layer_id,
+                        input,
+                        session_slice,
+                        artifacts,
+                        caps: resolved_caps,
+                    };
+                    let mut ipc = self.runtime.ext_ipc.lock().await;
+                    let worker =
+                        ipc.worker_mut(&ext_name)
+                            .ok_or_else(|| RuntimeError::IpcProtocol {
+                                ext_name: ext_name.clone(),
+                                message: "external builder_layer worker not running".to_string(),
+                            })?;
+                    let model_input = worker.builder_layer(&req, cancel.clone()).await?;
+                    response = DriverResponse::ExternalBuilderOutput { model_input };
+                }
                 DriverDirective::InvokeExternalLoop {
                     ext_name,
                     loop_id: _,
@@ -1464,16 +1805,28 @@ impl RuntimeHost {
                     config,
                     state_token,
                     results,
+                    session_slice,
+                    artifacts,
+                    budget_remaining,
+                    steering,
+                    now_ms,
+                    context,
                 } => {
                     let req = ExternalLoopStepRequest {
-                        phase_id: phase_id.clone(),
+                        phase_id,
                         turn_id: active_turn_id,
                         handoff,
-                        config: config.clone(),
-                        state_token: state_token.clone(),
+                        config,
+                        state_token,
                         results,
+                        session_slice,
+                        artifacts,
+                        budget_remaining,
+                        steering,
+                        now_ms,
+                        context,
                     };
-                    let mut out = {
+                    let out = {
                         let mut ipc = self.runtime.ext_ipc.lock().await;
                         let worker =
                             ipc.worker_mut(&ext_name)
@@ -1483,33 +1836,51 @@ impl RuntimeHost {
                                 })?;
                         worker.loop_step(&req, cancel.clone()).await?
                     };
-
-                    // Apply any registered external decorators matching `extra_decorators`.
-                    for dec_id in extra_decorators {
-                        let dec_owner = {
-                            let ipc = self.runtime.ext_ipc.lock().await;
-                            ipc.owner_of_decorator(dec_id).map(str::to_string)
-                        };
-                        if let Some(owner) = dec_owner {
-                            let dec_req = ExternalDecoratorStepRequest {
-                                decorator_id: dec_id.clone(),
-                                phase_id: phase_id.clone(),
-                                inner_action: out.action.clone(),
-                                config: config.clone(),
-                                state_token: out.state_token.clone(),
-                            };
-                            let mut ipc = self.runtime.ext_ipc.lock().await;
-                            if let Some(dec_worker) = ipc.worker_mut(&owner) {
-                                out = dec_worker
-                                    .decorator_wrap_step(&dec_req, cancel.clone())
-                                    .await?;
-                            }
-                        }
-                    }
-
                     response = DriverResponse::ExternalLoopOutput {
                         action: out.action,
                         state_token: out.state_token,
+                        custom_nodes: out.custom_nodes,
+                    };
+                }
+                DriverDirective::InvokeExternalDecorator {
+                    ext_name,
+                    decorator_id,
+                    phase_id,
+                    turn_id: active_turn_id,
+                    inner_action,
+                    config,
+                    state_token,
+                    session_slice,
+                    artifacts,
+                    budget_remaining,
+                    now_ms,
+                } => {
+                    let req = ExternalDecoratorStepRequest {
+                        decorator_id,
+                        phase_id,
+                        turn_id: active_turn_id,
+                        inner_action,
+                        config,
+                        state_token,
+                        session_slice,
+                        artifacts,
+                        budget_remaining,
+                        now_ms,
+                    };
+                    let out = {
+                        let mut ipc = self.runtime.ext_ipc.lock().await;
+                        let worker =
+                            ipc.worker_mut(&ext_name)
+                                .ok_or_else(|| RuntimeError::IpcProtocol {
+                                    ext_name: ext_name.clone(),
+                                    message: "external decorator worker not running".to_string(),
+                                })?;
+                        worker.decorator_wrap_step(&req, cancel.clone()).await?
+                    };
+                    response = DriverResponse::ExternalDecoratorOutput {
+                        action: out.action,
+                        state_token: out.state_token,
+                        custom_nodes: out.custom_nodes,
                     };
                 }
                 DriverDirective::VerifyEffect {
@@ -1572,6 +1943,28 @@ impl RuntimeHost {
             }
         }
         Ok(())
+    }
+
+    fn resolve_active_model_capabilities(
+        &self,
+        session_slice: &[gestalt_kernel::SessionNode],
+        fallback: gestalt_kernel::ModelCapabilities,
+    ) -> gestalt_kernel::ModelCapabilities {
+        if fallback != gestalt_kernel::ModelCapabilities::default() {
+            return fallback;
+        }
+        for node in session_slice.iter().rev() {
+            if let Ok(gestalt_kernel::NodePayload::PhaseOpen { config, .. }) = node.decode_payload()
+            {
+                if let Some(target) = config.params.get("model").and_then(Value::as_str)
+                    && let Ok(resolved) = self.runtime.providers.resolve_target(target)
+                {
+                    return resolved.provider.capabilities(&resolved.model);
+                }
+                break;
+            }
+        }
+        fallback
     }
 
     fn build_dispatch_context(
@@ -1689,10 +2082,19 @@ impl RuntimeHost {
 
         let step_cancel = CancellationToken::new();
         let mut results_by_id: BTreeMap<String, StepResult> = BTreeMap::new();
+        let mut promoted_saves: BTreeMap<String, String> = BTreeMap::new();
         let mut join_set: JoinSet<(String, StepResult)> = JoinSet::new();
 
         for env in effects {
             let eff_id = env.effect_id.clone();
+            if let Effect::Save {
+                ref artifact,
+                mode: gestalt_kernel::SaveMode::Promote,
+                ..
+            } = env.effect
+            {
+                promoted_saves.insert(eff_id.clone(), artifact.clone());
+            }
             if let Effect::Spawn {
                 loop_id,
                 input,
@@ -1700,13 +2102,25 @@ impl RuntimeHost {
                 depth_limit: _,
                 workspace_mode,
                 config,
+                detached,
+                notify_on_complete,
             } = env.effect
             {
-                let child_registry = dispatch::prepare_child_registry(
-                    self.kernel.registry(),
-                    &loop_id,
-                    config.as_ref(),
-                )?;
+                let child_registry = self.kernel.registry().clone();
+                let child_override = gestalt_kernel::PolicyOverride {
+                    budget: Some(budget),
+                    allowed_tools: config.as_ref().and_then(|c| {
+                        c.allowed_tools
+                            .as_ref()
+                            .map(|v| v.iter().cloned().collect())
+                    }),
+                    sandbox: None,
+                };
+                let child_gate = self
+                    .kernel
+                    .policy_gate()
+                    .derive_child_gate(&child_override)?;
+                let child_run_id = format!("{}_{}", self.run_id, eff_id);
                 let spec = dispatch::SpawnTaskSpec {
                     effect_id: eff_id.clone(),
                     parent_run_id: self.run_id.clone(),
@@ -1717,17 +2131,47 @@ impl RuntimeHost {
                     parent_sink: self.event_sink.clone(),
                     child_runtime: self.runtime.clone_for_spawn(),
                     child_registry,
+                    child_gate,
+                    tracked_artifact_paths: self.tracked_artifact_paths.clone(),
+                    extra_read_roots: self.artifacts.extra_read_roots().to_vec(),
                     loop_id,
                     input,
-                    budget,
-                    child_depth: 1,
+                    config,
+                    child_depth: self.kernel.spawn_depth().saturating_add(1),
                     workspace_mode,
-                    cancel: step_cancel.clone(),
+                    cancel: if detached {
+                        self.detached_cancel.clone()
+                    } else {
+                        step_cancel.clone()
+                    },
                 };
-                join_set.spawn(async move {
-                    let sr = dispatch::execute_spawn_effect(spec).await;
-                    (eff_id, sr)
-                });
+                if detached {
+                    let tx = self.detached_tx.clone();
+                    let run_id_copy = child_run_id.clone();
+                    self.detached_spawns.spawn(async move {
+                        let sr = dispatch::execute_spawn_effect(spec).await;
+                        let _ = tx.send((run_id_copy, notify_on_complete, sr));
+                    });
+                    results_by_id.insert(
+                        eff_id.clone(),
+                        StepResult::SpawnCompleted {
+                            effect_id: eff_id,
+                            child_head_id: "detached".to_string(),
+                            worktree_path: None,
+                            diff_blob_digest: None,
+                            output: json!({
+                                "status": "detached",
+                                "child_run_id": child_run_id,
+                            }),
+                            usage: gestalt_kernel::Usage::default(),
+                        },
+                    );
+                } else {
+                    join_set.spawn(async move {
+                        let sr = dispatch::execute_spawn_effect(spec).await;
+                        (eff_id, sr)
+                    });
+                }
             } else {
                 let ctx =
                     self.build_dispatch_context(turn_id, &phase_id, &env, step_cancel.clone());
@@ -1794,6 +2238,20 @@ impl RuntimeHost {
                 next_res = join_set.join_next() => {
                     match next_res {
                         Some(Ok((id, sr))) => {
+                            if matches!(sr, StepResult::Saved { .. })
+                                && let Some(target) = promoted_saves.get(&id)
+                            {
+                                match self.artifacts.snapshot_single_entry(target) {
+                                    Ok(Some(entry)) => self.kernel.upsert_artifact_entry(entry),
+                                    Ok(None) => self.kernel.remove_artifact_entry(target),
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            artifact = %target,
+                                            "failed to refresh ArtifactStoreView after promote: {err}"
+                                        );
+                                    }
+                                }
+                            }
                             results_by_id.insert(id, sr);
                         }
                         Some(Err(join_err)) => {
@@ -1908,7 +2366,7 @@ mod tests {
         fs::create_dir_all(&dir).expect("mkdir");
 
         let mut reg = ExtensionRegistry::new();
-        reg.loops.insert("done".into(), Box::new(DoneFactory));
+        reg.loops.insert("done".into(), Arc::new(DoneFactory));
         let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
         let mut rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
         rt.commands.insert("ping".into(), Arc::new(PingCmd));

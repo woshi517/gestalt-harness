@@ -186,9 +186,12 @@ mod tests {
     #[test]
     fn chat_loop_handles_tools_steering_self_correction_and_replays() {
         let mut reg = ExtensionRegistry::new();
-        reg.builders
-            .insert("standard".into(), Box::new(StandardBuilder::default()));
-        reg.loops.insert("chat".into(), Box::new(ChatLoopFactory));
+        reg.builders.insert(
+            "standard".into(),
+            std::sync::Arc::new(StandardBuilder::default()),
+        );
+        reg.loops
+            .insert("chat".into(), std::sync::Arc::new(ChatLoopFactory));
         reg.tools.insert(
             "read".into(),
             ToolSpec {
@@ -205,6 +208,7 @@ mod tests {
                 base_loop: "chat".into(),
                 decorators: vec![],
                 builder: "standard".into(),
+                builder_layers: vec![],
                 config: LoopConfig {
                     allowed_tools: Some(vec!["read".into()]),
                     params: json!({ "model": "mock_llm/v1" }),
