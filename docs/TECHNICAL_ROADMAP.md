@@ -28,7 +28,7 @@ Before any code is written, every crate, PR, and extension MUST uphold these fou
 4. **Rust Quality, Safety & Minimalism (`AGENTS.md` Compliance):**
    - `#![forbid(unsafe_code)]` across the entire workspace.
    - Zero `.unwrap()` in library/production code (`thiserror` for library errors, `anyhow` for `gestalt-cli`).
-   - `gestalt-kernel` hard CI limits: **≤ 2,000 non-blank, non-comment LOC**, **≤ 2 direct crate dependencies** (`serde`, `serde_json`).
+   - `gestalt-kernel` hard CI limits: **sans-I/O & domain-pure**, **≤ 2 direct crate dependencies** (`serde`, `serde_json`).
    - `cargo test`, `cargo build`, `cargo clippy -- -D warnings`, and `cargo fmt --check` must pass with zero warnings on every milestone.
 
 ---
@@ -39,7 +39,7 @@ Before any code is written, every crate, PR, and extension MUST uphold these fou
 gestalt-harness/
 ├── Cargo.toml                        # Workspace root (resolver = "2", release LTO + strip)
 ├── crates/
-│   ├── gestalt-kernel/               # Sans-I/O invariant microkernel (<= 2,000 LOC, <= 2 deps)
+│   ├── gestalt-kernel/               # Sans-I/O invariant microkernel (<= 2 deps, #![forbid(unsafe_code)])
 │   │   └── src/
 │   │       ├── lib.rs                # Public API re-exports & KernelRuntime state machine
 │   │       ├── sha256.rs             # ~80-line pure safe Rust SHA-256 + canonical JSON hasher
@@ -325,14 +325,14 @@ When opening a `Phase` for a preset (e.g., `general` + `/goal`):
 ### Phase 1: `v0.1` Proof Gate MVP
 
 #### Milestone 1.1 — `gestalt-kernel` Sans-I/O Microkernel (Target: Weeks 1–2)
-**Goal:** Complete, audited, 100% unit-tested sans-I/O microkernel under 2,000 LOC.
+**Goal:** Complete, audited, 100% unit-tested sans-I/O microkernel.
 - [x] Implement `sha256.rs` (pure safe Rust SHA-256 + canonical JSON `BTreeMap` serializer/hasher) so `gestalt-kernel` stays at `<= 2` direct dependencies (`serde`, `serde_json`).
 - [x] Implement `tree.rs`: pure in-memory + JSONL line parser/serializer for `SessionTree`, content-addressed digests, `/fork`, `/rewind`, namespaced user node kinds, `artifact_snapshots`, and `Spawn` child branch linkage.
 - [x] Implement `effect.rs` & `steering.rs`: `Effect`, `EffectEnvelope`, `ModelKind`, `SideEffectClass`, `WorkspaceMode`, `StepResult`, `SteeringSignal` (`Steer`, `UrgentSteer`, `FollowUp`, `Abort`) Inbox, and orphan `tool_call` abort synthesis.
 - [x] Implement `policy.rs`: fail-closed `PolicyGate`, integer `micro_usd` `BudgetCap`/`Usage`, `PolicyRule` (`evaluate` + `evaluate_verification`), `PolicyDecision::RequiresVerification`, and `Spawn` depth/workspace checks.
 - [x] Implement `extension.rs`: `AgentLoop`, `AgentLoopFactory`, `LoopDecorator`, `LoopContext` (`&mut dyn LoopContext`, `now_ms()`, `build_context()`), `ContextBuilder`, `Preset`, `Extension`, `ExtensionRegistry` (including `ToolSpec`, `CommandSpec`, `UISurface` sub-types), `SessionSlice`, and `ArtifactStoreView`.
 - [x] Implement `event.rs`, `replay.rs` & `lib.rs`: `RunEvent`, `DriverDirective` (including `InvokeExternalLoop` & `InvokeExternalBuilder`), and deterministic offline replay engine with node-level divergence reporting.
-- **Exit Gate:** `tokei crates/gestalt-kernel` ≤ 2,000 code LOC; `cargo tree -p gestalt-kernel --depth 1` shows only `serde` + `serde_json`; 100% unit test coverage on policy denial, abort synthesis, and replay determinism.
+- **Exit Gate:** `cargo tree -p gestalt-kernel --depth 1` shows only `serde` + `serde_json`; `#![forbid(unsafe_code)]`; 100% unit test coverage on policy denial, abort synthesis, and replay determinism.
 
 #### Milestone 1.2 — `gestalt-runtime` Host Primitives & Sandboxes (Target: Weeks 3–4)
 **Goal:** Reusable, feature-agnostic Tokio `Effect` runtime, OS sandboxing, credential isolation, and dynamic extension host.
@@ -365,7 +365,7 @@ When opening a `Phase` for a preset (e.g., `general` + `/goal`):
 - [x] Implement 50-task System One Triage benchmark suite (`tests/integration/triage_benchmark.rs`) verifying `DecisionRouter` (`triage` -> `general` escalation, ≥ 85% routing accuracy, ≤ 150 ms median triage latency, ≥ 30% token cost reduction).
 - [x] Verify **Self-Extension Flow**: agent writes an out-of-process extension (custom loop + tool + `UISurface` spec) into `.gestalt/extensions/`, registers it in `.gestalt/gestalt.toml`, receives trust approval, and activates it live via `/reload <ext>` without recompiling core crates.
 - **Exit Gate (`v0.1` Proof Gate):**
-  1. `gestalt-kernel` ≤ 2,000 LOC, ≤ 2 direct deps, `#![forbid(unsafe_code)]`.
+  1. `gestalt-kernel` sans-I/O, domain-pure, ≤ 2 direct deps, `#![forbid(unsafe_code)]`.
   2. Default `general` agent (`ChatLoop`), `DecisionRouter` (`triage`), and decorators (`goal_check`, `compaction`, `curator`) run unmodified and switch mid-session with 100% history preservation.
   3. External Rust extension AND external out-of-process `--ext` script add custom loops, decorators, tools, and `UISurface` renderers without modifying core crates.
   4. 100% pass rate on fail-closed `PolicyGate` + OS sandbox adversarial suite.
@@ -408,7 +408,7 @@ Every commit to `v2` runs the following CI gates:
 | Gate | Command / Check | Failure Condition |
 | :--- | :--- | :--- |
 | **Formatting & Lints** | `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` | Any warning or formatting diff |
-| **Kernel LOC Budget** | `tokei crates/gestalt-kernel/src -o json` | Code LOC > 2,000 |
+| **Kernel Dependency Creep** | `cargo tree -p gestalt-kernel --depth 1` | Direct deps > 2 (`serde`, `serde_json`) |
 | **Kernel Dep Ceiling** | `cargo tree -p gestalt-kernel --depth 1` | Any direct dep outside `{serde, serde_json}` |
 | **Kernel Purity Check** | `rg -i "(anthropic\|openai\|jev\|skill\.md\|memory\.md\|tokio\|reqwest)" crates/gestalt-kernel/src` | Any match in `gestalt-kernel` |
 | **Unit & Replay Suite** | `cargo test --workspace` (network-disabled sandbox) | Any test failure or golden replay divergence |

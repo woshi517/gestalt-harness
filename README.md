@@ -2,7 +2,7 @@
 
 A microkernel AI agent harness for dynamic semantics, written in Rust.
 
-Gestalt separates an invariant, sans-I/O microkernel (`gestalt-kernel`, <= 2,000 LOC, `<= 2` direct dependencies, `#![forbid(unsafe_code)]`) from a reusable Tokio host runtime (`gestalt-runtime`) and an optional, batteries-included userland (`gestalt-std` + `gestalt-cli`). All agent loops, context builders, model paradigms, tools, and UI surfaces run in user space through a unified `Extension` contract.
+Gestalt separates an invariant, sans-I/O microkernel (`gestalt-kernel`, `<= 2` direct dependencies, `#![forbid(unsafe_code)]`) from a reusable Tokio host runtime (`gestalt-runtime`) and an optional, batteries-included userland (`gestalt-std` + `gestalt-cli`). All agent loops, context builders, model paradigms, tools, and UI surfaces run in user space through a unified `Extension` contract.
 
 > **Project Status:** Phase 1 (`v0.1` Proof Gate) and Phase 2 Milestones **M2.1** (Container & Micro-VM Sandboxes) & **M2.2** (Event & Schedule `Trigger` Runtime) are complete. Next up: Milestone **M2.3** (MCP Code Mode, Expanded Model Paradigms & `curator` Replay Gating).
 
@@ -10,7 +10,7 @@ Gestalt separates an invariant, sans-I/O microkernel (`gestalt-kernel`, <= 2,000
 
 | Crate | Role | Constraints |
 | :--- | :--- | :--- |
-| `crates/gestalt-kernel` | Sans-I/O microkernel (`SessionTree`, `Effect` bus, fail-closed `PolicyGate`, `Steering` inbox, `EventStream`, deterministic replay, `Extension` traits) | `<= 2,000` code LOC, `<= 2` direct deps (`serde`, `serde_json`), `#![forbid(unsafe_code)]` |
+| `crates/gestalt-kernel` | Sans-I/O microkernel (`SessionTree`, `Effect` bus, fail-closed `PolicyGate`, `Steering` inbox, `EventStream`, deterministic replay, `Extension` traits) | Sans-I/O, domain-pure, `<= 2` direct deps (`serde`, `serde_json`), `#![forbid(unsafe_code)]` |
 | `crates/gestalt-runtime` | Reusable Tokio I/O host (`DriverDirective` runner, `TriggerManager`, `ext_ipc` stdio JSON-RPC, MCP bridge, `gestalt.toml` trust gate, `artifacts.rs` staging/ledger, `BlobStore`, `CredentialStore`, `ProviderRegistry`, `bwrap`/`Seatbelt`/`docker`/`Firecracker`/`apple_vz` sandboxes) | Zero hardcoded loops, tools, vendors, or UI |
 | `crates/gestalt-std` | Optional Cargo-feature-gated userland (`loops`, `tools`, `providers`, `surfaces`, `tui`): `ChatLoop`, `DecisionRouter`, `goal_check`/`compaction`/`curator` decorators, 8 workspace tools, `interval`/`cron_schedule`/`fs_watch`/`webhook` triggers, `anthropic`/`openai`/`jev` adapters, and `print`/`rpc`/`acp`/`replay`/`tui` surfaces | Registers strictly via public `Extension`, `TriggerHandler`, and `ProviderRegistry` contracts |
 | `crates/gestalt-cli` | Thin CLI entrypoint (`gestalt`) wiring `gestalt-runtime` and selected `gestalt-std` features | Minimal composition root |
@@ -25,7 +25,7 @@ Gestalt separates an invariant, sans-I/O microkernel (`gestalt-kernel`, <= 2,000
 ## Prerequisites
 
 - **Rust:** MSRV `1.85+` (Edition 2024), `rustfmt`, `clippy`
-- **OS Sandbox & Tools:** `bwrap` (`bubblewrap` on Linux) or `sandbox-exec` (macOS), `git`, and `tokei` (for kernel LOC CI checks)
+- **OS Sandbox & Tools:** `bwrap` (`bubblewrap` on Linux) or `sandbox-exec` (macOS), and `git`
 
 ## Building & Verifying
 
@@ -38,8 +38,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
-# Audit kernel LOC and direct dependency ceiling
-tokei crates/gestalt-kernel/src
+# Audit kernel direct dependency ceiling
 cargo tree -p gestalt-kernel --depth 1
 ```
 

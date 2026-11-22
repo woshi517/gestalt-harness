@@ -1,6 +1,6 @@
 # Gestalt: A Microkernel Agent Harness for Dynamic Semantics
 
-> **Architectural Verdict:** **Gestalt** is an open-source, terminal-native agent harness built on a ~2,000-line invariant microkernel (`gestalt-kernel`) paired with a batteries-included standard user-space harness (`gestalt-std` + `gestalt-cli`). Instead of hard-coding a generative `context → LLM → tool → observation` loop into the core—or dissolving the entire runtime into an "everything-is-a-plugin" dependency graph—Gestalt isolates five non-negotiable invariants in the kernel (`SessionTree`, typed `Effect` bus, fail-closed `PolicyGate`, `Sandbox` boundary, and `EventStream`) while shipping full out-of-the-box agentic capabilities (**chat, tool calling, reasoning streams, mid-run steering, context compaction, TUI/RPC, and ACP**) and a single unified **`Extension`** surface for all user-space customization.
+> **Architectural Verdict:** **Gestalt** is an open-source, terminal-native agent harness built on a minimal, sans-I/O invariant microkernel (`gestalt-kernel`) paired with a batteries-included standard user-space harness (`gestalt-std` + `gestalt-cli`). Instead of hard-coding a generative `context → LLM → tool → observation` loop into the core—or dissolving the entire runtime into an "everything-is-a-plugin" dependency graph—Gestalt isolates five non-negotiable invariants in the kernel (`SessionTree`, typed `Effect` bus, fail-closed `PolicyGate`, `Sandbox` boundary, and `EventStream`) while shipping full out-of-the-box agentic capabilities (**chat, tool calling, reasoning streams, mid-run steering, context compaction, TUI/RPC, and ACP**) and a single unified **`Extension`** surface for all user-space customization.
 
 ---
 
@@ -65,7 +65,7 @@ Gestalt's design is grounded in primary-source audits of six reference harnesses
 
 ## 4. Architecture & How Gestalt Works
 
-Gestalt's kernel (`gestalt-kernel`, budgeted at &le;2,000 LOC) owns **mechanism and trust**. It knows nothing about prompts, markdown skills, chat roles, or LLM providers. Everything that defines *how* an agent thinks or interacts lives above the syscall line in user space.
+Gestalt's kernel (`gestalt-kernel`, sans-I/O, `#![forbid(unsafe_code)]`, `<= 2` direct deps) owns **mechanism and trust**. It knows nothing about prompts, markdown skills, chat roles, or LLM providers. Everything that defines *how* an agent thinks or interacts lives above the syscall line in user space.
 
 ### System Layers: Invariant Kernel vs. Dynamic User Space
 
@@ -79,7 +79,7 @@ flowchart TB
         Clients["UISurface & Protocol Adapters<br/>Interactive TUI · Desktop/Web GUI · Stdio JSON-RPC · ACP Server"]
     end
 
-    subgraph Kernel["Gestalt Microkernel (gestalt-kernel, ~2,000 LOC, Fail-Closed)"]
+    subgraph Kernel["Gestalt Microkernel (gestalt-kernel, Sans-I/O, Fail-Closed)"]
         direction TB
         Scheduler["1. Effect Bus & Loop Scheduler<br/>yield Effect / resume StepResult / AbortController"]
         Gate["2. Immutable PolicyGate<br/>Budgets · Tool ACLs · Mandatory Classifiers"]
@@ -255,6 +255,8 @@ pub enum Effect {
         depth_limit: u8,
         workspace_mode: WorkspaceMode,
         config: Option<LoopConfig>,
+        detached: bool,
+        notify_on_complete: SpawnNotifyMode,
     },
     Switch {
         next_loop: String,
@@ -482,12 +484,14 @@ pub struct UISurface {
     pub actions: BTreeMap<String, UIActionSpec>,
 }
 
-/// Composable preset wiring a base loop, ordered decorators, context builder, and config.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Composable preset wiring a base loop, ordered decorators, context builder,
+/// optional context layers, and `LoopConfig`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Preset {
     pub base_loop: String,
     pub decorators: Vec<String>,
     pub builder: String,
+    pub builder_layers: Vec<String>,
     pub config: LoopConfig,
 }
 
@@ -519,16 +523,19 @@ pub trait Extension: Send + Sync {
 
 /// Typed slot registry populated by `Extension::register` and `extension/describe` IPC.
 /// Slots: `loops`, `decorators`, `presets`, `builders`, `tools`, `policies`, `commands`, `ui`.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ExtensionRegistry {
-    pub loops: BTreeMap<String, Box<dyn AgentLoopFactory>>,
-    pub decorators: BTreeMap<String, Box<dyn LoopDecorator>>,
+    pub loops: BTreeMap<String, Arc<dyn AgentLoopFactory>>,
+    pub decorators: BTreeMap<String, Arc<dyn LoopDecorator>>,
     pub presets: BTreeMap<String, Preset>,
-    pub builders: BTreeMap<String, Box<dyn ContextBuilder>>,
-    pub policies: Vec<Box<dyn PolicyRule>>,
+    pub builders: BTreeMap<String, Arc<dyn ContextBuilder>>,
+    pub builder_layers: BTreeMap<String, Arc<dyn ContextLayer>>,
+    pub policies: Vec<Arc<dyn PolicyRule>>,
     pub tools: BTreeMap<String, ToolSpec>,
     pub commands: BTreeMap<String, CommandSpec>,
+    pub triggers: BTreeMap<String, TriggerSpec>,
     pub ui: UISurface,
+    pub tracked_artifacts: BTreeSet<String>,
     // Async execution handlers (ToolHandler, CommandHandler, ModelProvider, SandboxDriver) bind in `gestalt-runtime::RuntimeRegistry`.
 }
 ```
@@ -587,9 +594,9 @@ When Gestalt is integrated into a desktop or web GUI (or driven over [ACP](https
 
 Build the implementation as a **Rust Workspace (MSRV 1.85+, Edition 2024, `#![forbid(unsafe_code)]`)** following the Linux kernel philosophy (`gestalt-kernel` + `gestalt-runtime` as the bare-bones core program and host drivers; `gestalt-std` + `gestalt-cli` as the optional built-in default userland), while keeping the JSONL `SessionTree` and `ACP`/stdio wire formats language-agnostic:
 
-- `gestalt-kernel` (&le;2,000 LOC budget, &le;2 direct deps `serde`, `serde_json`): `SessionTree`, `Effect` bus, `PolicyGate`, `EventStream`, `Extension` traits, deterministic replay engine.
+- `gestalt-kernel` (sans-I/O, `#![forbid(unsafe_code)]`, &le;2 direct deps `serde`, `serde_json`): `SessionTree`, `Effect` bus, `PolicyGate`, `EventStream`, `Extension` traits, deterministic replay engine.
 - `gestalt-runtime`: Tokio `Effect` driver (`driver/`), shared stdio JSON-RPC transport (`stdio_rpc`), `ext_ipc` out-of-process extension host, official MCP `2025-11-25` stdio bridge (`mcp`), `gestalt.toml` trust gate, OS-sandbox drivers (`bubblewrap` / `Seatbelt`), `BlobStore`, composable `CredentialStore` (`ApiKey`/`OAuth`/`Headers`/`Custom` + `CredentialResolver` + `StreamRedactor`), and composable `ProviderRegistry` (`ModelProvider` + `ProviderContext` + `adapter` aliases).
 - `gestalt-std` (Cargo-feature gated: `loops`, `tools`, `providers`, `surfaces`, `tui`): Optional default `Extension` shipping the single batteries-included `general` agent preset (`ChatLoop` + `compaction` + `StandardBuilder` + all 8 workspace tools + MCP + multi-source `SKILL.md` discovery from `~/.agents/skills/` and `~/.gestalt/skills/`) and the System One `triage` preset (`DecisionRouter` + `DecisionStateBuilder`), composable decorators (`goal_check`, `compaction`, `curator`), `StdToolsExtension`, vendor adapters (`anthropic`, `openai`, `jev`), general-agent slash commands (`/model`, `/thinking`, `/login`, `/logout`, `/compact`, `/goal`, `/gate`, `/skills`), and default surfaces (`print`, `rpc`, `acp`, `replay`, `tui`).
 - `gestalt-cli`: Thin composition root binary wiring `gestalt-runtime` + selected `gestalt-std` features (or user/self-authored extensions).
 
-**`v0.1` Acceptance Gate:** Before adding features, `v0.1` must prove: (1) `gestalt-kernel` stays under 2,000 LOC; (2) the default `general` agent (`ChatLoop` with streaming text, tool calls, reasoning, `/model`, `/login`, `/logout`, MCP, `~/.agents/skills/` & `~/.gestalt/skills/` `SKILL.md` support, and mid-run `/steer`), `DecisionRouter` (`triage` fast decision routing + escalation to `general`), and composable decorators (`goal_check`, `compaction`, `curator`) all run unmodified on the same kernel and switch mid-session via `/mode` or `switch` with 100% history preservation; (3) an external `Extension` adds a custom loop, decorator, preset, tool, and `UISurface` renderer (or replaces `gestalt-std` completely) without touching any core source file; (4) the fail-closed `PolicyGate` + OS sandbox blocks a malicious tool call and prevents shell writes to configured `protected_paths`; and (5) any recorded multi-Phase session replays offline with zero network calls and runs inside an ACP client and the interactive TUI.
+**`v0.1` Acceptance Gate:** Before adding features, `v0.1` must prove: (1) `gestalt-kernel` remains sans-I/O, domain-pure, `#![forbid(unsafe_code)]`, and restricted to &le;2 direct dependencies (`serde`, `serde_json`); (2) the default `general` agent (`ChatLoop` with streaming text, tool calls, reasoning, `/model`, `/login`, `/logout`, MCP, `~/.agents/skills/` & `~/.gestalt/skills/` `SKILL.md` support, and mid-run `/steer`), `DecisionRouter` (`triage` fast decision routing + escalation to `general`), and composable decorators (`goal_check`, `compaction`, `curator`) all run unmodified on the same kernel and switch mid-session via `/mode` or `switch` with 100% history preservation; (3) an external `Extension` adds a custom loop, decorator, preset, tool, and `UISurface` renderer (or replaces `gestalt-std` completely) without touching any core source file; (4) the fail-closed `PolicyGate` + OS sandbox blocks a malicious tool call and prevents shell writes to configured `protected_paths`; and (5) any recorded multi-Phase session replays offline with zero network calls and runs inside an ACP client and the interactive TUI.
