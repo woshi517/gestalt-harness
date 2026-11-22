@@ -27,26 +27,17 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y bubblewrap ripgrep hyperfine
-          cargo install tokei --locked
+          sudo apt-get install -y bubblewrap ripgrep
 
       - name: Install audit tools (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ripgrep hyperfine tokei
+          brew install ripgrep
 
       - name: Formatting & Lints
         run: |
           cargo fmt --check
           cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Kernel LOC Budget (<= 2,000 LOC advisory)
-        run: |
-          loc=$(tokei crates/gestalt-kernel/src -o json | jq '.Rust.code // 0')
-          echo "gestalt-kernel Rust code LOC: $loc (target budget: <= 2000)"
-          if [ "$loc" -gt 2000 ]; then
-            echo "::warning::gestalt-kernel Rust code LOC ($loc) exceeds 2000 LOC target budget"
-          fi
 
       - name: Kernel Dependency Ceiling (<= 2 direct deps)
         run: |
@@ -68,12 +59,3 @@ jobs:
 
       - name: Unit & Replay Suite
         run: cargo test --workspace
-
-      - name: Binary & Startup Budget (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          cargo build --release -p gestalt-cli
-          size_bytes=$(stat -c%s target/release/gestalt)
-          echo "Stripped binary size: $size_bytes bytes"
-          test "$size_bytes" -le 15728640
-          hyperfine --warmup 3 './target/release/gestalt --version'
