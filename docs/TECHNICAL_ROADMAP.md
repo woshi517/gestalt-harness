@@ -376,11 +376,11 @@ When opening a `Phase` for a preset (e.g., `general` + `/goal`):
 ### Phase 2: `v0.2` Ecosystem, Triggers & Container Sandboxes (Target: Weeks 9–12)
 
 #### Milestone 2.1 — Container & Micro-VM Sandboxes (Weeks 9–10)
-- [ ] Implement `crates/gestalt-runtime/src/sandbox/docker.rs` and `microvm.rs` (`Firecracker` on Linux / Apple `Virtualization.framework` on macOS) implementing `SandboxDriver`.
+- [x] Implement `crates/gestalt-runtime/src/sandbox/docker.rs` and `microvm.rs` (`Firecracker` on Linux / Apple `Virtualization.framework` on macOS) implementing `SandboxDriver`.
 - **Exit Gate:** 100% pass rate on the adversarial security & sandbox conformance suite across Docker and Micro-VM drivers.
 
 #### Milestone 2.2 — Event & Schedule `Trigger` Runtime (Week 11)
-- [ ] Define `Trigger` trait and registration slot in `gestalt-runtime`; implement local interval (`/loop`), filesystem watcher, webhook listener, and cloud cron (`/schedule`) triggers in `gestalt-std`.
+- [x] Define `Trigger` trait and registration slot in `gestalt-runtime`; implement local interval (`/loop`), filesystem watcher, webhook listener, and cloud cron (`/schedule`) triggers in `gestalt-std`.
 - **Exit Gate:** Triggers enqueue Turns cleanly (queuing as `FollowUp` if a Turn is already active) and pass deterministic replay verification.
 
 #### Milestone 2.3 — MCP Code Mode, Expanded Model Paradigms & `curator` Replay Gating (Week 12)
