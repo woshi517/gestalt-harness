@@ -12,6 +12,7 @@ use gestalt_kernel::{
     SessionNode, SessionTree, SteeringKind, StepResult, TurnStatus, UIActionSpec, UIPanelSpec,
     UIRendererSpec,
 };
+use gestalt_runtime::TriggerStatus;
 use ratatui::layout::Rect;
 use serde_json::{Value, json};
 
@@ -312,6 +313,17 @@ pub enum TranscriptItem {
         /// Signal text.
         text: String,
     },
+    /// Trigger activation notice (`RunEvent::TriggerFired` / `custom:trigger:fired`).
+    TriggerNote {
+        /// Trigger instance ID.
+        trigger_id: String,
+        /// Trigger kind (`interval`, `cron_schedule`, `fs_watch`, `webhook`).
+        kind: String,
+        /// `true` if queued as `FollowUp` behind an active Turn.
+        queued_as_follow_up: bool,
+        /// Trigger prompt summary.
+        prompt: String,
+    },
     /// Turn completion footer summarizing steps, tokens, and cost.
     TurnFooter {
         /// Completed Turn ID.
@@ -502,6 +514,8 @@ pub struct TuiAppState {
     pub budget: BudgetSnapshot,
     /// Active `PolicyGate` rule IDs & allowed tools summary for `policy_gate` panel.
     pub policy_summary: Value,
+    /// Active/paused trigger snapshots for footer badge & `triggers_inspector` panel.
+    pub active_triggers: Vec<TriggerStatus>,
     /// Ordered transcript entries.
     pub items: Vec<TranscriptItem>,
     /// Vertical scroll offset in lines from the top of the virtual transcript.
@@ -560,6 +574,7 @@ impl TuiAppState {
             last_escape_ms: None,
             budget: BudgetSnapshot::default(),
             policy_summary: Value::Null,
+            active_triggers: Vec::new(),
             items: Vec::new(),
             scroll_offset: 0,
             max_scroll: 0,
@@ -771,6 +786,35 @@ impl TuiAppState {
                     summary,
                     compacted_count,
                     collapsed: true,
+                });
+            }
+            NodePayload::Custom { namespace, data } if namespace == "trigger:fired" => {
+                let trigger_id = data
+                    .get("trigger_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("trigger")
+                    .to_string();
+                let kind = data
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("custom")
+                    .to_string();
+                let queued_as_follow_up = data
+                    .get("queued_as_follow_up")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let prompt = data
+                    .get("prompt")
+                    .map(|p| match p {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default();
+                self.items.push(TranscriptItem::TriggerNote {
+                    trigger_id,
+                    kind,
+                    queued_as_follow_up,
+                    prompt,
                 });
             }
             NodePayload::TurnEnd {
@@ -1238,6 +1282,39 @@ impl TuiAppState {
                 self.items.push(TranscriptItem::Notice {
                     text: format!("Turn aborted: {reason}"),
                 });
+            }
+            RunEvent::TriggerFired {
+                trigger_id,
+                kind,
+                queued_as_follow_up,
+                payload,
+                ..
+            } => {
+                let prompt = payload
+                    .get("prompt")
+                    .map(|p| match p {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default();
+                let already_shown = self.items.last().is_some_and(|item| {
+                    matches!(
+                        item,
+                        TranscriptItem::TriggerNote {
+                            trigger_id: tid,
+                            prompt: p,
+                            ..
+                        } if tid == trigger_id && p == &prompt
+                    )
+                });
+                if !already_shown {
+                    self.items.push(TranscriptItem::TriggerNote {
+                        trigger_id: trigger_id.clone(),
+                        kind: kind.clone(),
+                        queued_as_follow_up: *queued_as_follow_up,
+                        prompt,
+                    });
+                }
             }
             RunEvent::NodeAppended { .. } | RunEvent::Paused { .. } => {}
         }

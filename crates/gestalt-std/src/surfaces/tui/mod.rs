@@ -100,11 +100,12 @@ pub async fn run_tui_surface(
     let mut session_state = SurfaceSessionState::new(initial_preset.clone());
     let mut app = TuiAppState::new(ws_label, initial_preset);
     app.hydrate_from_tree(host.kernel().session_tree());
-    sync_app_from_host(&mut app, &host);
+    sync_app_from_host(&mut app, &host).await;
 
     let mut active_session_path = host.session_path().to_path_buf();
     let mut session_read_offset: u64 =
         std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
+    let mut trigger_rx = host.take_trigger_receiver().await;
     let mut host_slot: Option<RuntimeHost> = Some(host);
     let mut active_turn: Option<ActiveTuiTurn> = None;
     let mut pending_cmd_pause: Option<PendingCommandPause> = None;
@@ -140,6 +141,33 @@ pub async fn run_tui_surface(
             Some(prompt) = pause_rx.recv() => {
                 app.open_pause_dialog(prompt);
             }
+            Some(trig_ev) = async {
+                match trigger_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Some(handle) = active_turn.as_ref() {
+                    let _ = handle.control_tx.send(LiveTurnControl::Trigger(trig_ev));
+                } else if let Some(mut idle_host) = host_slot.take() {
+                    let _ = idle_host.ingest_idle_trigger_event(&trig_ev).await;
+                    let target_preset = trig_ev
+                        .preset
+                        .unwrap_or_else(|| session_state.active_preset.clone());
+                    app.is_running = true;
+                    let (control_tx, cancel, done_rx) = spawn_surface_turn(
+                        idle_host,
+                        trig_ev.prompt,
+                        target_preset,
+                        session_state.extra_decorators.clone(),
+                    );
+                    active_turn = Some(ActiveTuiTurn {
+                        control_tx,
+                        cancel,
+                        done_rx,
+                    });
+                }
+            }
             turn_done = async {
                 match active_turn.as_mut() {
                     Some(h) => (&mut h.done_rx).await,
@@ -162,7 +190,7 @@ pub async fn run_tui_surface(
                         }
                     }
                     session_read_offset = std::fs::metadata(&active_session_path).map_or(session_read_offset, |m| m.len());
-                    sync_app_from_host(&mut app, &returned_host);
+                    sync_app_from_host(&mut app, &returned_host).await;
                     match res {
                         Ok(TurnOutcome::Completed { .. }) => {
                             if let Some(follow_up) = returned_host.kernel_mut().pop_next_follow_up() {
@@ -227,7 +255,7 @@ pub async fn run_tui_surface(
                             if let Some(host) = host_slot.as_mut() {
                                 match complete_command_pause(host, &cmd_pause, &resolution) {
                                     Ok(_) => {
-                                        sync_app_from_host(&mut app, host);
+                                        sync_app_from_host(&mut app, host).await;
                                         app.items.push(TranscriptItem::Notice {
                                             text: "Stored credentials securely.".to_string(),
                                         });
@@ -268,7 +296,7 @@ pub async fn run_tui_surface(
                                     app.hydrate_from_tree(host.kernel().session_tree());
                                     session_read_offset =
                                         std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
-                                    sync_app_from_host(&mut app, host);
+                                    sync_app_from_host(&mut app, host).await;
                                     app.items.push(TranscriptItem::Notice {
                                         text: format!(
                                             "Rewound to '{node_id}'. Workspace files on disk were not modified."
@@ -293,7 +321,7 @@ pub async fn run_tui_surface(
                                     app.hydrate_from_tree(host.kernel().session_tree());
                                     session_read_offset =
                                         std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
-                                    sync_app_from_host(&mut app, host);
+                                    sync_app_from_host(&mut app, host).await;
                                     app.items.push(TranscriptItem::Notice {
                                         text: format!("Forked branch '{branch}' from '{node_id}'."),
                                     });
@@ -316,7 +344,7 @@ pub async fn run_tui_surface(
                                     session_read_offset =
                                         std::fs::metadata(&active_session_path).map_or(0, |m| m.len());
                                     app.hydrate_from_tree(host.kernel().session_tree());
-                                    sync_app_from_host(&mut app, host);
+                                    sync_app_from_host(&mut app, host).await;
                                     app.items.push(TranscriptItem::Notice {
                                         text: format!(
                                             "Switched session to '{}'.",
@@ -440,7 +468,7 @@ pub async fn run_tui_surface(
                                                         .map_or(0, |m| m.len());
                                             }
                                             app.active_preset = session_state.active_preset.clone();
-                                            sync_app_from_host(&mut app, host);
+                                            sync_app_from_host(&mut app, host).await;
                                             if let Some(pending) = res.pending_pause {
                                                 app.open_pause_dialog(PausePrompt {
                                                     pause_id: pending.pause_id.clone(),
@@ -547,7 +575,7 @@ pub async fn run_tui_surface(
     Ok(exit_code)
 }
 
-fn sync_app_from_host(app: &mut TuiAppState, host: &RuntimeHost) {
+async fn sync_app_from_host(app: &mut TuiAppState, host: &RuntimeHost) {
     let gate = host.kernel().policy_gate();
     let policy_summary = json!({
         "rule_ids": gate.rule_ids(),
@@ -560,6 +588,7 @@ fn sync_app_from_host(app: &mut TuiAppState, host: &RuntimeHost) {
         *host.kernel().budget_snapshot(),
         policy_summary,
     );
+    app.active_triggers = host.list_triggers().await;
     app.model_status = compute_model_status(host, app.active_model.as_deref());
 }
 

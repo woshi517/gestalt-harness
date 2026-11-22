@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use gestalt_kernel::{
     CommandSpec, Extension, ExtensionError, ExtensionRegistry, LoopConfig, PauseReason, Preset,
-    UIActionSpec, UIDialogSpec, UIPanelSpec, UIRendererSpec, UISurface,
+    TriggerSpec, UIActionSpec, UIDialogSpec, UIPanelSpec, UIRendererSpec, UISurface,
 };
 use serde_json::json;
 
@@ -28,6 +28,15 @@ pub fn std_ui_surface() -> UISurface {
             schema: None,
         },
     );
+    renderers.insert(
+        "trigger_fired".to_string(),
+        UIRendererSpec {
+            id: "trigger_fired".to_string(),
+            target_kind: "trigger".to_string(),
+            title: "Trigger Activated".to_string(),
+            schema: None,
+        },
+    );
 
     let mut panels = BTreeMap::new();
     panels.insert(
@@ -45,6 +54,15 @@ pub fn std_ui_surface() -> UISurface {
             id: "budget_meter".to_string(),
             title: "Budget Meter".to_string(),
             position: "bottom".to_string(),
+            schema: None,
+        },
+    );
+    panels.insert(
+        "triggers_inspector".to_string(),
+        UIPanelSpec {
+            id: "triggers_inspector".to_string(),
+            title: "Active Triggers".to_string(),
+            position: "right".to_string(),
             schema: None,
         },
     );
@@ -239,6 +257,31 @@ impl Extension for StdExtension {
                 "List discovered global & workspace Agent Skills or load one via /skill:<name>",
                 "/skills",
             ),
+            (
+                "loop",
+                "Create or manage a local interval trigger",
+                "/loop <interval> <prompt> | list | stop <id>",
+            ),
+            (
+                "schedule",
+                "Create or manage a 5-field cron or cloud schedule trigger",
+                "/schedule \"<cron>\" <prompt> | list | stop <id>",
+            ),
+            (
+                "watch",
+                "Watch workspace paths for changes and trigger a Turn",
+                "/watch <path> <prompt> | stop <id>",
+            ),
+            (
+                "webhook",
+                "Start or stop a bounded localhost HTTP webhook trigger",
+                "/webhook <addr> <prompt> | stop <id>",
+            ),
+            (
+                "triggers",
+                "List, pause, resume, stop, or manually fire active triggers",
+                "/triggers [list|pause <id>|resume <id>|stop <id>|fire <id>]",
+            ),
         ] {
             registry.commands.insert(
                 name.to_string(),
@@ -246,6 +289,44 @@ impl Extension for StdExtension {
                     name: name.to_string(),
                     description: description.to_string(),
                     usage: usage.to_string(),
+                    source_extension: None,
+                },
+            );
+        }
+
+        for (id, kind, description, schema) in [
+            (
+                "interval",
+                "interval",
+                "Local fixed-interval timer trigger (/loop)",
+                json!({ "type": "object", "properties": { "interval_ms": { "type": "integer" }, "interval": { "type": "string" } } }),
+            ),
+            (
+                "cron_schedule",
+                "cron_schedule",
+                "5-field POSIX cron and optional cloud schedule trigger (/schedule)",
+                json!({ "type": "object", "required": ["expression"], "properties": { "expression": { "type": "string" } } }),
+            ),
+            (
+                "fs_watch",
+                "fs_watch",
+                "Workspace-confined debounced filesystem watcher (/watch)",
+                json!({ "type": "object", "required": ["paths"], "properties": { "paths": { "type": "array" } } }),
+            ),
+            (
+                "webhook",
+                "webhook",
+                "Bounded localhost HTTP/1.1 webhook listener (/webhook)",
+                json!({ "type": "object", "properties": { "bind_addr": { "type": "string" }, "path": { "type": "string" } } }),
+            ),
+        ] {
+            registry.triggers.insert(
+                id.to_string(),
+                TriggerSpec {
+                    id: id.to_string(),
+                    kind: kind.to_string(),
+                    description: description.to_string(),
+                    config_schema: schema,
                     source_extension: None,
                 },
             );

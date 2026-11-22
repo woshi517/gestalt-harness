@@ -41,6 +41,10 @@ use crate::ext_ipc::{
 use crate::mcp::McpClient;
 use crate::provider::{ProviderRegistry, SharedHttpClient, StreamDeltaFn};
 use crate::sandbox::{SandboxDriver, WorkspacePathGuard};
+use crate::trigger::{
+    TriggerContext, TriggerEvent, TriggerHandler, TriggerInstanceConfig, TriggerManager,
+    TriggerStatus,
+};
 use crate::{CancellationToken, RuntimeError};
 
 pub use dispatch::validate_tool_args;
@@ -262,6 +266,9 @@ pub enum LiveTurnControl {
         /// Optional `LoopConfig` overrides.
         config_override: Option<LoopConfig>,
     },
+    /// Deliver a background [`TriggerEvent`] while a Turn is active, queueing
+    /// it as a durable `FollowUp` without interrupting the active Step.
+    Trigger(TriggerEvent),
 }
 
 /// Host registry binding async runtime handlers (`ToolHandler`, `CommandHandler`,
@@ -283,6 +290,10 @@ pub struct RuntimeRegistry {
     pub mcp_clients: BTreeMap<String, Arc<Mutex<McpClient>>>,
     /// Mapping from MCP tool name to owning MCP client key.
     pub mcp_tool_owners: BTreeMap<String, String>,
+    /// Registered user-space [`TriggerHandler`] implementations keyed by `kind`.
+    pub trigger_handlers: BTreeMap<String, Arc<dyn TriggerHandler>>,
+    /// Host supervisor managing active background trigger tasks.
+    pub trigger_manager: Arc<Mutex<TriggerManager>>,
 }
 
 impl RuntimeRegistry {
@@ -300,6 +311,8 @@ impl RuntimeRegistry {
             ext_ipc: Arc::new(Mutex::new(ExtIpcHost::new())),
             mcp_clients: BTreeMap::new(),
             mcp_tool_owners: BTreeMap::new(),
+            trigger_handlers: BTreeMap::new(),
+            trigger_manager: Arc::new(Mutex::new(TriggerManager::new())),
         }
     }
 
@@ -400,6 +413,8 @@ impl RuntimeRegistry {
             ext_ipc: self.ext_ipc.clone(),
             mcp_clients: self.mcp_clients.clone(),
             mcp_tool_owners: self.mcp_tool_owners.clone(),
+            trigger_handlers: BTreeMap::new(),
+            trigger_manager: Arc::new(Mutex::new(TriggerManager::new())),
         }
     }
 }
@@ -1006,6 +1021,253 @@ impl RuntimeHost {
         self.artifacts.rollback(stage_id, current_epoch_ms())
     }
 
+    /// Build a [`TriggerContext`] bound to this host's workspace, `WorkspacePathGuard`,
+    /// credentials, HTTP client, and secret redactor.
+    #[must_use]
+    pub fn trigger_context(&self) -> TriggerContext {
+        let protected = &self.kernel.policy_gate().sandbox().protected_paths;
+        let path_guard =
+            WorkspacePathGuard::new(&self.workspace_root, protected).unwrap_or_else(|_| {
+                WorkspacePathGuard::new(Path::new("."), protected).expect("fallback path guard")
+            });
+        TriggerContext {
+            workspace_root: self.workspace_root.clone(),
+            path_guard,
+            credentials: self.credentials.clone(),
+            http: self.runtime.http.clone(),
+            redactor: self.credentials.redactor(),
+        }
+    }
+
+    /// Take the single [`mpsc::UnboundedReceiver<TriggerEvent>`] for surface
+    /// event-loop multiplexing.
+    pub fn take_trigger_receiver(
+        &self,
+    ) -> impl Future<Output = Option<mpsc::UnboundedReceiver<TriggerEvent>>> + Send + 'static {
+        let mgr = self.runtime.trigger_manager.clone();
+        async move { mgr.lock().await.take_event_receiver() }
+    }
+
+    /// Start all `[triggers.<id>]` entries from [`ResolvedRuntimeConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if a configured trigger kind is unregistered or invalid.
+    pub fn start_configured_triggers(
+        &self,
+        resolved: &ResolvedRuntimeConfig,
+    ) -> impl Future<Output = Result<(), RuntimeError>> + Send + 'static {
+        let triggers = resolved.triggers.clone();
+        let handlers = self.runtime.trigger_handlers.clone();
+        let mgr_arc = self.runtime.trigger_manager.clone();
+        let ctx = self.trigger_context();
+        async move {
+            for (id, cfg) in triggers {
+                let handler = handlers.get(&cfg.kind).cloned().ok_or_else(|| {
+                    RuntimeError::Kernel(KernelError::UnresolvedExtensionSlot {
+                        slot: "trigger".to_string(),
+                        name: cfg.kind.clone(),
+                    })
+                })?;
+                let instance = TriggerInstanceConfig {
+                    id,
+                    kind: cfg.kind,
+                    enabled: cfg.enabled,
+                    prompt: cfg.prompt,
+                    preset: cfg.preset,
+                    extra_decorators: cfg.extra_decorators,
+                    config: cfg.config,
+                };
+                let mut mgr = mgr_arc.lock().await;
+                mgr.start_trigger(&handler, instance, ctx.clone())?;
+            }
+            Ok(())
+        }
+    }
+
+    /// Validate and start a dynamic trigger instance on this host.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if no handler is registered for `instance.kind`
+    /// or handler validation/startup fails.
+    pub fn start_trigger(
+        &self,
+        instance: TriggerInstanceConfig,
+    ) -> impl Future<Output = Result<(), RuntimeError>> + Send + 'static {
+        let handler = self.runtime.trigger_handlers.get(&instance.kind).cloned();
+        let ctx = self.trigger_context();
+        let mgr_arc = self.runtime.trigger_manager.clone();
+        async move {
+            let handler = handler.ok_or_else(|| {
+                RuntimeError::Kernel(KernelError::UnresolvedExtensionSlot {
+                    slot: "trigger".to_string(),
+                    name: instance.kind.clone(),
+                })
+            })?;
+            let mut mgr = mgr_arc.lock().await;
+            mgr.start_trigger(&handler, instance, ctx)
+        }
+    }
+
+    /// Pause a running trigger by ID. Returns `false` if unknown.
+    pub fn pause_trigger(&self, id: &str) -> impl Future<Output = bool> + Send + 'static {
+        let mgr_arc = self.runtime.trigger_manager.clone();
+        let id = id.to_string();
+        async move { mgr_arc.lock().await.pause_trigger(&id) }
+    }
+
+    /// Resume a paused trigger by ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if `id` or its handler is missing or startup fails.
+    pub fn resume_trigger(
+        &self,
+        id: &str,
+    ) -> impl Future<Output = Result<(), RuntimeError>> + Send + 'static {
+        let mgr_arc = self.runtime.trigger_manager.clone();
+        let handlers = self.runtime.trigger_handlers.clone();
+        let ctx = self.trigger_context();
+        let id = id.to_string();
+        async move {
+            let kind = {
+                let mgr = mgr_arc.lock().await;
+                mgr.trigger_kind(&id)
+                    .map(ToString::to_string)
+                    .ok_or_else(|| RuntimeError::ArtifactError(format!("unknown trigger '{id}'")))?
+            };
+            let handler = handlers.get(&kind).cloned().ok_or_else(|| {
+                RuntimeError::Kernel(KernelError::UnresolvedExtensionSlot {
+                    slot: "trigger".to_string(),
+                    name: kind,
+                })
+            })?;
+            let mut mgr = mgr_arc.lock().await;
+            mgr.resume_trigger(&id, &handler, ctx)?;
+            Ok(())
+        }
+    }
+
+    /// Stop and remove a trigger by ID. Returns `false` if unknown.
+    pub fn remove_trigger(&self, id: &str) -> impl Future<Output = bool> + Send + 'static {
+        let mgr_arc = self.runtime.trigger_manager.clone();
+        let id = id.to_string();
+        async move { mgr_arc.lock().await.remove_trigger(&id) }
+    }
+
+    /// Manually fire a registered trigger immediately.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if `id` is unknown.
+    pub fn fire_trigger_now(
+        &self,
+        id: &str,
+    ) -> impl Future<Output = Result<TriggerEvent, RuntimeError>> + Send + 'static {
+        let mgr_arc = self.runtime.trigger_manager.clone();
+        let id = id.to_string();
+        async move { mgr_arc.lock().await.fire_now(&id, current_epoch_ms()) }
+    }
+
+    /// List status snapshots for all registered triggers.
+    pub fn list_triggers(&self) -> impl Future<Output = Vec<TriggerStatus>> + Send + 'static {
+        let mgr_arc = self.runtime.trigger_manager.clone();
+        async move { mgr_arc.lock().await.list_status() }
+    }
+
+    /// Record an idle trigger firing (`custom:trigger:fired` node + `RunEvent::TriggerFired`)
+    /// immediately before starting the triggered Turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if node persistence fails.
+    pub async fn ingest_idle_trigger_event(
+        &mut self,
+        event: &TriggerEvent,
+    ) -> Result<String, RuntimeError> {
+        self.runtime
+            .trigger_manager
+            .lock()
+            .await
+            .record_fired(&event.trigger_id, event.timestamp_ms);
+        let node_id = self.kernel.append_custom_node(
+            "trigger:fired".to_string(),
+            json!({
+                "trigger_id": event.trigger_id,
+                "kind": event.kind,
+                "prompt": event.prompt,
+                "preset": event.preset,
+                "metadata": event.metadata,
+                "queued_as_follow_up": false,
+            }),
+            event.timestamp_ms,
+        )?;
+        self.flush_pending()?;
+        if let Some(ref sink) = self.event_sink {
+            let mut ev = RunEvent::TriggerFired {
+                trigger_id: event.trigger_id.clone(),
+                kind: event.kind.clone(),
+                turn_or_signal_id: node_id.clone(),
+                queued_as_follow_up: false,
+                payload: json!({
+                    "prompt": event.prompt,
+                    "preset": event.preset,
+                    "metadata": event.metadata,
+                }),
+            };
+            session_io::redact_run_event(&mut ev, &self.credentials.redactor());
+            sink.on_event(&ev);
+        }
+        Ok(node_id)
+    }
+
+    async fn ingest_active_trigger_event(
+        &mut self,
+        event: TriggerEvent,
+    ) -> Result<(), RuntimeError> {
+        self.runtime
+            .trigger_manager
+            .lock()
+            .await
+            .record_fired(&event.trigger_id, event.timestamp_ms);
+        let _ = self.kernel.append_custom_node(
+            "trigger:fired".to_string(),
+            json!({
+                "trigger_id": event.trigger_id,
+                "kind": event.kind,
+                "prompt": event.prompt,
+                "preset": event.preset,
+                "metadata": event.metadata,
+                "queued_as_follow_up": true,
+            }),
+            event.timestamp_ms,
+        )?;
+        let sig = self.kernel.enqueue_steering(
+            SteeringKind::FollowUp,
+            event.prompt.clone(),
+            SteeringSource::Supervisor,
+            event.timestamp_ms,
+        )?;
+        self.flush_pending()?;
+        if let Some(ref sink) = self.event_sink {
+            let mut ev = RunEvent::TriggerFired {
+                trigger_id: event.trigger_id,
+                kind: event.kind,
+                turn_or_signal_id: sig.id,
+                queued_as_follow_up: true,
+                payload: json!({
+                    "prompt": event.prompt,
+                    "preset": event.preset,
+                    "metadata": event.metadata,
+                }),
+            };
+            session_io::redact_run_event(&mut ev, &self.credentials.redactor());
+            sink.on_event(&ev);
+        }
+        Ok(())
+    }
+
     /// Drive one complete user-facing Turn to completion or clean cancellation.
     ///
     /// # Errors
@@ -1113,6 +1375,9 @@ impl RuntimeHost {
                             config_override,
                             current_epoch_ms(),
                         );
+                    }
+                    LiveTurnControl::Trigger(ev) => {
+                        let _ = self.ingest_active_trigger_event(ev).await;
                     }
                 }
             }
@@ -1279,8 +1544,12 @@ impl RuntimeHost {
         }
     }
 
-    /// Cleanly shut down external workers and prune clean temporary `Worktree`s.
+    /// Cleanly shut down external workers, background triggers, and prune clean temporary `Worktree`s.
     pub async fn shutdown(mut self) {
+        {
+            let mut mgr = self.runtime.trigger_manager.lock().await;
+            mgr.shutdown_all();
+        }
         {
             let mut ipc = self.runtime.ext_ipc.lock().await;
             ipc.shutdown_all().await;
@@ -1516,6 +1785,9 @@ impl RuntimeHost {
                                 config_override,
                                 current_epoch_ms(),
                             );
+                        }
+                        LiveTurnControl::Trigger(ev) => {
+                            let _ = self.ingest_active_trigger_event(ev).await;
                         }
                     }
                 }

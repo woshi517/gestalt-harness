@@ -23,7 +23,7 @@ use gestalt_kernel::{
 };
 use gestalt_runtime::{
     CancellationToken, CredentialRecord, CredentialStore, EventSink, LiveTurnControl, PauseHandler,
-    RuntimeError, RuntimeHost, TurnOutcome, current_epoch_ms,
+    RuntimeError, RuntimeHost, TriggerInstanceConfig, TurnOutcome, current_epoch_ms,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
@@ -717,6 +717,14 @@ pub async fn execute_slash_command_idle(
             notice: None,
             pending_pause: None,
         }),
+        SlashCommand::Extension { name, args }
+            if matches!(
+                name.as_str(),
+                "loop" | "schedule" | "watch" | "webhook" | "triggers"
+            ) =>
+        {
+            execute_trigger_slash_command(host, &name, &args).await
+        }
         SlashCommand::Extension { name, args } => {
             let mut out = host.execute_command(&name, &args).await?;
             if out.get("command").and_then(Value::as_str) == Some("logout")
@@ -945,6 +953,343 @@ pub fn extract_stream_text(payload: &Value) -> Option<&str> {
         .get("text")
         .and_then(Value::as_str)
         .or_else(|| payload.as_str())
+}
+
+async fn execute_trigger_slash_command(
+    host: &mut RuntimeHost,
+    name: &str,
+    args: &str,
+) -> Result<CommandDispatchResult, RuntimeError> {
+    let trimmed = args.trim();
+    match name {
+        "triggers" => {
+            let (sub, rest) = match trimmed.split_once(char::is_whitespace) {
+                Some((s, r)) => (s, r.trim()),
+                None => (trimmed, ""),
+            };
+            match sub {
+                "" | "list" => {
+                    let list = host.list_triggers().await;
+                    let msg = if list.is_empty() {
+                        "No triggers configured.".to_string()
+                    } else {
+                        let summary: Vec<String> = list
+                            .iter()
+                            .map(|t| {
+                                format!(
+                                    "{} ({}, {}, fires={})",
+                                    t.id,
+                                    t.kind,
+                                    if t.enabled { "active" } else { "paused" },
+                                    t.fire_count
+                                )
+                            })
+                            .collect();
+                        format!("Triggers ({}): {}", list.len(), summary.join(" | "))
+                    };
+                    Ok(CommandDispatchResult {
+                        message: msg,
+                        data: json!({ "triggers": list }),
+                        notice: None,
+                        pending_pause: None,
+                    })
+                }
+                "pause" if !rest.is_empty() => {
+                    let paused = host.pause_trigger(rest).await;
+                    Ok(CommandDispatchResult {
+                        message: if paused {
+                            format!("Paused trigger '{rest}'.")
+                        } else {
+                            format!("Unknown trigger '{rest}'.")
+                        },
+                        data: json!({ "paused": paused, "id": rest }),
+                        notice: None,
+                        pending_pause: None,
+                    })
+                }
+                "resume" if !rest.is_empty() => {
+                    host.resume_trigger(rest).await?;
+                    Ok(CommandDispatchResult {
+                        message: format!("Resumed trigger '{rest}'."),
+                        data: json!({ "resumed": true, "id": rest }),
+                        notice: None,
+                        pending_pause: None,
+                    })
+                }
+                "stop" | "remove" | "rm" if !rest.is_empty() => {
+                    let removed = host.remove_trigger(rest).await;
+                    Ok(CommandDispatchResult {
+                        message: if removed {
+                            format!("Removed trigger '{rest}'.")
+                        } else {
+                            format!("Unknown trigger '{rest}'.")
+                        },
+                        data: json!({ "removed": removed, "id": rest }),
+                        notice: None,
+                        pending_pause: None,
+                    })
+                }
+                "fire" if !rest.is_empty() => {
+                    let ev = host.fire_trigger_now(rest).await?;
+                    Ok(CommandDispatchResult {
+                        message: format!("Fired trigger '{rest}'."),
+                        data: json!({ "fired": true, "event": ev }),
+                        notice: None,
+                        pending_pause: None,
+                    })
+                }
+                _ => Err(RuntimeError::ArtifactError(
+                    "usage: /triggers [list|pause <id>|resume <id>|stop <id>|fire <id>]"
+                        .to_string(),
+                )),
+            }
+        }
+        "loop" => {
+            if trimmed == "list" {
+                return Box::pin(execute_trigger_slash_command(host, "triggers", "list")).await;
+            }
+            if let Some(id) = trimmed.strip_prefix("stop ") {
+                let removed = host.remove_trigger(id.trim()).await;
+                return Ok(CommandDispatchResult {
+                    message: format!("Removed trigger '{}': {removed}", id.trim()),
+                    data: json!({ "removed": removed, "id": id.trim() }),
+                    notice: None,
+                    pending_pause: None,
+                });
+            }
+            let Some((interval, prompt)) = trimmed.split_once(char::is_whitespace) else {
+                return Err(RuntimeError::ArtifactError(
+                    "usage: /loop <interval> <prompt>".to_string(),
+                ));
+            };
+            let id = format!("loop_{}", current_epoch_ms());
+            host.start_trigger(TriggerInstanceConfig {
+                id: id.clone(),
+                kind: "interval".to_string(),
+                enabled: true,
+                prompt: Value::String(prompt.trim().to_string()),
+                preset: None,
+                extra_decorators: Vec::new(),
+                config: json!({ "interval": interval.trim() }),
+            })
+            .await?;
+            Ok(CommandDispatchResult {
+                message: format!("Started interval trigger '{id}' every {}.", interval.trim()),
+                data: json!({ "started": true, "id": id, "kind": "interval" }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        "schedule" => {
+            if trimmed == "list" {
+                return Box::pin(execute_trigger_slash_command(host, "triggers", "list")).await;
+            }
+            if let Some(id) = trimmed.strip_prefix("stop ") {
+                let removed = host.remove_trigger(id.trim()).await;
+                return Ok(CommandDispatchResult {
+                    message: format!("Removed trigger '{}': {removed}", id.trim()),
+                    data: json!({ "removed": removed, "id": id.trim() }),
+                    notice: None,
+                    pending_pause: None,
+                });
+            }
+            let (expr, prompt) = if let Some(rest) = trimmed.strip_prefix('"') {
+                rest.split_once('"').ok_or_else(|| {
+                    RuntimeError::ArtifactError("usage: /schedule \"<cron>\" <prompt>".to_string())
+                })?
+            } else {
+                let parts: Vec<&str> = trimmed.splitn(6, char::is_whitespace).collect();
+                if parts.len() < 6 {
+                    return Err(RuntimeError::ArtifactError(
+                        "usage: /schedule \"<cron>\" <prompt>".to_string(),
+                    ));
+                }
+                let expr_str = format!(
+                    "{} {} {} {} {}",
+                    parts[0], parts[1], parts[2], parts[3], parts[4]
+                );
+                let id = format!("sched_{}", current_epoch_ms());
+                host.start_trigger(TriggerInstanceConfig {
+                    id: id.clone(),
+                    kind: "cron_schedule".to_string(),
+                    enabled: true,
+                    prompt: Value::String(parts[5].trim().to_string()),
+                    preset: None,
+                    extra_decorators: Vec::new(),
+                    config: json!({ "expression": expr_str }),
+                })
+                .await?;
+                return Ok(CommandDispatchResult {
+                    message: format!("Started cron schedule trigger '{id}' ({expr_str})."),
+                    data: json!({ "started": true, "id": id, "kind": "cron_schedule" }),
+                    notice: None,
+                    pending_pause: None,
+                });
+            };
+            let prompt_trimmed = prompt.trim();
+            if prompt_trimmed.is_empty() {
+                return Err(RuntimeError::ArtifactError(
+                    "usage: /schedule \"<cron>\" <prompt>".to_string(),
+                ));
+            }
+            let id = format!("sched_{}", current_epoch_ms());
+            host.start_trigger(TriggerInstanceConfig {
+                id: id.clone(),
+                kind: "cron_schedule".to_string(),
+                enabled: true,
+                prompt: Value::String(prompt_trimmed.to_string()),
+                preset: None,
+                extra_decorators: Vec::new(),
+                config: json!({ "expression": expr.trim() }),
+            })
+            .await?;
+            Ok(CommandDispatchResult {
+                message: format!("Started cron schedule trigger '{id}' ({}).", expr.trim()),
+                data: json!({ "started": true, "id": id, "kind": "cron_schedule" }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        "watch" => {
+            if let Some(id) = trimmed.strip_prefix("stop ") {
+                let removed = host.remove_trigger(id.trim()).await;
+                return Ok(CommandDispatchResult {
+                    message: format!("Removed trigger '{}': {removed}", id.trim()),
+                    data: json!({ "removed": removed, "id": id.trim() }),
+                    notice: None,
+                    pending_pause: None,
+                });
+            }
+            let Some((path, prompt)) = trimmed.split_once(char::is_whitespace) else {
+                return Err(RuntimeError::ArtifactError(
+                    "usage: /watch <path> <prompt>".to_string(),
+                ));
+            };
+            let id = format!("watch_{}", current_epoch_ms());
+            host.start_trigger(TriggerInstanceConfig {
+                id: id.clone(),
+                kind: "fs_watch".to_string(),
+                enabled: true,
+                prompt: Value::String(prompt.trim().to_string()),
+                preset: None,
+                extra_decorators: Vec::new(),
+                config: json!({ "paths": [path.trim()] }),
+            })
+            .await?;
+            Ok(CommandDispatchResult {
+                message: format!("Started fs_watch trigger '{id}' on '{}'.", path.trim()),
+                data: json!({ "started": true, "id": id, "kind": "fs_watch" }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        "webhook" => {
+            if let Some(id) = trimmed.strip_prefix("stop ") {
+                let removed = host.remove_trigger(id.trim()).await;
+                return Ok(CommandDispatchResult {
+                    message: format!("Removed trigger '{}': {removed}", id.trim()),
+                    data: json!({ "removed": removed, "id": id.trim() }),
+                    notice: None,
+                    pending_pause: None,
+                });
+            }
+            let Some((bind_addr, prompt)) = trimmed.split_once(char::is_whitespace) else {
+                return Err(RuntimeError::ArtifactError(
+                    "usage: /webhook <addr> <prompt>".to_string(),
+                ));
+            };
+            let id = format!("hook_{}", current_epoch_ms());
+            host.start_trigger(TriggerInstanceConfig {
+                id: id.clone(),
+                kind: "webhook".to_string(),
+                enabled: true,
+                prompt: Value::String(prompt.trim().to_string()),
+                preset: None,
+                extra_decorators: Vec::new(),
+                config: json!({ "bind_addr": bind_addr.trim() }),
+            })
+            .await?;
+            Ok(CommandDispatchResult {
+                message: format!("Started webhook trigger '{id}' on '{}'.", bind_addr.trim()),
+                data: json!({ "started": true, "id": id, "kind": "webhook" }),
+                notice: None,
+                pending_pause: None,
+            })
+        }
+        _ => Err(RuntimeError::ArtifactError(format!(
+            "unknown trigger command '/{name}'"
+        ))),
+    }
+}
+
+pub(crate) type TriggerRpcFuture =
+    Pin<Box<dyn Future<Output = Result<Value, (i64, String)>> + Send + 'static>>;
+
+/// Shared JSON-RPC / ACP trigger management dispatcher (`list`, `add`, `remove`,
+/// `pause`, `resume`, `fire`).
+///
+/// Returns a `'static` future so callers inside `tokio::spawn` do not hold
+/// `&RuntimeHost` (`!Sync`) across `.await` points.
+pub(crate) fn dispatch_trigger_rpc(
+    host: &RuntimeHost,
+    op: &str,
+    params: Value,
+) -> TriggerRpcFuture {
+    match op {
+        "list" => {
+            let fut = host.list_triggers();
+            Box::pin(async move { Ok(json!({ "triggers": fut.await })) })
+        }
+        "add" => match serde_json::from_value::<TriggerInstanceConfig>(params) {
+            Ok(inst) => {
+                let tid = inst.id.clone();
+                let fut = host.start_trigger(inst);
+                Box::pin(async move {
+                    fut.await
+                        .map(|()| json!({ "added": true, "id": tid }))
+                        .map_err(|e| (RPC_INTERNAL_ERROR, e.to_string()))
+                })
+            }
+            Err(e) => Box::pin(async move {
+                Err((RPC_INVALID_PARAMS, format!("invalid trigger config: {e}")))
+            }),
+        },
+        "remove" | "pause" | "resume" | "fire" => {
+            let Some(tid) = params.get("id").and_then(Value::as_str) else {
+                return Box::pin(async { Err((RPC_INVALID_PARAMS, "missing 'id'".to_string())) });
+            };
+            match op {
+                "remove" => {
+                    let fut = host.remove_trigger(tid);
+                    Box::pin(async move { Ok(json!({ "removed": fut.await })) })
+                }
+                "pause" => {
+                    let fut = host.pause_trigger(tid);
+                    Box::pin(async move { Ok(json!({ "paused": fut.await })) })
+                }
+                "resume" => {
+                    let fut = host.resume_trigger(tid);
+                    Box::pin(async move {
+                        fut.await
+                            .map(|()| json!({ "resumed": true }))
+                            .map_err(|e| (RPC_INTERNAL_ERROR, e.to_string()))
+                    })
+                }
+                _ => {
+                    let fut = host.fire_trigger_now(tid);
+                    Box::pin(async move {
+                        fut.await
+                            .map(|ev| json!({ "fired": true, "event": ev }))
+                            .map_err(|e| (RPC_INTERNAL_ERROR, e.to_string()))
+                    })
+                }
+            }
+        }
+        _ => {
+            let msg = format!("unknown trigger op: {op}");
+            Box::pin(async move { Err((RPC_METHOD_NOT_FOUND, msg)) })
+        }
+    }
 }
 
 #[cfg(test)]
