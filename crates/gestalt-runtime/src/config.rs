@@ -7,14 +7,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use gestalt_kernel::{
-    BudgetCap, ExtensionRegistry, LoopConfig, PolicyGate, PolicyOverride, Preset, SandboxPolicy,
-    sha256_hex,
+    BudgetCap, ExtensionRegistry, KernelError, LoopConfig, PolicyGate, PolicyOverride, Preset,
+    SandboxPolicy, sha256_hex,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::RuntimeError;
 use crate::credentials::CredentialStore;
+use crate::sandbox::{DockerSandboxConfig, MicroVmSandboxConfig, SandboxKind};
 
 fn default_ext_timeout_ms() -> u64 {
     5_000
@@ -86,6 +87,12 @@ pub struct SandboxConfig {
     pub protected_paths: Option<Vec<String>>,
     /// Maximum subagent spawn depth permitted.
     pub max_spawn_depth: Option<u8>,
+    /// Selected sandbox isolation driver (`"os"`, `"docker"`, `"microvm"`).
+    pub driver: Option<SandboxKind>,
+    /// Optional `[sandbox.docker]` container configuration.
+    pub docker: Option<DockerSandboxConfig>,
+    /// Optional `[sandbox.microvm]` Firecracker / Apple Virtualization configuration.
+    pub microvm: Option<MicroVmSandboxConfig>,
 }
 
 /// `[policy]` section in `gestalt.toml`.
@@ -178,6 +185,31 @@ pub struct ExternalExtensionConfig {
     pub timeout_ms: u64,
 }
 
+fn default_trigger_enabled() -> bool {
+    true
+}
+
+/// `[triggers.<id>]` section in `gestalt.toml`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerConfig {
+    /// Trigger kind (`"interval"`, `"cron_schedule"`, `"fs_watch"`, `"webhook"`).
+    pub kind: String,
+    /// Whether this trigger starts active at boot (defaults to `true`).
+    #[serde(default = "default_trigger_enabled")]
+    pub enabled: bool,
+    /// Prompt or JSON input dispatched when the trigger fires.
+    pub prompt: Value,
+    /// Optional target preset or loop ID.
+    #[serde(default)]
+    pub preset: Option<String>,
+    /// Optional extra decorators applied to triggered Turns.
+    #[serde(default)]
+    pub extra_decorators: Vec<String>,
+    /// Kind-specific trigger configuration parameters.
+    #[serde(default)]
+    pub config: Value,
+}
+
 /// Parsed `gestalt.toml` configuration file.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GestaltConfig {
@@ -200,6 +232,9 @@ pub struct GestaltConfig {
     /// Out-of-process stdio JSON-RPC / MCP extensions.
     #[serde(default)]
     pub extensions: BTreeMap<String, ExternalExtensionConfig>,
+    /// Configured event and schedule triggers.
+    #[serde(default)]
+    pub triggers: BTreeMap<String, TriggerConfig>,
 }
 
 impl GestaltConfig {
@@ -357,12 +392,20 @@ pub struct ResolvedRuntimeConfig {
     pub session_dir: String,
     /// Pause reasons auto-approved in `-p` headless mode.
     pub headless_auto_approve: Vec<String>,
+    /// Effective sandbox driver tier (`os`, `docker`, `microvm`).
+    pub sandbox_driver: SandboxKind,
+    /// Optional Docker sandbox configuration.
+    pub docker_sandbox: Option<DockerSandboxConfig>,
+    /// Optional Micro-VM sandbox configuration.
+    pub microvm_sandbox: Option<MicroVmSandboxConfig>,
     /// Merged provider configurations keyed by provider/alias ID.
     pub providers: BTreeMap<String, ProviderConfig>,
     /// Merged preset configurations keyed by preset ID.
     pub presets: BTreeMap<String, Preset>,
     /// Merged external IPC/MCP extension definitions keyed by extension name.
     pub extensions: BTreeMap<String, ExternalExtensionConfig>,
+    /// Merged trigger definitions keyed by trigger ID.
+    pub triggers: BTreeMap<String, TriggerConfig>,
 }
 
 /// Input options for [`load_and_merge_config`].
@@ -399,9 +442,13 @@ pub fn load_and_merge_config(
         default_preset: "general".to_string(),
         session_dir: ".gestalt/sessions".to_string(),
         headless_auto_approve: Vec::new(),
+        sandbox_driver: SandboxKind::Os,
+        docker_sandbox: None,
+        microvm_sandbox: None,
         providers: BTreeMap::new(),
         presets: registry.presets.clone(),
         extensions: BTreeMap::new(),
+        triggers: BTreeMap::new(),
     };
 
     if let Some(global_path) = opts.global_toml_path
@@ -449,6 +496,26 @@ fn apply_tier(
         cfg.to_policy_override(&policy_gate.baseline_budget(), policy_gate.sandbox())?;
     policy_gate.apply_monotonic_override(&override_cfg)?;
 
+    if let Some(ref sb) = cfg.sandbox {
+        if let Some(driver) = sb.driver {
+            if driver.isolation_rank() < resolved.sandbox_driver.isolation_rank() {
+                return Err(RuntimeError::Kernel(
+                    KernelError::PolicyRelaxationForbidden(format!(
+                        "sandbox driver cannot be downgraded from '{:?}' to '{:?}'",
+                        resolved.sandbox_driver, driver
+                    )),
+                ));
+            }
+            resolved.sandbox_driver = driver;
+        }
+        if let Some(ref docker) = sb.docker {
+            resolved.docker_sandbox = Some(docker.clone());
+        }
+        if let Some(ref microvm) = sb.microvm {
+            resolved.microvm_sandbox = Some(microvm.clone());
+        }
+    }
+
     if let Some(ref preset) = cfg.defaults.preset {
         resolved.default_preset = preset.clone();
     }
@@ -465,6 +532,7 @@ fn apply_tier(
         registry.presets.insert(id.clone(), preset);
     }
     resolved.extensions.extend(cfg.extensions.clone());
+    resolved.triggers.extend(cfg.triggers.clone());
     Ok(())
 }
 

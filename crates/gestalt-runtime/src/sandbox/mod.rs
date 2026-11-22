@@ -2,8 +2,10 @@
 //! Two-layer sandbox enforcement: in-process `WorkspacePathGuard` and OS
 //! subprocess `SandboxDriver` (`bubblewrap` on Linux, `Seatbelt` on macOS).
 
+pub mod docker;
 pub mod linux_bwrap;
 pub mod macos_seatbelt;
+pub mod microvm;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -20,8 +22,10 @@ use tokio::process::Command;
 
 use crate::{CancellationToken, RuntimeError};
 
+pub use docker::{DockerSandboxConfig, DockerSandboxDriver};
 pub use linux_bwrap::LinuxBwrapDriver;
 pub use macos_seatbelt::MacOsSeatbeltDriver;
+pub use microvm::{MicroVmBackend, MicroVmSandboxConfig, MicroVmSandboxDriver};
 
 /// Internal harness integrity prefixes always protected from direct regular-tool writes
 /// across both `WorkspacePathGuard` and OS `SandboxDriver`s.
@@ -357,6 +361,61 @@ pub trait SandboxDriver: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<SandboxOutput, RuntimeError>> + Send + 'a>>;
 }
 
+/// Configured sandbox isolation backend tier (ordered strictly by isolation strength).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxKind {
+    /// Explicit opt-in unsandboxed execution (`--unsafe-no-sandbox`).
+    UnsafeNone,
+    /// Native OS process sandbox (`bwrap` on Linux, `sandbox-exec` on macOS).
+    #[default]
+    Os,
+    /// Ephemeral OCI/Docker container sandbox.
+    Docker,
+    /// Hardware-virtualized micro-VM (`Firecracker` on Linux, Apple `Virtualization.framework` on macOS).
+    MicroVm,
+}
+
+impl SandboxKind {
+    /// Numeric isolation rank used to enforce monotonic Global -> Workspace policy merging.
+    #[must_use]
+    pub const fn isolation_rank(self) -> u8 {
+        match self {
+            Self::UnsafeNone => 0,
+            Self::Os => 1,
+            Self::Docker => 2,
+            Self::MicroVm => 3,
+        }
+    }
+}
+
+/// Select a [`SandboxDriver`] matching `kind` and optional backend configuration.
+///
+/// Fails closed with [`UnavailableSandboxDriver`] if the requested driver binary
+/// or guest assets are unavailable (unless `kind == SandboxKind::UnsafeNone` or
+/// `unsafe_no_sandbox == true` with `SandboxKind::Os`).
+#[must_use]
+pub fn select_sandbox_driver(
+    kind: SandboxKind,
+    docker_cfg: Option<DockerSandboxConfig>,
+    microvm_cfg: Option<MicroVmSandboxConfig>,
+    unsafe_no_sandbox: bool,
+) -> Arc<dyn SandboxDriver> {
+    if unsafe_no_sandbox && matches!(kind, SandboxKind::Os | SandboxKind::UnsafeNone) {
+        return Arc::new(UnsandboxedFallbackDriver);
+    }
+    match kind {
+        SandboxKind::UnsafeNone => Arc::new(UnsandboxedFallbackDriver),
+        SandboxKind::Os => default_sandbox_driver(unsafe_no_sandbox),
+        SandboxKind::Docker => Arc::new(DockerSandboxDriver::with_config(
+            docker_cfg.unwrap_or_default(),
+        )),
+        SandboxKind::MicroVm => Arc::new(MicroVmSandboxDriver::with_config(
+            microvm_cfg.unwrap_or_default(),
+        )),
+    }
+}
+
 /// Select the default [`SandboxDriver`] for the current host OS.
 ///
 /// Fails closed with [`UnavailableSandboxDriver`] if the OS sandbox binary is
@@ -600,6 +659,26 @@ pub fn normalize_rel_prefix(raw: &str) -> String {
     raw.trim_start_matches("./")
         .trim_end_matches('/')
         .replace('\\', "/")
+}
+
+/// Collect all canonicalized protected paths inside `canon_ws`, combining
+/// policy `protected_paths` (excluding `.` and empty) with [`INTERNAL_PROTECTED_PREFIXES`].
+#[must_use]
+pub fn collect_protected_paths(canon_ws: &Path, policy: &SandboxPolicy) -> Vec<PathBuf> {
+    let mut all_protected = BTreeSet::new();
+    for raw_prot in &policy.protected_paths {
+        let norm = normalize_rel_prefix(raw_prot);
+        if !norm.is_empty() && norm != "." {
+            all_protected.insert(norm);
+        }
+    }
+    for internal in INTERNAL_PROTECTED_PREFIXES {
+        all_protected.insert((*internal).to_string());
+    }
+    all_protected
+        .into_iter()
+        .map(|norm| canon_ws.join(norm))
+        .collect()
 }
 
 #[cfg(test)]

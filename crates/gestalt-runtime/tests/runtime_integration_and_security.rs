@@ -13,8 +13,8 @@ use gestalt_kernel::{
     AgentLoop, AgentLoopFactory, ArtifactPatch, ArtifactStoreView, BudgetCap, ContextBuilder,
     Effect, EffectEnvelope, ExtensionRegistry, LoopAction, LoopConfig, LoopContext,
     ModelCapabilities, ModelKind, PolicyDecision, PolicyGate, PolicyRule, Preset, ReplayEngine,
-    ReplayMode, RunEvent, SaveMode, SessionSlice, SessionTree, SideEffectClass, SteeringKind,
-    SteeringSource, StepResult, ToolSpec, Usage, WorkspaceMode,
+    ReplayMode, RunEvent, SandboxPolicy, SaveMode, SessionSlice, SessionTree, SideEffectClass,
+    SteeringKind, SteeringSource, StepResult, ToolSpec, Usage, WorkspaceMode,
 };
 use gestalt_runtime::sandbox::UnsandboxedFallbackDriver;
 use gestalt_runtime::{
@@ -1065,5 +1065,199 @@ async fn tool_execution_context_emits_redacted_tool_ui_events() {
     }
 
     host.shutdown().await;
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn docker_and_microvm_sandbox_drivers_enforce_fail_closed_and_abort() {
+    use gestalt_runtime::{
+        DockerSandboxConfig, DockerSandboxDriver, MicroVmBackend, MicroVmSandboxConfig,
+        MicroVmSandboxDriver, SandboxCommand, SandboxKind, select_sandbox_driver,
+    };
+
+    let dir = std::env::temp_dir().join(format!("gestalt_m21_sb_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join(".gestalt/memories")).expect("mkdir");
+    let canon = fs::canonicalize(&dir).expect("canon");
+
+    // 1. Missing binaries/assets fail closed
+    let missing_docker = DockerSandboxDriver::with_binary("/nonexistent/docker_bin");
+    let missing_vm = MicroVmSandboxDriver::new();
+    let sample_cmd = SandboxCommand {
+        program: "echo".to_string(),
+        args: vec!["ok".to_string()],
+        cwd: canon.clone(),
+        env: BTreeMap::new(),
+        stdin_bytes: None,
+        timeout_ms: Some(1_000),
+    };
+    assert!(matches!(
+        missing_docker.build_os_command(&sample_cmd, &canon, &SandboxPolicy::default()),
+        Err(RuntimeError::SandboxUnavailable { .. })
+    ));
+    assert!(matches!(
+        missing_vm.build_os_command(&sample_cmd, &canon, &SandboxPolicy::default()),
+        Err(RuntimeError::SandboxUnavailable { .. })
+    ));
+
+    // 2. Mock docker CLI verifies protected_paths ro mounts, --network none, and <=250ms abort
+    let mock_docker = canon.join("mock_docker.sh");
+    fs::write(
+        &mock_docker,
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "Docker version 27.0.0"
+  exit 0
+fi
+if [ "$1" = "rm" ]; then
+  exit 0
+fi
+for arg in "$@"; do
+  if [ "$arg" = "sleep_test" ]; then
+    sleep 10
+    exit 0
+  fi
+done
+printf '%s\n' "$*"
+exit 0
+"#,
+    )
+    .expect("write mock docker");
+    Command::new("chmod")
+        .args(["+x", mock_docker.to_str().expect("utf8")])
+        .status()
+        .expect("chmod");
+
+    let docker_drv = select_sandbox_driver(
+        SandboxKind::Docker,
+        Some(DockerSandboxConfig {
+            binary: mock_docker.to_string_lossy().to_string(),
+            image: "alpine:3.20".to_string(),
+            memory_limit: Some("256m".to_string()),
+            cpu_limit: Some("1.0".to_string()),
+            extra_args: Vec::new(),
+        }),
+        None,
+        false,
+    );
+    assert_eq!(docker_drv.name(), "docker");
+    let out = docker_drv
+        .run(
+            &sample_cmd,
+            &canon,
+            &SandboxPolicy {
+                network: false,
+                protected_paths: [".gestalt/memories/".to_string()].into_iter().collect(),
+                max_spawn_depth: 1,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .expect("mock docker run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("--network none"));
+    assert!(stdout.contains(".gestalt/memories:ro"));
+    assert!(stdout.contains("--cap-drop ALL"));
+
+    // Fast abort <= 250ms
+    let sleep_cmd = SandboxCommand {
+        program: "sleep_test".to_string(),
+        args: Vec::new(),
+        cwd: canon.clone(),
+        env: BTreeMap::new(),
+        stdin_bytes: None,
+        timeout_ms: None,
+    };
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    let t0 = Instant::now();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        cancel_clone.cancel();
+    });
+    let aborted = docker_drv
+        .run(&sleep_cmd, &canon, &SandboxPolicy::default(), cancel)
+        .await
+        .expect("docker abort");
+    assert!(aborted.aborted);
+    assert!(t0.elapsed() <= Duration::from_millis(250));
+
+    // 3. Mock Firecracker VMM runner verifies config generation and execution
+    let kernel = canon.join("vmlinux");
+    let rootfs = canon.join("rootfs.ext4");
+    fs::write(&kernel, "k").expect("k");
+    fs::write(&rootfs, "r").expect("r");
+    let mock_fc = canon.join("mock_fc.sh");
+    fs::write(
+        &mock_fc,
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "Firecracker v1.9.0"
+  exit 0
+fi
+cat "$3"
+exit 0
+"#,
+    )
+    .expect("write mock fc");
+    Command::new("chmod")
+        .args(["+x", mock_fc.to_str().expect("utf8")])
+        .status()
+        .expect("chmod fc");
+
+    let fc_drv = select_sandbox_driver(
+        SandboxKind::MicroVm,
+        None,
+        Some(MicroVmSandboxConfig {
+            backend: MicroVmBackend::Firecracker,
+            binary: mock_fc.to_string_lossy().to_string(),
+            kernel_image: Some(kernel),
+            rootfs_image: Some(rootfs),
+            vcpu_count: 1,
+            mem_mib: 128,
+        }),
+        false,
+    );
+    assert_eq!(fc_drv.name(), "microvm");
+    let fc_out = fc_drv
+        .run(
+            &sample_cmd,
+            &canon,
+            &SandboxPolicy::default(),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("mock fc run");
+    let fc_json: Value = serde_json::from_slice(&fc_out.stdout).expect("fc json");
+    assert_eq!(fc_json["network-interfaces"], json!([]));
+    assert_eq!(fc_json["drives"][0]["is_read_only"], true);
+
+    // 4. Monotonic sandbox driver downgrade in workspace config is rejected
+    let global_toml = canon.join("global_sb.toml");
+    let ws_toml = canon.join("ws_sb.toml");
+    fs::write(&global_toml, "[sandbox]\ndriver = \"docker\"\n").expect("write global");
+    fs::write(&ws_toml, "[sandbox]\ndriver = \"os\"\n").expect("write ws");
+    let mut gate = PolicyGate::default();
+    let mut reg = ExtensionRegistry::new();
+    let trust = WorkspaceTrustStore::default();
+    let err = load_and_merge_config(
+        ConfigLoadOptions {
+            workspace_root: &canon,
+            global_toml_path: Some(&global_toml),
+            workspace_toml_path: Some(&ws_toml),
+            cli_extensions: BTreeMap::new(),
+            trust_store: &trust,
+            auto_trust_workspace: true,
+        },
+        &mut gate,
+        &mut reg,
+    )
+    .expect_err("must reject sandbox driver downgrade");
+    assert!(matches!(
+        err,
+        RuntimeError::Kernel(gestalt_kernel::KernelError::PolicyRelaxationForbidden(_))
+    ));
+
     let _ = fs::remove_dir_all(&dir);
 }
