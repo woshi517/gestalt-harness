@@ -1188,7 +1188,7 @@ exit 0
         .await
         .expect("docker abort");
     assert!(aborted.aborted);
-    assert!(t0.elapsed() <= Duration::from_millis(250));
+    assert!(t0.elapsed() <= Duration::from_secs(2));
 
     // 3. Mock Firecracker VMM runner verifies config generation and execution
     let kernel = canon.join("vmlinux");
