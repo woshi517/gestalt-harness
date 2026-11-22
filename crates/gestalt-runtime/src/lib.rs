@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod provider;
 pub mod sandbox;
 mod stdio_rpc;
+pub mod trigger;
 
 use gestalt_kernel::KernelError;
 use thiserror::Error;
@@ -46,8 +47,14 @@ pub use provider::{
     classify_http_error, compute_cost_micro_usd, estimate_tokens_fallback,
 };
 pub use sandbox::{
-    INTERNAL_PROTECTED_PREFIXES, LinuxBwrapDriver, MacOsSeatbeltDriver, SandboxCommand,
-    SandboxDriver, SandboxOutput, WorkspacePathGuard, default_sandbox_driver,
+    DockerSandboxConfig, DockerSandboxDriver, INTERNAL_PROTECTED_PREFIXES, LinuxBwrapDriver,
+    MacOsSeatbeltDriver, MicroVmBackend, MicroVmSandboxConfig, MicroVmSandboxDriver,
+    SandboxCommand, SandboxDriver, SandboxKind, SandboxOutput, WorkspacePathGuard,
+    default_sandbox_driver, select_sandbox_driver,
+};
+pub use trigger::{
+    TriggerContext, TriggerEvent, TriggerHandler, TriggerInstanceConfig, TriggerManager,
+    TriggerStatus,
 };
 
 /// Classification of provider HTTP/SSE failures for retry and compaction handling.

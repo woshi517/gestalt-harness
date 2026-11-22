@@ -31,7 +31,7 @@ pub use extension::{
     AgentLoop, AgentLoopFactory, ArtifactEntry, ArtifactStoreView, CommandSpec, ContextBuilder,
     Extension, ExtensionRegistry, ExternalBinding, ExternalComponentSpec, ExternalExtensionSpec,
     LoopAction, LoopContext, LoopDecorator, ModelCapabilities, Preset, ResolvedPhaseStack,
-    ToolSpec, UIActionSpec, UIDialogSpec, UIPanelSpec, UIRendererSpec, UISurface,
+    ToolSpec, TriggerSpec, UIActionSpec, UIDialogSpec, UIPanelSpec, UIRendererSpec, UISurface,
 };
 pub use policy::{
     BatchItemDecision, PolicyDecision, PolicyGate, PolicyOverride, PolicyRule, SandboxPolicy,

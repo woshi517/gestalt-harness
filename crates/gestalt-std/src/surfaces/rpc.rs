@@ -89,6 +89,7 @@ where
 
     let mut state = SurfaceSessionState::new(initial_preset);
     let mut snapshot = CachedSurfaceSnapshot::from_host(&host);
+    let mut trigger_rx = host.take_trigger_receiver().await;
     let mut host_slot: Option<RuntimeHost> = Some(host);
     let mut active_turn: Option<ActiveTurnHandle> = None;
     let mut pending_cmd_pauses: BTreeMap<String, PendingCommandPause> = BTreeMap::new();
@@ -106,6 +107,33 @@ where
                         "params": ev,
                     }),
                 ).await?;
+            }
+            Some(trig_ev) = async {
+                match trigger_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Some(handle) = active_turn.as_ref() {
+                    let _ = handle.control_tx.send(LiveTurnControl::Trigger(trig_ev));
+                } else if let Some(mut idle_host) = host_slot.take() {
+                    let _ = idle_host.ingest_idle_trigger_event(&trig_ev).await;
+                    let target_preset = trig_ev
+                        .preset
+                        .unwrap_or_else(|| state.active_preset.clone());
+                    let (control_tx, cancel, done_rx) = spawn_surface_turn(
+                        idle_host,
+                        trig_ev.prompt,
+                        target_preset,
+                        state.extra_decorators.clone(),
+                    );
+                    active_turn = Some(ActiveTurnHandle {
+                        req_id: None,
+                        control_tx,
+                        cancel,
+                        done_rx,
+                    });
+                }
             }
             turn_done = async {
                 match active_turn.as_mut() {
@@ -703,6 +731,24 @@ async fn handle_rpc_request<W: AsyncWrite + Unpin>(
                     }),
                 )
                 .await?;
+            }
+        }
+        "trigger/list" | "trigger/add" | "trigger/remove" | "trigger/pause" | "trigger/resume"
+        | "trigger/fire" => {
+            let Some(host) = host_slot.as_ref() else {
+                if id.is_some() {
+                    write_jsonrpc_err(writer, reply_id, RPC_INVALID_STATE, "a Turn is active")
+                        .await?;
+                }
+                return Ok(());
+            };
+            let op = method.strip_prefix("trigger/").unwrap_or(method);
+            match super::dispatch_trigger_rpc(host, op, params).await {
+                Ok(val) if id.is_some() => write_jsonrpc_ok(writer, reply_id, val).await?,
+                Err((code, msg)) if id.is_some() => {
+                    write_jsonrpc_err(writer, reply_id, code, &msg).await?;
+                }
+                _ => {}
             }
         }
         _ => {

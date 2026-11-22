@@ -529,6 +529,22 @@ fn render_transcript_item(
                 Style::default().fg(Color::Yellow),
             )));
         }
+        TranscriptItem::TriggerNote {
+            trigger_id,
+            kind,
+            queued_as_follow_up,
+            prompt,
+        } => {
+            let mode = if *queued_as_follow_up {
+                "queued follow-up"
+            } else {
+                "started turn"
+            };
+            out.push(Line::from(Span::styled(
+                format!("[trigger:{trigger_id} ({kind}) -> {mode}] {prompt}"),
+                Style::default().fg(Color::Magenta),
+            )));
+        }
         TranscriptItem::TurnFooter {
             status,
             steps,
@@ -681,13 +697,22 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, state: &TuiAppState) {
         .reasoning_budget_tokens
         .map(|t| format!(" | thinking: {t}"))
         .unwrap_or_default();
+    let trig_seg = if state.active_triggers.is_empty() {
+        String::new()
+    } else {
+        let active_count = state.active_triggers.iter().filter(|t| t.enabled).count();
+        format!(
+            " | triggers: {active_count}/{}",
+            state.active_triggers.len()
+        )
+    };
     let left_prefix = format!(
         " {} | preset: {}",
         state.workspace_label, state.active_preset
     );
     let left_suffix = format!(
-        "{} | steps: {} tokens: {} (${:.4})",
-        think_seg, state.budget.steps_used, state.budget.tokens_used, cost_usd
+        "{}{} | steps: {} tokens: {} (${:.4})",
+        think_seg, trig_seg, state.budget.steps_used, state.budget.tokens_used, cost_usd
     );
     let right = "[Ctrl+O] Steps  [Ctrl+P] Panels  [Ctrl+R] Thinking ";
     let line = Line::from(vec![
@@ -920,6 +945,22 @@ fn render_overlay(
                         state.budget.tokens_used
                     )));
                     body_lines.push(Line::from(format!("Cost: ${cost:.6}")));
+                } else if panel.id == "triggers_inspector" {
+                    if state.active_triggers.is_empty() {
+                        body_lines.push(Line::from(
+                            "No triggers registered. Use /loop, /schedule, /watch, or /webhook.",
+                        ));
+                    } else {
+                        for t in &state.active_triggers {
+                            body_lines.push(Line::from(format!(
+                                "{} [{}] {} | fires={}",
+                                t.id,
+                                t.kind,
+                                if t.enabled { "active" } else { "paused" },
+                                t.fire_count
+                            )));
+                        }
+                    }
                 } else {
                     body_lines.push(Line::from(format!("Panel: {}", panel.title)));
                     body_lines.push(Line::from(state.policy_summary.to_string()));

@@ -65,6 +65,19 @@ pub enum RunEvent {
         /// Cancellation reason.
         reason: String,
     },
+    /// Canonical event: an event or schedule `Trigger` fired.
+    TriggerFired {
+        /// Trigger instance identifier.
+        trigger_id: String,
+        /// Trigger kind (`"interval"`, `"cron_schedule"`, `"fs_watch"`, `"webhook"`).
+        kind: String,
+        /// Turn ID started immediately or `SteeringSignal` ID queued as `FollowUp`.
+        turn_or_signal_id: String,
+        /// `true` if queued as `SteeringKind::FollowUp` behind an active Turn.
+        queued_as_follow_up: bool,
+        /// Trigger metadata/prompt payload.
+        payload: Value,
+    },
     /// Transient event (not persisted to `SessionTree`): streaming chunk from a
     /// provider or tool worker.
     StreamDelta {
@@ -276,5 +289,17 @@ mod tests {
         };
         assert!(delta.is_transient());
         assert!(!node.is_transient());
+
+        let trig = RunEvent::TriggerFired {
+            trigger_id: "t_1".into(),
+            kind: "interval".into(),
+            turn_or_signal_id: "turn_2".into(),
+            queued_as_follow_up: false,
+            payload: json!({"tick": 1}),
+        };
+        assert!(!trig.is_transient());
+        let encoded = serde_json::to_value(&trig).expect("ser");
+        let decoded: RunEvent = serde_json::from_value(encoded).expect("de");
+        assert_eq!(trig, decoded);
     }
 }

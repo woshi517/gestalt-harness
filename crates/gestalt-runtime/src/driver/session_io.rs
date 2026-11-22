@@ -152,6 +152,7 @@ pub(crate) fn redact_run_event(event: &mut RunEvent, redactor: &StreamRedactor) 
         | RunEvent::TurnCompleted {
             output: payload, ..
         }
+        | RunEvent::TriggerFired { payload, .. }
         | RunEvent::StreamDelta { payload, .. }
         | RunEvent::ToolUi { data: payload, .. } => {
             redactor.redact_json(payload);

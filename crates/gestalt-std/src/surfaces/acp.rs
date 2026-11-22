@@ -58,6 +58,7 @@ where
 
     let mut state = SurfaceSessionState::new(initial_preset);
     let mut available_modes = collect_modes(host.kernel().registry());
+    let mut trigger_rx = host.take_trigger_receiver().await;
     let mut host_slot: Option<RuntimeHost> = Some(host);
     let mut active_turn: Option<ActiveAcpTurn> = None;
     let mut perm_seq: u64 = 0;
@@ -81,6 +82,33 @@ where
                             }
                         }),
                     ).await?;
+                }
+            }
+            Some(trig_ev) = async {
+                match trigger_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Some(handle) = active_turn.as_ref() {
+                    let _ = handle.control_tx.send(LiveTurnControl::Trigger(trig_ev));
+                } else if let Some(mut idle_host) = host_slot.take() {
+                    let _ = idle_host.ingest_idle_trigger_event(&trig_ev).await;
+                    let target_preset = trig_ev
+                        .preset
+                        .unwrap_or_else(|| state.active_preset.clone());
+                    let (control_tx, cancel, done_rx) = spawn_surface_turn(
+                        idle_host,
+                        trig_ev.prompt,
+                        target_preset,
+                        state.extra_decorators.clone(),
+                    );
+                    active_turn = Some(ActiveAcpTurn {
+                        prompt_req_id: Value::Null,
+                        control_tx,
+                        cancel,
+                        done_rx,
+                    });
                 }
             }
             Some(prompt) = pause_rx.recv() => {
@@ -643,6 +671,28 @@ async fn handle_acp_method<W: AsyncWrite + Unpin>(
                 }
             }
         }
+        "_gestalt/trigger/list"
+        | "_gestalt/trigger/add"
+        | "_gestalt/trigger/remove"
+        | "_gestalt/trigger/pause"
+        | "_gestalt/trigger/resume"
+        | "_gestalt/trigger/fire" => {
+            let Some(host) = host_slot.as_ref() else {
+                if id.is_some() {
+                    write_jsonrpc_err(writer, reply_id, -32003, "session busy with active Turn")
+                        .await?;
+                }
+                return Ok(());
+            };
+            let op = method.strip_prefix("_gestalt/trigger/").unwrap_or(method);
+            match super::dispatch_trigger_rpc(host, op, params).await {
+                Ok(val) if id.is_some() => write_jsonrpc_ok(writer, reply_id, val).await?,
+                Err((code, msg)) if id.is_some() => {
+                    write_jsonrpc_err(writer, reply_id, code, &msg).await?;
+                }
+                _ => {}
+            }
+        }
         _ => {
             if id.is_some() {
                 write_jsonrpc_err(
@@ -718,6 +768,28 @@ fn run_event_to_acp_update(event: &RunEvent) -> Option<Value> {
             "toolCallId": effect_id,
             "status": "failed",
             "rawOutput": { "denied": true, "reason": reason },
+        })),
+        RunEvent::TriggerFired {
+            trigger_id,
+            kind,
+            turn_or_signal_id,
+            queued_as_follow_up,
+            payload,
+        } => Some(json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+                "type": "text",
+                "text": format!("[trigger:{trigger_id} ({kind})] {}", if *queued_as_follow_up { "queued as follow-up" } else { "started turn" }),
+            },
+            "_meta": {
+                "gestalt_trigger_fired": {
+                    "trigger_id": trigger_id,
+                    "kind": kind,
+                    "turn_or_signal_id": turn_or_signal_id,
+                    "queued_as_follow_up": queued_as_follow_up,
+                    "payload": payload,
+                }
+            }
         })),
         RunEvent::NodeAppended { .. }
         | RunEvent::Paused { .. }

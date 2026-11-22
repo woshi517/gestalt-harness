@@ -597,3 +597,214 @@ async fn tui_e2e_hydrates_live_session_turns_steps_and_switches_sessions() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn trigger_runtime_queues_follow_up_and_passes_offline_replay() {
+    use gestalt_kernel::{
+        AgentLoop, AgentLoopFactory, LoopAction, LoopConfig, LoopContext, ReplayMode, SessionTree,
+        StepResult,
+    };
+    use gestalt_runtime::{LiveTurnControl, TriggerEvent, default_sandbox_driver};
+    use gestalt_std::register_std_triggers;
+    use gestalt_std::surfaces::replay::{ReplaySurfaceOptions, run_replay_surface};
+    use gestalt_std::surfaces::rpc::run_rpc_surface;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    struct TrigEchoLoop;
+    impl AgentLoop for TrigEchoLoop {
+        fn id(&self) -> &str {
+            "echo_loop"
+        }
+        fn digest(&self) -> &str {
+            "el1"
+        }
+        fn step(&mut self, _ctx: &mut dyn LoopContext, _r: Option<Vec<StepResult>>) -> LoopAction {
+            LoopAction::Done(json!({ "ok": true }))
+        }
+    }
+    struct TrigEchoFactory;
+    impl AgentLoopFactory for TrigEchoFactory {
+        fn id(&self) -> &str {
+            "echo_loop"
+        }
+        fn digest(&self) -> &str {
+            "el1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(TrigEchoLoop)
+        }
+    }
+
+    let dir = std::env::temp_dir().join(format!("gestalt_trig_surf_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("mkdir");
+    let canon = fs::canonicalize(&dir).expect("canon");
+
+    let mut reg = ExtensionRegistry::new();
+    StdExtension.register(&mut reg).expect("std");
+    reg.loops
+        .insert("echo_loop".into(), Box::new(TrigEchoFactory));
+    let mut rt = RuntimeRegistry::new(default_sandbox_driver(true));
+    register_std_triggers(&mut rt);
+
+    let session_path = canon.join(".gestalt/sessions/trig.jsonl");
+    let mut host = RuntimeHost::new(
+        "r_trig".into(),
+        &canon,
+        session_path.clone(),
+        reg,
+        PolicyGate::default(),
+        rt,
+        CredentialStore::default(),
+        None,
+        Arc::new(HeadlessPauseHandler::default()),
+    )
+    .expect("host");
+
+    // 1. Active Turn receives a TriggerEvent -> queued as FollowUp and runs Turn 2 automatically
+    let (ctrl_tx, ctrl_rx) = tokio::sync::mpsc::unbounded_channel();
+    ctrl_tx
+        .send(LiveTurnControl::Trigger(TriggerEvent {
+            trigger_id: "sched_1".into(),
+            kind: "cron_schedule".into(),
+            prompt: json!("follow-up triggered task"),
+            preset: None,
+            extra_decorators: Vec::new(),
+            metadata: json!({ "expression": "* * * * *" }),
+            timestamp_ms: 500,
+        }))
+        .expect("send trigger");
+    let out1 = host
+        .run_turn_with_controls(
+            json!("initial turn"),
+            "echo_loop",
+            &[],
+            CancellationToken::new(),
+            Some(ctrl_rx),
+        )
+        .await
+        .expect("turn 1");
+    assert!(matches!(
+        out1,
+        gestalt_runtime::TurnOutcome::Completed { .. }
+    ));
+
+    let follow_up = host
+        .kernel_mut()
+        .pop_next_follow_up()
+        .expect("trigger queued as follow_up");
+    assert_eq!(follow_up.content, json!("follow-up triggered task"));
+    let out2 = host
+        .run_turn(
+            follow_up.content,
+            "echo_loop",
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("turn 2");
+    assert!(matches!(
+        out2,
+        gestalt_runtime::TurnOutcome::Completed { .. }
+    ));
+
+    // 2. Deterministic offline replay verifies 0 divergences
+    let raw = fs::read_to_string(&session_path).expect("read session");
+    let (tree, warn) = SessionTree::from_jsonl_str(&raw).expect("parse tree");
+    assert!(warn.is_none());
+    assert!(
+        tree.all_nodes()
+            .iter()
+            .any(|n| n.kind == "custom:trigger:fired")
+    );
+
+    let mut replay_reg = ExtensionRegistry::new();
+    StdExtension.register(&mut replay_reg).expect("std");
+    replay_reg
+        .loops
+        .insert("echo_loop".into(), Box::new(TrigEchoFactory));
+
+    let mut replay_out = Vec::new();
+    let rep_res = run_replay_surface(
+        ReplaySurfaceOptions {
+            session_path: &session_path,
+            workspace_root: &canon,
+            mode: ReplayMode::Default,
+            json_mode: true,
+            ext_opts: None,
+        },
+        &replay_reg,
+        &PolicyGate::default(),
+        &mut replay_out,
+    )
+    .await;
+    assert_eq!(
+        rep_res.exit_code,
+        gestalt_std::surfaces::SurfaceExitCode::Success
+    );
+
+    // 3. RPC surface trigger/add + trigger/fire dispatches a Turn
+    let mut reg_rpc = ExtensionRegistry::new();
+    StdExtension.register(&mut reg_rpc).expect("std");
+    reg_rpc
+        .loops
+        .insert("echo_loop".into(), Box::new(TrigEchoFactory));
+    let mut rt_rpc = RuntimeRegistry::new(default_sandbox_driver(true));
+    register_std_triggers(&mut rt_rpc);
+    let rpc_host = RuntimeHost::new(
+        "r_trig_rpc".into(),
+        &canon,
+        canon.join(".gestalt/sessions/trig_rpc.jsonl"),
+        reg_rpc,
+        PolicyGate::default(),
+        rt_rpc,
+        CredentialStore::default(),
+        None,
+        Arc::new(HeadlessPauseHandler::default()),
+    )
+    .expect("rpc host");
+
+    let (client_io, server_io) = tokio::io::duplex(32 * 1024);
+    let (c_read, mut c_write) = tokio::io::split(client_io);
+    let (s_read, s_write) = tokio::io::split(server_io);
+    let server = tokio::spawn(async move {
+        run_rpc_surface(
+            rpc_host,
+            "echo_loop".into(),
+            BufReader::new(s_read),
+            s_write,
+        )
+        .await
+    });
+
+    let add_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"trigger/add\",\"params\":{\"id\":\"t_int\",\"kind\":\"interval\",\"enabled\":false,\"prompt\":\"auto check\",\"config\":{\"interval\":\"5s\"}}}\n";
+    let fire_req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"trigger/fire\",\"params\":{\"id\":\"t_int\"}}\n";
+    c_write.write_all(add_req.as_bytes()).await.expect("add");
+    c_write.write_all(fire_req.as_bytes()).await.expect("fire");
+    c_write.flush().await.expect("flush");
+
+    let mut lines = BufReader::new(c_read).lines();
+    let mut saw_trigger_fired = false;
+    let mut saw_turn_completed = false;
+    for _ in 0..24 {
+        if let Ok(Ok(Some(line))) =
+            tokio::time::timeout(std::time::Duration::from_millis(400), lines.next_line()).await
+        {
+            if line.contains("\"trigger_fired\"") {
+                saw_trigger_fired = true;
+            }
+            if line.contains("\"turn_completed\"") {
+                saw_turn_completed = true;
+                break;
+            }
+        }
+    }
+    assert!(saw_trigger_fired, "expected TriggerFired event over RPC");
+    assert!(saw_turn_completed, "expected TurnCompleted event over RPC");
+
+    drop(lines);
+    drop(c_write);
+    let _ = server.await;
+    host.shutdown().await;
+    let _ = fs::remove_dir_all(&dir);
+}

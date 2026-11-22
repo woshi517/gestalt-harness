@@ -16,6 +16,8 @@ pub mod presets;
 pub mod providers;
 #[cfg(feature = "tools")]
 pub mod tools;
+#[cfg(feature = "loops")]
+pub mod triggers;
 
 use gestalt_kernel::SandboxPolicy;
 use gestalt_runtime::estimate_tokens_fallback;
@@ -40,6 +42,11 @@ pub use providers::{AnthropicProvider, JevProvider, OpenAiProvider, register_std
 pub use tools::{
     BackgroundTaskManager, BashKillTool, BashOutputTool, BashTool, EditTool, GlobTool, GrepTool,
     ReadTool, StdToolsExtension, WriteTool, register_std_tools,
+};
+#[cfg(feature = "loops")]
+pub use triggers::{
+    CronSchedule, CronScheduleTriggerHandler, FsWatchTriggerHandler, IntervalTriggerHandler,
+    WebhookTriggerHandler, parse_duration_ms, register_std_triggers,
 };
 
 /// Default workspace-relative protected paths registered by `gestalt-std` so

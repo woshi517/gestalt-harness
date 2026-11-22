@@ -554,7 +554,13 @@ impl<'a> ReplayEngine<'a> {
         let mut cursor = start_idx;
         while cursor < nodes.len() {
             let n = &nodes[cursor];
-            if n.kind.starts_with("custom:") && recorded_effects.is_empty() {
+            if n.kind == "custom:trigger:fired"
+                || n.kind == "steering"
+                || n.kind == "pause"
+                || n.kind == "pause_resolved"
+            {
+                cursor += 1;
+            } else if n.kind.starts_with("custom:") && recorded_effects.is_empty() {
                 recorded_custom.push(n);
                 cursor += 1;
             } else if n.kind == "effect" {
@@ -566,8 +572,6 @@ impl<'a> ReplayEngine<'a> {
                         envelope,
                     ));
                 }
-                cursor += 1;
-            } else if n.kind == "steering" || n.kind == "pause" || n.kind == "pause_resolved" {
                 cursor += 1;
             } else {
                 break;

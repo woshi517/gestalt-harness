@@ -105,6 +105,23 @@ pub struct CommandSpec {
     pub source_extension: Option<String>,
 }
 
+/// Declarative descriptor for a registered event or schedule `Trigger` slot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerSpec {
+    /// Unique trigger slot identifier (e.g., `"interval"`, `"cron_schedule"`).
+    pub id: String,
+    /// Trigger paradigm/kind (`"interval"`, `"cron_schedule"`, `"fs_watch"`, `"webhook"`).
+    pub kind: String,
+    /// Human-readable description of what this trigger monitors or schedules.
+    pub description: String,
+    /// JSON Schema for trigger instance configuration.
+    #[serde(default)]
+    pub config_schema: Value,
+    /// Optional name of the external extension providing this trigger.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_extension: Option<String>,
+}
+
 /// Declarative renderer specification for structured `RunEvent::ToolUi` payloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UIRendererSpec {
@@ -241,6 +258,9 @@ pub struct ExternalExtensionSpec {
     /// Policy rule IDs hosted by this worker.
     #[serde(default)]
     pub policies: Vec<ExternalComponentSpec>,
+    /// Event/schedule triggers hosted by this worker.
+    #[serde(default)]
+    pub triggers: Vec<TriggerSpec>,
     /// Declarative UI surface specs contributed by this worker.
     #[serde(default)]
     pub ui: UISurface,
@@ -409,6 +429,8 @@ pub struct ExtensionRegistry {
     pub tools: BTreeMap<String, ToolSpec>,
     /// Declarative slash command descriptors.
     pub commands: BTreeMap<String, CommandSpec>,
+    /// Declarative event/schedule trigger descriptors.
+    pub triggers: BTreeMap<String, TriggerSpec>,
     /// Declarative UI surface specs.
     pub ui: UISurface,
     /// Out-of-process loop bindings keyed by loop ID.
@@ -486,6 +508,10 @@ impl ExtensionRegistry {
             cmd.source_extension = Some(ext.clone());
             self.commands.insert(cmd.name.clone(), cmd);
         }
+        for mut trig in spec.triggers {
+            trig.source_extension = Some(ext.clone());
+            self.triggers.insert(trig.id.clone(), trig);
+        }
         self.ui.merge(spec.ui);
     }
 
@@ -499,6 +525,8 @@ impl ExtensionRegistry {
         self.tools
             .retain(|_, v| v.source_extension.as_deref() != Some(ext_name));
         self.commands
+            .retain(|_, v| v.source_extension.as_deref() != Some(ext_name));
+        self.triggers
             .retain(|_, v| v.source_extension.as_deref() != Some(ext_name));
     }
 
@@ -708,9 +736,17 @@ mod tests {
                 default_side_effect: SideEffectClass::Read,
                 source_extension: None,
             }],
+            triggers: vec![TriggerSpec {
+                id: "py_trig".into(),
+                kind: "interval".into(),
+                description: "periodic check".into(),
+                config_schema: Value::Null,
+                source_extension: None,
+            }],
             ..Default::default()
         });
         assert!(reg.tools.contains_key("py_tool"));
+        assert!(reg.triggers.contains_key("py_trig"));
         let stack = reg
             .resolve_phase_stack("py_loop", &[], None)
             .expect("resolve external");
@@ -718,6 +754,7 @@ mod tests {
 
         reg.unload_external_extension("ext_py");
         assert!(!reg.tools.contains_key("py_tool"));
+        assert!(!reg.triggers.contains_key("py_trig"));
         assert!(reg.resolve_phase_stack("py_loop", &[], None).is_err());
     }
 }

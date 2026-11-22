@@ -17,8 +17,8 @@ use gestalt_kernel::{BudgetCap, ExtensionRegistry, PolicyGate};
 use gestalt_runtime::{
     CancellationToken, ConfigLoadOptions, CredentialStore, ExtensionProtocol,
     ExternalExtensionConfig, HeadlessPauseHandler, ProviderRegistry, RuntimeError, RuntimeHost,
-    RuntimeRegistry, StreamRedactor, WorkspaceTrustStore, current_epoch_ms,
-    default_sandbox_driver as runtime_default_sandbox_driver, load_and_merge_config,
+    RuntimeRegistry, SandboxKind, StreamRedactor, WorkspaceTrustStore, current_epoch_ms,
+    load_and_merge_config, select_sandbox_driver,
 };
 use serde_json::{Value, json};
 use tracing_subscriber::fmt::MakeWriter;
@@ -109,6 +109,7 @@ struct CliArgs {
     model: Option<String>,
     session: Option<PathBuf>,
     extensions: BTreeMap<String, ExternalExtensionConfig>,
+    sandbox: Option<SandboxKind>,
     trust_workspace: bool,
     unsafe_no_sandbox: bool,
 }
@@ -128,6 +129,7 @@ fn usage_text() -> &'static str {
          --model <prov/model>   Override active provider/model target\n  \
          --session <path>       Resume or write to explicit SessionTree JSONL path\n  \
          --ext <[name=]cmd>     Attach external JSON-RPC or mcp:<cmd> extension (repeatable)\n  \
+         --sandbox <driver>     Select sandbox driver (os | docker | microvm)\n  \
          --trust-workspace      Approve workspace .gestalt/gestalt.toml\n  \
          --unsafe-no-sandbox    Disable OS subprocess sandbox (recorded in SessionTree)\n  \
      -h, --help                 Show this help message\n  \
@@ -184,6 +186,7 @@ where
     let mut model = None;
     let mut session = None;
     let mut extensions = BTreeMap::new();
+    let mut sandbox = None;
     let mut trust_workspace = false;
     let mut unsafe_no_sandbox = false;
     let mut print_prompt: Option<String> = None;
@@ -201,6 +204,7 @@ where
                     model,
                     session,
                     extensions,
+                    sandbox,
                     trust_workspace,
                     unsafe_no_sandbox,
                 });
@@ -212,6 +216,7 @@ where
                     model,
                     session,
                     extensions,
+                    sandbox,
                     trust_workspace,
                     unsafe_no_sandbox,
                 });
@@ -257,6 +262,21 @@ where
                 let idx = extensions.len() + 1;
                 let (name, cfg) = parse_ext_spec(&val, idx)?;
                 extensions.insert(name, cfg);
+            }
+            "--sandbox" => {
+                let val = iter
+                    .next()
+                    .ok_or_else(|| "--sandbox requires 'os', 'docker', or 'microvm'".to_string())?;
+                sandbox = Some(match val.as_str() {
+                    "os" | "bwrap" | "seatbelt" => SandboxKind::Os,
+                    "docker" => SandboxKind::Docker,
+                    "microvm" => SandboxKind::MicroVm,
+                    other => {
+                        return Err(format!(
+                            "unsupported --sandbox '{other}' (expected 'os', 'docker', or 'microvm')"
+                        ));
+                    }
+                });
             }
             other if other.starts_with('-') => {
                 return Err(format!("unknown flag '{other}'"));
@@ -314,6 +334,7 @@ where
         model,
         session,
         extensions,
+        sandbox,
         trust_workspace,
         unsafe_no_sandbox,
     })
@@ -435,7 +456,28 @@ async fn build_host(cli: &CliArgs) -> std::result::Result<BuiltHost, RuntimeErro
         preset.config.params["model"] = Value::String(model_override.clone());
     }
 
-    let sandbox_driver = runtime_default_sandbox_driver(cli.unsafe_no_sandbox);
+    let effective_sb_kind = match cli.sandbox {
+        Some(requested) => {
+            if !cli.unsafe_no_sandbox
+                && requested.isolation_rank() < resolved.sandbox_driver.isolation_rank()
+            {
+                return Err(RuntimeError::Kernel(
+                    gestalt_kernel::KernelError::PolicyRelaxationForbidden(format!(
+                        "--sandbox '{requested:?}' cannot downgrade configured '{:?}'",
+                        resolved.sandbox_driver
+                    )),
+                ));
+            }
+            requested
+        }
+        None => resolved.sandbox_driver,
+    };
+    let sandbox_driver = select_sandbox_driver(
+        effective_sb_kind,
+        resolved.docker_sandbox.clone(),
+        resolved.microvm_sandbox.clone(),
+        cli.unsafe_no_sandbox,
+    );
 
     #[allow(unused_mut)]
     let mut providers = ProviderRegistry::new();
@@ -456,6 +498,7 @@ async fn build_host(cli: &CliArgs) -> std::result::Result<BuiltHost, RuntimeErro
     #[cfg(feature = "loops")]
     {
         gestalt_std::register_std_commands(&mut runtime, cred_arc);
+        gestalt_std::register_std_triggers(&mut runtime);
     }
     #[cfg(not(feature = "loops"))]
     let _ = cred_arc;
@@ -505,6 +548,7 @@ async fn build_host(cli: &CliArgs) -> std::result::Result<BuiltHost, RuntimeErro
     )?;
 
     host.set_auto_trust_workspace(cli.trust_workspace);
+    host.start_configured_triggers(&resolved).await?;
 
     #[cfg(feature = "loops")]
     {
@@ -846,6 +890,12 @@ mod tests {
         assert!(parse_cli_args(vec_args(&["--bogus"])).is_err());
         assert!(parse_cli_args(vec_args(&["-p"])).is_err());
         assert!(parse_cli_args(vec_args(&["--mode", "gui"])).is_err());
+        assert!(parse_cli_args(vec_args(&["--sandbox", "invalid"])).is_err());
         assert!(parse_cli_args(vec_args(&["replay"])).is_err());
+
+        let docker = parse_cli_args(vec_args(&["--sandbox", "docker"])).expect("docker");
+        assert_eq!(docker.sandbox, Some(SandboxKind::Docker));
+        let microvm = parse_cli_args(vec_args(&["--sandbox", "microvm"])).expect("microvm");
+        assert_eq!(microvm.sandbox, Some(SandboxKind::MicroVm));
     }
 }

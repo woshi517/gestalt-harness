@@ -19,10 +19,12 @@ pub use extensions::{
 
 #[cfg(feature = "loops")]
 pub use extensions::{
-    ChatLoop, ChatLoopFactory, CompactionDecorator, CuratorDecorator, DecisionRouter,
-    DecisionRouterFactory, DecisionStateBuilder, GoalCheckDecorator, SlidingWindowBuilder,
-    StandardBuilder, StdExtension, apply_login_resolution, discover_tracked_artifact_paths,
-    register_std_commands, std_ui_surface,
+    ChatLoop, ChatLoopFactory, CompactionDecorator, CronSchedule, CronScheduleTriggerHandler,
+    CuratorDecorator, DecisionRouter, DecisionRouterFactory, DecisionStateBuilder,
+    FsWatchTriggerHandler, GoalCheckDecorator, IntervalTriggerHandler, SlidingWindowBuilder,
+    StandardBuilder, StdExtension, WebhookTriggerHandler, apply_login_resolution,
+    discover_tracked_artifact_paths, parse_duration_ms, register_std_commands,
+    register_std_triggers, std_ui_surface,
 };
 
 #[cfg(feature = "tools")]
