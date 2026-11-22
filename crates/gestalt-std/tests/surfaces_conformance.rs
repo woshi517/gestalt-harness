@@ -643,7 +643,7 @@ async fn trigger_runtime_queues_follow_up_and_passes_offline_replay() {
     let mut reg = ExtensionRegistry::new();
     StdExtension.register(&mut reg).expect("std");
     reg.loops
-        .insert("echo_loop".into(), Box::new(TrigEchoFactory));
+        .insert("echo_loop".into(), Arc::new(TrigEchoFactory));
     let mut rt = RuntimeRegistry::new(default_sandbox_driver(true));
     register_std_triggers(&mut rt);
 
@@ -722,7 +722,7 @@ async fn trigger_runtime_queues_follow_up_and_passes_offline_replay() {
     StdExtension.register(&mut replay_reg).expect("std");
     replay_reg
         .loops
-        .insert("echo_loop".into(), Box::new(TrigEchoFactory));
+        .insert("echo_loop".into(), Arc::new(TrigEchoFactory));
 
     let mut replay_out = Vec::new();
     let rep_res = run_replay_surface(
@@ -748,7 +748,7 @@ async fn trigger_runtime_queues_follow_up_and_passes_offline_replay() {
     StdExtension.register(&mut reg_rpc).expect("std");
     reg_rpc
         .loops
-        .insert("echo_loop".into(), Box::new(TrigEchoFactory));
+        .insert("echo_loop".into(), Arc::new(TrigEchoFactory));
     let mut rt_rpc = RuntimeRegistry::new(default_sandbox_driver(true));
     register_std_triggers(&mut rt_rpc);
     let rpc_host = RuntimeHost::new(

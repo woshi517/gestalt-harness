@@ -6,8 +6,9 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::effect::{EffectEnvelope, LoopConfig, PauseReason, StepResult, Usage};
+use crate::effect::{BudgetSnapshot, EffectEnvelope, LoopConfig, PauseReason, StepResult, Usage};
 use crate::extension::{ArtifactEntry, LoopAction, ModelCapabilities};
+use crate::steering::SteeringSignal;
 use crate::tree::SessionNode;
 
 /// Typed notification emitted by the kernel or runtime driver for TUI, GUI,
@@ -187,6 +188,43 @@ pub enum DriverDirective {
         state_token: Option<Value>,
         /// Prior step results (or `None` on first step).
         results: Option<Vec<StepResult>>,
+        /// Active branch nodes from root to head.
+        session_slice: Vec<SessionNode>,
+        /// Snapshotted or live artifact entries.
+        artifacts: BTreeMap<String, ArtifactEntry>,
+        /// Remaining step/token/cost budget snapshot.
+        budget_remaining: BudgetSnapshot,
+        /// Drained intra-turn `SteeringSignal`s for this step.
+        steering: Vec<SteeringSignal>,
+        /// Deterministic kernel clock in milliseconds.
+        now_ms: u64,
+        /// Pre-built `ContextBuilder` (+ `ContextLayer`s) projection JSON.
+        context: Value,
+    },
+    /// Defer an out-of-process `decorator/wrap_step` call to `gestalt-runtime`'s IPC host.
+    InvokeExternalDecorator {
+        /// Registered external extension name.
+        ext_name: String,
+        /// External decorator ID.
+        decorator_id: String,
+        /// Active Phase ID.
+        phase_id: String,
+        /// Active Turn ID.
+        turn_id: String,
+        /// Inner loop action being wrapped.
+        inner_action: LoopAction,
+        /// Effective `LoopConfig`.
+        config: LoopConfig,
+        /// Opaque external decorator state token from the prior step.
+        state_token: Option<Value>,
+        /// Active branch nodes from root to head.
+        session_slice: Vec<SessionNode>,
+        /// Snapshotted or live artifact entries.
+        artifacts: BTreeMap<String, ArtifactEntry>,
+        /// Remaining step/token/cost budget snapshot.
+        budget_remaining: BudgetSnapshot,
+        /// Deterministic kernel clock in milliseconds.
+        now_ms: u64,
     },
     /// Defer an out-of-process `builder/build` call to `gestalt-runtime`'s IPC host.
     InvokeExternalBuilder {
@@ -194,6 +232,21 @@ pub enum DriverDirective {
         ext_name: String,
         /// External builder ID.
         builder_id: String,
+        /// Active branch nodes from root to head.
+        session_slice: Vec<SessionNode>,
+        /// Snapshotted or live artifact entries.
+        artifacts: BTreeMap<String, ArtifactEntry>,
+        /// Target model capabilities.
+        caps: ModelCapabilities,
+    },
+    /// Defer an out-of-process `builder/layer` call to `gestalt-runtime`'s IPC host.
+    InvokeExternalBuilderLayer {
+        /// Registered external extension name.
+        ext_name: String,
+        /// External context layer ID.
+        layer_id: String,
+        /// Input `ModelInput` JSON produced by the base builder and earlier layers.
+        input: Value,
         /// Active branch nodes from root to head.
         session_slice: Vec<SessionNode>,
         /// Snapshotted or live artifact entries.
@@ -252,10 +305,21 @@ pub enum DriverResponse {
         action: LoopAction,
         /// Updated opaque state token to persist on `SessionTree`.
         state_token: Option<Value>,
+        /// Optional custom namespaced nodes (`(namespace, data)`) emitted by the external loop.
+        custom_nodes: Vec<(String, Value)>,
     },
-    /// Outcome of `DriverDirective::InvokeExternalBuilder`.
+    /// Outcome of `DriverDirective::InvokeExternalDecorator`.
+    ExternalDecoratorOutput {
+        /// `LoopAction` returned by the external decorator.
+        action: LoopAction,
+        /// Updated opaque decorator state token.
+        state_token: Option<Value>,
+        /// Optional custom namespaced nodes emitted by the external decorator.
+        custom_nodes: Vec<(String, Value)>,
+    },
+    /// Outcome of `DriverDirective::InvokeExternalBuilder` or `InvokeExternalBuilderLayer`.
     ExternalBuilderOutput {
-        /// Constructed `ModelInput` JSON returned by the external builder.
+        /// Constructed `ModelInput` JSON returned by the external builder or layer.
         model_input: Value,
     },
     /// Client resolution for `DriverDirective::WaitForPause`.

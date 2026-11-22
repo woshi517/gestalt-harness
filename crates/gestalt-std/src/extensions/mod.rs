@@ -40,8 +40,9 @@ pub use presets::{StdExtension, std_ui_surface};
 pub use providers::{AnthropicProvider, JevProvider, OpenAiProvider, register_std_providers};
 #[cfg(feature = "tools")]
 pub use tools::{
-    BackgroundTaskManager, BashKillTool, BashOutputTool, BashTool, EditTool, GlobTool, GrepTool,
-    ReadTool, StdToolsExtension, WriteTool, register_std_tools,
+    BackgroundTaskManager, BashKillTool, BashOutputTool, BashTool, EditTool,
+    EvolutionToolsExtension, GlobTool, GrepTool, ReadTool, ReplayVerifyTool, StdToolsExtension,
+    WriteTool, register_std_tools,
 };
 #[cfg(feature = "loops")]
 pub use triggers::{

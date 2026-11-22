@@ -29,8 +29,9 @@ pub use extensions::{
 
 #[cfg(feature = "tools")]
 pub use extensions::{
-    BackgroundTaskManager, BashKillTool, BashOutputTool, BashTool, EditTool, GlobTool, GrepTool,
-    ReadTool, StdToolsExtension, WriteTool, register_std_tools,
+    BackgroundTaskManager, BashKillTool, BashOutputTool, BashTool, EditTool,
+    EvolutionToolsExtension, GlobTool, GrepTool, ReadTool, ReplayVerifyTool, StdToolsExtension,
+    WriteTool, register_std_tools,
 };
 
 #[cfg(feature = "providers")]

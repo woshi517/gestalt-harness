@@ -153,6 +153,7 @@ mod tests {
                 decorator_digests: vec![],
                 builder_id: "decision_state".into(),
                 builder_digest: builder.digest().into(),
+                builder_layer_digests: vec![],
                 config: LoopConfig {
                     params: json!({
                         "rubric": "Route quick commands directly",

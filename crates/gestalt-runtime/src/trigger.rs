@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -91,6 +92,59 @@ pub struct TriggerStatus {
     pub config: Value,
 }
 
+#[derive(Debug, Default)]
+struct ActivityInner {
+    last_activity_ms: AtomicU64,
+    turn_in_progress: AtomicBool,
+    completed_turn_count: AtomicU64,
+}
+
+/// Read-only session activity snapshot shared with [`TriggerHandler`]s so
+/// idle-aware and turn-count-aware triggers can schedule without polling.
+#[derive(Debug, Clone, Default)]
+pub struct ActivityTracker {
+    inner: Arc<ActivityInner>,
+}
+
+impl ActivityTracker {
+    /// Construct a fresh [`ActivityTracker`].
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Epoch timestamp (ms) of the most recent Turn start or completion.
+    #[must_use]
+    pub fn last_activity_ms(&self) -> u64 {
+        self.inner.last_activity_ms.load(Ordering::Relaxed)
+    }
+
+    /// `true` while a foreground Turn is currently executing.
+    #[must_use]
+    pub fn turn_in_progress(&self) -> bool {
+        self.inner.turn_in_progress.load(Ordering::Relaxed)
+    }
+
+    /// Total number of completed Turns observed on this [`RuntimeHost`].
+    #[must_use]
+    pub fn completed_turn_count(&self) -> u64 {
+        self.inner.completed_turn_count.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn mark_turn_started(&self, now_ms: u64) {
+        self.inner.last_activity_ms.store(now_ms, Ordering::Relaxed);
+        self.inner.turn_in_progress.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn mark_turn_ended(&self, now_ms: u64) {
+        self.inner.last_activity_ms.store(now_ms, Ordering::Relaxed);
+        self.inner.turn_in_progress.store(false, Ordering::Relaxed);
+        self.inner
+            .completed_turn_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// Host capabilities supplied to [`TriggerHandler::start`].
 #[derive(Clone)]
 pub struct TriggerContext {
@@ -104,6 +158,8 @@ pub struct TriggerContext {
     pub http: SharedHttpClient,
     /// Secret redactor applied to incoming webhook/external trigger payloads.
     pub redactor: StreamRedactor,
+    /// Read-only session activity & idle-state tracker.
+    pub activity: ActivityTracker,
 }
 
 /// Async host contract for user-space event and schedule triggers.
@@ -421,6 +477,7 @@ mod tests {
             credentials: CredentialStore::default(),
             http: SharedHttpClient::new(5).expect("http"),
             redactor: StreamRedactor::default(),
+            activity: ActivityTracker::default(),
         };
 
         let mut mgr = TriggerManager::new();

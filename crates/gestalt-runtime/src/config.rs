@@ -136,6 +136,9 @@ pub struct PresetConfig {
     pub decorators: Vec<String>,
     /// Active `ContextBuilder` slot ID.
     pub builder: String,
+    /// Ordered `ContextLayer` slot IDs applied after `builder`.
+    #[serde(default)]
+    pub builder_layers: Vec<String>,
     /// Optional tool allowlist narrowing this preset.
     pub allowed_tools: Option<Vec<String>>,
     /// Optional spawn depth cap narrowing this preset.
@@ -162,6 +165,7 @@ impl PresetConfig {
             base_loop: self.base_loop.clone(),
             decorators: self.decorators.clone(),
             builder: self.builder.clone(),
+            builder_layers: self.builder_layers.clone(),
             config: LoopConfig {
                 allowed_tools: self.allowed_tools.clone(),
                 max_spawn_depth: self.max_spawn_depth,
@@ -210,6 +214,17 @@ pub struct TriggerConfig {
     pub config: Value,
 }
 
+/// `[artifacts]` section in `gestalt.toml`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtifactsConfig {
+    /// Additional workspace-relative artifact paths/prefixes snapshotted into `ArtifactStoreView`.
+    #[serde(default)]
+    pub tracked_paths: Vec<String>,
+    /// Policy-gated directory roots outside `workspace_root` permitted for `Effect::Save`.
+    #[serde(default)]
+    pub writable_roots: Vec<String>,
+}
+
 /// Parsed `gestalt.toml` configuration file.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GestaltConfig {
@@ -223,6 +238,9 @@ pub struct GestaltConfig {
     /// Policy rules and headless approval settings.
     #[serde(default)]
     pub policy: PolicyConfig,
+    /// Artifact tracking and writable-root settings.
+    #[serde(default)]
+    pub artifacts: ArtifactsConfig,
     /// Provider endpoint, model, and rate table configurations.
     #[serde(default)]
     pub providers: BTreeMap<String, ProviderConfig>,
@@ -406,6 +424,10 @@ pub struct ResolvedRuntimeConfig {
     pub extensions: BTreeMap<String, ExternalExtensionConfig>,
     /// Merged trigger definitions keyed by trigger ID.
     pub triggers: BTreeMap<String, TriggerConfig>,
+    /// Merged tracked artifact paths from global and workspace configs.
+    pub tracked_artifact_paths: Vec<String>,
+    /// Policy-gated writable roots outside `workspace_root` (from global config).
+    pub writable_artifact_roots: Vec<String>,
 }
 
 /// Input options for [`load_and_merge_config`].
@@ -449,6 +471,8 @@ pub fn load_and_merge_config(
         presets: registry.presets.clone(),
         extensions: BTreeMap::new(),
         triggers: BTreeMap::new(),
+        tracked_artifact_paths: Vec::new(),
+        writable_artifact_roots: Vec::new(),
     };
 
     if let Some(global_path) = opts.global_toml_path
@@ -456,7 +480,7 @@ pub fn load_and_merge_config(
     {
         let raw = fs::read_to_string(global_path)?;
         let global_cfg = GestaltConfig::from_toml_str(&raw)?;
-        apply_tier(&global_cfg, &mut resolved, policy_gate, registry)?;
+        apply_tier(&global_cfg, &mut resolved, policy_gate, registry, false)?;
     }
 
     if let Some(ws_path) = opts.workspace_toml_path
@@ -479,7 +503,7 @@ pub fn load_and_merge_config(
             RuntimeError::ArtifactError(format!("workspace gestalt.toml is not UTF-8: {err}"))
         })?;
         let ws_cfg = GestaltConfig::from_toml_str(&raw_str)?;
-        apply_tier(&ws_cfg, &mut resolved, policy_gate, registry)?;
+        apply_tier(&ws_cfg, &mut resolved, policy_gate, registry, true)?;
     }
 
     resolved.extensions.extend(opts.cli_extensions);
@@ -491,6 +515,7 @@ fn apply_tier(
     resolved: &mut ResolvedRuntimeConfig,
     policy_gate: &mut PolicyGate,
     registry: &mut ExtensionRegistry,
+    is_workspace: bool,
 ) -> Result<(), RuntimeError> {
     let override_cfg =
         cfg.to_policy_override(&policy_gate.baseline_budget(), policy_gate.sandbox())?;
@@ -533,6 +558,29 @@ fn apply_tier(
     }
     resolved.extensions.extend(cfg.extensions.clone());
     resolved.triggers.extend(cfg.triggers.clone());
+    for p in &cfg.artifacts.tracked_paths {
+        if !resolved.tracked_artifact_paths.contains(p) {
+            resolved.tracked_artifact_paths.push(p.clone());
+        }
+    }
+    if is_workspace {
+        for root in &cfg.artifacts.writable_roots {
+            if !resolved.writable_artifact_roots.contains(root) {
+                return Err(RuntimeError::Kernel(
+                    KernelError::PolicyRelaxationForbidden(format!(
+                        "workspace config cannot add global writable_root '{root}'"
+                    )),
+                ));
+            }
+        }
+    } else {
+        for root in &cfg.artifacts.writable_roots {
+            if !resolved.writable_artifact_roots.contains(root) {
+                resolved.writable_artifact_roots.push(root.clone());
+            }
+            policy_gate.add_writable_root(root.clone());
+        }
+    }
     Ok(())
 }
 

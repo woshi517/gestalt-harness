@@ -316,6 +316,7 @@ impl<'a> ReplayEngine<'a> {
                     loop_digest,
                     builder_id,
                     builder_digest,
+                    builder_layer_digests,
                     config,
                     ..
                 } => {
@@ -351,6 +352,17 @@ impl<'a> ReplayEngine<'a> {
                                 expected: Value::String(loop_digest),
                                 actual: Value::String(stack.loop_digest),
                                 message: format!("loop '{base_loop_id}' digest mismatch"),
+                            });
+                        }
+                        if stack.builder_layer_digests != builder_layer_digests {
+                            report.divergences.push(ReplayDivergence {
+                                node_id: node.id.clone(),
+                                turn_id: node.turn_id.clone(),
+                                phase_id: node.phase_id.clone(),
+                                kind: DivergenceKind::BuilderDigestMismatch,
+                                expected: serde_json::json!(builder_layer_digests),
+                                actual: serde_json::json!(stack.builder_layer_digests),
+                                message: "context builder layer digests mismatch".to_string(),
                             });
                         }
                         current_loop = stack.in_process_loop;

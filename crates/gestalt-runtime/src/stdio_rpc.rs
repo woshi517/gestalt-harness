@@ -4,13 +4,15 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use gestalt_kernel::SandboxPolicy;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 use crate::config::ExternalExtensionConfig;
 use crate::credentials::StreamRedactor;
@@ -23,15 +25,30 @@ pub(crate) enum IncomingControl {
     Continue,
 }
 
-/// Sandboxed child-process newline-delimited JSON-RPC 2.0 transport.
+type PendingMap = Arc<StdMutex<BTreeMap<u64, oneshot::Sender<Result<Value, RuntimeError>>>>>;
+type ChannelSlot = Arc<StdMutex<Option<mpsc::UnboundedSender<Value>>>>;
+
+/// Sandboxed child-process newline-delimited JSON-RPC 2.0 transport with
+/// background stdout demultiplexing for responses and unsolicited notifications.
 pub(crate) struct StdioJsonRpcTransport {
     name: String,
     timeout_ms: u64,
     redactor: StreamRedactor,
     child: Child,
     stdin: Option<ChildStdin>,
-    stdout: BufReader<ChildStdout>,
+    pending: PendingMap,
+    active_other_tx: ChannelSlot,
+    unsolicited_tx: ChannelSlot,
+    reader_task: Option<JoinHandle<()>>,
     next_id: u64,
+}
+
+impl Drop for StdioJsonRpcTransport {
+    fn drop(&mut self) {
+        if let Some(handle) = self.reader_task.take() {
+            handle.abort();
+        }
+    }
 }
 
 impl StdioJsonRpcTransport {
@@ -106,15 +123,122 @@ impl StdioJsonRpcTransport {
             });
         }
 
+        let pending: PendingMap = Arc::new(StdMutex::new(BTreeMap::new()));
+        let active_other_tx: ChannelSlot = Arc::new(StdMutex::new(None));
+        let unsolicited_tx: ChannelSlot = Arc::new(StdMutex::new(None));
+
+        let reader_name = name.clone();
+        let reader_pending = Arc::clone(&pending);
+        let reader_other = Arc::clone(&active_other_tx);
+        let reader_unsolicited = Arc::clone(&unsolicited_tx);
+        let reader_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => {
+                        fail_all_pending(
+                            &reader_pending,
+                            &reader_name,
+                            "process closed stdout".to_string(),
+                        );
+                        break;
+                    }
+                    Ok(_) => {
+                        let trimmed = line.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        let msg: Value = match serde_json::from_str(trimmed) {
+                            Ok(v) => v,
+                            Err(err) => {
+                                fail_all_pending(
+                                    &reader_pending,
+                                    &reader_name,
+                                    format!("invalid JSON-RPC frame: {err}"),
+                                );
+                                break;
+                            }
+                        };
+                        if let Some(req_id) = msg.get("id").and_then(Value::as_u64)
+                            && msg.get("method").is_none()
+                        {
+                            let tx = reader_pending
+                                .lock()
+                                .ok()
+                                .and_then(|mut map| map.remove(&req_id));
+                            if let Some(tx) = tx {
+                                if let Some(err_obj) = msg.get("error") {
+                                    let _ = tx.send(Err(RuntimeError::IpcProtocol {
+                                        ext_name: reader_name.clone(),
+                                        message: format!("JSON-RPC error: {err_obj}"),
+                                    }));
+                                } else {
+                                    let _ = tx.send(Ok(msg
+                                        .get("result")
+                                        .cloned()
+                                        .unwrap_or(Value::Null)));
+                                }
+                            }
+                            continue;
+                        }
+
+                        let is_trigger =
+                            msg.get("method").and_then(Value::as_str) == Some("trigger/fire");
+                        if is_trigger {
+                            if let Ok(guard) = reader_unsolicited.lock()
+                                && let Some(ref tx) = *guard
+                            {
+                                let _ = tx.send(msg);
+                            }
+                            continue;
+                        }
+
+                        let forwarded = if let Ok(guard) = reader_other.lock()
+                            && let Some(ref tx) = *guard
+                        {
+                            tx.send(msg.clone()).is_ok()
+                        } else {
+                            false
+                        };
+                        if !forwarded
+                            && let Ok(guard) = reader_unsolicited.lock()
+                            && let Some(ref tx) = *guard
+                        {
+                            let _ = tx.send(msg);
+                        }
+                    }
+                    Err(err) => {
+                        fail_all_pending(
+                            &reader_pending,
+                            &reader_name,
+                            format!("stdout read error: {err}"),
+                        );
+                        break;
+                    }
+                }
+            }
+        });
+
         Ok(Self {
             name,
             timeout_ms: config.timeout_ms.max(1),
             redactor,
             child,
             stdin: Some(stdin),
-            stdout: BufReader::new(stdout),
+            pending,
+            active_other_tx,
+            unsolicited_tx,
+            reader_task: Some(reader_task),
             next_id: 1,
         })
+    }
+
+    pub(crate) fn set_unsolicited_sender(&self, tx: Option<mpsc::UnboundedSender<Value>>) {
+        if let Ok(mut guard) = self.unsolicited_tx.lock() {
+            *guard = tx;
+        }
     }
 
     pub(crate) fn name(&self) -> &str {
@@ -175,23 +299,45 @@ impl StdioJsonRpcTransport {
         F: FnMut(&Value) -> (Option<Value>, IncomingControl),
     {
         let req_id = self.allocate_id();
+        let (resp_tx, mut resp_rx) = oneshot::channel();
+        if let Ok(mut map) = self.pending.lock() {
+            map.insert(req_id, resp_tx);
+        }
+        let (other_tx, mut other_rx) = mpsc::unbounded_channel();
+        if let Ok(mut guard) = self.active_other_tx.lock() {
+            *guard = Some(other_tx);
+        }
+
         let request = json!({
             "jsonrpc": "2.0",
             "id": req_id,
             "method": method,
             "params": params,
         });
-        self.send_json(&request).await?;
+        if let Err(err) = self.send_json(&request).await {
+            if let Ok(mut map) = self.pending.lock() {
+                map.remove(&req_id);
+            }
+            if let Ok(mut guard) = self.active_other_tx.lock() {
+                *guard = None;
+            }
+            return Err(err);
+        }
 
         let deadline = tokio::time::sleep(Duration::from_millis(self.timeout_ms));
         tokio::pin!(deadline);
 
-        let mut line = String::new();
-        loop {
-            line.clear();
+        let result = loop {
             tokio::select! {
+                biased;
+                Some(msg) = other_rx.recv() => {
+                    let (reply, IncomingControl::Continue) = on_other(&msg);
+                    if let Some(reply_msg) = reply {
+                        let _ = self.send_json(&reply_msg).await;
+                    }
+                }
                 () = &mut deadline => {
-                    return Err(RuntimeError::IpcTimeout {
+                    break Err(RuntimeError::IpcTimeout {
                         ext_name: self.name.clone(),
                         method: method.to_string(),
                         timeout_ms: self.timeout_ms,
@@ -201,55 +347,41 @@ impl StdioJsonRpcTransport {
                     if kill_on_cancel {
                         let _ = self.child.start_kill();
                     } else {
-                        // Send MCP-compliant cancellation notification without killing server.
                         let _ = self.send_notification(
                             "notifications/cancelled",
                             json!({ "requestId": req_id, "reason": "cancelled by client" }),
                         ).await;
                     }
-                    return Err(RuntimeError::IpcProtocol {
+                    break Err(RuntimeError::IpcProtocol {
                         ext_name: self.name.clone(),
                         message: format!("IPC call '{method}' cancelled"),
                     });
                 }
-                read_res = self.stdout.read_line(&mut line) => {
-                    let bytes = read_res?;
-                    if bytes == 0 {
-                        return Err(RuntimeError::IpcProtocol {
+                res = &mut resp_rx => {
+                    while let Ok(msg) = other_rx.try_recv() {
+                        let (reply, IncomingControl::Continue) = on_other(&msg);
+                        if let Some(reply_msg) = reply {
+                            let _ = self.send_json(&reply_msg).await;
+                        }
+                    }
+                    break match res {
+                        Ok(inner) => inner,
+                        Err(_) => Err(RuntimeError::IpcProtocol {
                             ext_name: self.name.clone(),
                             message: format!("process closed stdout while awaiting '{method}'"),
-                        });
-                    }
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    let msg: Value = serde_json::from_str(trimmed).map_err(|err| {
-                        RuntimeError::IpcProtocol {
-                            ext_name: self.name.clone(),
-                            message: format!("invalid JSON-RPC frame: {err}"),
-                        }
-                    })?;
-
-                    if msg.get("id").and_then(Value::as_u64) == Some(req_id)
-                        && msg.get("method").is_none()
-                    {
-                        if let Some(err_obj) = msg.get("error") {
-                            return Err(RuntimeError::IpcProtocol {
-                                ext_name: self.name.clone(),
-                                message: format!("JSON-RPC error: {err_obj}"),
-                            });
-                        }
-                        return Ok(msg.get("result").cloned().unwrap_or(Value::Null));
-                    }
-
-                    let (reply, IncomingControl::Continue) = on_other(&msg);
-                    if let Some(reply_msg) = reply {
-                        let _ = self.send_json(&reply_msg).await;
-                    }
+                        }),
+                    };
                 }
             }
+        };
+
+        if let Ok(mut map) = self.pending.lock() {
+            map.remove(&req_id);
         }
+        if let Ok(mut guard) = self.active_other_tx.lock() {
+            *guard = None;
+        }
+        result
     }
 
     /// Close child `stdin` (signaling EOF per MCP stdio shutdown spec), wait up
@@ -262,6 +394,21 @@ impl StdioJsonRpcTransport {
         {
             let _ = self.child.start_kill();
             let _ = tokio::time::timeout(Duration::from_millis(100), self.child.wait()).await;
+        }
+        if let Some(handle) = self.reader_task.take() {
+            handle.abort();
+        }
+    }
+}
+
+fn fail_all_pending(pending: &PendingMap, ext_name: &str, message: String) {
+    if let Ok(mut map) = pending.lock() {
+        let entries = std::mem::take(&mut *map);
+        for (_, tx) in entries {
+            let _ = tx.send(Err(RuntimeError::IpcProtocol {
+                ext_name: ext_name.to_string(),
+                message: message.clone(),
+            }));
         }
     }
 }

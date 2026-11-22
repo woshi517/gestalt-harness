@@ -279,11 +279,14 @@ mod tests {
     #[test]
     fn goal_check_retries_until_command_passes_and_replays() {
         let mut reg = ExtensionRegistry::new();
-        reg.builders
-            .insert("standard".into(), Box::new(StandardBuilder::default()));
-        reg.loops.insert("chat".into(), Box::new(ChatLoopFactory));
+        reg.builders.insert(
+            "standard".into(),
+            std::sync::Arc::new(StandardBuilder::default()),
+        );
+        reg.loops
+            .insert("chat".into(), std::sync::Arc::new(ChatLoopFactory));
         reg.decorators
-            .insert("goal_check".into(), Box::new(GoalCheckDecorator));
+            .insert("goal_check".into(), std::sync::Arc::new(GoalCheckDecorator));
         reg.tools.insert(
             "bash".into(),
             ToolSpec {
@@ -300,6 +303,7 @@ mod tests {
                 base_loop: "chat".into(),
                 decorators: vec!["goal_check".into()],
                 builder: "standard".into(),
+                builder_layers: vec![],
                 config: LoopConfig {
                     allowed_tools: Some(vec!["bash".into()]),
                     params: json!({

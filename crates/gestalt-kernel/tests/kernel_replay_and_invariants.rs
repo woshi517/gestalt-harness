@@ -194,18 +194,19 @@ impl Extension for TestExtension {
         "test_ext"
     }
     fn register(&self, registry: &mut ExtensionRegistry) -> Result<(), ExtensionError> {
-        registry
-            .builders
-            .insert("echo_builder".into(), Box::new(ArtifactEchoBuilder));
-        registry
-            .loops
-            .insert("triage".into(), Box::new(TriageFactory));
+        registry.builders.insert(
+            "echo_builder".into(),
+            std::sync::Arc::new(ArtifactEchoBuilder),
+        );
         registry
             .loops
-            .insert("worker".into(), Box::new(WorkerFactory));
+            .insert("triage".into(), std::sync::Arc::new(TriageFactory));
+        registry
+            .loops
+            .insert("worker".into(), std::sync::Arc::new(WorkerFactory));
         registry
             .decorators
-            .insert("audit_dec".into(), Box::new(AuditDecorator));
+            .insert("audit_dec".into(), std::sync::Arc::new(AuditDecorator));
         registry.tools.insert(
             "read_file".into(),
             ToolSpec {
@@ -232,6 +233,7 @@ impl Extension for TestExtension {
                 base_loop: "triage".into(),
                 decorators: vec![],
                 builder: "echo_builder".into(),
+                builder_layers: vec![],
                 config: LoopConfig::default(),
             },
         );
@@ -241,6 +243,7 @@ impl Extension for TestExtension {
                 base_loop: "worker".into(),
                 decorators: vec!["audit_dec".into()],
                 builder: "echo_builder".into(),
+                builder_layers: vec![],
                 config: LoopConfig {
                     allowed_tools: Some(vec!["read_file".into()]),
                     ..LoopConfig::default()
@@ -541,7 +544,7 @@ fn replay_detects_digest_tampering_and_behavioral_drift() {
     let mut drifted_reg = setup_registry();
     drifted_reg
         .loops
-        .insert("triage".into(), Box::new(DriftedFactory));
+        .insert("triage".into(), std::sync::Arc::new(DriftedFactory));
     let engine = ReplayEngine::new(&drifted_reg, rt.policy_gate());
     let report = engine
         .replay(rt.session_tree(), ReplayMode::Default, |_| None)
@@ -595,6 +598,8 @@ fn spawn_policy_blocks_concurrent_shared_and_depth_overflow() {
                 depth_limit: 1,
                 workspace_mode: WorkspaceMode::Shared,
                 config: None,
+                detached: false,
+                notify_on_complete: Default::default(),
             },
         },
         EffectEnvelope {
@@ -610,6 +615,8 @@ fn spawn_policy_blocks_concurrent_shared_and_depth_overflow() {
                 depth_limit: 1,
                 workspace_mode: WorkspaceMode::Shared,
                 config: None,
+                detached: false,
+                notify_on_complete: Default::default(),
             },
         },
     ];
@@ -685,7 +692,7 @@ impl PolicyRule for VerificationGateRule {
 fn requires_verification_defers_and_promotes_on_allow() {
     let reg = setup_registry();
     let mut gate = setup_gate();
-    gate.add_rule(Box::new(VerificationGateRule));
+    gate.add_rule(std::sync::Arc::new(VerificationGateRule));
     let mut rt = KernelRuntime::new("r5".into(), "/repo".into(), 400, reg, gate).expect("init");
     rt.start_turn(
         json!("verify"),
@@ -747,6 +754,7 @@ fn external_builder_deferral_and_custom_node_persistence() {
                 base_loop: "triage".into(),
                 decorators: vec![],
                 builder: "ext_builder".into(),
+                builder_layers: vec![],
                 config: LoopConfig::default(),
             },
         )]
@@ -874,21 +882,22 @@ fn emit_custom_node_updates_slice_immediately_and_replays_with_parity() {
 
     let mut reg = setup_registry();
     reg.builders
-        .insert("custom_b".into(), Box::new(CustomNodeBuilder));
+        .insert("custom_b".into(), std::sync::Arc::new(CustomNodeBuilder));
     reg.loops
-        .insert("custom_emit".into(), Box::new(CustomEmitFactory));
+        .insert("custom_emit".into(), std::sync::Arc::new(CustomEmitFactory));
     reg.presets.insert(
         "custom_preset".into(),
         Preset {
             base_loop: "custom_emit".into(),
             decorators: vec![],
             builder: "custom_b".into(),
+            builder_layers: vec![],
             config: LoopConfig::default(),
         },
     );
 
     let mut gate = setup_gate();
-    gate.add_rule(Box::new(VerificationGateRule));
+    gate.add_rule(std::sync::Arc::new(VerificationGateRule));
     assert_eq!(gate.rule_ids(), vec!["verify_read"]);
 
     let mut rt = KernelRuntime::new("r7".into(), "/repo".into(), 600, reg, gate).expect("init");
@@ -919,4 +928,140 @@ fn emit_custom_node_updates_slice_immediately_and_replays_with_parity() {
         .replay(rt.session_tree(), ReplayMode::Default, |_| None)
         .expect("replay");
     assert!(report.is_parity(), "divergences: {:?}", report.divergences);
+}
+
+#[test]
+fn context_layer_composition_and_loop_config_json_merge_patch() {
+    use gestalt_kernel::ContextLayer;
+    use std::sync::Arc;
+
+    struct SoulLayer;
+    impl ContextLayer for SoulLayer {
+        fn id(&self) -> &str {
+            "soul"
+        }
+        fn digest(&self) -> &str {
+            "soul_v1"
+        }
+        fn apply(
+            &self,
+            mut input: Value,
+            _session: &SessionSlice,
+            _artifacts: &ArtifactStoreView,
+            _caps: &ModelCapabilities,
+        ) -> Value {
+            if let Some(obj) = input.as_object_mut() {
+                obj.insert("soul".to_string(), json!("curious"));
+            }
+            input
+        }
+    }
+
+    struct CaptureCtxLoop;
+    impl AgentLoop for CaptureCtxLoop {
+        fn id(&self) -> &str {
+            "cap_ctx"
+        }
+        fn digest(&self) -> &str {
+            "cc1"
+        }
+        fn step(&mut self, ctx: &mut dyn LoopContext, _r: Option<Vec<StepResult>>) -> LoopAction {
+            let built = ctx.build_context(&ModelCapabilities::default());
+            LoopAction::Done(json!({
+                "built": built,
+                "params": ctx.config().params,
+            }))
+        }
+    }
+    struct CaptureCtxFactory;
+    impl AgentLoopFactory for CaptureCtxFactory {
+        fn id(&self) -> &str {
+            "cap_ctx"
+        }
+        fn digest(&self) -> &str {
+            "cc1"
+        }
+        fn create(&self, _c: &LoopConfig, _r: &ExtensionRegistry) -> Box<dyn AgentLoop> {
+            Box::new(CaptureCtxLoop)
+        }
+    }
+
+    let mut reg = setup_registry();
+    reg.loops
+        .insert("cap_ctx".into(), Arc::new(CaptureCtxFactory));
+    reg.builder_layers
+        .insert("soul".into(), Arc::new(SoulLayer));
+    reg.presets.insert(
+        "layered".into(),
+        Preset {
+            base_loop: "cap_ctx".into(),
+            decorators: vec![],
+            builder: "echo_builder".into(),
+            builder_layers: vec!["soul".into()],
+            config: LoopConfig {
+                params: json!({
+                    "compaction_threshold": 0.8,
+                    "keep_recent_turns": 2,
+                }),
+                ..LoopConfig::default()
+            },
+        },
+    );
+
+    // Unresolved layer returns UnresolvedExtensionSlot
+    let mut bad_reg = reg.clone();
+    bad_reg.presets.insert(
+        "bad_layered".into(),
+        Preset {
+            base_loop: "cap_ctx".into(),
+            decorators: vec![],
+            builder: "echo_builder".into(),
+            builder_layers: vec!["missing_layer".into()],
+            config: LoopConfig::default(),
+        },
+    );
+    assert!(matches!(
+        bad_reg.resolve_phase_stack("bad_layered", &[], None),
+        Err(gestalt_kernel::KernelError::UnresolvedExtensionSlot { slot, .. }) if slot == "builder_layer"
+    ));
+
+    // JSON Merge Patch preserves sibling keys and deletes null keys
+    let merged = reg
+        .resolve_phase_stack(
+            "layered",
+            &[],
+            Some(&LoopConfig {
+                params: json!({
+                    "model": "anthropic/claude",
+                    "keep_recent_turns": null,
+                }),
+                ..LoopConfig::default()
+            }),
+        )
+        .expect("resolve");
+    assert_eq!(
+        merged.config.params,
+        json!({
+            "compaction_threshold": 0.8,
+            "model": "anthropic/claude",
+        })
+    );
+    assert_eq!(merged.builder_layer_digests, vec!["soul_v1".to_string()]);
+
+    let mut rt =
+        KernelRuntime::new("r_layer".into(), "/repo".into(), 100, reg, setup_gate()).expect("init");
+    rt.start_turn(
+        json!("hi"),
+        "layered",
+        &[],
+        ArtifactStoreView::default(),
+        101,
+    )
+    .expect("start");
+    match rt.next_action(DriverResponse::Poll).expect("poll") {
+        DriverDirective::TurnComplete { output, .. } => {
+            assert_eq!(output["built"]["soul"], json!("curious"));
+        }
+        other => panic!("expected TurnComplete, got {other:?}"),
+    }
 }

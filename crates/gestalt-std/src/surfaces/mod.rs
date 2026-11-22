@@ -1508,8 +1508,10 @@ mod tests {
         fs::create_dir_all(&dir).expect("mkdir");
 
         let mut reg = ExtensionRegistry::new();
-        reg.loops.insert("done".into(), Box::new(DoneFactory));
-        reg.builders.insert("default".into(), Box::new(NullBuilder));
+        reg.loops
+            .insert("done".into(), std::sync::Arc::new(DoneFactory));
+        reg.builders
+            .insert("default".into(), std::sync::Arc::new(NullBuilder));
         let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
         let mut rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
         rt.commands.insert("login".into(), Arc::new(EchoCmd));

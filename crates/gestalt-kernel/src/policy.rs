@@ -3,6 +3,7 @@
 //! enforcement, and `RequiresVerification` deferral callbacks.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -152,11 +153,13 @@ pub enum BatchItemDecision {
 }
 
 /// Immutable, fail-closed security and budget guard inside `gestalt-kernel`.
+#[derive(Clone)]
 pub struct PolicyGate {
     baseline_budget: BudgetCap,
     baseline_allowed_tools: Option<BTreeSet<String>>,
     sandbox: SandboxPolicy,
-    rules: Vec<Box<dyn PolicyRule>>,
+    writable_roots: BTreeSet<String>,
+    rules: Vec<Arc<dyn PolicyRule>>,
     rules_by_id: BTreeMap<String, usize>,
 }
 
@@ -183,6 +186,7 @@ impl PolicyGate {
             baseline_budget,
             baseline_allowed_tools,
             sandbox,
+            writable_roots: BTreeSet::new(),
             rules: Vec::new(),
             rules_by_id: BTreeMap::new(),
         }
@@ -213,11 +217,36 @@ impl PolicyGate {
     }
 
     /// Add an additive [`PolicyRule`] (rules can only further restrict effects).
-    pub fn add_rule(&mut self, rule: Box<dyn PolicyRule>) {
+    pub fn add_rule(&mut self, rule: Arc<dyn PolicyRule>) {
         let id = rule.id().to_string();
         let idx = self.rules.len();
         self.rules.push(rule);
         self.rules_by_id.insert(id, idx);
+    }
+
+    /// Return the configured global writable artifact roots permitted for `Effect::Save`.
+    #[must_use]
+    pub fn writable_roots(&self) -> &BTreeSet<String> {
+        &self.writable_roots
+    }
+
+    /// Register an allowed global writable root for `Effect::Save` (called at
+    /// boot from trusted global config only).
+    pub fn add_writable_root(&mut self, root: impl Into<String>) {
+        self.writable_roots.insert(root.into());
+    }
+
+    /// Derive a child [`PolicyGate`] preserving all parent [`PolicyRule`]s while
+    /// monotonically tightening bounds with `override_cfg`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KernelError::PolicyRelaxationForbidden`] if `override_cfg`
+    /// attempts to loosen any baseline restriction.
+    pub fn derive_child_gate(&self, override_cfg: &PolicyOverride) -> Result<Self, KernelError> {
+        let mut child = self.clone();
+        child.apply_monotonic_override(override_cfg)?;
+        Ok(child)
     }
 
     /// Validate and apply a monotonic [`PolicyOverride`] (`Kernel <= Global <= Workspace`).
@@ -337,7 +366,7 @@ impl PolicyGate {
                 }
             }
             Effect::Save { artifact, mode, .. } => {
-                if has_path_traversal(artifact) {
+                if !self.is_allowed_save_path(artifact) {
                     return BatchItemDecision::Denied {
                         effect_id: env.effect_id.clone(),
                         reason: format!("save artifact path '{artifact}' escapes workspace"),
@@ -458,8 +487,18 @@ fn normalize_prefix(raw: &str) -> String {
     raw.trim_start_matches("./").to_string()
 }
 
-fn has_path_traversal(path: &str) -> bool {
-    path.starts_with('/') || path.split(['/', '\\']).any(|seg| seg == "..") || path.contains('\0')
+impl PolicyGate {
+    fn is_allowed_save_path(&self, path: &str) -> bool {
+        if path.contains('\0') || path.split(['/', '\\']).any(|seg| seg == "..") {
+            return false;
+        }
+        if path.starts_with('/') {
+            return self.writable_roots.iter().any(|root| {
+                path == root || path.starts_with(&format!("{}/", root.trim_end_matches('/')))
+            });
+        }
+        true
+    }
 }
 
 #[cfg(test)]
@@ -533,7 +572,7 @@ mod tests {
     #[test]
     fn verification_fails_closed_on_error_or_default_rule() {
         let mut gate = PolicyGate::default();
-        gate.add_rule(Box::new(AlwaysRequireVerifierRule));
+        gate.add_rule(Arc::new(AlwaysRequireVerifierRule));
         let pending = EffectEnvelope {
             effect_id: "e1".into(),
             effect: Effect::Tool {

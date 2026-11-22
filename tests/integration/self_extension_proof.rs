@@ -91,11 +91,11 @@ impl Extension for CustomRustExtension {
     fn register(&self, registry: &mut ExtensionRegistry) -> Result<(), ExtensionError> {
         registry.loops.insert(
             "custom_rust_loop".to_string(),
-            Box::new(CustomRustLoopFactory),
+            std::sync::Arc::new(CustomRustLoopFactory),
         );
         registry.builders.insert(
             "custom_rust_builder".to_string(),
-            Box::new(CustomRustBuilder),
+            std::sync::Arc::new(CustomRustBuilder),
         );
         registry.presets.insert(
             "custom_rust_preset".to_string(),
@@ -103,6 +103,7 @@ impl Extension for CustomRustExtension {
                 base_loop: "custom_rust_loop".to_string(),
                 decorators: Vec::new(),
                 builder: "custom_rust_builder".to_string(),
+                builder_layers: Vec::new(),
                 config: LoopConfig::default(),
             },
         );
@@ -240,7 +241,7 @@ fn worker_script(version: &str) -> String {
     format!(
         r#"#!/usr/bin/env bash
 while IFS= read -r line; do
-  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([^,}}]*\).*/\1/p')
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
   case "$line" in
     *"extension/describe"*)
       printf '{{"jsonrpc":"2.0","id":%s,"result":{{"name":"auto_ext","version":"{version}","loops":[{{"id":"auto_loop","digest":"auto_loop_{version}"}}],"builders":[{{"id":"auto_builder","digest":"auto_builder_{version}"}}],"tools":[{{"name":"auto_ping","description":"ping {version}","parameters_schema":{{"type":"object"}},"default_side_effect":"read"}}]}}}}\n' "$id"

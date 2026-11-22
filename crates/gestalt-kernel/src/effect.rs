@@ -94,6 +94,17 @@ pub enum PauseReason {
     Checkpoint,
 }
 
+/// Completion notification behavior for detached [`Effect::Spawn`] subagents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpawnNotifyMode {
+    /// Record `custom:spawn:completed` passively for the next Turn (default).
+    #[default]
+    Passive,
+    /// Record `custom:spawn:completed` and enqueue a `SteeringKind::FollowUp` Turn.
+    FollowUp,
+}
+
 /// Filesystem isolation mode for a child subagent launched via [`Effect::Spawn`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -319,6 +330,12 @@ pub enum Effect {
         workspace_mode: WorkspaceMode,
         /// Optional child [`LoopConfig`] overrides.
         config: Option<LoopConfig>,
+        /// When `true`, run the child subagent in the background without blocking the Step.
+        #[serde(default)]
+        detached: bool,
+        /// Completion notification behavior when `detached == true`.
+        #[serde(default)]
+        notify_on_complete: SpawnNotifyMode,
     },
     /// Seal the active Phase and transition to a different loop/preset.
     Switch {

@@ -994,8 +994,10 @@ mod tests {
         fs::create_dir_all(&dir).expect("mkdir");
 
         let mut reg = ExtensionRegistry::new();
-        reg.loops.insert("acp_loop".into(), Box::new(AcpFactory));
-        reg.builders.insert("default".into(), Box::new(NullBuilder));
+        reg.loops
+            .insert("acp_loop".into(), std::sync::Arc::new(AcpFactory));
+        reg.builders
+            .insert("default".into(), std::sync::Arc::new(NullBuilder));
         let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
         let mut rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
         rt.providers.register_provider(Arc::new(AcpMockProvider));

@@ -857,8 +857,10 @@ mod tests {
         fs::create_dir_all(&dir).expect("mkdir");
 
         let mut reg = ExtensionRegistry::new();
-        reg.loops.insert("p_loop".into(), Box::new(PauseFactory));
-        reg.builders.insert("default".into(), Box::new(NullBuilder));
+        reg.loops
+            .insert("p_loop".into(), std::sync::Arc::new(PauseFactory));
+        reg.builders
+            .insert("default".into(), std::sync::Arc::new(NullBuilder));
         let gate = PolicyGate::new(BudgetCap::default(), None, SandboxPolicy::default());
         let rt = RuntimeRegistry::new(Arc::new(UnsandboxedFallbackDriver));
         let host = RuntimeHost::new(

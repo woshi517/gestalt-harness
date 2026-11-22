@@ -8,21 +8,23 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gestalt_kernel::{
-    ArtifactEntry, EffectEnvelope, ExtensionRegistry, ExternalExtensionSpec, LoopAction,
-    LoopConfig, ModelCapabilities, PolicyDecision, SandboxPolicy, SessionNode, StepResult,
+    ArtifactEntry, BudgetSnapshot, EffectEnvelope, ExtensionRegistry, ExternalExtensionSpec,
+    LoopAction, LoopConfig, ModelCapabilities, ModelKind, PolicyDecision, SandboxPolicy,
+    SessionNode, SteeringSignal, StepResult, Usage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::config::ExternalExtensionConfig;
 use crate::credentials::StreamRedactor;
-use crate::provider::StreamDeltaFn;
+use crate::provider::{ModelRequest, ModelResponse, StreamDeltaFn};
 use crate::sandbox::SandboxDriver;
 use crate::stdio_rpc::{IncomingControl, StdioJsonRpcTransport};
+use crate::trigger::TriggerEvent;
 use crate::{CancellationToken, RuntimeError};
 
 /// Request payload for out-of-process `loop/step`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExternalLoopStepRequest {
     /// Active Phase ID.
     pub phase_id: String,
@@ -36,31 +38,67 @@ pub struct ExternalLoopStepRequest {
     pub state_token: Option<Value>,
     /// Prior step results (or `None` on initial step).
     pub results: Option<Vec<StepResult>>,
+    /// Active branch nodes from root to head.
+    #[serde(default)]
+    pub session_slice: Vec<SessionNode>,
+    /// Snapshotted or live workspace artifacts.
+    #[serde(default)]
+    pub artifacts: BTreeMap<String, ArtifactEntry>,
+    /// Remaining step, token, and micro-USD budget snapshot.
+    #[serde(default)]
+    pub budget_remaining: BudgetSnapshot,
+    /// Drained intra-turn `SteeringSignal`s for this step.
+    #[serde(default)]
+    pub steering: Vec<SteeringSignal>,
+    /// Deterministic kernel clock in milliseconds.
+    #[serde(default)]
+    pub now_ms: u64,
+    /// Pre-built `ContextBuilder` (+ `ContextLayer`s) projection JSON.
+    #[serde(default)]
+    pub context: Value,
 }
 
 /// Response payload from out-of-process `loop/step` or `decorator/wrap_step`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExternalLoopStepResponse {
     /// Resumable `LoopAction` returned by the external worker.
     pub action: LoopAction,
     /// Updated opaque state token persisted on `SessionTree`.
     #[serde(default)]
     pub state_token: Option<Value>,
+    /// Optional custom namespaced nodes (`(namespace, data)`) emitted onto `SessionTree`.
+    #[serde(default)]
+    pub custom_nodes: Vec<(String, Value)>,
 }
 
 /// Request payload for out-of-process `decorator/wrap_step`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExternalDecoratorStepRequest {
     /// External decorator ID.
     pub decorator_id: String,
     /// Active Phase ID.
     pub phase_id: String,
+    /// Active Turn ID.
+    #[serde(default)]
+    pub turn_id: String,
     /// Inner loop action being wrapped.
     pub inner_action: LoopAction,
     /// Effective `LoopConfig`.
     pub config: LoopConfig,
     /// Opaque decorator state token.
     pub state_token: Option<Value>,
+    /// Active branch nodes from root to head.
+    #[serde(default)]
+    pub session_slice: Vec<SessionNode>,
+    /// Snapshotted or live workspace artifacts.
+    #[serde(default)]
+    pub artifacts: BTreeMap<String, ArtifactEntry>,
+    /// Remaining step, token, and micro-USD budget snapshot.
+    #[serde(default)]
+    pub budget_remaining: BudgetSnapshot,
+    /// Deterministic kernel clock in milliseconds.
+    #[serde(default)]
+    pub now_ms: u64,
 }
 
 /// Request payload for out-of-process `builder/build`.
@@ -68,6 +106,21 @@ pub struct ExternalDecoratorStepRequest {
 pub struct ExternalBuilderRequest {
     /// External builder ID.
     pub builder_id: String,
+    /// Active branch nodes from root to head.
+    pub session_slice: Vec<SessionNode>,
+    /// Snapshotted or live workspace artifacts.
+    pub artifacts: BTreeMap<String, ArtifactEntry>,
+    /// Target model capabilities.
+    pub caps: ModelCapabilities,
+}
+
+/// Request payload for out-of-process `builder/layer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExternalBuilderLayerRequest {
+    /// External layer ID.
+    pub layer_id: String,
+    /// Input `ModelInput` JSON produced by the base builder and earlier layers.
+    pub input: Value,
     /// Active branch nodes from root to head.
     pub session_slice: Vec<SessionNode>,
     /// Snapshotted or live workspace artifacts.
@@ -198,6 +251,24 @@ impl ExtIpcWorker {
             .await
     }
 
+    /// Execute `builder/layer` on the external worker.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on IPC timeout, cancellation, or protocol error.
+    pub async fn builder_layer(
+        &mut self,
+        req: &ExternalBuilderLayerRequest,
+        cancel: CancellationToken,
+    ) -> Result<Value, RuntimeError> {
+        let params = serde_json::to_value(req)?;
+        self.transport
+            .call_rpc("builder/layer", params, cancel, true, |_| {
+                (None, IncomingControl::Continue)
+            })
+            .await
+    }
+
     /// Execute `tool/call` on the external worker, forwarding `stream/delta`
     /// notifications to `on_delta`.
     ///
@@ -317,6 +388,137 @@ impl ExtIpcWorker {
         Ok(serde_json::from_value(res)?)
     }
 
+    /// Subscribe to unsolicited `trigger/fire` notifications from this worker,
+    /// redacting secrets and forwarding [`TriggerEvent`]s onto `trigger_tx`.
+    pub fn set_trigger_sender(&self, trigger_tx: tokio::sync::mpsc::UnboundedSender<TriggerEvent>) {
+        let (raw_tx, mut raw_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        self.transport.set_unsolicited_sender(Some(raw_tx));
+        let redactor = self.transport.redactor().clone();
+        let ext_name = self.transport.name().to_string();
+        tokio::spawn(async move {
+            while let Some(msg) = raw_rx.recv().await {
+                if msg.get("method").and_then(Value::as_str) != Some("trigger/fire") {
+                    continue;
+                }
+                let mut params = msg.get("params").cloned().unwrap_or(Value::Null);
+                redactor.redact_json(&mut params);
+                let Ok(mut ev) = serde_json::from_value::<TriggerEvent>(params) else {
+                    tracing::warn!(ext = %ext_name, "ignoring malformed trigger/fire notification");
+                    continue;
+                };
+                if ev.kind.is_empty() {
+                    ev.kind = format!("ext:{ext_name}");
+                }
+                if trigger_tx.send(ev).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
+    /// Start a declared external trigger via `trigger/start`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on IPC timeout or protocol error.
+    pub async fn trigger_start(
+        &mut self,
+        trigger_id: &str,
+        config: &Value,
+        cancel: CancellationToken,
+    ) -> Result<Value, RuntimeError> {
+        let params = json!({
+            "trigger_id": trigger_id,
+            "config": config,
+        });
+        self.transport
+            .call_rpc("trigger/start", params, cancel, true, |_| {
+                (None, IncomingControl::Continue)
+            })
+            .await
+    }
+
+    /// Stop a declared external trigger via `trigger/stop`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on IPC timeout or protocol error.
+    pub async fn trigger_stop(
+        &mut self,
+        trigger_id: &str,
+        cancel: CancellationToken,
+    ) -> Result<Value, RuntimeError> {
+        let params = json!({ "trigger_id": trigger_id });
+        self.transport
+            .call_rpc("trigger/stop", params, cancel, true, |_| {
+                (None, IncomingControl::Continue)
+            })
+            .await
+    }
+
+    /// Execute `model/call` on the external worker, forwarding redacted
+    /// `stream/delta` notifications to `on_delta`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] on IPC timeout, cancellation, or malformed response.
+    pub async fn model_call(
+        &mut self,
+        req: &ModelRequest,
+        on_delta: StreamDeltaFn<'_>,
+        cancel: CancellationToken,
+    ) -> Result<ModelResponse, RuntimeError> {
+        let params = json!({
+            "effect_id": req.effect_id,
+            "turn_id": req.turn_id,
+            "phase_id": req.phase_id,
+            "provider_id": req.provider_id,
+            "model": req.model,
+            "kind": req.kind,
+            "input": req.input,
+            "schema": req.schema,
+        });
+        let redactor = self.transport.redactor().clone();
+        let res = self
+            .transport
+            .call_rpc("model/call", params, cancel, true, |msg| {
+                if msg.get("id").is_none()
+                    && msg.get("method").and_then(Value::as_str) == Some("stream/delta")
+                {
+                    let channel = msg
+                        .pointer("/params/channel")
+                        .and_then(Value::as_str)
+                        .unwrap_or("text");
+                    let mut payload = msg
+                        .pointer("/params/payload")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    redactor.redact_json(&mut payload);
+                    on_delta(channel, payload);
+                }
+                (None, IncomingControl::Continue)
+            })
+            .await?;
+        let kind: ModelKind = res
+            .get("kind")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or(req.kind);
+        let output = res.get("output").cloned().unwrap_or(Value::Null);
+        let usage: Usage = res
+            .get("usage")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_default();
+        Ok(ModelResponse {
+            kind,
+            output,
+            usage,
+        })
+    }
+
     /// Gracefully shut down the worker via `extension/shutdown`, closing stdin
     /// and falling back to killing the process if it does not exit within 250 ms.
     pub async fn shutdown(&mut self) -> Result<(), RuntimeError> {
@@ -345,6 +547,8 @@ pub struct ExtIpcHost {
     command_owners: BTreeMap<String, String>,
     policy_owners: BTreeMap<String, String>,
     decorator_owners: BTreeMap<String, String>,
+    trigger_owners: BTreeMap<String, String>,
+    trigger_tx: Option<tokio::sync::mpsc::UnboundedSender<TriggerEvent>>,
 }
 
 impl ExtIpcHost {
@@ -352,6 +556,18 @@ impl ExtIpcHost {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Configure the [`TriggerEvent`] channel used to forward unsolicited
+    /// `trigger/fire` notifications from external workers into [`crate::TriggerManager`].
+    pub fn set_trigger_event_sender(
+        &mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<TriggerEvent>,
+    ) {
+        for worker in self.workers.values() {
+            worker.set_trigger_sender(tx.clone());
+        }
+        self.trigger_tx = Some(tx);
     }
 
     /// Spawn a worker, run `extension/describe`, and register its slots into
@@ -379,12 +595,19 @@ impl ExtIpcHost {
             &sandbox_driver,
             redactor,
         )?;
+        if let Some(ref tx) = self.trigger_tx {
+            worker.set_trigger_sender(tx.clone());
+        }
         let spec = worker.describe().await?;
         let canonical_name = spec.name.clone();
 
         for tool in &spec.tools {
             self.tool_owners
                 .insert(tool.name.clone(), canonical_name.clone());
+        }
+        for trig in &spec.triggers {
+            self.trigger_owners
+                .insert(trig.id.clone(), canonical_name.clone());
         }
         for cmd in &spec.commands {
             self.command_owners

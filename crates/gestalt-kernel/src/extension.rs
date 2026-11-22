@@ -3,11 +3,15 @@
 //! `ContextBuilder` traits, declarative `UISurface` specs, and `ArtifactStoreView`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::effect::{BudgetSnapshot, Effect, LoopConfig, PauseReason, SideEffectClass, StepResult};
+use crate::effect::{
+    BudgetSnapshot, Effect, LoopConfig, ModelKind, PauseReason, SideEffectClass, StepResult,
+};
 use crate::error::{ExtensionError, KernelError};
 use crate::policy::PolicyRule;
 use crate::steering::SteeringSignal;
@@ -72,6 +76,16 @@ impl ArtifactStoreView {
             .iter()
             .map(|(k, v)| (k.clone(), v.blob_digest.clone()))
             .collect()
+    }
+
+    /// Insert or update an [`ArtifactEntry`] in this view (e.g., after mid-Turn `SaveMode::Promote`).
+    pub fn insert_entry(&mut self, entry: ArtifactEntry) {
+        self.entries.insert(entry.path.clone(), entry);
+    }
+
+    /// Remove an [`ArtifactEntry`] by path (e.g., after mid-Turn `ArtifactPatch::Delete`).
+    pub fn remove_entry(&mut self, path: &str) -> Option<ArtifactEntry> {
+        self.entries.remove(path)
     }
 }
 
@@ -206,8 +220,8 @@ impl UISurface {
 }
 
 /// Composable preset wiring a base loop, ordered decorators, context builder,
-/// and `LoopConfig`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// optional builder layers, and `LoopConfig`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Preset {
     /// Base `AgentLoopFactory` slot ID.
     pub base_loop: String,
@@ -216,6 +230,9 @@ pub struct Preset {
     pub decorators: Vec<String>,
     /// Active `ContextBuilder` slot ID.
     pub builder: String,
+    /// Ordered `ContextLayer` slot IDs applied after `builder`.
+    #[serde(default)]
+    pub builder_layers: Vec<String>,
     /// Effective `LoopConfig` for Phases opened with this preset.
     #[serde(default)]
     pub config: LoopConfig,
@@ -229,6 +246,19 @@ pub struct ExternalComponentSpec {
     pub id: String,
     /// Deterministic version/source digest recorded on `phase_open`.
     pub digest: String,
+}
+
+/// Descriptor for an out-of-process `ModelProvider` returned by `extension/describe`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalProviderSpec {
+    /// Provider adapter identifier (e.g., `"local_world_model"`).
+    pub id: String,
+    /// Model paradigms supported by this provider.
+    #[serde(default)]
+    pub kinds: Vec<ModelKind>,
+    /// Default capabilities reported to `ContextBuilder`s.
+    #[serde(default)]
+    pub capabilities: ModelCapabilities,
 }
 
 /// Complete capability descriptor returned by an out-of-process extension over
@@ -249,6 +279,9 @@ pub struct ExternalExtensionSpec {
     /// Context builders hosted out-of-process by this worker.
     #[serde(default)]
     pub builders: Vec<ExternalComponentSpec>,
+    /// Composable context layers hosted out-of-process by this worker.
+    #[serde(default)]
+    pub builder_layers: Vec<ExternalComponentSpec>,
     /// Tools hosted by this worker.
     #[serde(default)]
     pub tools: Vec<ToolSpec>,
@@ -261,9 +294,15 @@ pub struct ExternalExtensionSpec {
     /// Event/schedule triggers hosted by this worker.
     #[serde(default)]
     pub triggers: Vec<TriggerSpec>,
+    /// Model providers hosted out-of-process by this worker.
+    #[serde(default)]
+    pub providers: Vec<ExternalProviderSpec>,
     /// Declarative UI surface specs contributed by this worker.
     #[serde(default)]
     pub ui: UISurface,
+    /// Additional artifact paths/prefixes this worker expects snapshotted in `ArtifactStoreView`.
+    #[serde(default)]
+    pub tracked_artifacts: Vec<String>,
 }
 
 /// Kernel-owned execution context passed to `AgentLoop::step`.
@@ -362,6 +401,41 @@ pub trait ContextBuilder: Send + Sync {
     ) -> Value;
 }
 
+/// Composable pure transformation layered onto a base [`ContextBuilder`]'s
+/// projected `ModelInput` JSON.
+pub trait ContextLayer: Send + Sync {
+    /// Unique layer identifier.
+    fn id(&self) -> &str;
+    /// Deterministic version/source digest.
+    fn digest(&self) -> &str;
+    /// Transform `input` given `session`, `artifacts`, and `caps`.
+    fn apply(
+        &self,
+        input: Value,
+        session: &SessionSlice,
+        artifacts: &ArtifactStoreView,
+        caps: &ModelCapabilities,
+    ) -> Value;
+}
+
+/// Resolved [`ContextLayer`] link (either in-process or hosted out-of-process).
+#[derive(Clone)]
+pub enum BuilderLayerLink {
+    /// In-process Rust [`ContextLayer`].
+    InProcess(Arc<dyn ContextLayer>),
+    /// Out-of-process [`ContextLayer`] hosted by an `ext_ipc` worker.
+    External(ExternalBinding),
+}
+
+impl fmt::Debug for BuilderLayerLink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InProcess(l) => f.debug_tuple("InProcess").field(&l.id()).finish(),
+            Self::External(b) => f.debug_tuple("External").field(b).finish(),
+        }
+    }
+}
+
 /// Unified packaging contract implemented by `gestalt-std` and external Rust
 /// extension crates alike (zero private kernel backdoors).
 pub trait Extension: Send + Sync {
@@ -387,6 +461,65 @@ pub struct ExternalBinding {
     pub digest: String,
 }
 
+/// Resolved [`LoopDecorator`] link (either in-process or hosted out-of-process).
+#[derive(Clone)]
+pub enum DecoratorLink {
+    /// In-process Rust [`LoopDecorator`].
+    InProcess(Arc<dyn LoopDecorator>),
+    /// Out-of-process [`LoopDecorator`] hosted by an `ext_ipc` worker.
+    External(ExternalBinding),
+}
+
+impl fmt::Debug for DecoratorLink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InProcess(d) => f.debug_tuple("InProcess").field(&d.id()).finish(),
+            Self::External(b) => f.debug_tuple("External").field(b).finish(),
+        }
+    }
+}
+
+/// Shared sans-I/O bridge slot allowing in-process [`LoopDecorator`]s to wrap
+/// an out-of-process base `AgentLoop`.
+#[derive(Debug, Default)]
+pub struct BridgedExternalSlot {
+    /// `true` when an in-process decorator invoked the inner loop and needs
+    /// `DriverDirective::InvokeExternalLoop` to supply the next `LoopAction`.
+    pub requested_inner: bool,
+    /// Captured `results` passed by the outer decorator to the inner loop.
+    pub captured_results: Option<Vec<StepResult>>,
+    /// Buffered `LoopAction` returned by `DriverResponse::ExternalLoopOutput`.
+    pub buffered_action: Option<LoopAction>,
+}
+
+struct BridgedExternalLoop {
+    id: String,
+    digest: String,
+    slot: Arc<StdMutex<BridgedExternalSlot>>,
+}
+
+impl AgentLoop for BridgedExternalLoop {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn digest(&self) -> &str {
+        &self.digest
+    }
+
+    fn step(&mut self, _ctx: &mut dyn LoopContext, results: Option<Vec<StepResult>>) -> LoopAction {
+        if let Ok(mut guard) = self.slot.lock() {
+            if let Some(action) = guard.buffered_action.take() {
+                guard.requested_inner = false;
+                return action;
+            }
+            guard.requested_inner = true;
+            guard.captured_results = results;
+        }
+        LoopAction::Done(Value::Null)
+    }
+}
+
 /// Resolved Phase execution stack produced by [`ExtensionRegistry::resolve_phase_stack`].
 pub struct ResolvedPhaseStack {
     /// Optional preset ID if resolved from a named `Preset`.
@@ -397,14 +530,23 @@ pub struct ResolvedPhaseStack {
     pub loop_digest: String,
     /// Ordered decorator digests applied around the base loop.
     pub decorator_digests: Vec<String>,
+    /// Resolved ordered decorator links (in-process or external).
+    pub decorator_links: Vec<DecoratorLink>,
     /// Active context builder identifier.
     pub builder_id: String,
     /// Active context builder digest.
     pub builder_digest: String,
+    /// Ordered context layer digests applied after `builder`.
+    pub builder_layer_digests: Vec<String>,
+    /// Resolved ordered context layers (in-process or external).
+    pub builder_layers: Vec<BuilderLayerLink>,
     /// Effective Phase `LoopConfig`.
     pub config: LoopConfig,
-    /// Instantiated in-process loop stack, or `None` if `external_loop` is set.
+    /// Instantiated in-process loop stack, or `None` if `external_loop` is set
+    /// without any in-process decorators.
     pub in_process_loop: Option<Box<dyn AgentLoop>>,
+    /// Shared bridge slot when an external base loop is wrapped by in-process decorators.
+    pub bridged_external_slot: Option<Arc<StdMutex<BridgedExternalSlot>>>,
     /// External IPC binding if the base loop runs out-of-process.
     pub external_loop: Option<ExternalBinding>,
     /// External IPC binding if the builder runs out-of-process.
@@ -413,18 +555,20 @@ pub struct ResolvedPhaseStack {
 
 /// Typed slot registry populated by [`Extension::register`] and
 /// [`ExtensionRegistry::register_external_describe`].
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ExtensionRegistry {
     /// In-process `AgentLoopFactory` slots.
-    pub loops: BTreeMap<String, Box<dyn AgentLoopFactory>>,
+    pub loops: BTreeMap<String, Arc<dyn AgentLoopFactory>>,
     /// In-process `LoopDecorator` slots.
-    pub decorators: BTreeMap<String, Box<dyn LoopDecorator>>,
+    pub decorators: BTreeMap<String, Arc<dyn LoopDecorator>>,
     /// Named `Preset` compositions.
     pub presets: BTreeMap<String, Preset>,
     /// In-process `ContextBuilder` slots.
-    pub builders: BTreeMap<String, Box<dyn ContextBuilder>>,
+    pub builders: BTreeMap<String, Arc<dyn ContextBuilder>>,
+    /// In-process composable `ContextLayer` slots.
+    pub builder_layers: BTreeMap<String, Arc<dyn ContextLayer>>,
     /// Additive `PolicyRule`s.
-    pub policies: Vec<Box<dyn PolicyRule>>,
+    pub policies: Vec<Arc<dyn PolicyRule>>,
     /// Declarative tool descriptors.
     pub tools: BTreeMap<String, ToolSpec>,
     /// Declarative slash command descriptors.
@@ -433,10 +577,14 @@ pub struct ExtensionRegistry {
     pub triggers: BTreeMap<String, TriggerSpec>,
     /// Declarative UI surface specs.
     pub ui: UISurface,
+    /// Additional artifact paths/prefixes registered by extensions for turn-start snapshotting.
+    pub tracked_artifacts: BTreeSet<String>,
     /// Out-of-process loop bindings keyed by loop ID.
     pub external_loops: BTreeMap<String, ExternalBinding>,
     /// Out-of-process builder bindings keyed by builder ID.
     pub external_builders: BTreeMap<String, ExternalBinding>,
+    /// Out-of-process context layer bindings keyed by layer ID.
+    pub external_builder_layers: BTreeMap<String, ExternalBinding>,
     /// Out-of-process decorator bindings keyed by decorator ID.
     pub external_decorators: BTreeMap<String, ExternalBinding>,
     /// Out-of-process policy rule bindings keyed by policy ID.
@@ -479,6 +627,16 @@ impl ExtensionRegistry {
                 },
             );
         }
+        for c in spec.builder_layers {
+            self.external_builder_layers.insert(
+                c.id.clone(),
+                ExternalBinding {
+                    ext_name: ext.clone(),
+                    id: c.id,
+                    digest: c.digest,
+                },
+            );
+        }
         for c in spec.decorators {
             self.external_decorators.insert(
                 c.id.clone(),
@@ -513,12 +671,15 @@ impl ExtensionRegistry {
             self.triggers.insert(trig.id.clone(), trig);
         }
         self.ui.merge(spec.ui);
+        self.tracked_artifacts.extend(spec.tracked_artifacts);
     }
 
     /// Unload all slots owned by an external extension prior to `/reload <ext>`.
     pub fn unload_external_extension(&mut self, ext_name: &str) {
         self.external_loops.retain(|_, v| v.ext_name != ext_name);
         self.external_builders.retain(|_, v| v.ext_name != ext_name);
+        self.external_builder_layers
+            .retain(|_, v| v.ext_name != ext_name);
         self.external_decorators
             .retain(|_, v| v.ext_name != ext_name);
         self.external_policies.retain(|_, v| v.ext_name != ext_name);
@@ -544,31 +705,39 @@ impl ExtensionRegistry {
         extra_decorators: &[String],
         config_override: Option<&LoopConfig>,
     ) -> Result<ResolvedPhaseStack, KernelError> {
-        let (preset_id, base_loop_id, mut decorator_ids, builder_id, base_config) =
-            if let Some(preset) = self.presets.get(preset_or_loop) {
-                (
-                    Some(preset_or_loop.to_string()),
-                    preset.base_loop.clone(),
-                    preset.decorators.clone(),
-                    preset.builder.clone(),
-                    preset.config.clone(),
-                )
-            } else {
-                let default_builder = self
-                    .builders
-                    .keys()
-                    .next()
-                    .or_else(|| self.external_builders.keys().next())
-                    .cloned()
-                    .unwrap_or_else(|| "default".to_string());
-                (
-                    None,
-                    preset_or_loop.to_string(),
-                    Vec::new(),
-                    default_builder,
-                    LoopConfig::default(),
-                )
-            };
+        let (
+            preset_id,
+            base_loop_id,
+            mut decorator_ids,
+            builder_id,
+            builder_layer_ids,
+            base_config,
+        ) = if let Some(preset) = self.presets.get(preset_or_loop) {
+            (
+                Some(preset_or_loop.to_string()),
+                preset.base_loop.clone(),
+                preset.decorators.clone(),
+                preset.builder.clone(),
+                preset.builder_layers.clone(),
+                preset.config.clone(),
+            )
+        } else {
+            let default_builder = self
+                .builders
+                .keys()
+                .next()
+                .or_else(|| self.external_builders.keys().next())
+                .cloned()
+                .unwrap_or_else(|| "default".to_string());
+            (
+                None,
+                preset_or_loop.to_string(),
+                Vec::new(),
+                default_builder,
+                Vec::new(),
+                LoopConfig::default(),
+            )
+        };
 
         for extra in extra_decorators {
             if !decorator_ids.contains(extra) {
@@ -589,43 +758,115 @@ impl ExtensionRegistry {
             });
         };
 
+        let mut builder_layer_digests = Vec::with_capacity(builder_layer_ids.len());
+        let mut resolved_layers = Vec::with_capacity(builder_layer_ids.len());
+        for layer_id in builder_layer_ids {
+            if let Some(layer) = self.builder_layers.get(&layer_id) {
+                builder_layer_digests.push(layer.digest().to_string());
+                resolved_layers.push(BuilderLayerLink::InProcess(Arc::clone(layer)));
+            } else if let Some(ext_layer) = self.external_builder_layers.get(&layer_id) {
+                builder_layer_digests.push(ext_layer.digest.clone());
+                resolved_layers.push(BuilderLayerLink::External(ext_layer.clone()));
+            } else {
+                return Err(KernelError::UnresolvedExtensionSlot {
+                    slot: "builder_layer".to_string(),
+                    name: layer_id,
+                });
+            }
+        }
+
+        let mut decorator_digests = Vec::with_capacity(decorator_ids.len());
+        let mut decorator_links = Vec::with_capacity(decorator_ids.len());
+        for dec_id in &decorator_ids {
+            if let Some(dec) = self.decorators.get(dec_id) {
+                decorator_digests.push(dec.digest().to_string());
+                decorator_links.push(DecoratorLink::InProcess(Arc::clone(dec)));
+            } else if let Some(ext_dec) = self.external_decorators.get(dec_id) {
+                decorator_digests.push(ext_dec.digest.clone());
+                decorator_links.push(DecoratorLink::External(ext_dec.clone()));
+            } else {
+                return Err(KernelError::UnresolvedExtensionSlot {
+                    slot: "decorator".to_string(),
+                    name: dec_id.clone(),
+                });
+            }
+        }
+
+        let all_decorators_in_process = decorator_links
+            .iter()
+            .all(|l| matches!(l, DecoratorLink::InProcess(_)));
+
         if let Some(factory) = self.loops.get(&base_loop_id) {
             let mut stacked = factory.create(&effective_config, self);
-            let mut decorator_digests = Vec::with_capacity(decorator_ids.len());
-            for dec_id in &decorator_ids {
-                let dec = self.decorators.get(dec_id).ok_or_else(|| {
-                    KernelError::UnresolvedExtensionSlot {
-                        slot: "decorator".to_string(),
-                        name: dec_id.clone(),
+            if all_decorators_in_process {
+                for link in &decorator_links {
+                    if let DecoratorLink::InProcess(dec) = link {
+                        stacked = dec.wrap(stacked, &effective_config, self);
                     }
-                })?;
-                decorator_digests.push(dec.digest().to_string());
-                stacked = dec.wrap(stacked, &effective_config, self);
+                }
+            } else {
+                // Only wrap contiguous leading in-process decorators here; external
+                // and outer decorators are stepped by `KernelRuntime`.
+                for link in &decorator_links {
+                    match link {
+                        DecoratorLink::InProcess(dec) => {
+                            stacked = dec.wrap(stacked, &effective_config, self);
+                        }
+                        DecoratorLink::External(_) => break,
+                    }
+                }
             }
             return Ok(ResolvedPhaseStack {
                 preset_id,
                 base_loop_id,
                 loop_digest: factory.digest().to_string(),
                 decorator_digests,
+                decorator_links,
                 builder_id,
                 builder_digest,
+                builder_layer_digests,
+                builder_layers: resolved_layers,
                 config: effective_config,
                 in_process_loop: Some(stacked),
+                bridged_external_slot: None,
                 external_loop: None,
                 external_builder,
             });
         }
 
         if let Some(ext_loop) = self.external_loops.get(&base_loop_id) {
+            let has_in_process_dec = decorator_links
+                .iter()
+                .any(|l| matches!(l, DecoratorLink::InProcess(_)));
+            let (in_process_loop, bridged_external_slot) = if has_in_process_dec {
+                let slot = Arc::new(StdMutex::new(BridgedExternalSlot::default()));
+                let mut stacked: Box<dyn AgentLoop> = Box::new(BridgedExternalLoop {
+                    id: ext_loop.id.clone(),
+                    digest: ext_loop.digest.clone(),
+                    slot: Arc::clone(&slot),
+                });
+                for link in &decorator_links {
+                    if let DecoratorLink::InProcess(dec) = link {
+                        stacked = dec.wrap(stacked, &effective_config, self);
+                    }
+                }
+                (Some(stacked), Some(slot))
+            } else {
+                (None, None)
+            };
             return Ok(ResolvedPhaseStack {
                 preset_id,
                 base_loop_id,
                 loop_digest: ext_loop.digest.clone(),
-                decorator_digests: Vec::new(),
+                decorator_digests,
+                decorator_links,
                 builder_id,
                 builder_digest,
+                builder_layer_digests,
+                builder_layers: resolved_layers,
                 config: effective_config,
-                in_process_loop: None,
+                in_process_loop,
+                bridged_external_slot,
                 external_loop: Some(ext_loop.clone()),
                 external_builder,
             });
@@ -687,7 +928,9 @@ fn merge_loop_configs(
     let params = if ov.params.is_null() {
         base.params.clone()
     } else {
-        ov.params.clone()
+        let mut merged = base.params.clone();
+        json_merge_patch(&mut merged, &ov.params);
+        merged
     };
     Ok(LoopConfig {
         allowed_tools,
@@ -695,6 +938,29 @@ fn merge_loop_configs(
         budget,
         params,
     })
+}
+
+fn json_merge_patch(base: &mut Value, patch: &Value) {
+    if let Value::Object(patch_map) = patch {
+        if !base.is_object() {
+            *base = Value::Object(serde_json::Map::new());
+        }
+        if let Some(base_map) = base.as_object_mut() {
+            for (k, v) in patch_map {
+                if v.is_null() {
+                    base_map.remove(k);
+                } else if let Some(existing) = base_map.get_mut(k) {
+                    json_merge_patch(existing, v);
+                } else {
+                    let mut fresh = Value::Null;
+                    json_merge_patch(&mut fresh, v);
+                    base_map.insert(k.clone(), fresh);
+                }
+            }
+        }
+    } else {
+        *base = patch.clone();
+    }
 }
 
 #[cfg(test)]
@@ -722,7 +988,7 @@ mod tests {
     #[test]
     fn external_extension_register_and_unload() {
         let mut reg = ExtensionRegistry::new();
-        reg.builders.insert("b1".into(), Box::new(DummyBuilder));
+        reg.builders.insert("b1".into(), Arc::new(DummyBuilder));
         reg.register_external_describe(ExternalExtensionSpec {
             name: "ext_py".into(),
             loops: vec![ExternalComponentSpec {
